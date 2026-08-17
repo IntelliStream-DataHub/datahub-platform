@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
@@ -36,11 +37,13 @@ public class EdgeService {
 
     private final RelationshipTypeRepository relationshipTypeRepository;
 
+    private final DataSecurity dataSecurity;
+
     @Transactional(readOnly = true)
     public DataWrapper<EdgeProxy> findById(Long id) {
         DataWrapper<EdgeProxy> data = new DataWrapper<>();
         EdgeEntity edge = edgeRepository.findById(id, EdgeEntity.class);
-        if(edge != null){
+        if(edge != null && !readableOnly(List.of(edge), endpointsOf(List.of(edge))).isEmpty()){
             data.getItems().add(EdgeProxyTransformer.fromEdgeEntity(edge));
         }
         return data;
@@ -51,17 +54,52 @@ public class EdgeService {
         GraphDataWrapper<Resource, EdgeProxy> data = new GraphDataWrapper<>();
         Collection<Long> idSet = items.stream().map(IdCollection::getId).collect(Collectors.toSet());
         List<EdgeEntity> edges = edgeRepository.findAllByIdIn(idSet, EdgeEntity.class);
-        Collection<Long> nodeIdSet = new HashSet<>();
-        for(var e : edges){
+        Map<Long, NodeEntity> endpoints = endpointsOf(edges);
+        Collection<Long> nodeIdSet = new LinkedHashSet<>();
+        for(var e : readableOnly(edges, endpoints)){
             data.getRelations().add(EdgeProxyTransformer.fromEdgeEntity(e));
-            long fromNodeId = e.getStart();
-            long toNodeId = e.getEnd();
-            nodeIdSet.add(fromNodeId);
-            nodeIdSet.add(toNodeId);
+            nodeIdSet.add(e.getStart());
+            nodeIdSet.add(e.getEnd());
         }
-        List<NodeEntity> nodes = nodeRepository.findAllByIdIn(nodeIdSet, NodeEntity.class);
+        List<NodeEntity> nodes = nodeIdSet.stream().map(endpoints::get).toList();
         data.setNodes(ResourceTransformer.from(nodes));
         return data;
+    }
+
+    /**
+     * An edge has no dataset of its own, so reading one is authorised on its endpoint nodes, the
+     * same axis the write path uses ({@code ResourceService#assertCanWriteNodes}): the caller must
+     * hold read on the datasets of <em>both</em> endpoints, because an edge necessarily reveals
+     * both ends, and {@code /edges/byids} returns the endpoint nodes in full. Until this check
+     * existed, any edge id in the tenant could be read regardless of dataset grants.
+     *
+     * <p>Denied edges are silently omitted, matching the "missing items are silently left out"
+     * contract of the list endpoints; {@code findById} then reports 404, which keeps an unreadable
+     * edge indistinguishable from a missing one (same reasoning as {@code ResourceService#get}).
+     * An edge with a dangling or unresolvable endpoint fails closed: {@code endpointsById} has no
+     * node for it and the orphan rule in {@link DataSecurity} denies the {@code null}.
+     */
+    private List<EdgeEntity> readableOnly(List<EdgeEntity> edges,
+                                          Map<Long, NodeEntity> endpointsById) {
+        return edges.stream()
+                .filter(e -> canRead(endpointsById.get(e.getStart()))
+                        && canRead(endpointsById.get(e.getEnd())))
+                .toList();
+    }
+
+    private boolean canRead(NodeEntity endpoint) {
+        return dataSecurity.hasReadPermissionToDataSet(endpoint);
+    }
+
+    private Map<Long, NodeEntity> endpointsOf(Collection<EdgeEntity> edges) {
+        Set<Long> ids = new HashSet<>();
+        for(EdgeEntity e : edges){
+            if (e.getStart() != null) ids.add(e.getStart());
+            if (e.getEnd() != null) ids.add(e.getEnd());
+        }
+        if (ids.isEmpty()) return Map.of();
+        return nodeRepository.findAllByIdIn(ids, NodeEntity.class).stream()
+                .collect(Collectors.toMap(NodeEntity::getId, n -> n));
     }
 
     /**
