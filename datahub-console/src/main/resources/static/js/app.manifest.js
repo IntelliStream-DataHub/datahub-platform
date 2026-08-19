@@ -9,5 +9,6 @@
 //= require application.js
 //= require search-dropdown.js
 //= require enhanced-select.js
+//= require context-menu.js
 //= require resource-list.js
 //= require policy/naming-policy.js
