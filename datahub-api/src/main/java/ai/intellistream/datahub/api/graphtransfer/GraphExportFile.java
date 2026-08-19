@@ -32,6 +32,7 @@ public record GraphExportFile(List<ExportedNode> nodes, List<ExportedRelation> r
             String toExternalId,
             String type,
             String description,
+            String dataSetExternalId,
             Map<String, String> metadata) {
     }
 }

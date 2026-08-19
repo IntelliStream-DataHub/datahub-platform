@@ -29,7 +29,7 @@ import java.util.zip.ZipException;
  *     int labelCount + str[], int metadataCount + (str,str)[]
  *   int relationCount, then per relation:
  *     str fromExternalId, str toExternalId, str type, str description,
- *     int metadataCount + (str,str)[]
+ *     str dataSetExternalId, int metadataCount + (str,str)[]
  * </pre>
  *
  * where {@code str} is an int byte length (-1 for null) followed by that many UTF-8 bytes —
@@ -73,6 +73,7 @@ public final class GraphFileCodec {
                 writeString(data, relation.toExternalId());
                 writeString(data, relation.type());
                 writeString(data, relation.description());
+                writeString(data, relation.dataSetExternalId());
                 writeMap(data, relation.metadata());
             }
         }
@@ -117,7 +118,7 @@ public final class GraphFileCodec {
             for (int i = 0; i < relationCount; i++) {
                 relations.add(new GraphExportFile.ExportedRelation(
                         readString(data), readString(data), readString(data), readString(data),
-                        readMap(data)));
+                        readString(data), readMap(data)));
             }
             return new GraphExportFile(nodes, relations);
         } catch (ZipException | EOFException e) {

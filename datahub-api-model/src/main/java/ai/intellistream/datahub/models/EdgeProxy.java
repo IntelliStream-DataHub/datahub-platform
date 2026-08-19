@@ -43,6 +43,13 @@ public class EdgeProxy implements Serializable {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long relationshipTypeId;
 
+    /**
+     * The data set this edge belongs to. Carried on the message so the Neo4j mirror learns it —
+     * without it the assignment only existed in Postgres and every graph read lost it.
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long dataSetId;
+
     private Map<String, String> metadata = new HashMap<>();
 
     public EdgeProxy(){

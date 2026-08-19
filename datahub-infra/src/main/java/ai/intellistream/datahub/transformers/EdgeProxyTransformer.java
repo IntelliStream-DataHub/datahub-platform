@@ -14,10 +14,11 @@ import java.util.stream.Collectors;
 
 public class EdgeProxyTransformer {
 
-    /** Metadata is persisted on graph relationships with a "metadata_" key prefix (see
+    /** Metadata is persisted on graph nodes and relationships with a "metadata_" key prefix (see
      *  GraphEventNeo4jListener), so it can live alongside the structural properties
-     *  (id/start/end/typeId/description). */
-    private static final String METADATA_PREFIX = "metadata_";
+     *  (id/start/end/typeId/description). Shared with ResourceTransformer, which reads the same
+     *  convention off nodes. */
+    static final String METADATA_PREFIX = "metadata_";
 
     /** Keep only the "metadata_"-prefixed properties and strip the prefix, so callers see the
      *  user's original metadata keys and not the structural graph properties. */
@@ -45,6 +46,9 @@ public class EdgeProxyTransformer {
                 stripMetadataPrefix(props)
         );
         ep.setDescription(props.get("description"));
+        if (props.get("dataSetId") != null) {
+            ep.setDataSetId(Long.valueOf(props.get("dataSetId")));
+        }
         return ep;
     }
 
@@ -61,6 +65,9 @@ public class EdgeProxyTransformer {
         // below — matched nothing and silently emptied every edge's metadata before it reached Neo4j.
         e.setMetadata(edge.getMetadata() != null ? new HashMap<>(edge.getMetadata()) : new HashMap<>());
         e.setDescription(edge.getDescription());
+        if (edge.getDataSet() != null) {
+            e.setDataSetId(edge.getDataSet().getId());
+        }
         return e;
     }
 

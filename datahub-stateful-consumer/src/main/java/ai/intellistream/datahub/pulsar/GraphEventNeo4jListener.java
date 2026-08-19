@@ -520,6 +520,7 @@ public class GraphEventNeo4jListener {
         map.put("end", edge.getEnd());
         map.put("typeId", edge.getRelationshipTypeId());
         map.put("description", edge.getDescription());
+        map.put("dataSetId", edge.getDataSetId());
 
         for(String key : edge.getMetadata().keySet()){
             map.put("metadata_" + key, edge.getMetadata().get(key));

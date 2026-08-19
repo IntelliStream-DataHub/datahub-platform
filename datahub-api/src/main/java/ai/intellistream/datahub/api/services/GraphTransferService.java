@@ -8,11 +8,11 @@ import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
-import ai.intellistream.datahub.jpa.domains.AssetEntity;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.TypeLabels;
+import ai.intellistream.datahub.jpa.dto.NameAndExternalIdDTO;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.GeoLocation;
 import ai.intellistream.datahub.models.RelForm;
@@ -43,8 +43,11 @@ import java.util.Set;
  *
  * <p><b>Export</b> walks the whole connected component around a starting resource in Neo4j
  * (via {@link ResourceService#fetchRelatedResources}, which also gates on read access to the
- * starting resource's dataset), then enriches nodes and edges from Postgres — the system of
- * record — because the Neo4j mirror carries no node metadata and only a lossy point geometry.
+ * starting resource's dataset) and reads everything from the graph: node metadata rides on the
+ * nodes as {@code metadata_} properties, and edges carry their dataset id. The one Postgres
+ * touch left is resolving dataset ids to externalIds when the dataset node itself is not part
+ * of the component (assigned by field, never linked). Geometry is whatever the graph holds —
+ * a point, or nothing for non-point geometries (deliberately; see GraphEventNeo4jListener).
  * Everything is keyed by externalId in the file; numeric ids are database identities and do not
  * survive a transfer.
  *
@@ -86,32 +89,23 @@ public class GraphTransferService {
         ResourceNetwork network = resourceService.fetchRelatedResources(form);
 
         Map<Long, String> externalIdById = new HashMap<>();
-        List<String> externalIds = new ArrayList<>();
         for (Resource node : network.nodes()) {
             externalIdById.put(node.getId(), node.getExternalId());
-            externalIds.add(node.getExternalId());
         }
-
-        // Postgres enrichment: node metadata and full (non-point) geometry only live there.
-        Map<Long, NodeEntity> entitiesByHash = new HashMap<>();
-        for (List<String> chunk : chunks(externalIds, CREATE_BATCH_SIZE)) {
-            for (NodeEntity entity : nodeRepository.findAllByExternalIdIn(chunk)) {
-                entitiesByHash.put(entity.getExternalIdHash(), entity);
-            }
-        }
+        resolveDanglingDataSetIds(network, externalIdById);
 
         List<ExportedNode> nodes = new ArrayList<>(network.nodes().size());
         for (Resource node : network.nodes()) {
-            NodeEntity entity = entitiesByHash.get(ExternalIds.hash(node.getExternalId()));
-            nodes.add(toExportedNode(node, entity));
-        }
-
-        Map<Long, EdgeEntity> edgesById = new HashMap<>();
-        List<Long> edgeIds = network.edges().stream().map(EdgeProxy::getId).toList();
-        for (List<Long> chunk : chunks(edgeIds, CREATE_BATCH_SIZE)) {
-            for (EdgeEntity entity : edgeRepository.findAllByIdIn(chunk, EdgeEntity.class)) {
-                edgesById.put(entity.getId(), entity);
-            }
+            nodes.add(new ExportedNode(
+                    node.getExternalId(),
+                    node.getName(),
+                    node.getDescription(),
+                    node.getSource(),
+                    Boolean.TRUE.equals(node.getIsRoot()),
+                    node.getGeoLocation() != null ? node.getGeoLocation().getJson() : null,
+                    externalIdById.get(node.getDataSetId()),
+                    new ArrayList<>(node.getLabels()),
+                    new HashMap<>(node.getMetadata())));
         }
 
         List<ExportedRelation> relations = new ArrayList<>(network.edges().size());
@@ -121,13 +115,10 @@ public class GraphTransferService {
             if (from == null || to == null) {
                 continue;
             }
-            EdgeEntity entity = edgesById.get(edge.getId());
             relations.add(new ExportedRelation(
-                    from, to, edge.getType(),
-                    entity != null ? entity.getDescription() : edge.getDescription(),
-                    entity != null && entity.getMetadata() != null
-                            ? new HashMap<>(entity.getMetadata())
-                            : edge.getMetadata()));
+                    from, to, edge.getType(), edge.getDescription(),
+                    externalIdById.get(edge.getDataSetId()),
+                    edge.getMetadata()));
         }
 
         var out = new ByteArrayOutputStream();
@@ -139,29 +130,29 @@ public class GraphTransferService {
         return new GraphExportPayload(exportFileName(network, id), out.toByteArray());
     }
 
-    private static ExportedNode toExportedNode(Resource node, NodeEntity entity) {
-        String geoJson = null;
-        if (entity instanceof AssetEntity asset && asset.getGeoLocation() != null) {
-            geoJson = asset.getGeoLocation();
-        } else if (node.getGeoLocation() != null) {
-            geoJson = node.getGeoLocation().getJson();
+    /**
+     * A dataset assigned by field alone (no BELONGS_TO edge) may sit outside the exported
+     * component, so its id has no externalId in the network. Resolve those few ids with one
+     * Postgres lookup and add them to the map; ids that resolve nowhere stay unmapped and the
+     * export simply drops the reference.
+     */
+    private void resolveDanglingDataSetIds(ResourceNetwork network, Map<Long, String> externalIdById) {
+        Set<Long> dangling = new HashSet<>();
+        for (Resource node : network.nodes()) {
+            if (node.getDataSetId() != null && !externalIdById.containsKey(node.getDataSetId())) {
+                dangling.add(node.getDataSetId());
+            }
         }
-        String dataSetExternalId = null;
-        if (entity != null && entity.getDataSet() != null) {
-            dataSetExternalId = entity.getDataSet().getExternalId();
+        for (EdgeProxy edge : network.edges()) {
+            if (edge.getDataSetId() != null && !externalIdById.containsKey(edge.getDataSetId())) {
+                dangling.add(edge.getDataSetId());
+            }
         }
-        return new ExportedNode(
-                entity != null ? entity.getExternalId() : node.getExternalId(),
-                entity != null ? entity.getName() : node.getName(),
-                entity != null ? entity.getDescription() : node.getDescription(),
-                entity != null ? entity.getSource() : node.getSource(),
-                entity != null ? Boolean.TRUE.equals(entity.getIsRoot()) : Boolean.TRUE.equals(node.getIsRoot()),
-                geoJson,
-                dataSetExternalId,
-                new ArrayList<>(node.getLabels()),
-                entity != null && entity.getMetadata() != null
-                        ? new HashMap<>(entity.getMetadata())
-                        : new HashMap<>());
+        for (List<Long> chunk : chunks(new ArrayList<>(dangling), CREATE_BATCH_SIZE)) {
+            for (NameAndExternalIdDTO node : nodeRepository.findAllByIdIn(chunk, NameAndExternalIdDTO.class)) {
+                externalIdById.put(node.getId(), node.getExternalId());
+            }
+        }
     }
 
     private static String exportFileName(ResourceNetwork network, Long id) {
@@ -254,7 +245,7 @@ public class GraphTransferService {
                 skippedRelations++;
                 continue;
             }
-            relations.add(toRelForm(relation));
+            relations.add(toRelForm(relation, dataSetIdByHash, droppedDataSetRefs));
         }
 
         for (List<ExportedNode> chunk : chunks(others, CREATE_BATCH_SIZE)) {
@@ -331,13 +322,22 @@ public class GraphTransferService {
         return resource;
     }
 
-    private static RelForm toRelForm(ExportedRelation relation) {
+    private static RelForm toRelForm(ExportedRelation relation, Map<Long, Long> dataSetIdByHash,
+                                     int[] droppedDataSetRefs) {
         RelForm form = new RelForm();
         form.setFromExternalId(relation.fromExternalId());
         form.setToExternalId(relation.toExternalId());
         form.setName(relation.type());
         form.setDescription(relation.description());
         form.setMetadata(new HashMap<>(relation.metadata()));
+        if (relation.dataSetExternalId() != null) {
+            Long dataSetId = dataSetIdByHash.get(ExternalIds.hash(relation.dataSetExternalId()));
+            if (dataSetId != null) {
+                form.setDataSetId(dataSetId);
+            } else {
+                droppedDataSetRefs[0]++;
+            }
+        }
         return form;
     }
 

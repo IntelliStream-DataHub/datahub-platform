@@ -27,7 +27,7 @@ class GraphFileCodecTest {
                 "pipe_a1", "Pipe A1", null, null, false, null, "ds_main",
                 List.of("PIPE"), Map.of());
         var relation = new ExportedRelation(
-                "plant_root", "pipe_a1", "HAS_PART", "root to pipe", Map.of("k", "v"));
+                "plant_root", "pipe_a1", "HAS_PART", "root to pipe", "ds_main", Map.of("k", "v"));
         return new GraphExportFile(List.of(root, pipe), List.of(relation));
     }
 
