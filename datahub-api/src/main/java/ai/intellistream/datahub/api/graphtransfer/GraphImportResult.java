@@ -26,6 +26,8 @@ public record GraphImportResult(
         int relationsSkipped,
         @Schema(description = "Nodes whose dataset reference could not be resolved here and was dropped.", example = "0")
         int dataSetReferencesDropped,
+        @Schema(description = "Transactions committed: the import streams in segments, each atomic on its own.", example = "40")
+        int segments,
         @Schema(description = "Naming-policy violations that were allowed through and recorded for review.")
         Collection<PolicyWarning> warnings) {
 }

@@ -24,8 +24,11 @@ import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -52,13 +55,21 @@ import java.util.Set;
  * Everything is keyed by externalId in the file; numeric ids are database identities and do not
  * survive a transfer.
  *
- * <p><b>Import</b> replays the file through {@link ResourceService#create}, so naming policy,
- * dataset ACLs, Pulsar publication and the Neo4j mirror all behave exactly as if the caller had
- * created the resources one request at a time. Nodes that already exist (by externalId) are
- * skipped, which makes re-importing a file idempotent. Timeseries cannot be created through the
- * resource api and are reported back instead of failing the import. The whole import is one
- * transaction: a validation failure in any batch rolls back everything, and the Pulsar messages
- * only go out after the final commit.
+ * <p><b>Import</b> streams: the upload is decoded incrementally ({@link GraphFileCodec#reader})
+ * and committed one <em>segment</em> at a time — {@code segmentSize} objects (default 50,000) per
+ * transaction — so a 2M-object file becomes ~40 bounded transactions instead of one enormous one,
+ * and memory stays flat at one segment regardless of file size. Each segment replays through
+ * {@link ResourceService#create}, so naming policy, dataset ACLs, Pulsar publication and the
+ * Neo4j mirror all behave exactly as if the caller had created the resources one request at a
+ * time; each segment's Pulsar messages go out after that segment's commit.
+ *
+ * <p>A failure mid-import keeps the segments already committed. That is deliberate, and safe,
+ * because import skips what already exists: nodes by externalId, relations by (from, to, type) —
+ * so re-uploading the same file fast-forwards through the committed segments and resumes at the
+ * failed one. Timeseries cannot be created through the resource api and are reported back rather
+ * than failing the import. The format writes all nodes before all relations, and the exporter
+ * writes dataset nodes first, so sequential segment processing always finds what a later object
+ * references.
  */
 @Service
 @Slf4j
@@ -70,12 +81,20 @@ public class GraphTransferService {
     private final ResourceService resourceService;
     private final NodeRepository nodeRepository;
     private final EdgeRepository edgeRepository;
+    private final TransactionTemplate transactionTemplate;
+
+    /** Objects (nodes or relations) committed per import transaction. */
+    private final int segmentSize;
 
     public GraphTransferService(ResourceService resourceService, NodeRepository nodeRepository,
-                                EdgeRepository edgeRepository) {
+                                EdgeRepository edgeRepository,
+                                PlatformTransactionManager transactionManager,
+                                @Value("${datahub.graph-transfer.segment-size:50000}") int segmentSize) {
         this.resourceService = resourceService;
         this.nodeRepository = nodeRepository;
         this.edgeRepository = edgeRepository;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.segmentSize = segmentSize;
     }
 
     public record GraphExportPayload(String fileName, byte[] bytes) {
@@ -106,8 +125,22 @@ public class GraphTransferService {
         }
         resolveDanglingDataSetIds(network, externalIdById);
 
-        List<ExportedNode> nodes = new ArrayList<>(network.nodes().size());
+        // Dataset nodes first: the import processes the file sequentially in segments, so a
+        // dataset must precede the nodes that reference it.
+        List<Resource> ordered = new ArrayList<>(network.nodes().size());
         for (Resource node : network.nodes()) {
+            if (containsLabel(node.getLabels(), TypeLabels.DATASET)) {
+                ordered.add(node);
+            }
+        }
+        for (Resource node : network.nodes()) {
+            if (!containsLabel(node.getLabels(), TypeLabels.DATASET)) {
+                ordered.add(node);
+            }
+        }
+
+        List<ExportedNode> nodes = new ArrayList<>(ordered.size());
+        for (Resource node : ordered) {
             nodes.add(new ExportedNode(
                     node.getExternalId(),
                     node.getName(),
@@ -176,32 +209,84 @@ public class GraphTransferService {
         return base.replaceAll("[^A-Za-z0-9._-]", "_") + ".dhgraph";
     }
 
-    @Transactional(rollbackFor = Exception.class)
-    public GraphImportResult importGraph(InputStream in) throws PulsarClientException {
-        GraphExportFile file = GraphFileCodec.decode(GraphFileCodec.limited(
-                in, GraphFileCodec.MAX_COMPRESSED_BYTES,
-                "The file is larger than " + (GraphFileCodec.MAX_COMPRESSED_BYTES / (1024 * 1024)) + " MB."));
+    public GraphImportResult importGraph(InputStream in) {
+        var tally = new ImportTally();
+        // Dataset references resolve against datasets created by this import plus datasets that
+        // already exist; grows as segments commit.
+        Map<Long, Long> dataSetIdByHash = new HashMap<>();
 
-        Map<Long, NodeEntity> existingByHash = new HashMap<>();
-        List<String> fileExternalIds = file.nodes().stream().map(ExportedNode::externalId).toList();
-        for (List<String> chunk : chunks(fileExternalIds, CREATE_BATCH_SIZE)) {
+        try (GraphFileCodec.GraphFileReader reader = GraphFileCodec.reader(GraphFileCodec.limited(
+                in, GraphFileCodec.MAX_COMPRESSED_BYTES,
+                "The file is larger than " + (GraphFileCodec.MAX_COMPRESSED_BYTES / (1024 * 1024)) + " MB."))) {
+
+            List<ExportedNode> nodeSegment = new ArrayList<>();
+            ExportedNode node;
+            while ((node = reader.nextNode()) != null) {
+                nodeSegment.add(node);
+                if (nodeSegment.size() >= segmentSize) {
+                    commitNodeSegment(nodeSegment, dataSetIdByHash, tally);
+                    nodeSegment = new ArrayList<>();
+                }
+            }
+            if (!nodeSegment.isEmpty()) {
+                commitNodeSegment(nodeSegment, dataSetIdByHash, tally);
+            }
+
+            List<ExportedRelation> relationSegment = new ArrayList<>();
+            ExportedRelation relation;
+            while ((relation = reader.nextRelation()) != null) {
+                relationSegment.add(relation);
+                if (relationSegment.size() >= segmentSize) {
+                    commitRelationSegment(relationSegment, dataSetIdByHash, tally);
+                    relationSegment = new ArrayList<>();
+                }
+            }
+            if (!relationSegment.isEmpty()) {
+                commitRelationSegment(relationSegment, dataSetIdByHash, tally);
+            }
+        }
+        return tally.toResult();
+    }
+
+    private void commitNodeSegment(List<ExportedNode> segment, Map<Long, Long> dataSetIdByHash,
+                                   ImportTally tally) {
+        transactionTemplate.executeWithoutResult(status -> importNodeSegment(segment, dataSetIdByHash, tally));
+        tally.segments++;
+        log.info("Graph import segment {} committed: {} nodes so far ({} skipped)",
+                tally.segments, tally.nodesCreated, tally.nodesSkippedExisting);
+    }
+
+    private void commitRelationSegment(List<ExportedRelation> segment, Map<Long, Long> dataSetIdByHash,
+                                       ImportTally tally) {
+        transactionTemplate.executeWithoutResult(status -> importRelationSegment(segment, dataSetIdByHash, tally));
+        tally.segments++;
+        log.info("Graph import segment {} committed: {} relations so far ({} skipped)",
+                tally.segments, tally.relationsCreated, tally.relationsSkipped);
+    }
+
+    /** One node segment, inside its own transaction. */
+    private void importNodeSegment(List<ExportedNode> segment, Map<Long, Long> dataSetIdByHash,
+                                   ImportTally tally) {
+        // Nodes that already exist in this tenant are skipped; existing datasets among them
+        // feed the dataset-reference map.
+        Set<Long> existingHashes = new HashSet<>();
+        List<String> externalIds = segment.stream().map(ExportedNode::externalId).toList();
+        for (List<String> chunk : chunks(externalIds, CREATE_BATCH_SIZE)) {
             for (NodeEntity entity : nodeRepository.findAllByExternalIdIn(chunk)) {
-                existingByHash.put(entity.getExternalIdHash(), entity);
+                existingHashes.add(entity.getExternalIdHash());
+                if (entity instanceof DatasetEntity) {
+                    dataSetIdByHash.put(entity.getExternalIdHash(), entity.getId());
+                }
             }
         }
 
-        // Partition the file's nodes. Datasets are created first so other nodes can resolve their
-        // dataset reference; timeseries can only be created through the timeseries api, so missing
-        // ones are reported back rather than failing the whole import.
         List<ExportedNode> dataSets = new ArrayList<>();
         List<ExportedNode> others = new ArrayList<>();
-        List<String> skippedTimeseries = new ArrayList<>();
-        int skippedExisting = 0;
-        for (ExportedNode node : file.nodes()) {
-            if (existingByHash.containsKey(ExternalIds.hash(node.externalId()))) {
-                skippedExisting++;
+        for (ExportedNode node : segment) {
+            if (existingHashes.contains(ExternalIds.hash(node.externalId()))) {
+                tally.nodesSkippedExisting++;
             } else if (containsLabel(node.labels(), TypeLabels.TIMESERIES)) {
-                skippedTimeseries.add(node.externalId());
+                tally.nodesSkippedTimeseries.add(node.externalId());
             } else if (containsLabel(node.labels(), TypeLabels.DATASET)) {
                 dataSets.add(node);
             } else {
@@ -209,94 +294,108 @@ public class GraphTransferService {
             }
         }
 
-        int nodesCreated = 0;
-        List<PolicyWarning> warnings = new ArrayList<>();
-
-        // Dataset references are resolved against datasets created here plus datasets that
-        // already exist; anything else in the dataSetExternalId slot is dropped, counted.
-        Map<Long, Long> dataSetIdByHash = new HashMap<>();
-        existingByHash.forEach((hash, entity) -> {
-            if (entity instanceof DatasetEntity) {
-                dataSetIdByHash.put(hash, entity.getId());
-            }
-        });
-        int[] droppedDataSetRefs = { 0 };
-
+        // Datasets first (within the segment; the exporter also orders them first in the file),
+        // so the nodes that follow can resolve their dataset reference.
         for (List<ExportedNode> chunk : chunks(dataSets, CREATE_BATCH_SIZE)) {
-            var wrapper = new GraphDataWrapper<Resource, RelForm>();
-            chunk.forEach(n -> wrapper.getNodes().add(toResource(n, dataSetIdByHash, droppedDataSetRefs)));
-            GraphDataWrapper<Resource, EdgeProxy> created = resourceService.create(wrapper);
+            GraphDataWrapper<Resource, EdgeProxy> created = createNodes(chunk, dataSetIdByHash, tally);
             for (Resource resource : created.getNodes()) {
                 dataSetIdByHash.put(ExternalIds.hash(resource.getExternalId()), resource.getId());
             }
-            nodesCreated += created.getNodes().size();
-            collectWarnings(created, warnings);
         }
 
-        // Relations whose endpoints are neither in the tenant nor being created now (e.g. a
-        // skipped timeseries that does not exist here) cannot be replayed. Relations between two
-        // pre-existing nodes are deduplicated against the edges already present.
-        Set<Long> availableHashes = new HashSet<>(existingByHash.keySet());
-        Set<String> unavailable = new HashSet<>(skippedTimeseries);
-        file.nodes().stream()
-                .filter(n -> !unavailable.contains(n.externalId()))
-                .forEach(n -> availableHashes.add(ExternalIds.hash(n.externalId())));
-
-        Set<String> existingEdgeKeys = existingEdgeKeys(file, existingByHash);
-        List<RelForm> relations = new ArrayList<>();
-        int skippedRelations = 0;
-        for (ExportedRelation relation : file.relations()) {
-            long fromHash = ExternalIds.hash(relation.fromExternalId());
-            long toHash = ExternalIds.hash(relation.toExternalId());
-            if (!availableHashes.contains(fromHash) || !availableHashes.contains(toHash)) {
-                skippedRelations++;
-                continue;
-            }
-            NodeEntity fromExisting = existingByHash.get(fromHash);
-            NodeEntity toExisting = existingByHash.get(toHash);
-            if (fromExisting != null && toExisting != null && existingEdgeKeys.contains(
-                    edgeKey(fromExisting.getId(), toExisting.getId(), relation.type()))) {
-                skippedRelations++;
-                continue;
-            }
-            relations.add(toRelForm(relation, dataSetIdByHash, droppedDataSetRefs));
-        }
-
+        // A node may reference a dataset that exists in the tenant without being in the file;
+        // resolve those hashes once per segment before mapping.
+        resolvePreexistingDataSets(others, dataSetIdByHash);
         for (List<ExportedNode> chunk : chunks(others, CREATE_BATCH_SIZE)) {
-            var wrapper = new GraphDataWrapper<Resource, RelForm>();
-            chunk.forEach(n -> wrapper.getNodes().add(toResource(n, dataSetIdByHash, droppedDataSetRefs)));
-            GraphDataWrapper<Resource, EdgeProxy> created = resourceService.create(wrapper);
-            nodesCreated += created.getNodes().size();
-            collectWarnings(created, warnings);
+            createNodes(chunk, dataSetIdByHash, tally);
         }
-
-        int relationsCreated = 0;
-        for (List<RelForm> chunk : chunks(relations, CREATE_BATCH_SIZE)) {
-            var wrapper = new GraphDataWrapper<Resource, RelForm>();
-            wrapper.getRelations().addAll(chunk);
-            GraphDataWrapper<Resource, EdgeProxy> created = resourceService.create(wrapper);
-            relationsCreated += created.getRelations().size();
-            collectWarnings(created, warnings);
-        }
-
-        return new GraphImportResult(nodesCreated, relationsCreated, skippedExisting,
-                skippedTimeseries, skippedRelations, droppedDataSetRefs[0], warnings);
     }
 
-    /**
-     * The (start, end, type) keys of edges already present between the file's pre-existing
-     * endpoint nodes — the only relations a re-import could duplicate.
-     */
-    private Set<String> existingEdgeKeys(GraphExportFile file, Map<Long, NodeEntity> existingByHash) {
-        Set<Long> endpointIds = new HashSet<>();
-        for (ExportedRelation relation : file.relations()) {
-            NodeEntity from = existingByHash.get(ExternalIds.hash(relation.fromExternalId()));
-            NodeEntity to = existingByHash.get(ExternalIds.hash(relation.toExternalId()));
-            if (from != null && to != null) {
-                endpointIds.add(from.getId());
-                endpointIds.add(to.getId());
+    private GraphDataWrapper<Resource, EdgeProxy> createNodes(List<ExportedNode> chunk,
+                                                              Map<Long, Long> dataSetIdByHash,
+                                                              ImportTally tally) {
+        var wrapper = new GraphDataWrapper<Resource, RelForm>();
+        chunk.forEach(n -> wrapper.getNodes().add(toResource(n, dataSetIdByHash, tally)));
+        GraphDataWrapper<Resource, EdgeProxy> created = create(wrapper);
+        tally.nodesCreated += created.getNodes().size();
+        collectWarnings(created, tally.warnings);
+        return created;
+    }
+
+    private void resolvePreexistingDataSets(List<ExportedNode> nodes, Map<Long, Long> dataSetIdByHash) {
+        List<Long> unresolved = nodes.stream()
+                .map(ExportedNode::dataSetExternalId)
+                .filter(java.util.Objects::nonNull)
+                .map(ExternalIds::hash)
+                .distinct()
+                .filter(hash -> !dataSetIdByHash.containsKey(hash))
+                .toList();
+        for (List<Long> chunk : chunks(unresolved, CREATE_BATCH_SIZE)) {
+            for (NodeEntity entity : nodeRepository.findAllByExternalIdHashIn(chunk)) {
+                if (entity instanceof DatasetEntity) {
+                    dataSetIdByHash.put(entity.getExternalIdHash(), entity.getId());
+                }
             }
         }
+    }
+
+    /** One relation segment, inside its own transaction. Every node in the file is committed by now. */
+    private void importRelationSegment(List<ExportedRelation> segment, Map<Long, Long> dataSetIdByHash,
+                                       ImportTally tally) {
+        // Resolve every endpoint from the database: nodes created by earlier segments, or
+        // pre-existing ones. An endpoint that resolves nowhere (e.g. a timeseries that was
+        // skipped because it does not exist here) skips the relation.
+        Set<Long> endpointHashes = new HashSet<>();
+        for (ExportedRelation relation : segment) {
+            endpointHashes.add(ExternalIds.hash(relation.fromExternalId()));
+            endpointHashes.add(ExternalIds.hash(relation.toExternalId()));
+        }
+        Map<Long, Long> idByHash = new HashMap<>();
+        for (List<Long> chunk : chunks(new ArrayList<>(endpointHashes), CREATE_BATCH_SIZE)) {
+            for (NameAndExternalIdDTO dto : nodeRepository.findAllByExternalIdHashIn(chunk, NameAndExternalIdDTO.class)) {
+                idByHash.put(dto.getExternalIdHash(), dto.getId());
+            }
+        }
+
+        // Relations already present between these endpoints are skipped — this is also what makes
+        // re-running an interrupted import resume cleanly through relation segments.
+        Set<String> existingKeys = existingEdgeKeys(new HashSet<>(idByHash.values()));
+
+        List<RelForm> forms = new ArrayList<>();
+        for (ExportedRelation relation : segment) {
+            Long fromId = idByHash.get(ExternalIds.hash(relation.fromExternalId()));
+            Long toId = idByHash.get(ExternalIds.hash(relation.toExternalId()));
+            if (fromId == null || toId == null) {
+                tally.relationsSkipped++;
+                continue;
+            }
+            if (existingKeys.contains(edgeKey(fromId, toId, relation.type()))) {
+                tally.relationsSkipped++;
+                continue;
+            }
+            forms.add(toRelForm(relation, dataSetIdByHash, tally));
+        }
+
+        for (List<RelForm> chunk : chunks(forms, CREATE_BATCH_SIZE)) {
+            var wrapper = new GraphDataWrapper<Resource, RelForm>();
+            wrapper.getRelations().addAll(chunk);
+            GraphDataWrapper<Resource, EdgeProxy> created = create(wrapper);
+            tally.relationsCreated += created.getRelations().size();
+            collectWarnings(created, tally.warnings);
+        }
+    }
+
+    /** {@link ResourceService#create} with its checked Pulsar exception adapted for lambda use. */
+    private GraphDataWrapper<Resource, EdgeProxy> create(GraphDataWrapper<Resource, RelForm> wrapper) {
+        try {
+            return resourceService.create(wrapper);
+        } catch (PulsarClientException e) {
+            throw new IllegalStateException("Could not publish the import to Pulsar.", e);
+        }
+    }
+
+    /** The (start, end, type) keys of edges already present between {@code endpointIds}. */
+    private Set<String> existingEdgeKeys(Set<Long> endpointIds) {
         Set<String> keys = new HashSet<>();
         for (List<Long> chunk : chunks(new ArrayList<>(endpointIds), CREATE_BATCH_SIZE)) {
             for (EdgeEntity edge : edgeRepository.findAllByStartIn(chunk, EdgeEntity.class)) {
@@ -308,12 +407,29 @@ public class GraphTransferService {
         return keys;
     }
 
+    /** Running totals across segments; one instance per import. */
+    private static final class ImportTally {
+        int nodesCreated;
+        int relationsCreated;
+        int nodesSkippedExisting;
+        final List<String> nodesSkippedTimeseries = new ArrayList<>();
+        int relationsSkipped;
+        int dataSetReferencesDropped;
+        int segments;
+        final List<PolicyWarning> warnings = new ArrayList<>();
+
+        GraphImportResult toResult() {
+            return new GraphImportResult(nodesCreated, relationsCreated, nodesSkippedExisting,
+                    nodesSkippedTimeseries, relationsSkipped, dataSetReferencesDropped, segments, warnings);
+        }
+    }
+
     private static String edgeKey(Long start, Long end, String type) {
         return start + "|" + end + "|" + (type == null ? "" : type.toUpperCase());
     }
 
     private static Resource toResource(ExportedNode node, Map<Long, Long> dataSetIdByHash,
-                                       int[] droppedDataSetRefs) {
+                                       ImportTally tally) {
         Resource resource = new Resource();
         resource.setExternalId(node.externalId());
         resource.setName(node.name());
@@ -330,14 +446,14 @@ public class GraphTransferService {
             if (dataSetId != null) {
                 resource.setDataSetId(dataSetId);
             } else {
-                droppedDataSetRefs[0]++;
+                tally.dataSetReferencesDropped++;
             }
         }
         return resource;
     }
 
     private static RelForm toRelForm(ExportedRelation relation, Map<Long, Long> dataSetIdByHash,
-                                     int[] droppedDataSetRefs) {
+                                     ImportTally tally) {
         RelForm form = new RelForm();
         form.setFromExternalId(relation.fromExternalId());
         form.setToExternalId(relation.toExternalId());
@@ -349,7 +465,7 @@ public class GraphTransferService {
             if (dataSetId != null) {
                 form.setDataSetId(dataSetId);
             } else {
-                droppedDataSetRefs[0]++;
+                tally.dataSetReferencesDropped++;
             }
         }
         return form;

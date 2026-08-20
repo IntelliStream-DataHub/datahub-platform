@@ -91,28 +91,80 @@ public final class GraphFileCodec {
         }
     }
 
+    /** Reads a whole file into memory. Convenience over {@link #reader}; large imports should
+     *  stream with the reader instead. */
     public static GraphExportFile decode(InputStream in) {
-        try (DataInputStream data = new DataInputStream(
-                limited(new GZIPInputStream(in), MAX_DECOMPRESSED_BYTES,
-                        "The file inflates past " + (MAX_DECOMPRESSED_BYTES / (1024 * 1024)) + " MB."))) {
-            byte[] magic = new byte[MAGIC.length];
-            data.readFully(magic);
-            if (!Arrays.equals(magic, MAGIC)) {
-                throw new InvalidGraphFileException("Not a DataHub graph export file.");
+        try (GraphFileReader reader = reader(in)) {
+            List<GraphExportFile.ExportedNode> nodes = new ArrayList<>();
+            GraphExportFile.ExportedNode node;
+            while ((node = reader.nextNode()) != null) {
+                nodes.add(node);
             }
-            byte version = data.readByte();
-            if (version != VERSION) {
-                throw new InvalidGraphFileException(
-                        "Unsupported graph export version " + version + " (supported: " + VERSION + ").");
+            List<GraphExportFile.ExportedRelation> relations = new ArrayList<>();
+            GraphExportFile.ExportedRelation relation;
+            while ((relation = reader.nextRelation()) != null) {
+                relations.add(relation);
             }
+            return new GraphExportFile(nodes, relations);
+        }
+    }
 
-            int nodeCount = readCount(data, "node count");
-            if (nodeCount > MAX_NODES) {
-                throw new GraphTransferLimitException(
-                        "The file contains " + nodeCount + " nodes; the limit is " + MAX_NODES + ".");
+    /**
+     * Opens a streaming reader: the header (magic, version, node count) is validated immediately,
+     * then nodes and relations are pulled one at a time, so a caller can import in segments
+     * without ever holding the whole file. The format writes every node before any relation, so
+     * consume nodes with {@link GraphFileReader#nextNode()} until it returns null, then relations
+     * with {@link GraphFileReader#nextRelation()}.
+     */
+    public static GraphFileReader reader(InputStream in) {
+        return new GraphFileReader(in);
+    }
+
+    public static final class GraphFileReader implements java.io.Closeable {
+
+        private final DataInputStream data;
+        private final int nodeCount;
+        private int nodesRead;
+        private int relationCount = -1;
+        private int relationsRead;
+
+        private GraphFileReader(InputStream in) {
+            try {
+                this.data = new DataInputStream(
+                        limited(new GZIPInputStream(in), MAX_DECOMPRESSED_BYTES,
+                                "The file inflates past " + (MAX_DECOMPRESSED_BYTES / (1024 * 1024)) + " MB."));
+                byte[] magic = new byte[MAGIC.length];
+                data.readFully(magic);
+                if (!Arrays.equals(magic, MAGIC)) {
+                    throw new InvalidGraphFileException("Not a DataHub graph export file.");
+                }
+                byte version = data.readByte();
+                if (version != VERSION) {
+                    throw new InvalidGraphFileException(
+                            "Unsupported graph export version " + version + " (supported: " + VERSION + ").");
+                }
+                this.nodeCount = readCount(data, "node count");
+                if (nodeCount > MAX_NODES) {
+                    throw new GraphTransferLimitException(
+                            "The file contains " + nodeCount + " nodes; the limit is " + MAX_NODES + ".");
+                }
+            } catch (ZipException | EOFException e) {
+                throw new InvalidGraphFileException("Not a DataHub graph export file.", e);
+            } catch (IOException e) {
+                throw new InvalidGraphFileException("Could not read the graph export file.", e);
             }
-            List<GraphExportFile.ExportedNode> nodes = new ArrayList<>(Math.min(nodeCount, 10_000));
-            for (int i = 0; i < nodeCount; i++) {
+        }
+
+        public int nodeCount() {
+            return nodeCount;
+        }
+
+        /** The next node, or null once all nodes are consumed. */
+        public GraphExportFile.ExportedNode nextNode() {
+            if (nodesRead >= nodeCount) {
+                return null;
+            }
+            try {
                 String externalId = readString(data);
                 String name = readString(data);
                 String description = readString(data);
@@ -126,27 +178,53 @@ public final class GraphFileCodec {
                     labels.add(readString(data));
                 }
                 Map<String, String> metadata = readMap(data);
-                nodes.add(new GraphExportFile.ExportedNode(
+                nodesRead++;
+                return new GraphExportFile.ExportedNode(
                         externalId, name, description, source, isRoot, geoJson, dataSetExternalId,
-                        labels, metadata));
+                        labels, metadata);
+            } catch (EOFException e) {
+                throw new InvalidGraphFileException("Not a DataHub graph export file.", e);
+            } catch (IOException e) {
+                throw new InvalidGraphFileException("Could not read the graph export file.", e);
             }
+        }
 
-            int relationCount = readCount(data, "relation count");
-            if (relationCount > MAX_RELATIONS) {
-                throw new GraphTransferLimitException(
-                        "The file contains " + relationCount + " relations; the limit is " + MAX_RELATIONS + ".");
+        /** The next relation, or null once all are consumed. Call only after nodes are exhausted. */
+        public GraphExportFile.ExportedRelation nextRelation() {
+            if (nodesRead < nodeCount) {
+                throw new IllegalStateException("Consume every node before reading relations.");
             }
-            List<GraphExportFile.ExportedRelation> relations = new ArrayList<>(Math.min(relationCount, 10_000));
-            for (int i = 0; i < relationCount; i++) {
-                relations.add(new GraphExportFile.ExportedRelation(
+            try {
+                if (relationCount == -1) {
+                    relationCount = readCount(data, "relation count");
+                    if (relationCount > MAX_RELATIONS) {
+                        throw new GraphTransferLimitException(
+                                "The file contains " + relationCount + " relations; the limit is "
+                                        + MAX_RELATIONS + ".");
+                    }
+                }
+                if (relationsRead >= relationCount) {
+                    return null;
+                }
+                relationsRead++;
+                return new GraphExportFile.ExportedRelation(
                         readString(data), readString(data), readString(data), readString(data),
-                        readString(data), readMap(data)));
+                        readString(data), readMap(data));
+            } catch (EOFException e) {
+                throw new InvalidGraphFileException("Not a DataHub graph export file.", e);
+            } catch (IOException e) {
+                throw new InvalidGraphFileException("Could not read the graph export file.", e);
             }
-            return new GraphExportFile(nodes, relations);
-        } catch (ZipException | EOFException e) {
-            throw new InvalidGraphFileException("Not a DataHub graph export file.", e);
-        } catch (IOException e) {
-            throw new InvalidGraphFileException("Could not read the graph export file.", e);
+        }
+
+        @Override
+        public void close() {
+            try {
+                data.close();
+            } catch (IOException e) {
+                // Closing a fully- or partially-consumed decode stream has nothing left to fail on
+                // that matters to the caller; the read path reported real problems already.
+            }
         }
     }
 

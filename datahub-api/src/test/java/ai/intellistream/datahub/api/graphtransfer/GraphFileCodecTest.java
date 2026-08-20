@@ -141,6 +141,31 @@ class GraphFileCodecTest {
     }
 
     @Test
+    void readerStreamsNodesThenRelations() throws IOException {
+        var out = new ByteArrayOutputStream();
+        GraphFileCodec.encode(sampleFile(), out);
+
+        try (var reader = GraphFileCodec.reader(new ByteArrayInputStream(out.toByteArray()))) {
+            assertEquals(2, reader.nodeCount());
+            assertEquals("plant_root", reader.nextNode().externalId());
+            assertEquals("pipe_a1", reader.nextNode().externalId());
+            assertEquals(null, reader.nextNode());
+            assertEquals("HAS_PART", reader.nextRelation().type());
+            assertEquals(null, reader.nextRelation());
+        }
+    }
+
+    @Test
+    void readerRefusesRelationsBeforeNodesAreDrained() throws IOException {
+        var out = new ByteArrayOutputStream();
+        GraphFileCodec.encode(sampleFile(), out);
+
+        try (var reader = GraphFileCodec.reader(new ByteArrayInputStream(out.toByteArray()))) {
+            assertThrows(IllegalStateException.class, reader::nextRelation);
+        }
+    }
+
+    @Test
     void rejectsTruncatedFile() throws IOException {
         var out = new ByteArrayOutputStream();
         GraphFileCodec.encode(sampleFile(), out);

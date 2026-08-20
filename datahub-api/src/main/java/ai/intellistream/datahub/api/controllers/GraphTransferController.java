@@ -18,7 +18,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -110,8 +109,17 @@ public class GraphTransferController {
                     Resources that already exist (matched by `externalId`) are skipped rather than
                     rejected, so importing a file back into the tenant it came from is a no-op.
                     Timeseries cannot be created through the resource api; missing ones are listed
-                    in the response and their relationships skipped. Everything else is created in
-                    one transaction — a validation failure rolls the whole import back.
+                    in the response and their relationships skipped.
+
+                    ### Streaming, in segments
+                    The upload is processed as it streams in: every 50,000 objects commit as one
+                    transaction (a 2M-object file is ~40 segments), so arbitrarily large files
+                    never build one enormous transaction and memory stays flat. Each segment is
+                    atomic; a failure keeps the segments already committed and rejects the rest.
+                    Because import skips what already exists — nodes by `externalId`, relationships
+                    by (from, to, type) — simply re-upload the same file after a failure: it
+                    fast-forwards through the committed segments and resumes where it stopped.
+                    The response reports how many segments were committed.
 
                     Limits: at most 2,000,000 nodes and 2,000,000 relationships per file, and
                     the upload may not exceed 512 MB. Files over a limit are rejected with `413`.
