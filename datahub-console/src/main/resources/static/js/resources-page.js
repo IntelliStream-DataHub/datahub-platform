@@ -59,7 +59,12 @@
 			}))
 			.then(r => {
 				if (r === null) return;
-				if (!r.ok) throw new Error('export ' + r.status);
+				if (!r.ok) {
+					// Surface the server's reason (e.g. the component is over the export limit).
+					return r.json().catch(() => ({})).then(j => {
+						throw new Error((j.error && j.error.message) || j.detail || ('export ' + r.status));
+					});
+				}
 				const disposition = r.headers.get('Content-Disposition') || '';
 				const match = disposition.match(/filename="([^"]+)"/);
 				const fileName = match ? match[1] : (name.replace(/[^A-Za-z0-9._-]/g, '_') + '.dhgraph');
@@ -74,7 +79,11 @@
 					URL.revokeObjectURL(url);
 				});
 			})
-			.catch(e => { console.log(e); Flash.error($L('graph.export.failed')); });
+			.catch(e => {
+				console.log(e);
+				const detail = (e && e.message && !/^export \d+$/.test(e.message)) ? ': ' + e.message : '';
+				Flash.error($L('graph.export.failed') + detail);
+			});
 	}
 
 	function importGraph(){
@@ -88,7 +97,14 @@
 		input.click();
 	}
 
+	// Mirrors GraphFileCodec.MAX_COMPRESSED_BYTES on the api - keep the two in sync.
+	const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
+
 	function uploadGraphFile(file){
+		if (file.size > MAX_IMPORT_BYTES) {
+			Flash.error($L('graph.import.too.large'));
+			return;
+		}
 		fetchToken()
 			.then(token => token === null ? null : fetch(apiBase() + '/resources/import', {
 				method: 'POST',

@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.graphtransfer;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.EOFException;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -39,6 +40,17 @@ public final class GraphFileCodec {
 
     static final byte[] MAGIC = { 'D', 'H', 'G', 'X' };
     static final byte VERSION = 1;
+
+    /** Transfer limits: the most nodes / relations one file may carry, in either direction. */
+    public static final int MAX_NODES = 100_000;
+    public static final int MAX_RELATIONS = 100_000;
+
+    /** Byte cap on an uploaded file (compressed). ~20x a full 100k/100k export (~3 MB measured). */
+    public static final long MAX_COMPRESSED_BYTES = 64L * 1024 * 1024;
+
+    /** Byte cap on what the gzip stream may inflate to, so a gzip bomb fails fast (~30 MB measured
+     *  for a full 100k/100k export). */
+    static final long MAX_DECOMPRESSED_BYTES = 256L * 1024 * 1024;
 
     /** Upper bound on any single length/count field, so a corrupt file fails fast instead of OOMing. */
     private static final int MAX_LENGTH = 64 * 1024 * 1024;
@@ -80,7 +92,9 @@ public final class GraphFileCodec {
     }
 
     public static GraphExportFile decode(InputStream in) {
-        try (DataInputStream data = new DataInputStream(new GZIPInputStream(in))) {
+        try (DataInputStream data = new DataInputStream(
+                limited(new GZIPInputStream(in), MAX_DECOMPRESSED_BYTES,
+                        "The file inflates past " + (MAX_DECOMPRESSED_BYTES / (1024 * 1024)) + " MB."))) {
             byte[] magic = new byte[MAGIC.length];
             data.readFully(magic);
             if (!Arrays.equals(magic, MAGIC)) {
@@ -93,6 +107,10 @@ public final class GraphFileCodec {
             }
 
             int nodeCount = readCount(data, "node count");
+            if (nodeCount > MAX_NODES) {
+                throw new GraphTransferLimitException(
+                        "The file contains " + nodeCount + " nodes; the limit is " + MAX_NODES + ".");
+            }
             List<GraphExportFile.ExportedNode> nodes = new ArrayList<>(Math.min(nodeCount, 10_000));
             for (int i = 0; i < nodeCount; i++) {
                 String externalId = readString(data);
@@ -114,6 +132,10 @@ public final class GraphFileCodec {
             }
 
             int relationCount = readCount(data, "relation count");
+            if (relationCount > MAX_RELATIONS) {
+                throw new GraphTransferLimitException(
+                        "The file contains " + relationCount + " relations; the limit is " + MAX_RELATIONS + ".");
+            }
             List<GraphExportFile.ExportedRelation> relations = new ArrayList<>(Math.min(relationCount, 10_000));
             for (int i = 0; i < relationCount; i++) {
                 relations.add(new GraphExportFile.ExportedRelation(
@@ -175,5 +197,53 @@ public final class GraphFileCodec {
             throw new InvalidGraphFileException("Corrupt graph export file: impossible " + what + " " + count + ".");
         }
         return count;
+    }
+
+    /**
+     * Wraps {@code in} so that reading more than {@code maxBytes} throws a
+     * {@link GraphTransferLimitException} with {@code message}. Used both under the gzip stream
+     * (compressed upload cap — Content-Length can lie or be absent on chunked uploads) and over it
+     * (decompressed cap, the gzip-bomb guard).
+     */
+    public static InputStream limited(InputStream in, long maxBytes, String message) {
+        return new LimitedInputStream(in, maxBytes, message);
+    }
+
+    static final class LimitedInputStream extends FilterInputStream {
+
+        private final long maxBytes;
+        private final String message;
+        private long read;
+
+        LimitedInputStream(InputStream in, long maxBytes, String message) {
+            super(in);
+            this.maxBytes = maxBytes;
+            this.message = message;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = super.read();
+            if (b != -1) {
+                count(1);
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] buffer, int offset, int length) throws IOException {
+            int n = super.read(buffer, offset, length);
+            if (n > 0) {
+                count(n);
+            }
+            return n;
+        }
+
+        private void count(long n) {
+            read += n;
+            if (read > maxBytes) {
+                throw new GraphTransferLimitException(message);
+            }
+        }
     }
 }

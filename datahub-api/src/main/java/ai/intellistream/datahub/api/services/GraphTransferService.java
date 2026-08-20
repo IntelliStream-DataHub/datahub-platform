@@ -5,6 +5,7 @@ import ai.intellistream.datahub.api.graphtransfer.GraphExportFile.ExportedNode;
 import ai.intellistream.datahub.api.graphtransfer.GraphExportFile.ExportedRelation;
 import ai.intellistream.datahub.api.graphtransfer.GraphFileCodec;
 import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
+import ai.intellistream.datahub.api.graphtransfer.GraphTransferLimitException;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
@@ -85,8 +86,19 @@ public class GraphTransferService {
         var form = new RelatedResourcesForm();
         form.setId(id);
         form.setDepth(-1);
-        form.setLimit(-1);
+        // One node past the cap: enough to detect an oversized component without loading all of it.
+        form.setLimit(GraphFileCodec.MAX_NODES + 1);
         ResourceNetwork network = resourceService.fetchRelatedResources(form);
+        if (network.nodes().size() > GraphFileCodec.MAX_NODES) {
+            throw new GraphTransferLimitException(
+                    "The graph component has more than " + GraphFileCodec.MAX_NODES
+                            + " nodes and cannot be exported.");
+        }
+        if (network.edges().size() > GraphFileCodec.MAX_RELATIONS) {
+            throw new GraphTransferLimitException(
+                    "The graph component has " + network.edges().size() + " relations; the export limit is "
+                            + GraphFileCodec.MAX_RELATIONS + ".");
+        }
 
         Map<Long, String> externalIdById = new HashMap<>();
         for (Resource node : network.nodes()) {
@@ -166,7 +178,9 @@ public class GraphTransferService {
 
     @Transactional(rollbackFor = Exception.class)
     public GraphImportResult importGraph(InputStream in) throws PulsarClientException {
-        GraphExportFile file = GraphFileCodec.decode(in);
+        GraphExportFile file = GraphFileCodec.decode(GraphFileCodec.limited(
+                in, GraphFileCodec.MAX_COMPRESSED_BYTES,
+                "The file is larger than " + (GraphFileCodec.MAX_COMPRESSED_BYTES / (1024 * 1024)) + " MB."));
 
         Map<Long, NodeEntity> existingByHash = new HashMap<>();
         List<String> fileExternalIds = file.nodes().stream().map(ExportedNode::externalId).toList();

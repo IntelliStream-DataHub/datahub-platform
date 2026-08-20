@@ -94,6 +94,53 @@ class GraphFileCodecTest {
     }
 
     @Test
+    void rejectsMoreNodesThanTheLimit() throws IOException {
+        var out = new ByteArrayOutputStream();
+        try (var data = new java.io.DataOutputStream(new GZIPOutputStream(out))) {
+            data.write(GraphFileCodec.MAGIC);
+            data.writeByte(GraphFileCodec.VERSION);
+            data.writeInt(GraphFileCodec.MAX_NODES + 1);
+        }
+        var in = new ByteArrayInputStream(out.toByteArray());
+        var e = assertThrows(GraphTransferLimitException.class, () -> GraphFileCodec.decode(in));
+        assertTrue(e.getMessage().contains(String.valueOf(GraphFileCodec.MAX_NODES)));
+    }
+
+    @Test
+    void rejectsMoreRelationsThanTheLimit() throws IOException {
+        var out = new ByteArrayOutputStream();
+        try (var data = new java.io.DataOutputStream(new GZIPOutputStream(out))) {
+            data.write(GraphFileCodec.MAGIC);
+            data.writeByte(GraphFileCodec.VERSION);
+            data.writeInt(0);
+            data.writeInt(GraphFileCodec.MAX_RELATIONS + 1);
+        }
+        var in = new ByteArrayInputStream(out.toByteArray());
+        var e = assertThrows(GraphTransferLimitException.class, () -> GraphFileCodec.decode(in));
+        assertTrue(e.getMessage().contains(String.valueOf(GraphFileCodec.MAX_RELATIONS)));
+    }
+
+    @Test
+    void limitedStreamThrowsPastTheByteCap() throws IOException {
+        var in = GraphFileCodec.limited(new ByteArrayInputStream(new byte[100]), 10, "too big");
+
+        byte[] buffer = new byte[8];
+        assertEquals(8, in.read(buffer));
+        var e = assertThrows(GraphTransferLimitException.class, () -> {
+            while (in.read(buffer) != -1) {
+                // keep reading past the cap
+            }
+        });
+        assertEquals("too big", e.getMessage());
+    }
+
+    @Test
+    void limitedStreamAllowsExactlyTheCap() throws IOException {
+        var in = GraphFileCodec.limited(new ByteArrayInputStream(new byte[10]), 10, "too big");
+        assertEquals(10, in.readAllBytes().length);
+    }
+
+    @Test
     void rejectsTruncatedFile() throws IOException {
         var out = new ByteArrayOutputStream();
         GraphFileCodec.encode(sampleFile(), out);

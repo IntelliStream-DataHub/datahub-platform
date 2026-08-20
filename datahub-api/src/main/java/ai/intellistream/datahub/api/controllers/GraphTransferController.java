@@ -2,7 +2,9 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.graphtransfer.GraphFileCodec;
 import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
+import ai.intellistream.datahub.api.graphtransfer.GraphTransferLimitException;
 import ai.intellistream.datahub.api.graphtransfer.InvalidGraphFileException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.services.GraphTransferService;
@@ -57,6 +59,9 @@ public class GraphTransferController {
                     The file references everything by `externalId`, never by numeric id, so it can
                     be imported into another tenant or environment with `POST /resources/import`.
                     Node metadata and geometry are included from the system of record.
+
+                    Components larger than 100,000 nodes or 100,000 relationships are rejected
+                    with `400` rather than exported partially.
                     """
     )
     @ApiResponse(responseCode = "200", description = "The exported graph file (gzip-compressed binary).",
@@ -70,17 +75,28 @@ public class GraphTransferController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(type = "string", example = "Could not find resource with id: 42")
             ))
+    @ApiResponse(responseCode = "400", description =
+            "The component is over the export limit (100,000 nodes / 100,000 relationships). "
+                    + "Nothing is exported partially.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = BadRequestError.class)
+            ))
     @GetMapping(value = "/export/{id}", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    public ResponseEntity<byte[]> export(
+    public ResponseEntity<?> export(
             @Parameter(description = "Numeric id of the resource to export from.", example = "5677892")
             @PathVariable("id") Long id) {
-        // Not-found and no-read-access both surface as ObjectNotFoundException and are mapped to
-        // 404 by ObjectNotFoundExceptionHandler, same as the other resource read endpoints.
-        GraphTransferService.GraphExportPayload payload = graphTransferService.export(id);
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + payload.fileName() + "\"")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .body(payload.bytes());
+        try {
+            // Not-found and no-read-access both surface as ObjectNotFoundException and are mapped to
+            // 404 by ObjectNotFoundExceptionHandler, same as the other resource read endpoints.
+            GraphTransferService.GraphExportPayload payload = graphTransferService.export(id);
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + payload.fileName() + "\"")
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(payload.bytes());
+        } catch (GraphTransferLimitException e) {
+            return new ResponseEntity<>(badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
+        }
     }
 
     @Tag(name = "Resources")
@@ -96,6 +112,9 @@ public class GraphTransferController {
                     Timeseries cannot be created through the resource api; missing ones are listed
                     in the response and their relationships skipped. Everything else is created in
                     one transaction — a validation failure rolls the whole import back.
+
+                    Limits: at most 100,000 nodes and 100,000 relationships per file, and the
+                    upload may not exceed 64 MB. Files over a limit are rejected with `413`.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Summary of what was created and what was skipped.",
@@ -109,13 +128,30 @@ public class GraphTransferController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = BadRequestError.class)
             ))
+    @ApiResponse(responseCode = "413", description =
+            "The file is over a transfer limit: larger than 64 MB, or more than 100,000 nodes "
+                    + "or 100,000 relationships. Nothing is imported.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = BadRequestError.class)
+            ))
     @PostMapping(value = "/import",
             consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> importGraph(HttpServletRequest request) {
+        // Cheap early rejection when the client declares its size. The streaming cap inside the
+        // service still guards chunked uploads and lying Content-Length headers.
+        long declared = request.getContentLengthLong();
+        if (declared > GraphFileCodec.MAX_COMPRESSED_BYTES) {
+            return new ResponseEntity<>(payloadTooLarge(
+                    "The file is larger than " + (GraphFileCodec.MAX_COMPRESSED_BYTES / (1024 * 1024)) + " MB."),
+                    HttpStatus.PAYLOAD_TOO_LARGE);
+        }
         try (InputStream in = request.getInputStream()) {
             GraphImportResult result = graphTransferService.importGraph(in);
             return new ResponseEntity<>(result, HttpStatus.OK);
+        } catch (GraphTransferLimitException e) {
+            return new ResponseEntity<>(payloadTooLarge(e.getMessage()), HttpStatus.PAYLOAD_TOO_LARGE);
         } catch (InvalidGraphFileException e) {
             return new ResponseEntity<>(badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
         } catch (ConstraintViolationException e) {
@@ -135,6 +171,15 @@ public class GraphTransferController {
             log.error(e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    private static ResponseError<BadRequestError> payloadTooLarge(String message) {
+        var error = new BadRequestError();
+        error.setCode(413);
+        error.setMessage(message);
+        var response = new ResponseError<BadRequestError>();
+        response.setError(error);
+        return response;
     }
 
     private static ResponseError<BadRequestError> badRequest(String message) {
