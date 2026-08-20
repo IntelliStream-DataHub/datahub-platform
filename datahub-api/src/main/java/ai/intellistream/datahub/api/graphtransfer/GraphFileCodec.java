@@ -42,15 +42,15 @@ public final class GraphFileCodec {
     static final byte VERSION = 1;
 
     /** Transfer limits: the most nodes / relations one file may carry, in either direction. */
-    public static final int MAX_NODES = 100_000;
-    public static final int MAX_RELATIONS = 100_000;
+    public static final int MAX_NODES = 2_000_000;
+    public static final int MAX_RELATIONS = 2_000_000;
 
-    /** Byte cap on an uploaded file (compressed). ~20x a full 100k/100k export (~3 MB measured). */
-    public static final long MAX_COMPRESSED_BYTES = 64L * 1024 * 1024;
+    /** Byte cap on an uploaded file (compressed). ~8x a full 2M/2M export (~61 MB measured). */
+    public static final long MAX_COMPRESSED_BYTES = 512L * 1024 * 1024;
 
-    /** Byte cap on what the gzip stream may inflate to, so a gzip bomb fails fast (~30 MB measured
-     *  for a full 100k/100k export). */
-    static final long MAX_DECOMPRESSED_BYTES = 256L * 1024 * 1024;
+    /** Byte cap on what the gzip stream may inflate to, so a gzip bomb fails fast (~625 MB measured
+     *  for a full 2M/2M export). */
+    static final long MAX_DECOMPRESSED_BYTES = 4L * 1024 * 1024 * 1024;
 
     /** Upper bound on any single length/count field, so a corrupt file fails fast instead of OOMing. */
     private static final int MAX_LENGTH = 64 * 1024 * 1024;

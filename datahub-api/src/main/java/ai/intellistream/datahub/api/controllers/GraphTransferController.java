@@ -60,7 +60,7 @@ public class GraphTransferController {
                     be imported into another tenant or environment with `POST /resources/import`.
                     Node metadata and geometry are included from the system of record.
 
-                    Components larger than 100,000 nodes or 100,000 relationships are rejected
+                    Components larger than 2,000,000 nodes or 2,000,000 relationships are rejected
                     with `400` rather than exported partially.
                     """
     )
@@ -76,7 +76,7 @@ public class GraphTransferController {
                     schema = @Schema(type = "string", example = "Could not find resource with id: 42")
             ))
     @ApiResponse(responseCode = "400", description =
-            "The component is over the export limit (100,000 nodes / 100,000 relationships). "
+            "The component is over the export limit (2,000,000 nodes / 2,000,000 relationships). "
                     + "Nothing is exported partially.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -113,8 +113,8 @@ public class GraphTransferController {
                     in the response and their relationships skipped. Everything else is created in
                     one transaction — a validation failure rolls the whole import back.
 
-                    Limits: at most 100,000 nodes and 100,000 relationships per file, and the
-                    upload may not exceed 64 MB. Files over a limit are rejected with `413`.
+                    Limits: at most 2,000,000 nodes and 2,000,000 relationships per file, and
+                    the upload may not exceed 512 MB. Files over a limit are rejected with `413`.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Summary of what was created and what was skipped.",
@@ -129,8 +129,8 @@ public class GraphTransferController {
                     schema = @Schema(implementation = BadRequestError.class)
             ))
     @ApiResponse(responseCode = "413", description =
-            "The file is over a transfer limit: larger than 64 MB, or more than 100,000 nodes "
-                    + "or 100,000 relationships. Nothing is imported.",
+            "The file is over a transfer limit: larger than 512 MB, or more than 2,000,000 nodes "
+                    + "or 2,000,000 relationships. Nothing is imported.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = BadRequestError.class)

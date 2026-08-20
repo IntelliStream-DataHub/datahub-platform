@@ -98,7 +98,7 @@
 	}
 
 	// Mirrors GraphFileCodec.MAX_COMPRESSED_BYTES on the api - keep the two in sync.
-	const MAX_IMPORT_BYTES = 64 * 1024 * 1024;
+	const MAX_IMPORT_BYTES = 512 * 1024 * 1024;
 
 	function uploadGraphFile(file){
 		if (file.size > MAX_IMPORT_BYTES) {
