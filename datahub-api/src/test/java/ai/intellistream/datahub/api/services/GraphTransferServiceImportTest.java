@@ -163,6 +163,53 @@ class GraphTransferServiceImportTest {
     }
 
     @Test
+    void streamedExportRoundTripsThroughTheSegmentedImport() throws Exception {
+        // A component as the graph returns it: one dataset, 24 assets in it, a 23-edge chain.
+        var networkNodes = new java.util.HashSet<Resource>();
+        var networkEdges = new java.util.HashSet<EdgeProxy>();
+        Resource dataSet = new Resource();
+        dataSet.setId(1L);
+        dataSet.setExternalId("ds_main");
+        dataSet.setName("Main dataset");
+        dataSet.setLabels(List.of("DATASET"));
+        networkNodes.add(dataSet);
+        for (long i = 2; i <= 25; i++) {
+            Resource asset = new Resource();
+            asset.setId(i);
+            asset.setExternalId("asset_" + i);
+            asset.setName("Asset " + i);
+            asset.setLabels(List.of("ASSET"));
+            asset.setDataSetId(1L);
+            networkNodes.add(asset);
+            if (i > 2) {
+                networkEdges.add(new EdgeProxy(i, i - 1, i, "FLOWS_TO", 9L, new java.util.HashMap<>()));
+            }
+        }
+        when(resourceService.fetchRelatedResources(any())).thenReturn(
+                new ai.intellistream.datahub.asset.ResourceNetwork(networkNodes, networkEdges, new java.util.HashSet<>()));
+
+        var prepared = service.prepareExport(1L);
+        var file = new ByteArrayOutputStream();
+        service.writeExport(prepared, file);
+
+        GraphImportResult result = service.importGraph(new ByteArrayInputStream(file.toByteArray()));
+
+        assertThat(prepared.fileName()).isEqualTo("ds_main.dhgraph");
+        assertThat(result.nodesCreated()).isEqualTo(25);
+        assertThat(result.relationsCreated()).isEqualTo(23);
+        assertThat(result.relationsSkipped()).isZero();
+        assertThat(result.dataSetReferencesDropped()).isZero();
+        // The dataset leads the file, so every asset resolved its dataset reference on import.
+        List<Resource> createdAssets = createCalls.stream()
+                .flatMap(w -> w.getNodes().stream())
+                .filter(n -> n.getExternalId().startsWith("asset_"))
+                .toList();
+        assertThat(createdAssets).hasSize(24);
+        assertThat(createdAssets).allSatisfy(n ->
+                assertThat(n.getDataSetId()).isEqualTo(ExternalIds.hash("ds_main")));
+    }
+
+    @Test
     void skipsRelationsWhoseEndpointDoesNotResolve() throws Exception {
         var nodes = List.of(node("asset_1", null, "ASSET"));
         var relations = List.of(

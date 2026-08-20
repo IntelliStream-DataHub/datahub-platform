@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -83,18 +84,31 @@ public class GraphTransferController {
             ))
     @GetMapping(value = "/export/{id}", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<?> export(
+            HttpServletResponse res,
             @Parameter(description = "Numeric id of the resource to export from.", example = "5677892")
             @PathVariable("id") Long id) {
+        GraphTransferService.PreparedExport prepared;
         try {
-            // Not-found and no-read-access both surface as ObjectNotFoundException and are mapped to
-            // 404 by ObjectNotFoundExceptionHandler, same as the other resource read endpoints.
-            GraphTransferService.GraphExportPayload payload = graphTransferService.export(id);
-            return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + payload.fileName() + "\"")
-                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                    .body(payload.bytes());
+            // Every failure happens here, before the response commits: not-found and no-read-access
+            // surface as ObjectNotFoundException (mapped to 404 by ObjectNotFoundExceptionHandler,
+            // same as the other resource read endpoints), an oversized component as 400 below.
+            prepared = graphTransferService.prepareExport(id);
         } catch (GraphTransferLimitException e) {
             return new ResponseEntity<>(badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
+        }
+
+        res.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        res.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + prepared.fileName() + "\"");
+        try {
+            // Encoded and gzipped straight onto the response, item by item — the file is never
+            // buffered whole. The servlet stream is the container's to close (see FileController).
+            graphTransferService.writeExport(prepared, res.getOutputStream());
+            return new ResponseEntity<>(HttpStatus.OK);
+        } catch (IOException e) {
+            // Almost always the client cancelling the download; the response is committed, so
+            // there is no status left to change either way.
+            log.debug("Graph export stream ended early: {}", e.getMessage());
+            return null;
         }
     }
 

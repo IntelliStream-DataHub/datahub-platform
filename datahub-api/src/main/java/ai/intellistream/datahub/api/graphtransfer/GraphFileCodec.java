@@ -59,35 +59,102 @@ public final class GraphFileCodec {
     }
 
     public static void encode(GraphExportFile file, OutputStream out) throws IOException {
-        try (DataOutputStream data = new DataOutputStream(new GZIPOutputStream(out))) {
+        try (GraphFileWriter writer = writer(out, file.nodes().size(), file.relations().size())) {
+            for (GraphExportFile.ExportedNode node : file.nodes()) {
+                writer.write(node);
+            }
+            for (GraphExportFile.ExportedRelation relation : file.relations()) {
+                writer.write(relation);
+            }
+        }
+    }
+
+    /**
+     * Opens a streaming writer: the header goes out immediately, then each item is encoded and
+     * gzipped straight to {@code out} as it is written — the file is never buffered whole. Counts
+     * are declared up front (the format is count-prefixed); {@link GraphFileWriter#close()} fails
+     * if what was written does not match, so a half-written file cannot pass for a complete one.
+     */
+    public static GraphFileWriter writer(OutputStream out, int nodeCount, int relationCount) throws IOException {
+        return new GraphFileWriter(out, nodeCount, relationCount);
+    }
+
+    public static final class GraphFileWriter implements java.io.Closeable {
+
+        private final DataOutputStream data;
+        private final int nodeCount;
+        private final int relationCount;
+        private int nodesWritten;
+        private int relationsWritten;
+        private boolean relationCountWritten;
+
+        private GraphFileWriter(OutputStream out, int nodeCount, int relationCount) throws IOException {
+            this.nodeCount = nodeCount;
+            this.relationCount = relationCount;
+            this.data = new DataOutputStream(new GZIPOutputStream(out));
             data.write(MAGIC);
             data.writeByte(VERSION);
+            data.writeInt(nodeCount);
+        }
 
-            data.writeInt(file.nodes().size());
-            for (GraphExportFile.ExportedNode node : file.nodes()) {
-                writeString(data, node.externalId());
-                writeString(data, node.name());
-                writeString(data, node.description());
-                writeString(data, node.source());
-                data.writeBoolean(node.isRoot());
-                writeString(data, node.geoJson());
-                writeString(data, node.dataSetExternalId());
-                data.writeInt(node.labels().size());
-                for (String label : node.labels()) {
-                    writeString(data, label);
+        public void write(GraphExportFile.ExportedNode node) throws IOException {
+            if (relationCountWritten) {
+                throw new IllegalStateException("Write every node before the first relation.");
+            }
+            if (nodesWritten >= nodeCount) {
+                throw new IllegalStateException("More nodes written than the declared " + nodeCount + ".");
+            }
+            writeString(data, node.externalId());
+            writeString(data, node.name());
+            writeString(data, node.description());
+            writeString(data, node.source());
+            data.writeBoolean(node.isRoot());
+            writeString(data, node.geoJson());
+            writeString(data, node.dataSetExternalId());
+            data.writeInt(node.labels().size());
+            for (String label : node.labels()) {
+                writeString(data, label);
+            }
+            writeMap(data, node.metadata());
+            nodesWritten++;
+        }
+
+        public void write(GraphExportFile.ExportedRelation relation) throws IOException {
+            if (!relationCountWritten) {
+                if (nodesWritten != nodeCount) {
+                    throw new IllegalStateException(
+                            "Wrote " + nodesWritten + " of the declared " + nodeCount + " nodes.");
                 }
-                writeMap(data, node.metadata());
+                data.writeInt(relationCount);
+                relationCountWritten = true;
             }
+            if (relationsWritten >= relationCount) {
+                throw new IllegalStateException("More relations written than the declared " + relationCount + ".");
+            }
+            writeString(data, relation.fromExternalId());
+            writeString(data, relation.toExternalId());
+            writeString(data, relation.type());
+            writeString(data, relation.description());
+            writeString(data, relation.dataSetExternalId());
+            writeMap(data, relation.metadata());
+            relationsWritten++;
+        }
 
-            data.writeInt(file.relations().size());
-            for (GraphExportFile.ExportedRelation relation : file.relations()) {
-                writeString(data, relation.fromExternalId());
-                writeString(data, relation.toExternalId());
-                writeString(data, relation.type());
-                writeString(data, relation.description());
-                writeString(data, relation.dataSetExternalId());
-                writeMap(data, relation.metadata());
+        @Override
+        public void close() throws IOException {
+            if (nodesWritten != nodeCount) {
+                throw new IllegalStateException(
+                        "Wrote " + nodesWritten + " of the declared " + nodeCount + " nodes.");
             }
+            if (!relationCountWritten) {
+                data.writeInt(relationCount);
+                relationCountWritten = true;
+            }
+            if (relationsWritten != relationCount) {
+                throw new IllegalStateException(
+                        "Wrote " + relationsWritten + " of the declared " + relationCount + " relations.");
+            }
+            data.close();
         }
     }
 

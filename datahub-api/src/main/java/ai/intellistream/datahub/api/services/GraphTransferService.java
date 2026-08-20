@@ -1,6 +1,5 @@
 package ai.intellistream.datahub.api.services;
 
-import ai.intellistream.datahub.api.graphtransfer.GraphExportFile;
 import ai.intellistream.datahub.api.graphtransfer.GraphExportFile.ExportedNode;
 import ai.intellistream.datahub.api.graphtransfer.GraphExportFile.ExportedRelation;
 import ai.intellistream.datahub.api.graphtransfer.GraphFileCodec;
@@ -30,10 +29,9 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
+import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -97,11 +95,31 @@ public class GraphTransferService {
         this.segmentSize = segmentSize;
     }
 
-    public record GraphExportPayload(String fileName, byte[] bytes) {
+    /** A fetched, validated component ready to stream with {@link #writeExport}. */
+    public static final class PreparedExport {
+
+        private final String fileName;
+        private final ResourceNetwork network;
+        private final Map<Long, String> externalIdById;
+
+        private PreparedExport(String fileName, ResourceNetwork network, Map<Long, String> externalIdById) {
+            this.fileName = fileName;
+            this.network = network;
+            this.externalIdById = externalIdById;
+        }
+
+        public String fileName() {
+            return fileName;
+        }
     }
 
+    /**
+     * Fetches and validates the component — every failure (not found, no access, over the export
+     * limit) happens here, before the caller commits to response headers. The streaming itself is
+     * {@link #writeExport}, which touches no database.
+     */
     @Transactional(readOnly = true)
-    public GraphExportPayload export(Long id) {
+    public PreparedExport prepareExport(Long id) {
         var form = new RelatedResourcesForm();
         form.setId(id);
         form.setDepth(-1);
@@ -124,24 +142,52 @@ public class GraphTransferService {
             externalIdById.put(node.getId(), node.getExternalId());
         }
         resolveDanglingDataSetIds(network, externalIdById);
+        return new PreparedExport(exportFileName(network, id), network, externalIdById);
+    }
 
-        // Dataset nodes first: the import processes the file sequentially in segments, so a
-        // dataset must precede the nodes that reference it.
-        List<Resource> ordered = new ArrayList<>(network.nodes().size());
-        for (Resource node : network.nodes()) {
-            if (containsLabel(node.getLabels(), TypeLabels.DATASET)) {
-                ordered.add(node);
+    /**
+     * Streams the prepared component straight to {@code out}, one item at a time — the encoded
+     * file is never buffered whole. Dataset nodes go first: the import processes the file
+     * sequentially in segments, so a dataset must precede the nodes that reference it.
+     */
+    public void writeExport(PreparedExport prepared, OutputStream out) throws IOException {
+        ResourceNetwork network = prepared.network;
+        Map<Long, String> externalIdById = prepared.externalIdById;
+
+        // The writer wants exact counts up front (the format is count-prefixed); edges whose
+        // endpoint is unknown are not written, so count the writable ones.
+        int writableEdges = 0;
+        for (EdgeProxy edge : network.edges()) {
+            if (externalIdById.containsKey(edge.getStart()) && externalIdById.containsKey(edge.getEnd())) {
+                writableEdges++;
             }
         }
-        for (Resource node : network.nodes()) {
-            if (!containsLabel(node.getLabels(), TypeLabels.DATASET)) {
-                ordered.add(node);
+
+        try (GraphFileCodec.GraphFileWriter writer =
+                     GraphFileCodec.writer(out, network.nodes().size(), writableEdges)) {
+            writeNodes(writer, network, externalIdById, true);
+            writeNodes(writer, network, externalIdById, false);
+            for (EdgeProxy edge : network.edges()) {
+                String from = externalIdById.get(edge.getStart());
+                String to = externalIdById.get(edge.getEnd());
+                if (from == null || to == null) {
+                    continue;
+                }
+                writer.write(new ExportedRelation(
+                        from, to, edge.getType(), edge.getDescription(),
+                        externalIdById.get(edge.getDataSetId()),
+                        edge.getMetadata()));
             }
         }
+    }
 
-        List<ExportedNode> nodes = new ArrayList<>(ordered.size());
-        for (Resource node : ordered) {
-            nodes.add(new ExportedNode(
+    private static void writeNodes(GraphFileCodec.GraphFileWriter writer, ResourceNetwork network,
+                                   Map<Long, String> externalIdById, boolean dataSets) throws IOException {
+        for (Resource node : network.nodes()) {
+            if (containsLabel(node.getLabels(), TypeLabels.DATASET) != dataSets) {
+                continue;
+            }
+            writer.write(new ExportedNode(
                     node.getExternalId(),
                     node.getName(),
                     node.getDescription(),
@@ -152,27 +198,6 @@ public class GraphTransferService {
                     new ArrayList<>(node.getLabels()),
                     new HashMap<>(node.getMetadata())));
         }
-
-        List<ExportedRelation> relations = new ArrayList<>(network.edges().size());
-        for (EdgeProxy edge : network.edges()) {
-            String from = externalIdById.get(edge.getStart());
-            String to = externalIdById.get(edge.getEnd());
-            if (from == null || to == null) {
-                continue;
-            }
-            relations.add(new ExportedRelation(
-                    from, to, edge.getType(), edge.getDescription(),
-                    externalIdById.get(edge.getDataSetId()),
-                    edge.getMetadata()));
-        }
-
-        var out = new ByteArrayOutputStream();
-        try {
-            GraphFileCodec.encode(new GraphExportFile(nodes, relations), out);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Could not serialize the graph export.", e);
-        }
-        return new GraphExportPayload(exportFileName(network, id), out.toByteArray());
     }
 
     /**
