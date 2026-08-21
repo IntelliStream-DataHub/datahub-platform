@@ -212,12 +212,14 @@ jobs:
           CONTAINER_CLI: docker
         run: ./scripts/ci-stage-images.sh
 
-      # neo4j is the one started service that is genuinely built rather than
-      # pulled — deploy/neo4j/Dockerfile adds the APOC plugin jar on top of the
-      # stock image, and datahub-neo4j:local exists in no registry. Building it
-      # explicitly is what lets `up` below keep --no-build.
-      - name: Build the neo4j image
-        run: docker compose $COMPOSE_FILES build neo4j
+      # neo4j and pulsar are the two started services that are genuinely built
+      # rather than pulled: deploy/neo4j/Dockerfile adds the APOC plugin jar on top
+      # of the stock image, and deploy/pulsar/Dockerfile builds the
+      # datahub-pulsar-filter NAR and bakes it into the broker. Neither
+      # datahub-neo4j:local nor datahub-pulsar:local exists in any registry.
+      # Building them explicitly is what lets `up` below keep --no-build.
+      - name: Build the neo4j and pulsar images
+        run: docker compose $COMPOSE_FILES build neo4j pulsar
 
       # --no-build is a safety net, not an optimisation: every other started
       # service is either pulled or already tagged by the step above, so if an app

@@ -48,6 +48,10 @@ The `pulsarVersion` in `gradle.properties` must match the running broker.
 
 ## Deploy
 
+The compose stack does both steps below for you: `deploy/pulsar/Dockerfile` bakes the NAR into
+the broker image, and the `pulsar` service in `docker-compose.yml` sets the two settings. Any
+other broker needs them by hand.
+
 1. **Copy the NAR to every broker** (and any proxies/standalone instances) under
    the directory that `broker.conf` references as `entryFiltersDirectory`
    (default: `./filters` relative to the Pulsar install root).
