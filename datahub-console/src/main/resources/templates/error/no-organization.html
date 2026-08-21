@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>No organization assigned</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>:root { --error-accent: #b45309; }</style>
+    <th:block th:replace="~{error/_fragments :: styles}"></th:block>
+</head>
+<body>
+<div class="wrap">
+    <h1>No organization assigned</h1>
+    <div class="notice">
+        <p>Your sign-in succeeded, but we couldn't place your account in an organization
+            that IntelliStream DataHub recognises. Without a registered organization, we
+            can't resolve a tenant for you, and you won't be able to access any data or
+            features.</p>
+        <p>This usually means one of two things:</p>
+        <ul>
+            <li>Your identity provider issued a token without an organization claim — your
+                account may not yet be assigned to an organization in the directory.</li>
+            <li>Your token carries an organization that isn't registered as a tenant in this
+                environment — this can happen if you've signed in to the wrong environment,
+                or if the tenant hasn't been provisioned yet.</li>
+        </ul>
+        <p>Please contact your administrator. If you believe this is a mistake, sign out
+            and try again.</p>
+    </div>
+    <p><a class="button" th:href="@{/datahub-logout}">Sign out</a></p>
+</div>
+</body>
+</html>

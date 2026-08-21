@@ -1,0 +1,265 @@
+POST {{hostname}}/assets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "compute_node_01_vm_server_nvme0",
+			"name": "compute node 01 nvme drive-0",
+			"description": "1.6TB NVMe drive",
+			"labels": [
+				{
+					"name": "NVME"
+				},
+				{
+					"name": "STORAGE_DRIVE"
+				}
+			],
+			"metadata": {
+				"capacity": "1.6",
+				"capacity-unit": "TB",
+				"max-seq-read-speed": "5840",
+				"max-seq-write-speed": "2100",
+				"max-random-read-iops": "1000000",
+				"max-random-write-iops": "140000",
+				"speed-unit": "MB/s",
+				"dwpd": "5",
+				"total-temperature-sensors": "3",
+				"model_name": "MZPLL1T6HEHP",
+				"interface": "PCIe 3.0 x8",
+				"form_factor": "HHHL",
+				"nand": "TLC V3 NAND",
+				"random-read-latency-qd1": "90",
+				"random-write-latency-qd1": "30",
+				"sequential-read-latency-qd1": "115",
+				"sequential-write-latency-qd1": "125",
+				"latency-unit": "μs",
+				"operating-temperature-min": "0",
+				"operating-temperature-max": "70",
+				"operating-temperature-unit": "celsius"
+			}
+		}
+	],
+	"relations": [
+		{
+			"fromExternalId": "compute_node_01_vm_server",
+			"toExternalId": "compute_node_01_vm_server_nvme0",
+			"relationshipType": "PCIE_CONNECTION_TO",
+            "metadata": {
+				"lanes": "8",
+				"pcie-version": "3"
+            }
+        }
+	]
+}
+
+###
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "test_resource",
+			"name": "Test Resource",
+			"description": "Test resource, can be deleted",
+			"labels": [
+				{
+					"name": "ENERGY"
+				},
+				{
+					"name": "FINANCE"
+				}
+			],
+			"isRoot": true
+		}
+	]
+}
+
+###
+POST {{hostname}}/assets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "energy_data",
+			"isRoot": true,
+			"relations": [],
+			"name": "ENERGY_DATA",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				"ENERGY"
+			]
+		}
+	],
+	"relations": []
+}
+
+
+
+###
+POST {{hostname}}/assets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"relations": [
+		{
+			"fromExternalId": "compute_node_01_power1_average",
+			"toExternalId": "compute_node_01_energy_cost_nok",
+			"relationshipType": "PUBLISHES_DATA_TO"
+		}
+	]
+}
+
+###
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nodes": [
+	{
+	  "externalId": "heater_2012",
+	  "name": "Heater-2012",
+	  "labels": [
+		"HEATER", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "separator_1232",
+	  "name": "Separator-1232",
+	  "labels": [
+		"SEPARATOR", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "tank_eb_3001",
+	  "name": "Tank Emulsion Breaker 3001",
+	  "labels": [
+		"TANK", "CHEMICAL", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "pump_1441",
+	  "name": "PUMP 1441",
+	  "labels": [
+		"PUMP", "CHEMICAL", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "injection_point_valve_1801",
+	  "name": "Injection Point Valve 1801",
+	  "labels": [
+		"VALVE", "CHEMICAL", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "separator_4401",
+	  "name": "Separator 4401",
+	  "labels": [
+		"SEPARATOR", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "crude_oil_pipe_6001",
+	  "name": "Crude Oil Pipe 6001",
+	  "labels": [
+		"PIPE", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "gas_pipe_6002",
+	  "name": "Gas Pipe 6002",
+	  "labels": [
+		"PIPE", "ASSET"
+	  ]
+	},
+	{
+	  "externalId": "produced_water_pipe_6003",
+	  "name": "Produced Water Pipe 6003",
+	  "labels": [
+		"PIPE", "ASSET"
+	  ]
+	}
+  ],
+  "relations": [
+	{
+	  "fromExternalId": "manifold_top_side_production_a",
+	  "toExternalId": "heater_2012",
+	  "relationshipType": "FLOWS_TO"
+	},
+	{
+	  "fromExternalId": "heater_2012",
+	  "toExternalId": "separator_1232",
+	  "relationshipType": "FLOWS_TO"
+	},
+	{
+	  "fromExternalId": "tank_eb_3001",
+	  "toExternalId": "pump_1441",
+	  "relationshipType": "SUPPLIES"
+	},
+	{
+	  "fromExternalId": "pump_1441",
+	  "toExternalId": "injection_point_valve_1801",
+	  "relationshipType": "PUMPS_TO"
+	},
+	{
+	  "fromExternalId": "injection_point_valve_1801",
+	  "toExternalId": "separator_4401",
+	  "relationshipType": "INJECTS_INTO"
+	},
+	{
+	  "fromExternalId": "separator_4401",
+	  "toExternalId": "crude_oil_pipe_6001",
+	  "relationshipType": "PRODUCES"
+	},
+	{
+	  "fromExternalId": "separator_4401",
+	  "toExternalId": "gas_pipe_6002",
+	  "relationshipType": "PRODUCES"
+	}
+  ]
+}
+
+
+###
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nodes": [
+  ],
+  "relations": [
+	{
+	  "fromExternalId": "heater_2012",
+	  "toExternalId": "separator_4401",
+	  "relationshipType": "FLOWS_TO"
+	}
+  ]
+}
+
+
+###
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "nodes": [
+  ],
+  "relations": [
+	{
+	  "fromExternalId": "separator_4401",
+	  "toExternalId": "produced_water_pipe_6003",
+	  "relationshipType": "PRODUCES"
+	}
+  ]
+}

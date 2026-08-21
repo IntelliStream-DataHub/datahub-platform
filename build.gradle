@@ -1,0 +1,57 @@
+
+tasks.register('startBootStack') {
+    dependsOn ':datahub-api:bootRun',
+            ':datahub-stateful-consumer:bootRun',
+            ':datahub-stateless-consumer:bootRun',
+            ':datahub-analysis:bootRun',
+            ':datahub-console:bootRun'
+}
+
+gradle.projectsEvaluated {
+    startBootStack.configure {
+        doLast {
+            logger.lifecycle('All projects are started')
+        }
+    }
+}
+
+gradle.startParameter.setParallelProjectExecutionEnabled(true)
+
+// ---------------------------------------------------------------------------
+// Guard the Keycloak realm import. Keycloak stores CLIENT/ORGANIZATION.DESCRIPTION as
+// VARCHAR(255); a longer value makes `start-dev --import-realm` abort, and the whole
+// compose stack then fails to boot. This has regressed repeatedly, silently, because the
+// only symptom is a crashed Keycloak. Fail the build early with an exact pointer instead.
+// ---------------------------------------------------------------------------
+tasks.register('validateKeycloakRealm') {
+    group = 'verification'
+    description = 'Fail if any Keycloak realm description exceeds 255 chars (aborts realm import).'
+    def realmFile = file('deploy/keycloak/datahub-realm.json')
+    inputs.file(realmFile)
+    doLast {
+        final int LIMIT = 255
+        def realm = new groovy.json.JsonSlurper().parse(realmFile)
+        def problems = []
+        def check = { kind, name, text ->
+            if (text != null && text.length() > LIMIT) {
+                problems << "  ${kind} '${name}': description is ${text.length()} chars (> ${LIMIT})"
+            }
+        }
+        realm.clients?.each { check('client', it.clientId, it.description) }
+        realm.organizations?.each { check('organization', it.alias, it.description) }
+        if (problems) {
+            throw new GradleException(
+                "Keycloak stores DESCRIPTION as VARCHAR(255); these exceed it and will abort\n" +
+                "realm import, so the whole compose stack fails to boot:\n" +
+                problems.join('\n') +
+                "\nShorten them in ${realmFile}.")
+        }
+    }
+}
+
+// Run the realm check as part of the normal build/check, so a regression fails CI.
+subprojects {
+    tasks.matching { it.name == 'check' }.configureEach {
+        dependsOn rootProject.tasks.named('validateKeycloakRealm')
+    }
+}

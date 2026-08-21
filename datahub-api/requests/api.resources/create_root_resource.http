@@ -1,0 +1,105 @@
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "invoice-operations",
+			"name": "Invoice Operations",
+			"description": "Invoice Operations root",
+			"labels": [
+				{
+					"name": "Organization"
+				}
+			],
+			"isRoot": true
+		}
+	],
+	"relations": [
+
+	]
+}
+
+###
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "responsible-person",
+			"name": "Responsible Person",
+			"description": "Person who is responsible for Invoice Operations",
+			"labels": [
+				{
+					"name": "Organization"
+				}
+			]
+		},
+		{
+			"externalId": "jane-doe",
+			"name": "Jane Doe",
+			"description": "Operations Manager",
+			"labels": [
+				{
+					"name": "PERSON"
+				}
+			]
+		}
+	],
+	"relations": [
+		{
+			"fromExternalId": "invoice-operations",
+			"toExternalId": "responsible-person",
+			"relationshipType": "OWNED_BY"
+		},
+		{
+			"fromExternalId": "jane-doe",
+			"toExternalId": "responsible-person",
+			"relationshipType": "MANAGED_BY"
+		}
+	]
+}
+
+###
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "trigger-cost",
+			"name": "Trigger Cost",
+			"description": "Sum cost of a triggered api request",
+			"labels": [
+				{
+					"name": "timeseries"
+				}
+			]
+		},
+		{
+			"externalId": "aggregate-fn",
+			"name": "Aggregate function",
+			"labels": [
+				{
+					"name": "function"
+				}
+			]
+		}
+	],
+	"relations": [
+		{
+			"fromExternalId": "invoice-operations",
+			"toExternalId": "trigger-cost",
+			"relationshipType": "PART_OF"
+		},
+		{
+			"fromExternalId": "trigger-cost",
+			"toExternalId": "aggregate-fn",
+			"relationshipType": "PUSH_TO"
+		}
+	]
+}

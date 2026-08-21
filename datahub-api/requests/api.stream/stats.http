@@ -1,0 +1,10 @@
+POST {{hostname}}/stream/stats
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{"externalId": "compute_node_01_socket_power"}
+	]
+}

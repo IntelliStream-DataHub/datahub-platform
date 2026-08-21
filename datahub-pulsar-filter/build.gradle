@@ -1,0 +1,51 @@
+// Broker-side plugin: filters entries on per-subscription dispatch based on a filter.key
+// property matched against the message partition key. Ship the :nar task output to the
+// broker's `entryFiltersDirectory` and register the class in `entryFilterNames`
+// (broker.conf). Pulsar version must match the running broker.
+
+plugins {
+    id 'ai.intellistream.datahub.java-common-conventions'
+}
+
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Interfaces live in pulsar-broker; the broker provides them at runtime, so compileOnly.
+    compileOnly "org.apache.pulsar:pulsar-broker:${pulsarVersion}"
+
+    // No Spring Boot BOM in this module, so pin the JUnit BOM directly. The shared convention
+    // declares junit-jupiter / junit-platform-launcher without a version (Boot modules get them
+    // from the Boot BOM); this supplies the version for this non-Boot module.
+    testImplementation platform('org.junit:junit-bom:6.1.0')
+}
+
+// This plugin's classes are loaded by the BROKER's JVM, not ours. Apache Pulsar 4.0.x ships a Java
+// 21 runtime, but the shared toolchain compiles every module with Java 25. Without an explicit
+// target the NAR would carry Java 25 bytecode and the broker rejects it on startup with
+// `UnsupportedClassVersionError: ... class file version 69.0 ... only ... up to 65.0`, aborting the
+// whole broker. Target 17 (Pulsar's own plugin baseline) so the NAR loads on any supported broker JVM.
+tasks.withType(JavaCompile).configureEach {
+    options.release = 17
+}
+
+// Produce a NAR for Pulsar's plugin loader. Layout:
+//   META-INF/services/entry_filter.yml          — Pulsar definition (name + class)
+//   META-INF/bundled-dependencies/<name>.jar    — classes loaded via the NAR classloader
+// The `name:` field inside entry_filter.yml must match the value used in broker.conf
+// `entryFilterNames=...`.
+tasks.register('nar', Zip) {
+    dependsOn tasks.named('jar')
+    archiveExtension = 'nar'
+    archiveClassifier = ''
+    from(tasks.named('jar')) {
+        into 'META-INF/bundled-dependencies'
+    }
+    from('src/main/nar')
+}
+
+tasks.named('build') {
+    dependsOn tasks.named('nar')
+}

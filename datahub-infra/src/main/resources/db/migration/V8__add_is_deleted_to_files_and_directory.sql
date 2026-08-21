@@ -1,0 +1,2 @@
+ALTER TABLE directory ADD COLUMN is_deleted boolean NOT NULL DEFAULT FALSE;
+ALTER TABLE file ADD COLUMN is_deleted boolean NOT NULL DEFAULT FALSE;

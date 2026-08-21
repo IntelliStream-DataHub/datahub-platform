@@ -1,0 +1,52 @@
+GET {{hostname}}/stream/namespaces
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+POST {{hostname}}/stream/namespaces/byids
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{
+	"items": [
+		{"id": 18}
+	]
+}
+
+###
+POST {{hostname}}/stream/topics
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{"namespace": "datapoints"},
+		{"namespace": "incoming"}
+	]
+}
+
+###
+POST {{hostname}}/stream/namespaces/create
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{
+    "items": [
+		{
+            "name": "smart_plug",
+            "description": "Smart plug sensors",
+            "permissions": [
+				{
+                    "role": {
+                        "name": "node-04"
+                    },
+				    "hasProducePermission": true,
+				    "hasConsumePermission": true
+                }
+            ]
+        }
+    ]
+}

@@ -1,0 +1,68 @@
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "switch_backbone_0_01_socket_power",
+			"start": 1681403552000,
+			"start_description": "Thursday 13. April 2023 16:32:32",
+			"granularity": "30 min",
+			"aggregates": [
+				"avg", "min", "max"
+			],
+            "limit": 100000
+		}
+	]
+}
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "switch_backbone_0_01_socket_power",
+			"start": 1700476780000,
+			"granularity": "1 min",
+			"aggregates": [
+				"avg", "min", "max"
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_radon1",
+			"start": 1700476780000,
+			"granularity": "1 min",
+			"aggregates": [
+				"avg", "min", "max"
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_radon1",
+			"start": 1700476780000,
+			"limit": 100000
+		}
+	]
+}

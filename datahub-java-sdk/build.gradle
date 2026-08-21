@@ -1,0 +1,124 @@
+// datahub-java-sdk — JDK-HttpClient Java client for the DataHub Platform REST API.
+//
+// External/third-party facing. Depends only on datahub-api-model (the lean wire
+// contract) plus Jackson 3 for (de)serialization — no server stack. Published as
+// ai.intellistream:datahub-sdk so out-of-tree consumers can resolve it.
+//
+// As with datahub-api-model / datahub-commons, the Spring Boot plugins are applied
+// ONLY for the shared dependency BOM (version management); they add no Spring code to
+// the artifact, and bootJar is disabled because this is a library.
+
+plugins {
+    id 'ai.intellistream.datahub.java-library-conventions'
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'maven-publish'
+    id 'signing'
+}
+
+dependencies {
+    // Shared wire-contract types (DataWrapper, Resource, Timeseries, datapoint/subscription
+    // DTOs, …). `api` because they appear on the SDK's public method signatures; brings
+    // Jackson 3, jakarta-validation, swagger-annotations, openhft and slf4j transitively.
+    api project(':datahub-api-model')
+
+    // Jackson 3 mapper — the SDK uses it directly to (de)serialize the wire types.
+    implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
+
+    // JUnit (version managed by the Spring Boot BOM) is supplied by java-common-conventions.
+}
+
+// Library module: no main class, so don't build an executable boot jar.
+bootJar { enabled = false }
+jar { enabled = true; archiveClassifier = '' }
+
+// --- Publishing -----------------------------------------------------------------
+// Published so external consumers can resolve the client as a versioned Maven artifact:
+// ai.intellistream:datahub-sdk (depending on ai.intellistream:datahub-api-model).
+group = 'ai.intellistream'
+version = providers.gradleProperty('javaSdkVersion').getOrElse('0.1.0-SNAPSHOT')
+
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            // Pin BOM-managed versions into the published POM so non-Spring consumers resolve.
+            versionMapping {
+                usage('java-api') { fromResolutionResult() }
+                usage('java-runtime') { fromResolutionResult() }
+            }
+            pom {
+                name = 'DataHub SDK'
+                description = 'Java client for the DataHub Platform REST API.'
+                url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
+                licenses {
+                    // Apache-2.0, not the platform's AGPL. A client library has to be safe to
+                    // link into someone else's application, and a copyleft one is not.
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution = 'repo'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'intellistream'
+                        name = 'IntelliStream AS'
+                        url = 'https://intellistream.ai'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/IntelliStream-DataHub/datahub-platform.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/IntelliStream-DataHub/datahub-platform.git'
+                    url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
+                }
+            }
+        }
+    }
+    repositories {
+        // No public Maven release yet, so there is no default registry here: a hardcoded
+        // one would advertise a host nobody outside the project can resolve from. Supply a
+        // target to publish remotely:
+        //
+        //   ./gradlew :datahub-java-sdk:publish \
+        //       -PmavenPublishUrl=https://example.org/api/packages/<owner>/maven
+        //
+        // Credentials come from -PmavenPublishUser / -PmavenPublishToken, or the
+        // MAVEN_PUBLISH_USER / MAVEN_PUBLISH_TOKEN environment variables, so no secrets
+        // live in the repo. Without the URL only publishToMavenLocal is available, which is
+        // how out-of-tree consumers try the artifact today.
+        def mavenPublishUrl = providers.gradleProperty('mavenPublishUrl').orNull
+        if (mavenPublishUrl) {
+            maven {
+                name = 'remote'
+                url = mavenPublishUrl
+                credentials {
+                    username = providers.gradleProperty('mavenPublishUser')
+                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_USER')).getOrNull()
+                    password = providers.gradleProperty('mavenPublishToken')
+                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_TOKEN')).getOrNull()
+                }
+                authentication { basic(BasicAuthentication) }
+            }
+        }
+    }
+}
+
+// Signing. Maven Central rejects unsigned artifacts, but a normal build and
+// publishToMavenLocal must not need a key, so signing is required only when one is
+// configured. Supply it as -PsigningInMemoryKey (an ASCII-armoured secret key) plus
+// -PsigningInMemoryKeyPassword, or via ORG_GRADLE_PROJECT_ equivalents in CI.
+signing {
+    def signingKey = providers.gradleProperty('signingInMemoryKey').orNull
+    def signingPassword = providers.gradleProperty('signingInMemoryKeyPassword').orNull
+    required { signingKey != null }
+    if (signingKey != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.mavenJava
+    }
+}

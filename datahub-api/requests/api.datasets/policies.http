@@ -1,0 +1,4 @@
+GET {{hostname}}/datasets/policies
+Authorization: Bearer {{token}}
+Accept: application/json
+

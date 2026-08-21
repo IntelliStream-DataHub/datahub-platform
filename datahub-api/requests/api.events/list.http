@@ -1,0 +1,409 @@
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"id": null,
+		"externalIdPrefix": null,
+		"source": null,
+		"type": "valve",
+		"subType": null,
+		"dataSetIds": null,
+		"cursor": null,
+		"metadata": {},
+		"relatedResources": [],
+		"createdTime": null,
+		"lastUpdatedTime": null,
+		"startTime": {
+			"min": null,
+			"max": null,
+			"isoMin": 1744761600.000000000,
+			"isoMax": null
+		}
+	},
+	"limit": 100
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+        "externalIdPrefix": "my_known"
+    }
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"dataSetIds": [
+			{"id": 1},
+			{"id": 2}
+        ]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+		"metadata": {
+			"size": null
+		}
+    }
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"metadata": {
+			"health": "100%"
+		}
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"metadata": {
+			"health": null,
+            "size": null
+		}
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"relatedResources": [
+			{
+				"id": 22
+			}
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+		"metadata": {
+			"property2": "string"
+		}
+    }
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"limit": 100}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"externalIdPrefix": "some_test"
+	},
+	"limit": 3
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"externalIdPrefix": "my_known",
+        "subType": "tank",
+		"dataSetIds": [
+			{"id": 15}
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"externalIdPrefix": "mraid",
+        "subType": "low-disk-space",
+		"dataSetIds": [
+			{"id": 16}
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter":{
+		"id":null,
+		"externalIdPrefix":null,
+		"source":null,
+		"type":null,
+		"subType":null,
+		"dataSetIds":null,
+		"cursor":null,
+		"metadata":{},
+		"relatedResources":[],
+		"createdTime":null,
+		"lastUpdatedTime":null,
+		"startTime":{"min":1710069401321,"max":null,"isoMin":null,"isoMax":null},
+		"endTime":null
+	},
+	"limit":10,
+	"cursor":null,
+	"sort":{
+		"property":["start_time"],
+		"order":"desc",
+		"nulls":null
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"externalIdPrefix": "my_known_id_5"
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"source": "nginx",
+		"startTime": {
+			"min": null,
+			"max": null,
+			"isoMin": 1715256000.000000000,
+			"isoMax": null
+		},
+		"endTime": {
+			"min": null,
+			"max": null,
+			"isoMin": null,
+			"isoMax": 1715299200.000000000
+		}
+	},
+	"limit": 50
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"type": "zfs-event"
+	},
+	"advancedFilter": {
+        "not": {
+			"equals": {
+				"property": ["subType"],
+				"value": "sysevent.fs.zfs.history_event"
+			}
+        }
+    }
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"type": "zfs-event"
+	},
+	"advancedFilter": {
+		"and": [
+			{
+                "equals": {
+				    "property": ["subType"],
+				    "value": "sysevent.fs.zfs.scrub_start"
+			    }
+            },
+			{
+                "equals": {
+				    "property": ["subType"],
+				    "value": "sysevent.fs.zfs.config_sync"
+			    }
+            }
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"advancedFilter": {
+		"and": [
+			{
+				"equals": {
+					"property": ["type"],
+					"value": "zfs-event"
+				}
+			},
+			{
+				"equals": {
+					"property": ["subType"],
+					"value": "sysevent.fs.zfs.config_sync"
+				}
+			}
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"type": "zfs-event"
+	},
+	"advancedFilter": {
+		"and": [
+            {
+                "equals": {
+					"property": ["subType"],
+					"value": "sysevent.fs.zfs.scrub_start"
+				}
+			},
+			{
+                "equals": {
+					"property": ["source"],
+					"value": "is-office-1"
+				}
+			}
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"type": "zfs-event"
+	},
+	"advancedFilter": {
+		"and": [
+            {
+                "in": {
+                    "property": ["subType"],
+                    "values": ["sysevent.fs.zfs.scrub_start", "sysevent.fs.zfs.config_sync"]
+                }
+            }
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"advancedFilter": {
+		"or": [
+			{
+				"equals": {
+					"property": ["subType"],
+					"value": "sysevent.fs.zfs.config_sync"
+				}
+			},
+			{
+				"equals": {
+					"property": ["subType"],
+					"value": "low-disk-space"
+				}
+			}
+		]
+	}
+}
+
+###
+POST {{hostname}}/events/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+        "source": "compute-node-01"
+    },
+	"advancedFilter": {
+		"or": [
+			{
+				"equals": {
+					"property": ["subType"],
+					"value": "sysevent.fs.zfs.config_sync"
+				}
+			},
+			{
+				"equals": {
+					"property": ["subType"],
+					"value": "low-disk-space"
+				}
+			}
+		]
+	}
+}

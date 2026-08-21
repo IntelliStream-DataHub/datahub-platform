@@ -1,0 +1,86 @@
+POST {{hostname}}/timeseries/data/latest
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_timeseries_2"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/latest
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "rust_sdk_test_6540_ts"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/latest
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "wifi_and_vlan2_socket_power"
+		},
+		{
+			"externalId": "core-switch-01-socket_power"
+		},
+		{
+			"externalId": "compute-node-01-socket_power"
+		},
+        {
+			"externalId": "nordpool_hourly_energy_price"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/latest
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "backup_server_socket_power"
+		},
+		{
+			"externalId": "core_switch_01_socket_power"
+		},
+		{
+			"externalId": "compute_node_02_socket_power"
+		},
+		{
+			"externalId": "compute_node_04_socket_power"
+		},
+		{
+			"externalId": "room_sensor_radon1"
+		},
+		{
+			"externalId": "room_sensor_humidity_1"
+		},
+		{
+			"externalId": "room_sensor_voc_1"
+		},
+		{
+			"externalId": "room_sensor_air_pressure_1"
+		},
+		{
+			"externalId": "room_sensor_co2_1"
+		},
+		{
+			"externalId": "room_sensor_temp_1"
+		}
+	]
+}

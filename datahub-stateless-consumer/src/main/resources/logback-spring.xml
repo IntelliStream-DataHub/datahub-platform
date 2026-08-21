@@ -1,0 +1,31 @@
+<configuration>
+	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} -%kvp- %msg%n</pattern>
+		</encoder>
+	</appender>
+
+	<root level="info">
+		<appender-ref ref="STDOUT" />
+	</root>
+
+	<springProfile name="dev">
+		<logger name="ai.intellistream" level="trace" additivity="false">
+			<appender-ref ref="STDOUT" />
+		</logger>
+	</springProfile>
+
+	<springProfile name="test">
+		<!-- LOG "ai.intellistream*" at TRACE level -->
+		<logger name="ai.intellistream" level="trace" additivity="false">
+			<appender-ref ref="STDOUT" />
+		</logger>
+	</springProfile>
+
+	<springProfile name="prod">
+		<!-- LOG "ai.intellistream*" at TRACE level -->
+		<logger name="ai.intellistream" level="info" additivity="false">
+			<appender-ref ref="STDOUT" />
+		</logger>
+	</springProfile>
+</configuration>

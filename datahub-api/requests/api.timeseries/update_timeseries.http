@@ -1,0 +1,44 @@
+POST {{hostname}}/timeseries/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "externalId": "room_sensor_radon11",
+      "update": {
+        "externalId": {
+          "set": "room_sensor_radon12"
+        },
+        "name": {
+          "set": "Room Sensor Radon-12"
+        },
+        "metadata": {
+          "set": {
+            "serial_number": "2930030353",
+            "measurement_started": "20.08.2022"
+          }
+        }
+      }
+    }
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_temperature_1001",
+			"update": {
+				"externalId": {
+					"set": "room_sensor_temp_1001"
+				}
+			}
+		}
+	]
+}
+

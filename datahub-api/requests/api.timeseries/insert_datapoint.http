@@ -1,0 +1,311 @@
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_timeseries_2",
+			"datapoints": [
+				{
+					"timestamp": 1739356433000,
+					"value": 10.8
+				},
+				{
+					"timestamp": "2025-04-14T08:14:00.636Z",
+					"value": 11.3
+				},
+				{
+					"timestamp": "2025-04-14T12:05:00.211Z",
+					"value": 14.5
+				},
+				{
+					"timestamp": "2025-04-14T15:15:00.211Z",
+					"value": 15.1
+				},
+				{
+					"timestamp": "2025-04-14T18:18:33.211Z",
+					"value": 19.8
+				}
+            ]
+        }
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+	{
+	  "externalId": "pump_1466_pressure",
+	  "datapoints": [
+		{
+		  "timestamp": "2026-06-22T13:30:12Z",
+		  "value": 59.5
+		},
+		{
+		  "timestamp": "2026-06-22T13:31:12Z",
+		  "value": 59.2
+		},
+		{
+		  "timestamp": "2026-06-22T13:32:12Z",
+		  "value": 59.1
+		},
+		{
+		  "timestamp": "2026-06-22T13:33:12Z",
+		  "value": 59.6
+		},
+		{
+		  "timestamp": "2026-06-22T13:34:12Z",
+		  "value": 59.3
+		},
+		{
+		  "timestamp": "2026-06-22T13:35:12Z",
+		  "value": 60.1
+		},
+		{
+		  "timestamp": "2026-06-22T13:36:12Z",
+		  "value": 60.0
+		},
+		{
+		  "timestamp": "2026-06-22T13:37:12Z",
+		  "value": 59.8
+		}
+	  ]
+	}
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "rust_sdk_test_6540_ts",
+			"datapoints": [
+				{
+					"timestamp": 1739356433000,
+					"value": 60.8
+				},
+				{
+					"timestamp": 1739360033000,
+					"value": 61.3
+				},
+				{
+					"timestamp": 1739363633000,
+					"value": 59.8
+				}
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "nvme_a_node_04_temperature_2",
+			"datapoints": [
+				{
+					"timestamp": "2025-02-12T08:14:00.636Z",
+					"value": 56.9
+				},
+				{
+					"timestamp": "2025-02-12T09:14:00.636Z",
+					"value": 57.5
+				}
+            ]
+        }
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "switch_backbone_0_01_socket_power",
+			"datapoints": [
+				{
+					"timestamp": "2024-05-08T07:14:00.636Z",
+					"value": 109.5
+				}
+			]
+		}
+	]
+}
+
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "items": [
+        {
+            "externalId": "storage_server_socket_power",
+            "datapoints": [
+                {
+                    "timestamp": 1707737561372,
+                    "value": 9.2
+                }
+            ]
+        },
+        {
+            "externalId": "wifi_and_vlan2_socket_power",
+            "datapoints": [
+                {
+                    "timestamp": 1707737561373,
+                    "value": 6.7
+                }
+            ]
+        },
+        {
+            "externalId": "switch_backbone_0_01_socket_power",
+            "datapoints": [
+                {
+                    "timestamp": 1707737561378,
+                    "value": 106.6
+                }
+            ]
+        },
+        {
+            "externalId": "compute_node_01_socket_power",
+            "datapoints": [
+                {
+                    "timestamp": 1707737562194,
+                    "value": 147.4
+                }
+            ]
+        },
+        {
+            "externalId": "core-switch-01-socket_power",
+            "datapoints": [
+                {
+                    "timestamp": 1707737566024,
+                    "value": 5.9
+                }
+            ]
+        }
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "heater_2012_temp",
+			"datapoints": [
+				{
+					"timestamp": "2026-04-16T16:14:00.136Z",
+					"value": 54.1
+				},
+				{
+					"timestamp": "2026-04-17T08:14:00.636Z",
+					"value": 50.8
+				},
+				{
+					"timestamp": "2026-04-17T08:14:00.636Z",
+					"value": 51.3
+				},
+				{
+					"timestamp": "2026-04-17T12:05:00.211Z",
+					"value": 54.5
+				},
+				{
+					"timestamp": "2026-04-17T15:15:00.211Z",
+					"value": 55.1
+				},
+				{
+					"timestamp": "2026-04-17T18:18:33.211Z",
+					"value": 49.8
+				}
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "heater_2012_temp",
+			"datapoints": [
+				{
+					"timestamp": "2025-04-01T01:00:00.111Z",
+					"value": 23.0
+				},
+			  {
+				"timestamp": "2025-04-01T02:00:00.111Z",
+				"value": 24.0
+			  },
+			  {
+				"timestamp": "2025-04-01T03:00:00.111Z",
+				"value": 25.0
+			  },
+			  {
+				"timestamp": "2025-04-01T04:00:00.111Z",
+				"value": 26.0
+			  },
+			  {
+				"timestamp": "2025-04-01T05:00:00.111Z",
+				"value": 28.0
+			  },
+			  {
+				"timestamp": "2025-04-01T06:00:00.111Z",
+				"value": 33.0
+			  },
+			  {
+				"timestamp": "2025-04-01T07:00:00.111Z",
+				"value": 35.0
+			  },
+			  {
+				"timestamp": "2025-04-01T08:00:00.111Z",
+				"value": 43.0
+			  },
+			  {
+				"timestamp": "2025-04-01T09:00:00.111Z",
+				"value": 44.0
+			  },
+			  {
+				"timestamp": "2025-04-01T10:00:00.111Z",
+				"value": 44.0
+			  },
+			  {
+				"timestamp": "2025-04-01T11:00:00.111Z",
+				"value": 45.0
+			  },
+			  {
+				"timestamp": "2025-04-01T12:00:00.111Z",
+				"value": 45.0
+			  },
+			  {
+				"timestamp": "2025-04-01T13:00:00.111Z",
+				"value": 44.0
+			  }
+			]
+		}
+	]
+}

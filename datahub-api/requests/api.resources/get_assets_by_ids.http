@@ -1,0 +1,15 @@
+POST {{hostname}}/assets/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+        {
+            "externalId": "it_operations"
+        },
+		{
+            "externalId": "compute_node_01_vm_server"
+        }
+    ]
+}
+###

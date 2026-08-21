@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+	<title>Thymeleaf Fragments</title>
+</head>
+<body>
+<th:block th:fragment="dataSetFragment(dataSet, dataSetMap, counter)">
+	<th:block th:each="child : ${dataSetMap.get(dataSet.id)}">
+		<li class="sublist flex-container left-right" th:attr="data-id=${child.id}" th:style="'padding-left: ' + (${counter} * 10) + 'px'">
+			<span th:text="${child.name}"></span>
+			<i class="fa fa-fw fa-edit"></i>
+		</li>
+		<th:block th:with="counter=${counter + 1}" th:insert="~{::dataSetFragment(${child}, ${dataSetMap}, ${counter})}"></th:block>
+	</th:block>
+</th:block>
+</body>
+</html>

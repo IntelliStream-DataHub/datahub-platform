@@ -1,0 +1,46 @@
+POST {{hostname}}/datasets/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"search": {
+        "query": "power"
+    }
+}
+###
+POST {{hostname}}/datasets/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"search": {
+		"query": "power"
+	},
+    "filter": {
+        "createdTime": {
+            "isoMin": "2024-03-01T13:00:00.000Z"
+        },
+        "deactivated": false,
+        "writeProtected": false
+    }
+}
+###
+POST {{hostname}}/datasets/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"search": {
+		"query": "power"
+	},
+    "filter": {
+        "createdTime": {
+            "isoMin": "2024-03-01T13:00:00.000Z"
+        },
+        "deactivated": false,
+        "writeProtected": false,
+        "metadata": {
+			"property2": "string"
+        }
+    }
+}

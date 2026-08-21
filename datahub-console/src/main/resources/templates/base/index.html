@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title th:text="#{intellistream.console.title}"></title>
+    <meta th:replace="~{layout/main :: htmlmeta}" />
+    <link rel="stylesheet" th:href="@{/static/css/home-dashboard.css}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, null)}">
+
+<main class="layout-body home-dashboard">
+
+    <!-- Greeting (plain div — a <header> here would inherit the dark nav-bar styling). Session data,
+         so it stays server-rendered; everything below is filled by home-dashboard.js from the API. -->
+    <div class="home-greeting">
+        <h1 class="home-greeting-title">
+            <span th:text="#{__${greetingKey}__}">Welcome back</span><span th:if="${@userSession.getName()}">, <span th:text="${@userSession.getName()}">there</span></span>
+        </h1>
+        <p class="home-greeting-sub" th:text="#{home.tagline}">A shared model of your operation.</p>
+    </div>
+
+    <!-- What do you want to do today? — task-framed entry points. Each card links to a section; the
+         icons match the status tiles below so each column reads action → current state. The Navy
+         "Learn DataHub" bar opens the guided tutorial and only renders when the tutorial is enabled. -->
+    <section class="home-intro">
+        <h2 class="home-intro-title" th:text="#{home.intro.title}">What do you want to do today?</h2>
+        <div class="home-actions">
+
+            <a class="action-card" th:href="@{/resources/index}">
+                <span class="action-icon"><i class="fa-solid fa-diagram-project"></i></span>
+                <span class="action-text">
+                    <span class="action-title" th:text="#{home.intro.assets.title}">Manage assets &amp; resources</span>
+                    <span class="action-desc" th:text="#{home.intro.assets.desc}">Model your company's assets and the resources that describe them.</span>
+                </span>
+            </a>
+
+            <a class="action-card" th:href="@{/timeseries/index}">
+                <span class="action-icon"><i class="fa-solid fa-chart-line"></i></span>
+                <span class="action-text">
+                    <span class="action-title" th:text="#{home.intro.timeseries.title}">Explore time series</span>
+                    <span class="action-desc" th:text="#{home.intro.timeseries.desc}">Create time series and explore their data points.</span>
+                </span>
+            </a>
+
+            <a class="action-card" th:href="@{/events/index}">
+                <span class="action-icon"><i class="fa-solid fa-bell"></i></span>
+                <span class="action-text">
+                    <span class="action-title" th:text="#{home.intro.events.title}">Explore events</span>
+                    <span class="action-desc" th:text="#{home.intro.events.desc}">Browse and investigate events across your operation.</span>
+                </span>
+            </a>
+
+            <a class="action-card" th:href="@{/datasets/index}">
+                <span class="action-icon"><i class="fa-solid fa-database"></i></span>
+                <span class="action-text">
+                    <span class="action-title" th:text="#{home.intro.datasets.title}">Build data sets</span>
+                    <span class="action-desc" th:text="#{home.intro.datasets.desc}">Create data sets with policies, linked to events and time series.</span>
+                </span>
+            </a>
+
+        </div>
+
+        <!-- Guided-tutorial launcher. Only rendered when the tutorial is enabled — its JS (which wires
+             the header menu entry this button triggers) is loaded under the same flag. -->
+        <button type="button" id="home-learn-tutorial" class="home-tutorial-cta" th:if="${tutorialActive}">
+            <span class="home-tutorial-icon"><i class="fa-solid fa-graduation-cap"></i></span>
+            <span class="home-tutorial-text">
+                <span class="home-tutorial-title" th:text="#{home.intro.tutorial.title}">New to DataHub?</span>
+                <span class="home-tutorial-sub" th:text="#{home.intro.tutorial.sub}">Take the guided tutorial and learn the platform step by step.</span>
+            </span>
+            <span class="home-tutorial-arrow" aria-hidden="true">→</span>
+        </button>
+    </section>
+
+    <!-- Jump back in — launcher tiles, each surfacing two counts. The .tutorial-tile class + data-href
+         keep tile navigation (tutorials/dashboard.js) intact; data-stat keys let home-dashboard.js fill
+         the numbers from the API. Both the counts and the empty-state CTA are in the DOM; the JS shows
+         whichever fits once the stats arrive. -->
+    <section class="home-quick">
+        <h2 class="home-panel-title" th:text="#{home.quick.title}">Jump back in</h2>
+        <div id="tutorial-dashboard" class="tutorial-tile-grid metric-grid">
+
+            <div class="tutorial-tile metric-tile" data-tutorial="resources" data-href="/resources/index">
+                <div class="metric-tile-head">
+                    <i class="tutorial-tile-icon fa-solid fa-diagram-project"></i>
+                    <span class="tutorial-tile-label" th:text="#{home.tile.resources}">Assets &amp; resources</span>
+                </div>
+                <div class="metric-row">
+                    <div class="metric">
+                        <span class="metric-value" data-stat="rootAssets">0</span>
+                        <span class="metric-label" th:text="#{home.stat.rootAssets}">Root assets</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" data-stat="allAssets">0</span>
+                        <span class="metric-label" th:text="#{home.stat.allAssets}">All assets</span>
+                    </div>
+                </div>
+                <div class="metric-empty is-hidden">
+                    <span class="metric-empty-text" th:text="#{home.tile.assets.empty}">No assets yet</span>
+                    <span class="metric-empty-cta" th:text="#{home.cta.create}">Create your first →</span>
+                </div>
+            </div>
+
+            <div class="tutorial-tile metric-tile" data-tutorial="timeseries" data-href="/timeseries/index">
+                <div class="metric-tile-head">
+                    <i class="tutorial-tile-icon fa-solid fa-chart-line"></i>
+                    <span class="tutorial-tile-label" th:text="#{home.tile.timeseries}">Time series</span>
+                </div>
+                <div class="metric-row">
+                    <div class="metric">
+                        <span class="metric-value" data-stat="timeseries">0</span>
+                        <span class="metric-label" th:text="#{home.stat.timeseries}">Series</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" data-stat="datapoints">0</span>
+                        <span class="metric-label" th:text="#{home.stat.datapoints}">Datapoints</span>
+                    </div>
+                </div>
+                <div class="metric-empty is-hidden">
+                    <span class="metric-empty-text" th:text="#{home.tile.timeseries.empty}">No time series yet</span>
+                    <span class="metric-empty-cta" th:text="#{home.cta.create}">Create your first →</span>
+                </div>
+            </div>
+
+            <div class="tutorial-tile metric-tile" data-tutorial="events" data-href="/events/index">
+                <div class="metric-tile-head">
+                    <i class="tutorial-tile-icon fa-solid fa-bell"></i>
+                    <span class="tutorial-tile-label" th:text="#{home.tile.events}">Events</span>
+                </div>
+                <div class="metric-row">
+                    <div class="metric">
+                        <span class="metric-value" data-stat="events">0</span>
+                        <span class="metric-label" th:text="#{home.stat.events}">Events</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" data-stat="alarms">0</span>
+                        <span class="metric-label" th:text="#{home.stat.alarms}">Alarms</span>
+                    </div>
+                </div>
+                <div class="metric-empty is-hidden">
+                    <span class="metric-empty-text" th:text="#{home.tile.events.empty}">No events yet</span>
+                    <span class="metric-empty-hint" th:text="#{home.tile.events.hint}">Events arrive from your streams</span>
+                </div>
+            </div>
+
+            <div class="tutorial-tile metric-tile" data-tutorial="datasets" data-href="/datasets/index">
+                <div class="metric-tile-head">
+                    <i class="tutorial-tile-icon fa-solid fa-database"></i>
+                    <span class="tutorial-tile-label" th:text="#{home.tile.datasets}">Data sets</span>
+                </div>
+                <div class="metric-row">
+                    <div class="metric">
+                        <span class="metric-value" data-stat="datasets">0</span>
+                        <span class="metric-label" th:text="#{home.stat.datasets}">Data sets</span>
+                    </div>
+                    <div class="metric">
+                        <span class="metric-value" data-stat="policies">0</span>
+                        <span class="metric-label" th:text="#{home.stat.policies}">Policies</span>
+                    </div>
+                </div>
+                <div class="metric-empty is-hidden">
+                    <span class="metric-empty-text" th:text="#{home.tile.datasets.empty}">No data sets yet</span>
+                    <span class="metric-empty-cta" th:text="#{home.cta.create}">Create your first →</span>
+                </div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Operational row: top event types (left) + time-series spotlight (right). Both filled by
+         home-dashboard.js from the API. -->
+    <section class="home-grid">
+
+        <div class="home-panel home-eventtypes-panel">
+            <div class="home-panel-head">
+                <h2 class="home-panel-title" th:text="#{home.eventtypes.title}">This week</h2>
+                <a class="home-panel-link" th:href="@{/events/index}" th:text="#{home.eventtypes.viewall}">View events</a>
+            </div>
+            <ul class="eventtype-list" id="home-eventtypes"></ul>
+            <p class="home-empty is-hidden" id="home-eventtypes-empty" th:text="#{home.eventtypes.empty}">No events recorded this week.</p>
+        </div>
+
+        <!-- Time-series spotlight — home-dashboard.js fetches the newest series' last-24h data straight
+             from the API, classifies live vs stale, and draws each card. Stale series (no data in 24h)
+             render muted with a badge rather than being hidden. -->
+        <div class="home-panel home-spotlight-panel">
+            <h2 class="home-panel-title" th:text="#{home.spotlight.title}">Time series</h2>
+            <div class="spotlight-list" id="home-spotlight"></div>
+            <p class="home-empty is-hidden" id="home-spotlight-empty" th:text="#{home.spotlight.nodata}">No time-series data to chart yet.</p>
+        </div>
+
+    </section>
+
+    <!-- Recent activity — latest events, fetched and rendered client-side. -->
+    <section class="home-panel home-activity">
+        <h2 class="home-panel-title" th:text="#{home.activity.title}">Recent activity</h2>
+        <ul class="activity-list" id="home-activity-list"></ul>
+        <p class="home-empty is-hidden" id="home-activity-empty" th:text="#{home.activity.empty}">No recent events.</p>
+    </section>
+
+    <!-- Strings + locale the JS-built widgets need (stale badge, date locale). -->
+    <script th:inline="javascript">
+        window.DASHBOARD_I18N = {
+            spotlightStale: /*[[#{home.spotlight.stale}]]*/ 'No data · 24h'
+        };
+        window.DASHBOARD_LOCALE = /*[[${#locale.toLanguageTag()}]]*/ 'en';
+    </script>
+
+    <!-- Vendored lib the spotlight renders with (already in the repo, no new deps). -->
+    <script type="text/javascript" src="/static/js/charts/d3.v7.9.min.js" defer></script>
+
+    <!-- Home behaviour: tile navigation (dashboard) + dashboard widgets (home/home-dashboard). -->
+    <th:block th:replace="~{fragments/assets :: js('dashboard')}"></th:block>
+
+</main>
+</body>
+</html>

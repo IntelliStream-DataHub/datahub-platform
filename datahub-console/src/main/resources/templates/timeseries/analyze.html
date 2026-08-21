@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{analyze}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/analyze.css}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'timeseries')}">
+<main class="layout-body">
+	<nav th:replace="~{timeseries/nav :: navbar('analyze')}"></nav>
+	<div class="flex-container left-right topic-content">
+		<section class="left-content datahub-form-fields pad20" style="flex:0 0 260px">
+			<label for="an-filter" th:text="#{insights.analysis.focus}">Focus time series</label>
+			<div class="posrel">
+				<input id="an-filter" class="w100 left-icon" type="text" autocomplete="off"
+					   th:attr="placeholder=#{write.query.here}"/>
+				<i class="fa fa-fw fa-search"></i>
+			</div>
+			<ul id="an-ts-list" class="data-list slim pointer"></ul>
+		</section>
+
+		<section class="analyze-content" style="flex:1; padding:0 20px">
+			<section id="datapoints-chart" data-type="zoom-chart"></section>
+			<div class="analyze-surface">
+			<div class="analyze-toolbar">
+				<span class="an-focus" id="an-focus-label"></span>
+				<button id="an-run" type="button" class="dh-btn primary small"
+						th:text="#{insights.analysis.find}">Analyze</button>
+				<button id="an-expand" type="button" class="dh-btn secondary small"
+						th:text="#{insights.analysis.expand}">Expand search</button>
+			</div>
+			<div class="an-band" id="an-band"></div>
+			<div id="an-out"></div>
+			</div>
+		</section>
+	</div>
+
+	<script th:replace="~{timeseries/i18n :: i18nMessages}"></script>
+	<script type="text/javascript" src="/static/js/charts/d3.v7.9.min.js"></script>
+	<script type="text/javascript" src="/static/js/datepicker.js"></script>
+	<th:block th:replace="~{fragments/assets :: js('analyze')}"></th:block>
+</main>
+</body>
+</html>

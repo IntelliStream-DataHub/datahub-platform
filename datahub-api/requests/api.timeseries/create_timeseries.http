@@ -1,0 +1,92 @@
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_radon1",
+			"name": "room_sensor_radon1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "Bq/m³",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_temp_1",
+			"name": "room_sensor_temp_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "celsius",
+			"description": "Air quality sensor",
+			"valueType": "DECIMAL",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_co2_1",
+			"name": "room_sensor_co2_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "ppm",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_air_pressure_1",
+			"name": "room_sensor_air_pressure_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "mBar",
+			"description": "Air quality sensor",
+			"valueType": "decimal",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_humidity_1",
+			"name": "room_sensor_humidity_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "percent",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_voc_1",
+			"name": "room_sensor_voc_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "ppb",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		}
+	]
+}

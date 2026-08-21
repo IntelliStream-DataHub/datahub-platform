@@ -1,0 +1,5 @@
+GET {{hostname}}/resources/3956904255868652128
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###

@@ -1,0 +1,46 @@
+{
+ "generatedAt": "2026-08-19T13:20:42Z",
+ "generator": "deploy/demo/generate/generate.py",
+ "sdkCommit": "c4fcb6d",
+ "strideSeconds": 10,
+ "rowsPerWell": 2160,
+ "datasetIdPlaceholder": "__DATASET_ID__",
+ "wells": [
+  {
+   "externalId": "synthetic_3w_well_00001",
+   "wellId": 1,
+   "resources": 43,
+   "timeseries": 17,
+   "relations": 85,
+   "rows": 2160,
+   "sensors": 17
+  },
+  {
+   "externalId": "synthetic_3w_well_00002",
+   "wellId": 2,
+   "resources": 30,
+   "timeseries": 4,
+   "relations": 59,
+   "rows": 2160,
+   "sensors": 4
+  },
+  {
+   "externalId": "synthetic_3w_well_00003",
+   "wellId": 3,
+   "resources": 36,
+   "timeseries": 10,
+   "relations": 71,
+   "rows": 2160,
+   "sensors": 10
+  }
+ ],
+ "source": {
+  "name": "3W Dataset",
+  "publisher": "Petrobras",
+  "repository": "https://github.com/petrobras/3W",
+  "license": "CC BY 4.0",
+  "licenseUrl": "https://creativecommons.org/licenses/by/4.0/",
+  "attribution": "Vargas, R.E.V. et al. (2019). A realistic and public dataset with rare undesirable real events in oil wells. Journal of Petroleum Science and Engineering, 181, 106223.",
+  "doi": "https://doi.org/10.1016/j.petrol.2019.106223"
+ }
+}

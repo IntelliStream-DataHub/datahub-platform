@@ -1,0 +1,214 @@
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "externalId": "test_timeseries_2",
+      "start": "2024-01-01T00:00Z",
+      "granularity": "10 seconds",
+      "aggregates": [
+        "avg",
+        "min",
+        "max"
+      ],
+      "limit": 100
+    }
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "compute_node_01_socket_power",
+			"start": "2020-01-01T00:00Z"
+		},
+		{
+            "externalId": "test_timeseries_2",
+			"start": "2020-01-01T00:00Z"
+        },
+		{
+            "externalId": "wifi_and_vlan2_socket_power",
+			"start": "2020-01-01T00:00Z"
+        }
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "compute_node_01_nvme_drive_0_temp",
+			"start": "2025-01-01T00:00Z"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "externalId": "compute_node_01_nvme_drive_0_temp",
+      "start": "2025-01-01T00:00Z",
+      "granularity": "1 minute",
+      "aggregates": [
+        "avg",
+        "min",
+        "max"
+      ]
+    }
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "compute_node_01_socket_power",
+			"start": "2020-01-01T00:00Z",
+			"granularity": "30 min",
+			"aggregates": [
+				"avg",
+				"min",
+				"max"
+			],
+            "limit": 1000
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "wifi_and_vlan2_socket_power",
+			"start": 1685695356838,
+			"end": 1709874510000
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "wifi_and_vlan2_socket_power",
+			"start": "2024-03-03T18:29:00.000Z",
+			"end": "2024-03-03T19:01:00.000Z"
+		}
+	]
+}
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "wifi_and_vlan2_socket_power",
+			"start": 1709490540000,
+			"end": 1709492460000
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "rust_sdk_test_6540_ts",
+			"start": "2025-02-04T22:50:59Z",
+            "limit": 10
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"id": 517,
+			"start": "2025-01-01T00:00Z",
+			"granularity": "10 seconds",
+			"aggregates": [
+				"avg",
+				"min",
+				"max"
+			]
+		}
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "start": "2025-01-01T00:00:00Z",
+      "end": null,
+      "limit": 0,
+      "aggregates": null,
+      "granularity": null,
+      "cursor": null,
+      "id": null,
+      "externalId": "rust_sdk_test_6540_ts"
+    }
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "start": "2025-01-01T00:00:00Z",
+      "end": null,
+      "limit": 0,
+      "aggregates": null,
+      "granularity": null,
+      "id": null,
+      "externalId": "rust_sdk_test_6540_ts"
+    }
+  ]
+}

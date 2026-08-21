@@ -1,0 +1,42 @@
+GET {{hostname}}/units
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+GET {{hostname}}/units/volume_barrel_pet_us
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+POST {{hostname}}/units/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+    "items": [
+        {
+            "externalId": "area_m2"
+        },
+        {
+            "externalId": "volume_barrel_pet_us"
+        },
+		{
+            "id": 15
+        },
+        {
+            "id": 23
+        },
+		{
+            "externalId": "electric_potential_volt"
+        }
+    ]
+}
+
+###
+POST {{hostname}}/units/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{"items":[{"externalId":"temperature_deg_c"}]}

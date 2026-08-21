@@ -1,0 +1,3 @@
+GET {{hostname}}/labels
+Authorization: Bearer {{token}}
+

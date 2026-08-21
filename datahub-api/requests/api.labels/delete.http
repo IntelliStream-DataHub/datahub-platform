@@ -1,0 +1,12 @@
+POST {{hostname}}/labels/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"id": 12
+		}
+	]
+}
+

@@ -1,0 +1,35 @@
+
+POST {{hostname}}/resources/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [{
+		"externalId": "trigger_cost",
+		"update": {
+			"metadata": {
+				"set": {
+					"Total-Cost": "Timeseries created from total cost"
+				}
+			}
+		}
+    }],
+	"relations": [
+
+	]
+}
+
+###
+POST {{hostname}}/resources/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"id": "3956904255868652128",
+	"isRoot": "false",
+	"labels[0]": "TIMESERIES",
+	"name": "Trigger Cost2",
+	"externalId": "trigger_cost",
+	"description": "Sum cost of a triggered api request",
+	"source": ""
+}}

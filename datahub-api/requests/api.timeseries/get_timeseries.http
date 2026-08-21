@@ -1,0 +1,38 @@
+POST {{hostname}}/timeseries/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"items": [
+	{
+		"externalId": "room_sensor_radon1"
+	},
+	{
+		"externalId": "room_sensor_radon2"
+	},
+	{
+		"externalId": "room_sensor_radon3"
+	},
+	{
+		"externalId": "room_sensor_radon4"
+	},
+	{
+		"externalId": "room_sensor_radon5"
+	},
+	{
+		"externalId": "nordpool_hourly_energy_price"
+	},
+	{
+		"externalId": "vm_sb_01_power1_average"
+	}
+]}
+
+###
+POST {{hostname}}/timeseries/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"items": [
+	{
+		"externalId": "rust_sdk_test_1400_ts"
+	}
+]}

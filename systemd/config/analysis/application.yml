@@ -1,0 +1,37 @@
+# /etc/datahub/analysis/application.yml
+#
+# Deployment tuning for datahub-analysis. It is called straight from the browser (the
+# console's Analyze tab) and validates the caller's JWT, so it needs the same header
+# ceiling as the api. CPU-bound: one request can keep a core busy for seconds, so the
+# connection limits are lower and the per-request work is what a whole NUMA node is
+# reserved for.
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: native
+  max-http-request-header-size: 16KB
+
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+  tomcat:
+    # max-connections is left at Tomcat's default (8192). Only nginx's keep-alive pool and
+    # a few browsers connect here, and the CPU-bound work per request is the real limit,
+    # bounded by the cores, not by a socket count. See the api config for the one case
+    # where the default is too small.
+    accept-count: 256
+    connection-timeout: 20s
+    keep-alive-timeout: 75s
+    max-keep-alive-requests: -1
+    # Only if it is fronted by the load balancer too; list the LB addresses, as for the api.
+    remoteip:
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      internal-proxies: 10.0.0.10/32, 10.0.0.11/32, fd00:10::10/128, fd00:10::11/128
+
+spring:
+  lifecycle:
+    # Analyses in flight are allowed to finish.
+    timeout-per-shutdown-phase: 60s

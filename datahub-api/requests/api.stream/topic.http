@@ -1,0 +1,139 @@
+GET {{hostname}}/stream/topics/7
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+POST {{hostname}}/stream/topics
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{
+    "items": [
+		{"namespace": "smart_plug"}
+    ]
+}
+
+###
+POST {{hostname}}/stream/topics/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+    "items": [
+		{
+            "name": "power_monitoring_sensors",
+            "description": "Monitoring of smart plugs",
+            "namespace": "smart_plug",
+            "subscriptions": [
+				{
+                    "name": "power_monitoring_alpha_sub"
+                }
+            ]
+        }
+    ]
+}
+
+###
+POST {{hostname}}/stream/topics/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"name": "power_monitoring_sensors_plug_a",
+			"description": "Smart Plug A",
+			"namespace": "smart_plug",
+			"subscriptions": [
+				{
+					"name": "plug_a_alpha_sub"
+				}
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/stream/topics/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"name": "power_monitoring_sensors_plug_a",
+			"description": "Smart Plug A",
+			"namespace": "smart_plug"
+		}
+	]
+}
+
+###
+POST {{hostname}}/stream/topics/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"id": 7,
+			"description": "Monitoring of smart plugs",
+			"subscriptions": [
+				{
+					"name": "power_monitoring_alpha_sub"
+				},
+				{
+					"name": "power_monitoring_beta_sub"
+				}
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/stream/topics/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"id": 7,
+			"description": "Monitoring of smart plugs",
+			"subscriptions": [
+				{
+					"name": "power_monitoring_alpha_sub"
+				}
+			],
+            "permissions": [
+				{
+					"role": {
+						"name": "node-04"
+					},
+					"hasProducePermission": true,
+					"hasConsumePermission": true
+				}
+            ]
+		}
+	]
+}
+
+###
+DELETE {{hostname}}/stream/topics/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"id": 4
+		}
+	]
+}

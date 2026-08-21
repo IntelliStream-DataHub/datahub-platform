@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{insights}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'timeseries')}">
+<main class="layout-body">
+	<nav th:replace="~{timeseries/nav :: navbar('insights')}"></nav>
+	<div class="flex-container left-right topic-content">
+		<section th:replace="~{timeseries/tssearch :: timeseries-search}"></section>
+		<section class="" style="flex:1;padding: 0 20px" data-type="zoom-chart" id="datapoints-chart"></section>
+	</div>
+
+	<script th:replace="~{timeseries/i18n :: i18nMessages}"></script>
+
+	<script type="text/javascript" src="/static/js/charts/d3.v7.9.min.js" defer></script>
+	<th:block th:replace="~{fragments/assets :: js('insights')}"></th:block>
+	<script type="text/javascript" src="/static/js/datepicker.js" defer></script>
+
+	<script type="application/javascript">
+		document.addEventListener("DOMContentLoaded", () => {
+			const COLOR_NAMES = ["orange", "teal", "purple", "yellowgreen", "pink", "skyblue"];
+
+			// Quick-range presets (id -> milliseconds back from "now"). Months/year
+			// use day approximations because we just need a window, not a calendar.
+			// The same control drives the live rolling-window width while streaming,
+			// so 2m/15m (originally live-only) live here too.
+			const QUICK_RANGE_MS = {
+				"2m":  2 * 60_000,
+				"5m":  5 * 60_000,
+				"15m": 15 * 60_000,
+				"30m": 30 * 60_000,
+				"1h":  60 * 60_000,
+				"3h":  3 * 60 * 60_000,
+				"12h": 12 * 60 * 60_000,
+				"1d":  24 * 60 * 60_000,
+				"2d":  2 * 24 * 60 * 60_000,
+				"1w":  7 * 24 * 60 * 60_000,
+				"1M":  30 * 24 * 60 * 60_000,
+				"3M":  90 * 24 * 60 * 60_000,
+				"1y":  365 * 24 * 60 * 60_000
+			};
+			// Largest window that makes sense as a LIVE rolling tail: beyond an hour the
+			// raw seed fetch (seedLiveRaw pulls raw datapoints for the whole window) and
+			// per-frame render get impractical. While streaming, options above this are
+			// disabled so a huge live window can't be selected.
+			const LIVE_MAX_MS = 60 * 60_000;
+
+			const startDateInput = document.getElementById('ts-start-date');
+			const startTimeInput = document.getElementById('ts-start-time');
+			const endDateInput   = document.getElementById('ts-end-date');
+			const endTimeInput   = document.getElementById('ts-end-time');
+			const rangeSelect    = document.getElementById('ts-quick-range');
+
+			const pad = n => String(n).padStart(2, '0');
+			function writeDateTime(dateEl, timeEl, date){
+				dateEl.value = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+				timeEl.value = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+			}
+			function readLocalIso(dateEl, timeEl){
+				if(!dateEl.value) return null;
+				const time = timeEl.value || "00:00";
+				// "YYYY-MM-DD" + "T" + "HH:MM" -> wall-clock ISO without zone
+				return `${dateEl.value}T${time}`;
+			}
+			// Picker inputs are in the user's local timezone (datetime-local has
+			// no zone). new Date(localValue) parses as local; toISOString emits
+			// UTC. So 14:30 in CEST becomes 12:30Z, 14:30 in PDT becomes 21:30Z,
+			// etc. — always the right UTC instant.
+			function toIsoFromLocalInput(localValue){
+				const d = new Date(localValue);
+				return Number.isNaN(d.getTime()) ? localValue : d.toISOString();
+			}
+			function applyQuickRange(presetValue){
+				const ms = QUICK_RANGE_MS[presetValue];
+				if(!ms) return false;
+				const end = new Date();
+				const start = new Date(end.getTime() - ms);
+				writeDateTime(startDateInput, startTimeInput, start);
+				writeDateTime(endDateInput, endTimeInput, end);
+				return true;
+			}
+			function getCurrentRangeIso(){
+				const startLocal = readLocalIso(startDateInput, startTimeInput);
+				const endLocal   = readLocalIso(endDateInput, endTimeInput);
+				if(!startLocal || !endLocal) return null;
+				return {
+					startIso: toIsoFromLocalInput(startLocal),
+					endIso:   toIsoFromLocalInput(endLocal)
+				};
+			}
+
+			function currentGranularity(){
+				const range = getCurrentRangeIso();
+				if(!range) return null;
+				const span = (new Date(range.endIso) - new Date(range.startIso)) / 1000;
+				return InsightsChart.pickGranularityForSpan(span);
+			}
+			// Pin the chart's x-axis to the user-selected window so the visible
+			// range exactly matches what's in the start/end inputs (not just the
+			// extent of returned datapoints).
+			function applyTimeWindowToChart(){
+				if(!window.InsightsChart) return;
+				const range = getCurrentRangeIso();
+				if(!range) return;
+				window.InsightsChart.setTimeWindow(new Date(range.startIso), new Date(range.endIso));
+			}
+
+			// Enable/disable window options for the current mode. Historical (not live):
+			// the full range set, 'grow' disabled (it needs a live "now" anchor). Live:
+			// only windows up to LIVE_MAX_MS plus 'grow'; 'custom' and longer ranges
+			// disabled. If the current selection becomes invalid for the new mode, snap
+			// to that mode's default (live -> 15m, historical -> 1d).
+			function updateWindowOptionsForMode(live){
+				if(!rangeSelect) return;
+				[...rangeSelect.options].forEach(opt => {
+					const v = opt.value;
+					if(v === 'grow')     opt.disabled = !live;                            // grow: live only
+					else if(v === '')    opt.disabled = live;                             // custom range: historical only
+					else                 opt.disabled = live && QUICK_RANGE_MS[v] > LIVE_MAX_MS;
+				});
+				const cur = rangeSelect.selectedOptions[0];
+				if(cur && cur.disabled) rangeSelect.value = live ? '15m' : '1d';
+			}
+
+			// Default to last 24h on first load
+			if(rangeSelect){
+				updateWindowOptionsForMode(false);
+				applyQuickRange("1d");
+				rangeSelect.value = "1d";
+				rangeSelect.addEventListener('change', e => {
+					// While streaming, the select is the live rolling-window width, not a
+					// historical range — re-apply it to the chart instead of refetching.
+					if(liveActive){
+						applyLiveWindow();
+						return;
+					}
+					if(!e.target.value) return;   // 'custom' — user will edit start/end manually
+					applyQuickRange(e.target.value);
+					onRangeChanged();
+				});
+				[startDateInput, startTimeInput, endDateInput, endTimeInput].forEach(el => {
+					el.addEventListener('change', () => {
+						// Manual edit invalidates the preset selection
+						rangeSelect.value = "";
+						onRangeChanged();
+					});
+				});
+			}
+
+			// Week-number clicks are handled generically in datepicker.js: it writes the week's
+			// [start, end] into the linked start/end pickers and fires change, which the listeners
+			// below pick up (onRangeChanged -> refetch). No page-specific handling needed.
+
+			function refetchAllSelected(){
+				const range = getCurrentRangeIso();
+				if(!range) return;
+				const selected = document.querySelectorAll('[data-type="timeseries-list"] li.selected');
+				if(selected.length === 0 || !window.InsightsChart) return;
+
+				const granularity = currentGranularity();
+				Promise.allSettled(
+					[...selected].map(li => {
+						const externalId = li.getAttribute('data-external-id');
+						return fetchTimeseriesRange(externalId, range.startIso, range.endIso, granularity)
+							.then(json => ({ externalId, json }));
+					})
+				).then( results => {
+					let anyReplaced = false;
+					results.forEach( r => {
+						if(r.status !== 'fulfilled') return;
+						const { externalId, json } = r.value;
+						if(!json || !json.items || json.items.length === 0) return;
+						if(window.InsightsChart.replaceDataSetData(externalId, json.items[0])){
+							anyReplaced = true;
+						}
+					});
+					applyTimeWindowToChart();
+					// Re-render even if data didn't change so the new x-window
+					// (and therefore the axis labels) reflect the picker values.
+					if(window.InsightsChart) window.InsightsChart.render();
+				});
+			}
+
+			function fetchTimeseriesRange(externalId, startIso, endIso, granularity, raw){
+				const body = { "externalId": externalId, "startTime": startIso, "endTime": endIso };
+				if(raw) body.raw = true;
+				else if(granularity) body.granularity = granularity;
+				return fetch('/api/timeseries/data/by-hours-ago', {
+					method: 'POST',
+					headers: {
+						'Accept': 'application/json',
+						'Content-type': 'application/json',
+						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
+					},
+					body: JSON.stringify(body)
+				}).then(r => r.json());
+			}
+
+			// Seed each selected series with raw datapoints for the initial live window so the live
+			// chart is raw from the start. A growing window is anchored at "now", so it begins empty
+			// and fills purely from streamed points.
+			function seedLiveRaw(externalIds, w){
+				if(w.grow){
+					// Growing window is anchored at "now"; existing data sits before the anchor and is
+					// clipped anyway, so leave it and let streamed points fill the window.
+					return Promise.resolve();
+				}
+				const endIso = new Date().toISOString();
+				const startIso = new Date(Date.now() - w.windowMs).toISOString();
+				return Promise.allSettled(externalIds.map(id =>
+					fetchTimeseriesRange(id, startIso, endIso, null, true).then(json => ({ id: id, json: json }))
+				)).then(results => {
+					let seeded = false;
+					results.forEach(r => {
+						if(r.status !== 'fulfilled') return;
+						const item = r.value.json && r.value.json.items && r.value.json.items[0];
+						// Only swap to raw when we actually got points; otherwise keep the existing
+						// data so going live never blanks the chart when the window has no recent data.
+						if(item && item.datapoints && item.datapoints.length){
+							window.InsightsChart.seedRawData(r.value.id, item);
+							seeded = true;
+						}
+					});
+					if(seeded) window.InsightsChart.render();
+				});
+			}
+
+			// Shared left-panel picker (static/js/resource-list.js). select:'none' — leftMenuTsClickEvent
+			// owns the multi-select highlight (the chart tracks [data-type="timeseries-list"] li.selected).
+			// Search results inherit that data-type, so picking a search hit adds it to the chart too.
+			ResourcePicker.init({
+				list: '[data-type="timeseries-list"]',
+				section: '#timeseries-list',
+				searchInput: '#search-timeseries',
+				event: 'pointerdown',
+				select: 'none',
+				attrs: item => ({ 'data-root-id': item.id, 'data-external-id': item.externalId }),
+				labels: () => ['TIMESERIES'],
+				search: {
+					url: '/api/timeseries/search',
+					body: q => ({ search: { query: q } }),
+					items: json => json.items
+				},
+				onSelect: (id, ctx) => leftMenuTsClickEvent(ctx.el)
+			});
+
+			function leftMenuTsClickEvent(ts) {
+				const externalId = ts.getAttribute('data-external-id');
+				if(ts.classList.contains("selected")){
+					ts.classList.remove("selected");
+					removeColorSwatch(ts);
+					window.InsightsChart.removeDataSet(externalId);
+					syncAllSwatches();
+					syncLiveInterest();
+					return;
+				}
+				// Cap the number of simultaneously selected series at the
+				// number of distinct colors the chart can hand out. Counting
+				// li.selected (rather than InsightsChart.dataSets.length)
+				// includes selections whose fetch is still in flight, so a
+				// rapid burst of clicks can't slip past the limit while the
+				// chart hasn't picked up the previous adds yet.
+				const max = InsightsChart.maxDataSets();
+				const selectedCount = document.querySelectorAll('[data-type="timeseries-list"] li.selected').length;
+				if (selectedCount >= max) {
+					Flash.warning($L('insights.maxTimeseries.warning', '', [String(max)]));
+					return;
+				}
+				ts.classList.add("selected");
+				// While streaming, a newly selected series must match the live view:
+				// raw datapoints for the live window, not the historical aggregated
+				// fetch (currentGranularity() would come back at e.g. avg-per-minute
+				// for the default range and look coarser than the already-live series).
+				// addLiveSeries owns the raw seed + stream-interest sync for that case.
+				if(liveActive){
+					addLiveSeries(externalId, ts);
+				} else {
+					fetchAndDrawTimeseries(externalId, ts);
+				}
+			}
+			// Exposed for the guided tutorial's correlation reconciler, which needs to toggle a
+			// series deterministically. Calling this directly avoids guessing whether a given row
+			// listens on 'click' (server-rendered rows) or 'pointerdown' (rows the overlay created).
+			window.leftMenuTsClickEvent = leftMenuTsClickEvent;
+
+			const fetchAndDrawTimeseries = (externalId, ts) => {
+				const range = getCurrentRangeIso();
+				if(!range) return;
+				fetchTimeseriesRange(externalId, range.startIso, range.endIso, currentGranularity())
+					.then( json => {
+						if(json && json.items && json.items.length > 0){
+							showLineChart(externalId, json, ts);
+						}
+					})
+					.catch((e) => {
+						console.log(e);
+					});
+			}
+
+			// Handle line chart
+			function showLineChart(externalId, data, ts){
+				if(window.InsightsChart === undefined){
+					window.InsightsChart = new InsightsChart({container: document.getElementById("datapoints-chart")});
+					window.InsightsChart.height = 800 - window.InsightsChart.margin.top - window.InsightsChart.margin.bottom;
+					window.InsightsChart.refreshSVG();
+				}
+				const color = window.InsightsChart.addDataSet(externalId, data.items[0]);
+				applyTimeWindowToChart();
+				window.InsightsChart.render();
+				attachColorSwatch(ts, externalId, color);
+			}
+
+			function attachColorSwatch(ts, externalId, color){
+				let swatch = ts.querySelector(".ts-color-swatch");
+				if(!swatch){
+					swatch = document.createElement("span");
+					swatch.className = "ts-color-swatch";
+					swatch.addEventListener("pointerdown", e => {
+						// Don't bubble to the li — that would deselect the series.
+						e.stopPropagation();
+						openColorPicker(ts, externalId);
+					});
+					ts.appendChild(swatch);
+				}
+				setSwatchColor(swatch, color);
+			}
+
+			function setSwatchColor(swatch, color){
+				COLOR_NAMES.forEach( c => swatch.classList.remove(c) );
+				swatch.classList.add(color);
+			}
+
+			function removeColorSwatch(ts){
+				const swatch = ts.querySelector(".ts-color-swatch");
+				if(swatch) swatch.remove();
+				closeAllPopovers();
+			}
+
+			function closeAllPopovers(){
+				document.querySelectorAll(".ts-color-popover").forEach( p => p.remove() );
+			}
+
+			function syncAllSwatches(){
+				document.querySelectorAll('[data-type="timeseries-list"] li.selected').forEach( li => {
+					const externalId = li.getAttribute("data-external-id");
+					const color = window.InsightsChart && window.InsightsChart.getColor(externalId);
+					const swatch = li.querySelector(".ts-color-swatch");
+					if(swatch && color) setSwatchColor(swatch, color);
+				});
+			}
+
+			function openColorPicker(ts, externalId){
+				const alreadyOpen = ts.querySelector(".ts-color-popover");
+				closeAllPopovers();
+				if(alreadyOpen) return;
+
+				const currentColor = window.InsightsChart.getColor(externalId);
+				const popover = document.createElement("div");
+				popover.className = "ts-color-popover";
+				popover.addEventListener("pointerdown", e => e.stopPropagation());
+
+				COLOR_NAMES.forEach( color => {
+					const opt = document.createElement("span");
+					opt.className = "ts-color-option " + color;
+					if(color === currentColor) opt.classList.add("taken");
+					opt.addEventListener("pointerdown", e => {
+						e.stopPropagation();
+						window.InsightsChart.setColor(externalId, color);
+						syncAllSwatches();
+						popover.remove();
+					});
+					popover.appendChild(opt);
+				});
+				ts.appendChild(popover);
+
+				setTimeout(() => {
+					const closeOutside = e => {
+						if(!popover.contains(e.target)){
+							popover.remove();
+							document.removeEventListener("pointerdown", closeOutside, true);
+						}
+					};
+					document.addEventListener("pointerdown", closeOutside, true);
+				}, 0);
+			}
+
+			// === Live streaming ===========================================================
+			// The play button starts a live tail of the selected timeseries. Points arrive
+			// straight from the datahub-api over a WebSocket (DatapointStream, connecting
+			// directly to the api host — not through the console proxy) and are appended to
+			// the chart, which slides a rolling window so "now" stays at the right edge.
+			// Clicking again stops the stream and restores the historical aggregated view.
+			let liveStream = null;
+			let liveActive = false;
+			const liveToggle = document.getElementById('ts-live-toggle');
+
+			function currentSelectedExternalIds(){
+				return [...document.querySelectorAll('[data-type="timeseries-list"] li.selected')]
+					.map(li => li.getAttribute('data-external-id'))
+					.filter(Boolean);
+			}
+
+			// The window select (shared with the historical range) decides how the chart
+			// follows "now" while streaming: a fixed-width rolling window, or 'grow' (a
+			// window anchored at the moment you went live whose right edge follows now).
+			// Clamped to LIVE_MAX_MS as a backstop — updateWindowOptionsForMode already
+			// disables larger selections while live.
+			function currentLiveWindow(){
+				const v = rangeSelect ? rangeSelect.value : '15m';
+				if(v === 'grow') return { windowMs: null, grow: true };
+				const ms = QUICK_RANGE_MS[v] || 15 * 60_000;
+				return { windowMs: Math.min(ms, LIVE_MAX_MS), grow: false };
+			}
+
+			// Apply the selected window type to the chart while streaming.
+			function applyLiveWindow(){
+				if(liveActive && window.InsightsChart){
+					const w = currentLiveWindow();
+					window.InsightsChart.enableLiveMode(w.windowMs, w.grow);
+					// Re-seed raw datapoints for the new window so e.g. 15m -> 1h refills the wider
+					// range with a fresh render; live points keep appending afterwards.
+					seedLiveRaw(currentSelectedExternalIds(), w);
+				}
+			}
+
+			// The start/end/range controls only drive the historical view; while streaming,
+			// the window is owned by the live-window selector, so a range edit is ignored.
+			function onRangeChanged(){
+				if(liveActive) return;
+				refetchAllSelected();
+			}
+
+			// Push the current selection to the stream so added/removed series start/stop
+			// flowing without reconnecting.
+			function syncLiveInterest(){
+				if(liveActive && liveStream){
+					liveStream.setInterest(currentSelectedExternalIds());
+				}
+			}
+
+			// Add a series while streaming. Register it to allocate a color and a
+			// dataset slot, seed it with RAW datapoints for the current live window
+			// (same path startLive uses, so its resolution matches the series that
+			// were already live), then tell the stream to start flowing points into
+			// it. Seed-then-sync ordering mirrors startLive so no streamed point is
+			// appended before the raw seed replaces the series' data.
+			function addLiveSeries(externalId, ts){
+				const color = window.InsightsChart.addDataSet(externalId, { datapoints: [] });
+				attachColorSwatch(ts, externalId, color);
+				// Reveal the new (still empty) lane immediately; seedLiveRaw renders
+				// again once raw data arrives, and a growing window never seeds so
+				// this is the only render that shows its axis.
+				window.InsightsChart.render();
+				seedLiveRaw([externalId], currentLiveWindow()).finally(syncLiveInterest);
+			}
+
+			function setLiveButtonState(state){
+				if(!liveToggle) return;
+				// state: 'idle' | 'connecting' | 'live'
+				liveToggle.classList.toggle('active', state === 'live');
+				liveToggle.classList.toggle('connecting', state === 'connecting');
+				const icon = liveToggle.querySelector('i');
+				if(icon) icon.className = (state === 'idle') ? 'fa fa-fw fa-play' : 'fa fa-fw fa-stop';
+				const label = liveToggle.querySelector('.ts-live-label');
+				if(label){
+					label.textContent = (state === 'idle')   ? $L('insights.live.start')
+						: (state === 'connecting')            ? $L('insights.live.connecting')
+						:                                       $L('insights.live.stop');
+				}
+			}
+
+			// While streaming, the historical start/end/quick-range fields are irrelevant: the
+			// live-window selector owns the chart window. Hide them while live, restore on stop.
+			function setRangeFieldsVisible(visible){
+				document.querySelectorAll('.ts-range-field').forEach(el => el.classList.toggle('hidden', !visible));
+			}
+
+			function startLive(){
+				const selected = currentSelectedExternalIds();
+				if(!window.InsightsChart || selected.length === 0){
+					Flash.warning($L('insights.live.selectFirst'));
+					return;
+				}
+				liveActive = true;
+				setRangeFieldsVisible(false);
+				// Constrain the window options to the live-sensible set (snaps a too-large
+				// or 'custom' selection to 15m) before reading the window.
+				updateWindowOptionsForMode(true);
+				const w = currentLiveWindow();
+				window.InsightsChart.enableLiveMode(w.windowMs, w.grow);
+				window.InsightsChart.render();
+				setLiveButtonState('connecting');
+
+				liveStream = new DatapointStream({
+					onData: points => {
+						let any = false;
+						points.forEach(p => {
+							if(window.InsightsChart.appendLiveDatapoint(p.externalId, p)) any = true;
+						});
+						if(any) window.InsightsChart.commitLiveUpdate();
+					},
+					onStatus: state => {
+						if(!liveActive) return;
+						setLiveButtonState(state === 'open' ? 'live' : 'connecting');
+					}
+				});
+				liveStream.setInterest(selected);
+				// Re-render with RAW datapoints for the live window (selecting a series seeds the
+				// chart with aggregated data), then connect so streamed raw points append to it.
+				seedLiveRaw(selected, w).finally(() => {
+					if(liveActive) liveStream.connect();
+				});
+			}
+
+			function stopLive(){
+				liveActive = false;
+				setRangeFieldsVisible(true);
+				// Re-open the historical range set (re-enables long ranges, disables 'grow';
+				// snaps a 'grow' selection back to 1d).
+				updateWindowOptionsForMode(false);
+				if(liveStream){
+					liveStream.close();
+					liveStream = null;
+				}
+				setLiveButtonState('idle');
+				if(window.InsightsChart){
+					window.InsightsChart.disableLiveMode();
+					// Restore the historical view. Sync the start/end inputs to the now-historical
+					// selected preset first so the range matches the dropdown; a 'custom' ('')
+					// selection keeps whatever is already in the inputs.
+					if(rangeSelect && rangeSelect.value) applyQuickRange(rangeSelect.value);
+					refetchAllSelected();
+				}
+			}
+
+			if(liveToggle){
+				setLiveButtonState('idle');
+				liveToggle.addEventListener('click', () => {
+					if(liveActive) stopLive(); else startLive();
+				});
+			}
+
+			// Pick up a series selected on the Explore page so Insights opens with
+			// it already shown. The default range was applied above, so selecting
+			// it here draws straight away. Consume it (one-shot) so a later plain
+			// reload of Insights doesn't keep re-forcing the selection.
+			(function applyPendingView(){
+				let pending;
+				try { pending = JSON.parse(sessionStorage.getItem('dh-pending-view') || 'null'); } catch(e){ pending = null; }
+				if(!pending || pending.page !== 'insights' || !pending.filter) return;
+				try { sessionStorage.removeItem('dh-pending-view'); } catch(e){ /* ignore */ }
+				const f = pending.filter;
+				// Window: UTC ISO -> local datepicker fields (same round-trip as the events page).
+				const quick = document.getElementById('ts-quick-range');
+				if(f.start) writeDateTime(document.getElementById('ts-start-date'), document.getElementById('ts-start-time'), new Date(f.start));
+				if(f.end) writeDateTime(document.getElementById('ts-end-date'), document.getElementById('ts-end-time'), new Date(f.end));
+				if(quick && (f.start || f.end)) quick.value = '';
+				// Overlay each requested series. Reuse an existing row when present; otherwise create one so
+				// a series outside the initial list can still be charted. leftMenuTsClickEvent toggles, so
+				// only click rows that aren't already selected.
+				const ids = Array.isArray(f.externalIds) ? f.externalIds : (f.externalIds ? [f.externalIds] : []);
+				const ul = document.querySelector('[data-type="timeseries-list"]');
+				if(!ul) return;
+				ids.forEach(externalId => {
+					if(!externalId) return;
+					let li = [...ul.querySelectorAll('li')].find(el => el.getAttribute('data-external-id') === externalId);
+					if(!li){
+						li = document.createElement('li');
+						li.setAttribute('data-external-id', externalId);
+						li.textContent = externalId;
+						li.addEventListener('pointerdown', () => leftMenuTsClickEvent(li));
+						ul.appendChild(li);
+					}
+					if(!li.classList.contains('selected')) leftMenuTsClickEvent(li);
+				});
+			})();
+
+			(function consumeCarriedSelection(){
+				let carried = null;
+				try { carried = sessionStorage.getItem('dh.selectedTimeseries'); } catch(e) { /* storage unavailable */ }
+				if(!carried) return;
+				try { sessionStorage.removeItem('dh.selectedTimeseries'); } catch(e) { /* ignore */ }
+				const li = [...document.querySelectorAll('[data-type="timeseries-list"] li')]
+					.find(el => el.getAttribute('data-external-id') === carried);
+				if(li) leftMenuTsClickEvent(li);
+			})();
+
+			window.addEventListener('beforeunload', () => {
+				if(liveStream) liveStream.close();
+			});
+		});
+	</script>
+</main>
+</body>
+</html>

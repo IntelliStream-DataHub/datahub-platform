@@ -1,0 +1,4301 @@
+{
+ "synthetic_3w_well_00001": {
+  "dataset": {
+   "items": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_dataset",
+     "name": "3W synthetic well synthetic_3w_well_00001",
+     "description": "Synthetic well derived from the Petrobras 3W dataset. Holds the well's asset model (subsystems, equipment, instruments), its TimeSeries, and the relationship edges between them. See metadata for attribution and licensing (CC BY 4.0).",
+     "policies": null,
+     "metadata": {
+      "attribution": "Vargas, R.E.V. et al. (2019). A realistic and public dataset with rare undesirable real events in oil wells. Journal of Petroleum Science and Engineering, 181, 106223.",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "note": "Synthetic well derived from the Petrobras 3W dataset.",
+      "license": "CC BY 4.0",
+      "doi": "https://doi.org/10.1016/j.petrol.2019.106223",
+      "source_repository": "https://github.com/petrobras/3W",
+      "publisher": "Petrobras",
+      "source": "3W Dataset"
+     },
+     "connectedDataSets": [],
+     "createdTime": null,
+     "lastUpdatedTime": null
+    }
+   ]
+  },
+  "root": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001",
+     "name": "Well 00001",
+     "metadata": {
+      "block": "BM-DEMO-1",
+      "doi": "https://doi.org/10.1016/j.petrol.2019.106223",
+      "well_id": "00001",
+      "environment": "subsea",
+      "source": "3W Dataset",
+      "license": "CC BY 4.0",
+      "asset_type": "well",
+      "source_repository": "https://github.com/petrobras/3W",
+      "field": "Demo Field",
+      "operator": "Synthetic Energy Co.",
+      "water_depth_m": "1200"
+     },
+     "description": null,
+     "isRoot": true,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "WELL"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": []
+  },
+  "assets": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_reservoir",
+     "name": "Well 00001 Reservoir",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Hydrocarbon reservoir (subsurface source)"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSURFACE",
+      "RESERVOIR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pmw",
+     "name": "Well 00001 PMW",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Master Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PMW"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pwv",
+     "name": "Well 00001 PWV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Wing Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PWV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_xo_valve",
+     "name": "Well 00001 XO Valve",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Crossover Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "XO_VALVE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_amw",
+     "name": "Well 00001 AMW",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Annulus Master Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "AMW"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_awv",
+     "name": "Well 00001 AWV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Annulus Wing Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "AWV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_tpt",
+     "name": "Well 00001 TPT",
+     "metadata": {
+      "description": "Subsea Xmas-tree Temperature/Pressure Transducer",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "TPT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_xtree",
+     "name": "Well 00001 Xtree",
+     "metadata": {
+      "description": "Subsea Xmas Tree",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "XTREE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_xo_valve_zs",
+     "name": "Well 00001 XO Valve ZS",
+     "metadata": {
+      "asset_type": "instrument",
+      "isa_tag": "ZS",
+      "manufacturer": "TopWorx",
+      "model": "GO Switch"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pmw_zs",
+     "name": "Well 00001 PMW ZS",
+     "metadata": {
+      "manufacturer": "TopWorx",
+      "model": "GO Switch",
+      "asset_type": "instrument",
+      "isa_tag": "ZS"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pwv_zs",
+     "name": "Well 00001 PWV ZS",
+     "metadata": {
+      "asset_type": "instrument",
+      "isa_tag": "ZS",
+      "manufacturer": "TopWorx",
+      "model": "GO Switch"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_amw_zs",
+     "name": "Well 00001 AMW ZS",
+     "metadata": {
+      "isa_tag": "ZS",
+      "manufacturer": "TopWorx",
+      "model": "GO Switch",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_awv_zs",
+     "name": "Well 00001 AWV ZS",
+     "metadata": {
+      "isa_tag": "ZS",
+      "model": "GO Switch",
+      "asset_type": "instrument",
+      "manufacturer": "TopWorx"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_tpt_tt",
+     "name": "Well 00001 TPT TT",
+     "metadata": {
+      "isa_tag": "TT",
+      "model": "644",
+      "manufacturer": "Rosemount",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "TT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_tpt_pt",
+     "name": "Well 00001 TPT PT",
+     "metadata": {
+      "isa_tag": "PT",
+      "asset_type": "instrument",
+      "model": "3051S",
+      "manufacturer": "Rosemount"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_dhsv",
+     "name": "Well 00001 DHSV",
+     "metadata": {
+      "description": "Downhole Safety Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "DHSV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pdg",
+     "name": "Well 00001 PDG",
+     "metadata": {
+      "description": "Permanent Downhole Gauge",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "GAUGE",
+      "PDG"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_downhole",
+     "name": "Well 00001 Downhole",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Downhole subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "DOWNHOLE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_dhsv_zs",
+     "name": "Well 00001 DHSV ZS",
+     "metadata": {
+      "manufacturer": "TopWorx",
+      "asset_type": "instrument",
+      "isa_tag": "ZS",
+      "model": "GO Switch"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pdg_pt",
+     "name": "Well 00001 PDG PT",
+     "metadata": {
+      "isa_tag": "PT",
+      "model": "3051S",
+      "manufacturer": "Rosemount",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pdg_tt",
+     "name": "Well 00001 PDG TT",
+     "metadata": {
+      "model": "644",
+      "manufacturer": "Rosemount",
+      "isa_tag": "TT",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "TT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pck",
+     "name": "Well 00001 PCK",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Choke"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "CHOKE",
+      "PCK"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_psdv",
+     "name": "Well 00001 PSDV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Shutdown Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PSDV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pxo",
+     "name": "Well 00001 PXO",
+     "metadata": {
+      "description": "Production Crossover Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PXO"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_sp",
+     "name": "Well 00001 SP",
+     "metadata": {
+      "description": "Service Pump",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PUMP",
+      "SP"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_annulus",
+     "name": "Well 00001 Annulus",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Well annulus gauge"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "GAUGE",
+      "ANNULUS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_manifold",
+     "name": "Well 00001 Manifold",
+     "metadata": {
+      "description": "Subsea Manifold",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "MANIFOLD"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_separator",
+     "name": "Well 00001 Separator",
+     "metadata": {
+      "description": "Production Separator",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SEPARATOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_compressor",
+     "name": "Well 00001 Compressor",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Gas Compressor"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "COMPRESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_downstream_oil_processing",
+     "name": "Well 00001 Downstream Oil Processing",
+     "metadata": {
+      "description": "Downstream oil processing",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PROCESSING",
+      "OIL"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_downstream_gas_processing",
+     "name": "Well 00001 Downstream Gas Processing",
+     "metadata": {
+      "description": "Downstream gas processing",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PROCESSING",
+      "GAS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_topside",
+     "name": "Well 00001 Topside",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Topside subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "TOPSIDE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pck_pt_upstream",
+     "name": "Well 00001 PCK PT Upstream",
+     "metadata": {
+      "isa_tag": "PT",
+      "asset_type": "instrument",
+      "manufacturer": "Rosemount",
+      "model": "3051S"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_psdv_zs",
+     "name": "Well 00001 PSDV ZS",
+     "metadata": {
+      "asset_type": "instrument",
+      "isa_tag": "ZS",
+      "manufacturer": "TopWorx",
+      "model": "GO Switch"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_pxo_zs",
+     "name": "Well 00001 PXO ZS",
+     "metadata": {
+      "asset_type": "instrument",
+      "model": "GO Switch",
+      "isa_tag": "ZS",
+      "manufacturer": "TopWorx"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_annulus_pt",
+     "name": "Well 00001 Annulus PT",
+     "metadata": {
+      "asset_type": "instrument",
+      "model": "3051S",
+      "isa_tag": "PT",
+      "manufacturer": "Rosemount"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_glck",
+     "name": "Well 00001 GLCK",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Gas-Lift Choke"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "CHOKE",
+      "GLCK"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_sdv_gl",
+     "name": "Well 00001 SDV GL",
+     "metadata": {
+      "description": "Gas-Lift Shutdown Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "SDV_GL"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_gas_lift",
+     "name": "Well 00001 Gas Lift",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Gas-lift recycle loop"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "GAS_LIFT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_glck_pt_downstream",
+     "name": "Well 00001 GLCK PT Downstream",
+     "metadata": {
+      "isa_tag": "PT",
+      "model": "3051S",
+      "manufacturer": "Rosemount",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_sdv_gl_zs",
+     "name": "Well 00001 SDV GL ZS",
+     "metadata": {
+      "manufacturer": "TopWorx",
+      "model": "GO Switch",
+      "asset_type": "instrument",
+      "isa_tag": "ZS"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00001_glck_ft",
+     "name": "Well 00001 GLCK FT",
+     "metadata": {
+      "manufacturer": "Micro Motion",
+      "asset_type": "instrument",
+      "isa_tag": "FT",
+      "model": "Coriolis"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "FT"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": []
+  },
+  "relations": {
+   "nodes": [],
+   "relations": [
+    {
+     "fromExternalId": "synthetic_3w_well_00001",
+     "toExternalId": "synthetic_3w_well_00001_reservoir",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xtree",
+     "toExternalId": "synthetic_3w_well_00001_pmw",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xtree",
+     "toExternalId": "synthetic_3w_well_00001_pwv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xtree",
+     "toExternalId": "synthetic_3w_well_00001_xo_valve",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xtree",
+     "toExternalId": "synthetic_3w_well_00001_amw",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xtree",
+     "toExternalId": "synthetic_3w_well_00001_awv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xtree",
+     "toExternalId": "synthetic_3w_well_00001_tpt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001",
+     "toExternalId": "synthetic_3w_well_00001_xtree",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xo_valve",
+     "toExternalId": "synthetic_3w_well_00001_xo_valve_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_xo_valve_zs",
+     "toExternalId": "synthetic_3w_well_00001_xo_valve_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pmw",
+     "toExternalId": "synthetic_3w_well_00001_pmw_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pmw_zs",
+     "toExternalId": "synthetic_3w_well_00001_pmw_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pwv",
+     "toExternalId": "synthetic_3w_well_00001_pwv_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pwv_zs",
+     "toExternalId": "synthetic_3w_well_00001_pwv_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_amw",
+     "toExternalId": "synthetic_3w_well_00001_amw_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_amw_zs",
+     "toExternalId": "synthetic_3w_well_00001_amw_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_awv",
+     "toExternalId": "synthetic_3w_well_00001_awv_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_awv_zs",
+     "toExternalId": "synthetic_3w_well_00001_awv_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt",
+     "toExternalId": "synthetic_3w_well_00001_tpt_tt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt_tt",
+     "toExternalId": "synthetic_3w_well_00001_tpt_temp",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt",
+     "toExternalId": "synthetic_3w_well_00001_tpt_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt_pt",
+     "toExternalId": "synthetic_3w_well_00001_tpt_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_downhole",
+     "toExternalId": "synthetic_3w_well_00001_dhsv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_downhole",
+     "toExternalId": "synthetic_3w_well_00001_pdg",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001",
+     "toExternalId": "synthetic_3w_well_00001_downhole",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_dhsv",
+     "toExternalId": "synthetic_3w_well_00001_dhsv_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_dhsv_zs",
+     "toExternalId": "synthetic_3w_well_00001_dhsv_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg",
+     "toExternalId": "synthetic_3w_well_00001_pdg_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg_pt",
+     "toExternalId": "synthetic_3w_well_00001_pdg_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg",
+     "toExternalId": "synthetic_3w_well_00001_pdg_tt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg_tt",
+     "toExternalId": "synthetic_3w_well_00001_pdg_temp",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_pck",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_psdv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_pxo",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_sp",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_annulus",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_manifold",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_separator",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_compressor",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_downstream_oil_processing",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_topside",
+     "toExternalId": "synthetic_3w_well_00001_downstream_gas_processing",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001",
+     "toExternalId": "synthetic_3w_well_00001_topside",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pck",
+     "toExternalId": "synthetic_3w_well_00001_pck_pt_upstream",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pck_pt_upstream",
+     "toExternalId": "synthetic_3w_well_00001_pck_p_upstream",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_psdv",
+     "toExternalId": "synthetic_3w_well_00001_psdv_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_psdv_zs",
+     "toExternalId": "synthetic_3w_well_00001_psdv_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pxo",
+     "toExternalId": "synthetic_3w_well_00001_pxo_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pxo_zs",
+     "toExternalId": "synthetic_3w_well_00001_pxo_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_annulus",
+     "toExternalId": "synthetic_3w_well_00001_annulus_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_annulus_pt",
+     "toExternalId": "synthetic_3w_well_00001_annulus_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_gas_lift",
+     "toExternalId": "synthetic_3w_well_00001_glck",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_gas_lift",
+     "toExternalId": "synthetic_3w_well_00001_sdv_gl",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001",
+     "toExternalId": "synthetic_3w_well_00001_gas_lift",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_glck",
+     "toExternalId": "synthetic_3w_well_00001_glck_pt_downstream",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_glck_pt_downstream",
+     "toExternalId": "synthetic_3w_well_00001_glck_p_downstream",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_sdv_gl",
+     "toExternalId": "synthetic_3w_well_00001_sdv_gl_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_sdv_gl_zs",
+     "toExternalId": "synthetic_3w_well_00001_sdv_gl_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_glck",
+     "toExternalId": "synthetic_3w_well_00001_glck_ft",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_glck_ft",
+     "toExternalId": "synthetic_3w_well_00001_glck_qgl",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_reservoir",
+     "toExternalId": "synthetic_3w_well_00001_pdg",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg",
+     "toExternalId": "synthetic_3w_well_00001_dhsv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_dhsv",
+     "toExternalId": "synthetic_3w_well_00001_tpt",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt",
+     "toExternalId": "synthetic_3w_well_00001_pmw",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pmw",
+     "toExternalId": "synthetic_3w_well_00001_pwv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pwv",
+     "toExternalId": "synthetic_3w_well_00001_pck",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pck",
+     "toExternalId": "synthetic_3w_well_00001_psdv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_psdv",
+     "toExternalId": "synthetic_3w_well_00001_manifold",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_manifold",
+     "toExternalId": "synthetic_3w_well_00001_separator",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_separator",
+     "toExternalId": "synthetic_3w_well_00001_downstream_oil_processing",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_reservoir",
+     "toExternalId": "synthetic_3w_well_00001_pdg",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg",
+     "toExternalId": "synthetic_3w_well_00001_dhsv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_dhsv",
+     "toExternalId": "synthetic_3w_well_00001_tpt",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt",
+     "toExternalId": "synthetic_3w_well_00001_pmw",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pmw",
+     "toExternalId": "synthetic_3w_well_00001_pwv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pwv",
+     "toExternalId": "synthetic_3w_well_00001_pck",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pck",
+     "toExternalId": "synthetic_3w_well_00001_psdv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_psdv",
+     "toExternalId": "synthetic_3w_well_00001_manifold",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_manifold",
+     "toExternalId": "synthetic_3w_well_00001_separator",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_separator",
+     "toExternalId": "synthetic_3w_well_00001_compressor",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_compressor",
+     "toExternalId": "synthetic_3w_well_00001_glck",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_glck",
+     "toExternalId": "synthetic_3w_well_00001_sdv_gl",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_sdv_gl",
+     "toExternalId": "synthetic_3w_well_00001_awv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_awv",
+     "toExternalId": "synthetic_3w_well_00001_amw",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_amw",
+     "toExternalId": "synthetic_3w_well_00001_dhsv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_separator",
+     "toExternalId": "synthetic_3w_well_00001_downstream_gas_processing",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    }
+   ]
+  },
+  "anomaly": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "Well_00001_anomaly_detection",
+     "name": "Anomaly Detection",
+     "metadata": {
+      "Algorithm": "LSTM Autoencoder"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "ANOMALY"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_temperature_00001_windowing",
+     "name": "windowing",
+     "metadata": {
+      "window length": "300",
+      "stride": "150",
+      "window function": "Boxcar"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_temperature_00001_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_pressure_00001_windowing",
+     "name": "windowing",
+     "metadata": {
+      "window function": "Boxcar",
+      "stride": "150",
+      "window length": "300"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_pressure_00001_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "pdg_pressure_00001_windowing",
+     "name": "windowing",
+     "metadata": {
+      "window length": "300",
+      "window function": "Boxcar",
+      "stride": "150"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "pdg_pressure_00001_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": [
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt_temp",
+     "toExternalId": "tpt_temperature_00001_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_temperature_00001_windowing",
+     "toExternalId": "tpt_temperature_00001_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_temperature_00001_scaling",
+     "toExternalId": "Well_00001_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_tpt_pressure",
+     "toExternalId": "tpt_pressure_00001_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_pressure_00001_windowing",
+     "toExternalId": "tpt_pressure_00001_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_pressure_00001_scaling",
+     "toExternalId": "Well_00001_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00001_pdg_pressure",
+     "toExternalId": "pdg_pressure_00001_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "pdg_pressure_00001_windowing",
+     "toExternalId": "pdg_pressure_00001_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "pdg_pressure_00001_scaling",
+     "toExternalId": "Well_00001_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    }
+   ]
+  }
+ },
+ "synthetic_3w_well_00002": {
+  "dataset": {
+   "items": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_dataset",
+     "name": "3W synthetic well synthetic_3w_well_00002",
+     "description": "Synthetic well derived from the Petrobras 3W dataset. Holds the well's asset model (subsystems, equipment, instruments), its TimeSeries, and the relationship edges between them. See metadata for attribution and licensing (CC BY 4.0).",
+     "policies": null,
+     "metadata": {
+      "license_url": "https://creativecommons.org/licenses/by/4.0/",
+      "source": "3W Dataset",
+      "doi": "https://doi.org/10.1016/j.petrol.2019.106223",
+      "attribution": "Vargas, R.E.V. et al. (2019). A realistic and public dataset with rare undesirable real events in oil wells. Journal of Petroleum Science and Engineering, 181, 106223.",
+      "source_repository": "https://github.com/petrobras/3W",
+      "license": "CC BY 4.0",
+      "note": "Synthetic well derived from the Petrobras 3W dataset.",
+      "publisher": "Petrobras"
+     },
+     "connectedDataSets": [],
+     "createdTime": null,
+     "lastUpdatedTime": null
+    }
+   ]
+  },
+  "root": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002",
+     "name": "Well 00002",
+     "metadata": {
+      "operator": "Synthetic Energy Co.",
+      "well_id": "00002",
+      "source": "3W Dataset",
+      "source_repository": "https://github.com/petrobras/3W",
+      "field": "Demo Field",
+      "doi": "https://doi.org/10.1016/j.petrol.2019.106223",
+      "asset_type": "well",
+      "block": "BM-DEMO-1",
+      "environment": "subsea",
+      "water_depth_m": "1200",
+      "license": "CC BY 4.0"
+     },
+     "description": null,
+     "isRoot": true,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "WELL"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": []
+  },
+  "assets": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_reservoir",
+     "name": "Well 00002 Reservoir",
+     "metadata": {
+      "description": "Hydrocarbon reservoir (subsurface source)",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSURFACE",
+      "RESERVOIR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_pmw",
+     "name": "Well 00002 PMW",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Master Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PMW"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_pwv",
+     "name": "Well 00002 PWV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Wing Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PWV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_xo_valve",
+     "name": "Well 00002 XO Valve",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Crossover Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "XO_VALVE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_amw",
+     "name": "Well 00002 AMW",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Annulus Master Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "AMW"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_awv",
+     "name": "Well 00002 AWV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Annulus Wing Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "AWV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_tpt",
+     "name": "Well 00002 TPT",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Subsea Xmas-tree Temperature/Pressure Transducer"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "TPT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_xtree",
+     "name": "Well 00002 Xtree",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Subsea Xmas Tree"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "XTREE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_tpt_tt",
+     "name": "Well 00002 TPT TT",
+     "metadata": {
+      "model": "644",
+      "isa_tag": "TT",
+      "asset_type": "instrument",
+      "manufacturer": "Rosemount"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "TT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_tpt_pt",
+     "name": "Well 00002 TPT PT",
+     "metadata": {
+      "model": "3051S",
+      "asset_type": "instrument",
+      "isa_tag": "PT",
+      "manufacturer": "Rosemount"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_dhsv",
+     "name": "Well 00002 DHSV",
+     "metadata": {
+      "description": "Downhole Safety Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "DHSV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_pdg",
+     "name": "Well 00002 PDG",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Permanent Downhole Gauge"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "GAUGE",
+      "PDG"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_downhole",
+     "name": "Well 00002 Downhole",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Downhole subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "DOWNHOLE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_pdg_pt",
+     "name": "Well 00002 PDG PT",
+     "metadata": {
+      "asset_type": "instrument",
+      "isa_tag": "PT",
+      "manufacturer": "Rosemount",
+      "model": "3051S"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_pck",
+     "name": "Well 00002 PCK",
+     "metadata": {
+      "description": "Production Choke",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "CHOKE",
+      "PCK"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_psdv",
+     "name": "Well 00002 PSDV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Shutdown Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PSDV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_pxo",
+     "name": "Well 00002 PXO",
+     "metadata": {
+      "description": "Production Crossover Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PXO"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_sp",
+     "name": "Well 00002 SP",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Service Pump"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PUMP",
+      "SP"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_annulus",
+     "name": "Well 00002 Annulus",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Well annulus gauge"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "GAUGE",
+      "ANNULUS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_manifold",
+     "name": "Well 00002 Manifold",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Subsea Manifold"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "MANIFOLD"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_separator",
+     "name": "Well 00002 Separator",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Separator"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SEPARATOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_compressor",
+     "name": "Well 00002 Compressor",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Gas Compressor"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "COMPRESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_downstream_oil_processing",
+     "name": "Well 00002 Downstream Oil Processing",
+     "metadata": {
+      "description": "Downstream oil processing",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PROCESSING",
+      "OIL"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_downstream_gas_processing",
+     "name": "Well 00002 Downstream Gas Processing",
+     "metadata": {
+      "description": "Downstream gas processing",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PROCESSING",
+      "GAS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_topside",
+     "name": "Well 00002 Topside",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Topside subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "TOPSIDE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_annulus_pt",
+     "name": "Well 00002 Annulus PT",
+     "metadata": {
+      "isa_tag": "PT",
+      "manufacturer": "Rosemount",
+      "asset_type": "instrument",
+      "model": "3051S"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_glck",
+     "name": "Well 00002 GLCK",
+     "metadata": {
+      "description": "Gas-Lift Choke",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "CHOKE",
+      "GLCK"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_sdv_gl",
+     "name": "Well 00002 SDV GL",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Gas-Lift Shutdown Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "SDV_GL"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00002_gas_lift",
+     "name": "Well 00002 Gas Lift",
+     "metadata": {
+      "description": "Gas-lift recycle loop",
+      "asset_type": "subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "GAS_LIFT"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": []
+  },
+  "relations": {
+   "nodes": [],
+   "relations": [
+    {
+     "fromExternalId": "synthetic_3w_well_00002",
+     "toExternalId": "synthetic_3w_well_00002_reservoir",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_xtree",
+     "toExternalId": "synthetic_3w_well_00002_pmw",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_xtree",
+     "toExternalId": "synthetic_3w_well_00002_pwv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_xtree",
+     "toExternalId": "synthetic_3w_well_00002_xo_valve",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_xtree",
+     "toExternalId": "synthetic_3w_well_00002_amw",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_xtree",
+     "toExternalId": "synthetic_3w_well_00002_awv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_xtree",
+     "toExternalId": "synthetic_3w_well_00002_tpt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002",
+     "toExternalId": "synthetic_3w_well_00002_xtree",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt",
+     "toExternalId": "synthetic_3w_well_00002_tpt_tt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt_tt",
+     "toExternalId": "synthetic_3w_well_00002_tpt_temp",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt",
+     "toExternalId": "synthetic_3w_well_00002_tpt_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt_pt",
+     "toExternalId": "synthetic_3w_well_00002_tpt_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_downhole",
+     "toExternalId": "synthetic_3w_well_00002_dhsv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_downhole",
+     "toExternalId": "synthetic_3w_well_00002_pdg",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002",
+     "toExternalId": "synthetic_3w_well_00002_downhole",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pdg",
+     "toExternalId": "synthetic_3w_well_00002_pdg_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pdg_pt",
+     "toExternalId": "synthetic_3w_well_00002_pdg_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_pck",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_psdv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_pxo",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_sp",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_annulus",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_manifold",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_separator",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_compressor",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_downstream_oil_processing",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_topside",
+     "toExternalId": "synthetic_3w_well_00002_downstream_gas_processing",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002",
+     "toExternalId": "synthetic_3w_well_00002_topside",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_annulus",
+     "toExternalId": "synthetic_3w_well_00002_annulus_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_annulus_pt",
+     "toExternalId": "synthetic_3w_well_00002_annulus_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_gas_lift",
+     "toExternalId": "synthetic_3w_well_00002_glck",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_gas_lift",
+     "toExternalId": "synthetic_3w_well_00002_sdv_gl",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002",
+     "toExternalId": "synthetic_3w_well_00002_gas_lift",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_reservoir",
+     "toExternalId": "synthetic_3w_well_00002_pdg",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pdg",
+     "toExternalId": "synthetic_3w_well_00002_dhsv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_dhsv",
+     "toExternalId": "synthetic_3w_well_00002_tpt",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt",
+     "toExternalId": "synthetic_3w_well_00002_pmw",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pmw",
+     "toExternalId": "synthetic_3w_well_00002_pwv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pwv",
+     "toExternalId": "synthetic_3w_well_00002_pck",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pck",
+     "toExternalId": "synthetic_3w_well_00002_psdv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_psdv",
+     "toExternalId": "synthetic_3w_well_00002_manifold",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_manifold",
+     "toExternalId": "synthetic_3w_well_00002_separator",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_separator",
+     "toExternalId": "synthetic_3w_well_00002_downstream_oil_processing",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_reservoir",
+     "toExternalId": "synthetic_3w_well_00002_pdg",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pdg",
+     "toExternalId": "synthetic_3w_well_00002_dhsv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_dhsv",
+     "toExternalId": "synthetic_3w_well_00002_tpt",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt",
+     "toExternalId": "synthetic_3w_well_00002_pmw",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pmw",
+     "toExternalId": "synthetic_3w_well_00002_pwv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pwv",
+     "toExternalId": "synthetic_3w_well_00002_pck",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pck",
+     "toExternalId": "synthetic_3w_well_00002_psdv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_psdv",
+     "toExternalId": "synthetic_3w_well_00002_manifold",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_manifold",
+     "toExternalId": "synthetic_3w_well_00002_separator",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_separator",
+     "toExternalId": "synthetic_3w_well_00002_compressor",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_compressor",
+     "toExternalId": "synthetic_3w_well_00002_glck",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_glck",
+     "toExternalId": "synthetic_3w_well_00002_sdv_gl",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_sdv_gl",
+     "toExternalId": "synthetic_3w_well_00002_awv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_awv",
+     "toExternalId": "synthetic_3w_well_00002_amw",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_amw",
+     "toExternalId": "synthetic_3w_well_00002_dhsv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_separator",
+     "toExternalId": "synthetic_3w_well_00002_downstream_gas_processing",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    }
+   ]
+  },
+  "anomaly": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "Well_00002_anomaly_detection",
+     "name": "Anomaly Detection",
+     "metadata": {
+      "Algorithm": "LSTM Autoencoder"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "ANOMALY"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_temperature_00002_windowing",
+     "name": "windowing",
+     "metadata": {
+      "window length": "300",
+      "window function": "Boxcar",
+      "stride": "150"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_temperature_00002_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_pressure_00002_windowing",
+     "name": "windowing",
+     "metadata": {
+      "stride": "150",
+      "window function": "Boxcar",
+      "window length": "300"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_pressure_00002_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "pdg_pressure_00002_windowing",
+     "name": "windowing",
+     "metadata": {
+      "window function": "Boxcar",
+      "window length": "300",
+      "stride": "150"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "pdg_pressure_00002_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": [
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt_temp",
+     "toExternalId": "tpt_temperature_00002_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_temperature_00002_windowing",
+     "toExternalId": "tpt_temperature_00002_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_temperature_00002_scaling",
+     "toExternalId": "Well_00002_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_tpt_pressure",
+     "toExternalId": "tpt_pressure_00002_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_pressure_00002_windowing",
+     "toExternalId": "tpt_pressure_00002_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_pressure_00002_scaling",
+     "toExternalId": "Well_00002_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00002_pdg_pressure",
+     "toExternalId": "pdg_pressure_00002_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "pdg_pressure_00002_windowing",
+     "toExternalId": "pdg_pressure_00002_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "pdg_pressure_00002_scaling",
+     "toExternalId": "Well_00002_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    }
+   ]
+  }
+ },
+ "synthetic_3w_well_00003": {
+  "dataset": {
+   "items": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_dataset",
+     "name": "3W synthetic well synthetic_3w_well_00003",
+     "description": "Synthetic well derived from the Petrobras 3W dataset. Holds the well's asset model (subsystems, equipment, instruments), its TimeSeries, and the relationship edges between them. See metadata for attribution and licensing (CC BY 4.0).",
+     "policies": null,
+     "metadata": {
+      "doi": "https://doi.org/10.1016/j.petrol.2019.106223",
+      "attribution": "Vargas, R.E.V. et al. (2019). A realistic and public dataset with rare undesirable real events in oil wells. Journal of Petroleum Science and Engineering, 181, 106223.",
+      "publisher": "Petrobras",
+      "source_repository": "https://github.com/petrobras/3W",
+      "license": "CC BY 4.0",
+      "note": "Synthetic well derived from the Petrobras 3W dataset.",
+      "source": "3W Dataset",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/"
+     },
+     "connectedDataSets": [],
+     "createdTime": null,
+     "lastUpdatedTime": null
+    }
+   ]
+  },
+  "root": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003",
+     "name": "Well 00003",
+     "metadata": {
+      "asset_type": "well",
+      "block": "BM-DEMO-1",
+      "source": "3W Dataset",
+      "operator": "Synthetic Energy Co.",
+      "license": "CC BY 4.0",
+      "water_depth_m": "1200",
+      "environment": "subsea",
+      "source_repository": "https://github.com/petrobras/3W",
+      "doi": "https://doi.org/10.1016/j.petrol.2019.106223",
+      "well_id": "00003",
+      "field": "Demo Field"
+     },
+     "description": null,
+     "isRoot": true,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "WELL"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": []
+  },
+  "assets": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_reservoir",
+     "name": "Well 00003 Reservoir",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Hydrocarbon reservoir (subsurface source)"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSURFACE",
+      "RESERVOIR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pmw",
+     "name": "Well 00003 PMW",
+     "metadata": {
+      "description": "Production Master Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PMW"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pwv",
+     "name": "Well 00003 PWV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Wing Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PWV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_xo_valve",
+     "name": "Well 00003 XO Valve",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Crossover Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "XO_VALVE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_amw",
+     "name": "Well 00003 AMW",
+     "metadata": {
+      "description": "Annulus Master Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "AMW"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_awv",
+     "name": "Well 00003 AWV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Annulus Wing Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "AWV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_tpt",
+     "name": "Well 00003 TPT",
+     "metadata": {
+      "description": "Subsea Xmas-tree Temperature/Pressure Transducer",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "TPT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_xtree",
+     "name": "Well 00003 Xtree",
+     "metadata": {
+      "description": "Subsea Xmas Tree",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "XTREE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_xo_valve_zs",
+     "name": "Well 00003 XO Valve ZS",
+     "metadata": {
+      "manufacturer": "TopWorx",
+      "asset_type": "instrument",
+      "isa_tag": "ZS",
+      "model": "GO Switch"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_awv_zs",
+     "name": "Well 00003 AWV ZS",
+     "metadata": {
+      "asset_type": "instrument",
+      "model": "GO Switch",
+      "isa_tag": "ZS",
+      "manufacturer": "TopWorx"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_tpt_tt",
+     "name": "Well 00003 TPT TT",
+     "metadata": {
+      "manufacturer": "Rosemount",
+      "model": "644",
+      "isa_tag": "TT",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "TT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_tpt_pt",
+     "name": "Well 00003 TPT PT",
+     "metadata": {
+      "manufacturer": "Rosemount",
+      "asset_type": "instrument",
+      "model": "3051S",
+      "isa_tag": "PT"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_dhsv",
+     "name": "Well 00003 DHSV",
+     "metadata": {
+      "description": "Downhole Safety Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "DHSV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pdg",
+     "name": "Well 00003 PDG",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Permanent Downhole Gauge"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "GAUGE",
+      "PDG"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_downhole",
+     "name": "Well 00003 Downhole",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Downhole subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "DOWNHOLE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pdg_pt",
+     "name": "Well 00003 PDG PT",
+     "metadata": {
+      "model": "3051S",
+      "asset_type": "instrument",
+      "isa_tag": "PT",
+      "manufacturer": "Rosemount"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pck",
+     "name": "Well 00003 PCK",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Choke"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "CHOKE",
+      "PCK"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_psdv",
+     "name": "Well 00003 PSDV",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Shutdown Valve"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PSDV"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pxo",
+     "name": "Well 00003 PXO",
+     "metadata": {
+      "description": "Production Crossover Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "PXO"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_sp",
+     "name": "Well 00003 SP",
+     "metadata": {
+      "description": "Service Pump",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PUMP",
+      "SP"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_annulus",
+     "name": "Well 00003 Annulus",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Well annulus gauge"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "GAUGE",
+      "ANNULUS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_manifold",
+     "name": "Well 00003 Manifold",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Subsea Manifold"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "MANIFOLD"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_separator",
+     "name": "Well 00003 Separator",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Production Separator"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SEPARATOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_compressor",
+     "name": "Well 00003 Compressor",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Gas Compressor"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "COMPRESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_downstream_oil_processing",
+     "name": "Well 00003 Downstream Oil Processing",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Downstream oil processing"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PROCESSING",
+      "OIL"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_downstream_gas_processing",
+     "name": "Well 00003 Downstream Gas Processing",
+     "metadata": {
+      "asset_type": "equipment",
+      "description": "Downstream gas processing"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "PROCESSING",
+      "GAS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_topside",
+     "name": "Well 00003 Topside",
+     "metadata": {
+      "description": "Topside subsystem",
+      "asset_type": "subsystem"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "TOPSIDE"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pck_pt_upstream",
+     "name": "Well 00003 PCK PT Upstream",
+     "metadata": {
+      "manufacturer": "Rosemount",
+      "model": "3051S",
+      "asset_type": "instrument",
+      "isa_tag": "PT"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_psdv_zs",
+     "name": "Well 00003 PSDV ZS",
+     "metadata": {
+      "asset_type": "instrument",
+      "manufacturer": "TopWorx",
+      "isa_tag": "ZS",
+      "model": "GO Switch"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_pxo_zs",
+     "name": "Well 00003 PXO ZS",
+     "metadata": {
+      "manufacturer": "TopWorx",
+      "model": "GO Switch",
+      "isa_tag": "ZS",
+      "asset_type": "instrument"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "ZS"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_annulus_pt",
+     "name": "Well 00003 Annulus PT",
+     "metadata": {
+      "isa_tag": "PT",
+      "asset_type": "instrument",
+      "manufacturer": "Rosemount",
+      "model": "3051S"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "PT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_glck",
+     "name": "Well 00003 GLCK",
+     "metadata": {
+      "description": "Gas-Lift Choke",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "CHOKE",
+      "GLCK"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_sdv_gl",
+     "name": "Well 00003 SDV GL",
+     "metadata": {
+      "description": "Gas-Lift Shutdown Valve",
+      "asset_type": "equipment"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "VALVE",
+      "SDV_GL"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_gas_lift",
+     "name": "Well 00003 Gas Lift",
+     "metadata": {
+      "asset_type": "subsystem",
+      "description": "Gas-lift recycle loop"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "SUBSYSTEM",
+      "GAS_LIFT"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "synthetic_3w_well_00003_glck_ft",
+     "name": "Well 00003 GLCK FT",
+     "metadata": {
+      "asset_type": "instrument",
+      "model": "Coriolis",
+      "manufacturer": "Micro Motion",
+      "isa_tag": "FT"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": "__DATASET_ID__",
+     "source": null,
+     "labels": [
+      "ASSET",
+      "INSTRUMENT",
+      "FT"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": []
+  },
+  "relations": {
+   "nodes": [],
+   "relations": [
+    {
+     "fromExternalId": "synthetic_3w_well_00003",
+     "toExternalId": "synthetic_3w_well_00003_reservoir",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xtree",
+     "toExternalId": "synthetic_3w_well_00003_pmw",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xtree",
+     "toExternalId": "synthetic_3w_well_00003_pwv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xtree",
+     "toExternalId": "synthetic_3w_well_00003_xo_valve",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xtree",
+     "toExternalId": "synthetic_3w_well_00003_amw",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xtree",
+     "toExternalId": "synthetic_3w_well_00003_awv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xtree",
+     "toExternalId": "synthetic_3w_well_00003_tpt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003",
+     "toExternalId": "synthetic_3w_well_00003_xtree",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xo_valve",
+     "toExternalId": "synthetic_3w_well_00003_xo_valve_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_xo_valve_zs",
+     "toExternalId": "synthetic_3w_well_00003_xo_valve_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_awv",
+     "toExternalId": "synthetic_3w_well_00003_awv_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_awv_zs",
+     "toExternalId": "synthetic_3w_well_00003_awv_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt",
+     "toExternalId": "synthetic_3w_well_00003_tpt_tt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt_tt",
+     "toExternalId": "synthetic_3w_well_00003_tpt_temp",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt",
+     "toExternalId": "synthetic_3w_well_00003_tpt_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt_pt",
+     "toExternalId": "synthetic_3w_well_00003_tpt_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_downhole",
+     "toExternalId": "synthetic_3w_well_00003_dhsv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_downhole",
+     "toExternalId": "synthetic_3w_well_00003_pdg",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003",
+     "toExternalId": "synthetic_3w_well_00003_downhole",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pdg",
+     "toExternalId": "synthetic_3w_well_00003_pdg_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pdg_pt",
+     "toExternalId": "synthetic_3w_well_00003_pdg_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_pck",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_psdv",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_pxo",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_sp",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_annulus",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_manifold",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_separator",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_compressor",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_downstream_oil_processing",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_topside",
+     "toExternalId": "synthetic_3w_well_00003_downstream_gas_processing",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003",
+     "toExternalId": "synthetic_3w_well_00003_topside",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pck",
+     "toExternalId": "synthetic_3w_well_00003_pck_pt_upstream",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pck_pt_upstream",
+     "toExternalId": "synthetic_3w_well_00003_pck_p_upstream",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_psdv",
+     "toExternalId": "synthetic_3w_well_00003_psdv_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_psdv_zs",
+     "toExternalId": "synthetic_3w_well_00003_psdv_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pxo",
+     "toExternalId": "synthetic_3w_well_00003_pxo_zs",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pxo_zs",
+     "toExternalId": "synthetic_3w_well_00003_pxo_state",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_annulus",
+     "toExternalId": "synthetic_3w_well_00003_annulus_pt",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_annulus_pt",
+     "toExternalId": "synthetic_3w_well_00003_annulus_pressure",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_gas_lift",
+     "toExternalId": "synthetic_3w_well_00003_glck",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_gas_lift",
+     "toExternalId": "synthetic_3w_well_00003_sdv_gl",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003",
+     "toExternalId": "synthetic_3w_well_00003_gas_lift",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_glck",
+     "toExternalId": "synthetic_3w_well_00003_glck_ft",
+     "relationshipType": "belongs_to",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_glck_ft",
+     "toExternalId": "synthetic_3w_well_00003_glck_qgl",
+     "relationshipType": "senses_on",
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_reservoir",
+     "toExternalId": "synthetic_3w_well_00003_pdg",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pdg",
+     "toExternalId": "synthetic_3w_well_00003_dhsv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_dhsv",
+     "toExternalId": "synthetic_3w_well_00003_tpt",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt",
+     "toExternalId": "synthetic_3w_well_00003_pmw",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pmw",
+     "toExternalId": "synthetic_3w_well_00003_pwv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pwv",
+     "toExternalId": "synthetic_3w_well_00003_pck",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pck",
+     "toExternalId": "synthetic_3w_well_00003_psdv",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_psdv",
+     "toExternalId": "synthetic_3w_well_00003_manifold",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_manifold",
+     "toExternalId": "synthetic_3w_well_00003_separator",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_separator",
+     "toExternalId": "synthetic_3w_well_00003_downstream_oil_processing",
+     "relationshipType": "oil_flow",
+     "metadata": {
+      "animate::datatype": "oil"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_reservoir",
+     "toExternalId": "synthetic_3w_well_00003_pdg",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pdg",
+     "toExternalId": "synthetic_3w_well_00003_dhsv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_dhsv",
+     "toExternalId": "synthetic_3w_well_00003_tpt",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt",
+     "toExternalId": "synthetic_3w_well_00003_pmw",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pmw",
+     "toExternalId": "synthetic_3w_well_00003_pwv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pwv",
+     "toExternalId": "synthetic_3w_well_00003_pck",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pck",
+     "toExternalId": "synthetic_3w_well_00003_psdv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_psdv",
+     "toExternalId": "synthetic_3w_well_00003_manifold",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_manifold",
+     "toExternalId": "synthetic_3w_well_00003_separator",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_separator",
+     "toExternalId": "synthetic_3w_well_00003_compressor",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_compressor",
+     "toExternalId": "synthetic_3w_well_00003_glck",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_glck",
+     "toExternalId": "synthetic_3w_well_00003_sdv_gl",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_sdv_gl",
+     "toExternalId": "synthetic_3w_well_00003_awv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_awv",
+     "toExternalId": "synthetic_3w_well_00003_amw",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_amw",
+     "toExternalId": "synthetic_3w_well_00003_dhsv",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_separator",
+     "toExternalId": "synthetic_3w_well_00003_downstream_gas_processing",
+     "relationshipType": "gas_flow",
+     "metadata": {
+      "animate::datatype": "gas"
+     },
+     "dataSetId": "__DATASET_ID__"
+    }
+   ]
+  },
+  "anomaly": {
+   "nodes": [
+    {
+     "id": null,
+     "externalId": "Well_00003_anomaly_detection",
+     "name": "Anomaly Detection",
+     "metadata": {
+      "Algorithm": "LSTM Autoencoder"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "ANOMALY"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_temperature_00003_windowing",
+     "name": "windowing",
+     "metadata": {
+      "stride": "150",
+      "window length": "300",
+      "window function": "Boxcar"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_temperature_00003_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_pressure_00003_windowing",
+     "name": "windowing",
+     "metadata": {
+      "stride": "150",
+      "window length": "300",
+      "window function": "Boxcar"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "tpt_pressure_00003_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "pdg_pressure_00003_windowing",
+     "name": "windowing",
+     "metadata": {
+      "window length": "300",
+      "window function": "Boxcar",
+      "stride": "150"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    },
+    {
+     "id": null,
+     "externalId": "pdg_pressure_00003_scaling",
+     "name": "Scaling",
+     "metadata": {
+      "scaling function": "minmax"
+     },
+     "description": null,
+     "isRoot": false,
+     "dataSetId": null,
+     "source": null,
+     "labels": [
+      "PREPROCESSOR"
+     ],
+     "relatedResources": []
+    }
+   ],
+   "relations": [
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt_temp",
+     "toExternalId": "tpt_temperature_00003_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_temperature_00003_windowing",
+     "toExternalId": "tpt_temperature_00003_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_temperature_00003_scaling",
+     "toExternalId": "Well_00003_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_tpt_pressure",
+     "toExternalId": "tpt_pressure_00003_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_pressure_00003_windowing",
+     "toExternalId": "tpt_pressure_00003_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "tpt_pressure_00003_scaling",
+     "toExternalId": "Well_00003_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "synthetic_3w_well_00003_pdg_pressure",
+     "toExternalId": "pdg_pressure_00003_windowing",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "pdg_pressure_00003_windowing",
+     "toExternalId": "pdg_pressure_00003_scaling",
+     "relationshipType": "INPUT_TO"
+    },
+    {
+     "fromExternalId": "pdg_pressure_00003_scaling",
+     "toExternalId": "Well_00003_anomaly_detection",
+     "relationshipType": "INPUT_TO"
+    }
+   ]
+  }
+ }
+}

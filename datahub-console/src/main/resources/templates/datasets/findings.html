@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{findings.title}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'datasets')}">
+<main class="layout-body">
+	<nav th:replace="~{datasets/nav :: navbar('findings')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* Three columns, matching the events page: filters, results, details. The queue itself is
+	       filled by the browser from datahub-api (see policy/findings-queue.js); the server renders
+	       the shell and the two filter dropdowns' options.
+
+	       A result row is a GROUP of findings, not one finding. See the header comment in
+	       findings-queue.js: a bulk import writes one finding per item, so a flat list is the same
+	       mistake repeated thousands of times. The group is what a steward makes a judgement about;
+	       the details column is where its individual entities are listed and resolved. */-->
+	<div th:if="${!featureDisabled}" class="flex-container left-c-right">
+		<section class="left-content datahub-form-fields" style="width: 320px">
+			<form id="filter-findings">
+				<div class="left-content-header pad10">
+					<h3><i class="fa fa-fw fa-filter"></i><span th:text="#{filters}"></span></h3>
+				</div>
+
+				<div class="pad10-no-bot">
+					<label for="findings-filter-policy" th:text="#{findings.filter.policy}"></label>
+					<select id="findings-filter-policy" class="w100">
+						<option value="" th:text="#{findings.filter.policy.all}"></option>
+						<option th:each="p : ${policies}"
+								th:value="${p.externalId}" th:text="${p.name}"></option>
+					</select>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label for="findings-filter-dataset" th:text="#{findings.filter.dataset}"></label>
+					<!--/* data-external-id doubles this dropdown as the id -> external-id lookup the
+					       results table needs: a finding event carries only the numeric dataset id, and
+					       the page has already paid for this list. See datasetExternalIdOf() in
+					       findings-queue.js. */-->
+					<select id="findings-filter-dataset" class="w100">
+						<option value="" th:text="#{findings.filter.dataset.all}"></option>
+						<option th:each="d : ${datasets}" th:value="${d.id}" th:text="${d.name}"
+								th:attr="data-external-id=${d.externalId}"></option>
+					</select>
+				</div>
+
+				<div class="pad10">
+					<label for="findings-filter-status" th:text="#{findings.filter.status}"></label>
+					<select id="findings-filter-status" class="w100">
+						<option value="open" th:text="#{findings.filter.status.open}"></option>
+						<option value="resolved" th:text="#{findings.filter.status.resolved}"></option>
+						<option value="all" th:text="#{findings.filter.status.all}"></option>
+					</select>
+				</div>
+
+				<p class="findings-legend pad10" th:text="#{findings.legend.pattern}"></p>
+			</form>
+		</section>
+
+		<section class="findings-result left-content flex-1">
+			<div class="left-content-header pad10">
+				<h3 th:text="#{findings.title}"></h3>
+			</div>
+			<p class="findings-subtitle pad10" th:text="#{findings.subtitle}"></p>
+			<table id="findings-list" class="listing slim pointer w100">
+				<thead>
+					<tr>
+						<th th:text="#{findings.column.count}"></th>
+						<th th:text="#{findings.filter.policy}"></th>
+						<th th:text="#{findings.filter.dataset}"></th>
+						<th th:text="#{findings.column.shape}"></th>
+						<th th:text="#{findings.column.message}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+			<p id="findings-empty" class="findings-empty pad10" hidden th:text="#{findings.empty}"></p>
+
+			<div class="findings-actions pad10">
+				<button id="findings-load-more" type="button" class="dh-btn secondary" hidden
+						th:text="#{findings.load.more}"></button>
+			</div>
+		</section>
+
+		<section class="findings-data left-content">
+			<div class="left-content-header pad10">
+				<h3 th:text="#{findings.details.title}"></h3>
+			</div>
+			<div id="findings-details" class="pad10 data-details"></div>
+		</section>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('findings')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

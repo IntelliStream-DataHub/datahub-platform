@@ -1,0 +1,43 @@
+POST {{hostname}}/labels/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"name": "PIPE"
+		},
+		{
+			"name": "SEPERATOR",
+            "description": "Seperator tank"
+		}
+	]
+}
+
+###
+POST {{hostname}}/labels/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"name": "FACTORY"
+		},
+		{
+			"name": "SWITCH",
+			"description": "Network switch"
+		},
+		{
+			"name": "VM",
+			"description": "Virtual Machine",
+			"color": "#a3528a"
+		},
+		{
+			"name": "SERVER",
+			"description": "Server",
+			"color": "#b5835a",
+			"i18n": "some.message.code.here"
+		}
+	]
+}

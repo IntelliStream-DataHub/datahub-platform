@@ -1,0 +1,372 @@
+/* === GUIDED TUTORIAL OVERLAY ===
+   Loaded on every page from layout/main.html, because the tutorial engine (tutorial.bundle.js)
+   is too and can spotlight any page. Keep this file to what the engine and the tutorial modals
+   in layout/main.html actually render — the home page's dashboard styling lives in
+   home-dashboard.css, which only base/index.html links. */
+
+/* ===== Resume banner (built by tutorial-page-ui.js) ===== */
+.tutorial-resume-banner {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 100050;
+    width: 320px;
+    max-width: calc(100vw - 36px);
+    background: var(--menu-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 12px;
+    box-shadow: var(--big-box-shadow);
+}
+
+/* Spotlight pulse — a soft brand-accent ring around the highlighted element. */
+.tut-pulse { animation: tutPulse 1.2s ease-in-out infinite; }
+@keyframes tutPulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(108,177,255,.7); }
+    50%     { box-shadow: 0 0 0 8px rgba(108,177,255,0); }
+}
+
+/* ===== Tutorial modals (markup in layout/main.html) ===== */
+.tutorial-modal.hidden { display: none; }
+
+.tutorial-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.tutorial-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.55);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+}
+
+.tutorial-modal-content {
+    position: relative;
+    max-width: 460px;
+    width: 100%;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    background: var(--menu-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--accent);
+    border-radius: 16px;
+    padding: 26px 26px 22px;
+    box-shadow: var(--big-box-shadow);
+    animation: tutModalIn .18s ease-out both;
+}
+
+/* Modal fades and lifts in — small, so it feels responsive rather than showy. */
+@keyframes tutModalIn {
+    from { opacity: 0; transform: translateY(10px) scale(.985); }
+    to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .tutorial-modal-content { animation: none; }
+}
+
+.tutorial-modal-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 20px;
+    letter-spacing: -0.01em;
+}
+
+.tutorial-modal-content > p:not(.tutorial-chapters-label) {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    line-height: 1.5;
+    opacity: 0.85;
+}
+
+.tutorial-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 18px;
+}
+
+/* Start modal: a prominent full-width "start" CTA over a quieter dismiss, then the
+   chapter grid below a divider — the primary path stays the clear focus. */
+.tutorial-start-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+}
+
+.tutorial-start-actions .dh-btn { width: 100%; }
+.tutorial-start-actions .dh-btn.primary { padding: 12px; font-size: 15px; font-weight: 600; }
+
+.tutorial-chapters-label {
+    margin: 20px 0 12px 0;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    opacity: 0.6;
+}
+
+.tutorial-chapter-grid,
+.tutorial-industry-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tutorial-chapter-grid { gap: 10px; }
+
+.tutorial-industry-grid {
+    gap: 12px;
+    margin-top: 12px;
+}
+
+/* With an odd number of chapters the last row would leave a lopsided single
+   cell; let the final chapter span both columns so the grid stays balanced. */
+.tutorial-chapter-grid > .tutorial-chapter:last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+/* Chapter/industry options reuse the standard .dh-btn class (see layout/main.html); the calm
+   outline look comes from the guided-tutorial button block below — here we size them as chips
+   and add a small hover lift so the choices feel tactile. */
+.tutorial-chapter,
+.tutorial-industry {
+    width: 100%;
+    padding: 11px 12px;
+    border-radius: 10px;
+    font-weight: 500;
+    transition: transform .12s ease, border-color .12s ease, background .12s ease;
+}
+.tutorial-chapter:not(:disabled):hover,
+.tutorial-industry:not(:disabled):hover { transform: translateY(-1px); }
+
+/* --- Guided-tutorial buttons ---
+   Primary actions keep the app's filled .dh-btn.primary; every other tutorial button (the
+   chapter/industry choices and the nav/dismiss actions in the tooltip, modals and resume banner)
+   shares one calm, themed outline style, so the primary CTA stays the clear focus. */
+.tut-actions .dh-btn:not(.primary),
+.tutorial-modal-content .dh-btn:not(.primary),
+.tutorial-resume-banner .dh-btn:not(.primary) {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+    box-shadow: none;
+}
+.tut-actions .dh-btn:not(.primary):not(:disabled):hover,
+.tutorial-modal-content .dh-btn:not(.primary):not(:disabled):hover,
+.tutorial-resume-banner .dh-btn:not(.primary):not(:disabled):hover {
+    background: var(--header-bg-selected);
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+/* ===== Spotlight bubble (built by tutorial-engine-ui.js) ===== */
+.tut-bubble {
+    background: var(--menu-bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px 16px;
+    box-shadow: var(--big-box-shadow);
+}
+.tut-bubble h4 { margin: 0 0 8px 0; font-weight: 600; }
+.tut-actions { margin-top: 10px; display: flex; gap: 8px; justify-content: flex-end; }
+
+/* Chapter stepper at the top of the tooltip (built by renderProgress). */
+.tut-progress { margin: 0 0 12px 0; }
+.tut-progress-bar { display: flex; gap: 4px; }
+.tut-seg {
+    flex: 1;
+    height: 4px;
+    border-radius: 3px;
+    background: var(--border);
+    transition: background .25s ease, opacity .25s ease;
+}
+.tut-seg.done { background: var(--accent); opacity: .45; }
+.tut-seg.active { background: var(--accent); }
+.tut-progress-label {
+    margin-top: 7px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    opacity: .65;
+}
+
+/* ===== Centered / illustrated narration bubbles + rich text ===== */
+/* Centered bubbles (placement:"center") keep body text left-aligned for readability but
+   center the heading over the illustration. */
+.tut-tooltip.tut-centered { text-align: left; }
+.tut-tooltip.tut-centered h4 { text-align: center; }
+
+/* Inline-SVG figure wrapper injected into a step's content. */
+.tut-figure { display: flex; justify-content: center; margin: 2px 0 14px; }
+.tut-figure svg { max-width: 100%; height: auto; display: block; }
+
+/* Narration beside its illustration: copy left, figure right (see withFigure in the tour
+   definition). Wraps back to stacked - text first, figure below - when the bubble is too
+   narrow to seat both columns, which is also what narrow viewports get. */
+.tut-split { display: flex; flex-wrap: wrap; align-items: center; gap: 20px; }
+.tut-split-text { flex: 1 1 240px; min-width: 0; }
+.tut-split > .tut-figure { flex: 0 1 320px; margin: 0; }
+
+/* Rich-text spans usable inside step copy (message HTML). Theme-aware via tokens. */
+.tut-lead      { font-size: 15px; line-height: 1.45; color: var(--text); }
+.tut-accent    { color: var(--accent); font-weight: 600; }
+.tut-highlight {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+    border-radius: 4px;
+    padding: 0 4px;
+    color: var(--text);
+}
+.tut-muted { color: var(--text-muted); }
+
+/* Structural SVG parts (labels, axes, frames) follow the theme. Series lines carry their own
+   inline stroke (set by the JS helpers) so categorical colours stay validated per theme. */
+.tut-svg-label { fill: var(--text-muted); font-size: 11px; font-weight: 600; }
+.tut-svg-axis  { stroke: var(--border); stroke-width: 1; }
+.tut-svg-frame { stroke: var(--border); fill: none; }
+.tut-svg-ink   { fill: var(--text); }
+
+/* Series line colours reuse the real chart's palette (theme-aware) so the SVG intros match the
+   live InsightsChart payoff. The alert stroke is a fixed "problem" red (intentionally unthemed). */
+.tut-series-1 { stroke: var(--line-path-orange); }
+.tut-series-2 { stroke: var(--line-path-teal); }
+.tut-series-3 { stroke: var(--line-path-purple); }
+.tut-series-alert { stroke: #e5484d; }
+.tut-fill-1 { fill: var(--line-path-orange); }
+.tut-fill-2 { fill: var(--line-path-teal); }
+.tut-fill-3 { fill: var(--line-path-purple); }
+
+/* Industry glyphs (problem scenes) + the accent "agent" motif in the teaser. */
+.tut-svg-glyph   { stroke: var(--text-muted); fill: none; stroke-width: 1.4; stroke-linejoin: round; stroke-linecap: round; }
+.tut-fill-glyph  { fill: var(--text-muted); }
+.tut-fill-accent { fill: var(--accent); }
+.tut-stroke-accent { stroke: var(--accent); fill: none; }
+
+/* Richer sparkline chrome: framed panels, midline grid, smooth area fills, graph nodes, glow. */
+.tut-svg-panel { fill: color-mix(in srgb, var(--text) 5%, transparent); stroke: var(--border); stroke-width: 1; }
+.tut-svg-grid  { stroke: var(--border); stroke-width: 1; }
+.tut-svg-node  { fill: var(--menu-bg); stroke: var(--text-muted); stroke-width: 1.4; }
+.tut-fill-alert { fill: #e5484d; }
+.tut-area-1 { fill: var(--line-area-orange); }
+.tut-area-2 { fill: var(--line-area-teal); }
+.tut-area-3 { fill: var(--line-area-purple); }
+.tut-area-alert { fill: color-mix(in srgb, #e5484d 20%, transparent); }
+.tut-svg-glow { stroke: var(--accent); fill: none; opacity: 0.28; }
+
+/* The tail is a transparent border box; whichever side faces the target gets the bubble
+   colour, so the triangle points back at the spotlighted element. */
+.tut-bubble::after {
+    content: "";
+    position: absolute;
+    width: 0;
+    height: 0;
+    border: 10px solid transparent;
+}
+.tut-tooltip[data-pos="bottom"].tut-bubble::after {   /* bubble below target — points up */
+    left: 24px;
+    top: -10px;
+    border-bottom-color: var(--menu-bg);
+}
+.tut-tooltip[data-pos="top"].tut-bubble::after {      /* bubble above target — points down */
+    left: 24px;
+    bottom: -10px;
+    border-top-color: var(--menu-bg);
+}
+.tut-tooltip[data-pos="right"].tut-bubble::after {    /* bubble right of target — points left */
+    left: -10px;
+    top: 24px;
+    border-right-color: var(--menu-bg);
+}
+.tut-tooltip[data-pos="left"].tut-bubble::after {     /* bubble left of target — points right */
+    right: -10px;
+    top: 24px;
+    border-left-color: var(--menu-bg);
+}
+
+.tut-overlay{
+    position: fixed;
+    inset: 0;
+    background: transparent;
+    z-index: 99980;
+    pointer-events: none;
+}
+
+.tut-spotlight{
+    position: fixed;
+    z-index: 99990;
+    pointer-events: none;
+    outline: 2000px solid rgba(0,0,0,.55);
+    border-radius: 10px;
+    opacity: 0;                       /* fades in via .tut-visible once positioned */
+    transition: all .15s ease;
+}
+
+.tut-tooltip{
+    position: fixed;
+    z-index: 100002;
+    max-width: 420px;
+    /* Bound the height the same way .tutorial-modal-content is. Without it, a bubble taller
+       than the viewport made nudgeIntoViewport fire both of its branches; the second won and
+       pushed the bubble up, cutting the title and opening lines off the top with no scrollbar
+       to recover them. Hits the centre-stage illustrated beats hardest — below ~760px of
+       usable width .tut-split wraps to stacked, which is exactly a projector at 1280x720. */
+    max-height: calc(100vh - 24px);
+    overflow-y: auto;
+    pointer-events: auto;
+    /* Opacity only — the tooltip's transform is owned by anchor positioning (centering),
+       so the entrance must not animate transform. Revealed after it's placed (tut-visible)
+       so it fades in at its final spot rather than popping in then jumping. */
+    opacity: 0;
+    transition: opacity .18s ease;
+}
+
+.tut-tooltip.tut-visible,
+.tut-spotlight.tut-visible { opacity: 1; }
+
+/* Respect reduced-motion: still reveal-after-placement (no jump), just don't animate it. */
+@media (prefers-reduced-motion: reduce) {
+    .tut-tooltip, .tut-spotlight { transition: none; }
+}
+
+/* Allow one element above overlay */
+.tut-allow{
+    position: relative;
+    z-index: 100001;
+    pointer-events: auto;
+    isolation: isolate;
+}
+
+/* Anchor positioning */
+@supports (position-anchor: --a) and (anchor-name: --a) {
+    .tut-tooltip{ --tut-offset: 12px; }
+
+    .tut-tooltip[data-pos="bottom"]{
+        top: calc(anchor(bottom) + var(--tut-offset));
+        left: anchor(center);
+        transform: translateX(-50%);
+    }
+    .tut-tooltip[data-pos="top"]{
+        top: calc(anchor(top) - var(--tut-offset));
+        left: anchor(center);
+        transform: translateX(-50%) translateY(-100%);
+    }
+    .tut-tooltip[data-pos="right"]{
+        top: anchor(center);
+        left: calc(anchor(right) + var(--tut-offset));
+        transform: translateY(-50%);
+    }
+    .tut-tooltip[data-pos="left"]{
+        top: anchor(center);
+        left: calc(anchor(left) - var(--tut-offset));
+        transform: translateX(-100%) translateY(-50%);
+    }
+}

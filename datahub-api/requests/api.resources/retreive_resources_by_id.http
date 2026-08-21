@@ -1,0 +1,12 @@
+POST {{hostname}}/resources/byids
+Authorization: Bearer {{token}}
+Accept: application/json
+Content-Type: application/json
+
+{
+  "items": [
+    {"id": 403}
+  ]
+}
+
+###

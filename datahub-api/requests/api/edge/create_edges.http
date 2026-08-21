@@ -1,0 +1,17 @@
+POST {{hostname}}/edges/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"fromExternalId": "klp_pipe_ws_a1212_dl",
+			"toExternalId": "klp_valve_v9",
+			"relationshipType": "FLOWS_TO",
+			"description": "Downstream leg",
+			"metadata": {
+				"work_order": "wo-sap-12344"
+			}
+		}
+	]
+}

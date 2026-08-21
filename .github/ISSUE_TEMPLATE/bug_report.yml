@@ -1,0 +1,58 @@
+name: Bug report
+description: Something behaves differently from what it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not report security vulnerabilities here. Use private reporting
+        instead, see [SECURITY.md](../blob/master/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: |
+        The smallest set of steps that shows it. A failing request, a stack trace, or a
+        test is worth more than a description.
+      placeholder: |
+        1. Start the stack with ./scripts/up.sh
+        2. POST /timeseries/data with ...
+        3. The response is ...
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Which part
+      multiple: true
+      options:
+        - API (datahub-api)
+        - Console (datahub-console)
+        - Datapoint/event consumer (datahub-stateless-consumer)
+        - Graph consumer (datahub-stateful-consumer)
+        - Analysis service (datahub-analysis)
+        - Java SDK (datahub-java-sdk)
+        - Deployment, compose or scripts
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The commit you are on, or the image tag you are running.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Container runtime and version, host OS, JDK if you build from source.
+      placeholder: "Podman 5.2, AlmaLinux 10, JDK 25"

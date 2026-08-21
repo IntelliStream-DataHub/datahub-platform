@@ -1,0 +1,216 @@
+# Application services overlay (LOCAL DEV). Runs the four DataHub apps in
+# containers, on top of the backing services in docker-compose.yml.
+#
+# podman-compose 1.0.6 ignores compose `profiles:`, so the apps live in this
+# separate file instead and are opted in by merging both files:
+#
+#     podman compose -f docker-compose.yml -f docker-compose.apps.yml up -d --build
+#     # docker users: same command with `docker compose`
+#
+# Plain `compose up` (docker-compose.yml only) stays backing-services-only for
+# the Gradle/host workflow.
+#
+# Each image compiles the boot jars in a JDK build stage (see deploy/app/Dockerfile), so
+# no host JDK or ./gradlew step is needed. The
+# one-shot vault-seed re-seeds Vault with in-network (service-name) hosts and pins
+# fixed AppRole credentials that the app containers authenticate with; each app
+# waits for that seed (and Postgres) before starting.
+
+services:
+  vault-seed:
+    image: docker.io/hashicorp/vault:1.18
+    depends_on: ["vault", "vault-init"]
+    user: "0"
+    environment:
+      VAULT_ADDR: http://vault:8200
+      # Authenticates with the root token that vault-init saved on the shared vaultinit
+      # volume (vault-seed.sh reads it from VAULT_INIT_FILE). No human token to export.
+      VAULT_INIT_FILE: /vault/init/vault-init.json
+      # In-network hostnames (not localhost) so the containerised apps reach the
+      # backing services by their compose service names.
+      PG_HOST: postgres:5432
+      CH_HOST: clickhouse:8123
+      NEO_HOST: neo4j:7687
+      KV_HOST: kvrocks:6666
+      VALKEY_HOST: valkey
+      PULSAR_HOST: pulsar
+      # Keycloak issuer host. Default `keycloak` (compose DNS) needs `127.0.0.1 keycloak`
+      # in the host's /etc/hosts for browser login. scripts/up.sh instead sets KC_ADDR to
+      # this host's IP, which both the browser (it's the host) and the containers can reach
+      # — so browser login works with no /etc/hosts edit. Port 8090 either way.
+      KEYCLOAK: http://${KC_ADDR:-keycloak}:8090
+      # Browser-facing API base, seeded into the console's <meta name="datahub-api-url">.
+      # The files page, dashboard and events call datahub-api DIRECTLY from the browser, so
+      # this must be a URL the host browser can reach. Same problem as KEYCLOAK above: the
+      # compose DNS name `datahub-api` is only resolvable inside the network, so use KC_ADDR
+      # (this host's IP) — reachable by both the browser and the console container (via the
+      # published 8081). Falls back to the compose DNS name for the plain (non-up.sh) flow.
+      DATAHUB_URL: http://${KC_ADDR:-datahub-api}:8081
+      # Fixed dev AppRole creds, mirrored by the app services below.
+      VAULT_ROLE_ID: datahub-local-roleid
+      VAULT_SECRET_ID: datahub-local-secretid
+    volumes:
+      - "./scripts:/scripts:z"
+      - "vaultinit:/vault/init"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - "until vault status >/dev/null 2>&1; do echo 'waiting for vault to be unsealed...'; sleep 2; done; exec sh /scripts/vault-seed.sh"
+    restart: "no"
+
+  # One-shot: create the Pulsar tenants + namespaces the apps need (the standalone
+  # broker starts empty). Apps wait for these via their entrypoint before launching.
+  pulsar-init:
+    image: docker.io/apachepulsar/pulsar:4.0.11
+    depends_on: ["pulsar"]
+    environment:
+      PULSAR_ADMIN_URL: http://pulsar:8080
+      INTERNAL_TENANT: datahub-internal
+      PUBLIC_TENANT: datahub-public
+      PULSAR_CLUSTER: standalone
+    volumes: ["./scripts:/scripts:z"]
+    entrypoint: ["/bin/sh", "/scripts/pulsar-init.sh"]
+    restart: "no"
+
+  # One-shot: finish the Keycloak realm setup that `--import-realm` cannot carry — the
+  # organization protocol mappers and org group membership (deploy/keycloak/bootstrap-org-groups.sh).
+  # Without it the `organization` claim is a flat array of aliases that datahub-api rejects, so every
+  # tenant-scoped call 401s and console login lands on /error/no-organization. The script is
+  # idempotent, so re-running `up` (or this container) is safe. Waits for the realm's OIDC discovery
+  # doc so it runs only once Keycloak has imported the realm. Uses the Pulsar image purely because it
+  # already ships curl + python3 (the Keycloak image ships neither); nothing here talks to Pulsar.
+  keycloak-bootstrap:
+    image: docker.io/apachepulsar/pulsar:4.0.11
+    depends_on: ["keycloak"]
+    environment:
+      KC_ADMIN_USER: admin
+      KC_ADMIN_PASS: admin
+    volumes: ["./deploy/keycloak:/bootstrap:z"]
+    entrypoint:
+      - /bin/bash
+      - -c
+      - "until curl -sf http://keycloak:8090/realms/datahub/.well-known/openid-configuration >/dev/null 2>&1; do echo 'waiting for keycloak realm import...'; sleep 2; done; exec bash /bootstrap/bootstrap-org-groups.sh http://keycloak:8090 datahub"
+    restart: "no"
+
+  datahub-api:
+    image: datahub-api:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-api
+    depends_on: ["postgres", "pulsar", "keycloak"]
+    environment: &app-env
+      SPRING_PROFILES_ACTIVE: dev
+      # Heap caps, so the whole stack fits on a modest laptop. Without them each JVM sizes its
+      # heap from the HOST's RAM (default max ~1/4), which on a large machine means gigabytes
+      # reserved per app for a dev stack that needs a fraction of it. MaxDirectMemorySize
+      # matters too: the api's footprint above its heap is mostly Netty/Pulsar direct buffers,
+      # which -Xmx does not bound. JAVA_TOOL_OPTIONS is read by the JVM itself, so this needs
+      # no Dockerfile or command change. Raise it per-service if one needs more.
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx384m -XX:MaxDirectMemorySize=128m"
+      VAULT_ADDR: http://vault:8200          # used by the image entrypoint (AppRole-login wait)
+      VAULT_ADDRESS: http://vault:8200       # binds Spring vault.address
+      VAULT_ROLE_ID: datahub-local-roleid    # binds vault.role-id (pinned by vault-seed); also
+      VAULT_SECRET_ID: datahub-local-secretid # used by the entrypoint to gate on a working login
+      PULSAR_SERVICE_URL: pulsar://pulsar:6650
+      PULSAR_SERVICE_HTTPURL: http://pulsar:8080
+      PULSAR_ADMIN_URL: http://pulsar:8080    # used by the image entrypoint (namespace wait)
+      DATAHUB_PULSAR_TLS_ENABLED: "false"
+      # Resolve the issuer during bean creation, so gate startup on Keycloak's realm serving
+      # its OIDC discovery doc (in-network service name; port opens before it's ready).
+      WAIT_FOR_OIDC_WELLKNOWN: http://keycloak:8090/realms/datahub/.well-known/openid-configuration
+    # Keycloak realm import can outlast the entrypoint's poll on a cold start; recover instead
+    # of dying permanently on a transient dependency hiccup.
+    restart: unless-stopped
+    ports: ["8081:8081"]
+
+  datahub-console:
+    image: datahub-console:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-console
+    depends_on: ["postgres", "valkey", "keycloak"]
+    environment: *app-env
+    restart: unless-stopped
+    ports: ["8080:8080"]
+
+  datahub-stateless-consumer:
+    image: datahub-stateless-consumer:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-stateless-consumer
+    depends_on: ["postgres", "clickhouse", "pulsar", "datahub-api"]
+    # Wait for the API to finish per-tenant Flyway before loading per-tenant data.
+    environment:
+      <<: *app-env
+      WAIT_FOR_API_URL: http://datahub-api:8081/
+
+  datahub-stateful-consumer:
+    image: datahub-stateful-consumer:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-stateful-consumer
+    depends_on: ["postgres", "neo4j", "pulsar", "datahub-api"]
+    # Wait for the API to finish per-tenant Flyway before loading per-tenant data.
+    environment:
+      <<: *app-env
+      WAIT_FOR_API_URL: http://datahub-api:8081/
+
+  # Timeseries relationship analysis (port 8082). The console's Analyze tab and its
+  # "related series" panel post here DIRECTLY FROM THE BROWSER, so without this service
+  # both features fail with a connection refused and no explanation.
+  #
+  # Stateless: no database and no Pulsar. It validates the caller's own JWT against the
+  # issuer it loads from Vault (the shared datahub-platform secret, same as the api) and
+  # forwards that JWT to the api via the Java SDK, so the caller's per-dataset ACLs apply.
+  datahub-analysis:
+    image: datahub-analysis:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-analysis
+    depends_on: ["keycloak", "datahub-api"]
+    environment:
+      <<: *app-env
+      # Defaults to localhost:8081, which inside a container is itself.
+      DATAHUB_API_URL: http://datahub-api:8081
+      # The browser calls this service from the console's origin. That origin is what the
+      # user typed, i.e. localhost:8080 — not the compose service name.
+      CORS_ALLOWED_ORIGINS: http://localhost:8080
+      WAIT_FOR_API_URL: http://datahub-api:8081/
+    restart: unless-stopped
+    # Published because the request comes from the host's browser, not from inside the network.
+    ports: ["8082:8082"]
+
+  # Scheduled housekeeping: stale upload temp files, orphaned Pulsar subscriptions, and the
+  # per-tenant Flyway self-heal sweep. It is the ONLY persistent retrier of that migration —
+  # datahub-api provisions a tenant on demand and gives up after one attempt — so without it
+  # a tenant whose migration failed once stays broken.
+  #
+  # Single instance by design (the jobs are not built to run concurrently), and headless: no
+  # web server, so nothing to publish. SPRING_PROFILES_ACTIVE=dev, set in the shared env
+  # above, keeps the file jobs in dry-run; the subscription sweep is dry-run by default too.
+  #
+  # DISABLED for the local/demo stack: a demo does not need the housekeeping sweeps, and the
+  # self-heal retrier is moot on the seeded single-tenant demo. Re-enable by uncommenting the
+  # service below, then `./scripts/up.sh --build` to build its image. Nothing depends on it.
+  # datahub-cleanup:
+  #   image: datahub-cleanup:local
+  #   build:
+  #     context: .
+  #     dockerfile: deploy/app/Dockerfile
+  #     args:
+  #       MODULE: datahub-cleanup
+  #   depends_on: ["postgres", "pulsar", "datahub-api"]
+  #   environment:
+  #     <<: *app-env
+  #     WAIT_FOR_API_URL: http://datahub-api:8081/
+  #   restart: unless-stopped

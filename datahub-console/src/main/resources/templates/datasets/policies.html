@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{tab.policies}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'datasets')}">
+<main class="layout-body">
+	<nav th:replace="~{datasets/nav :: navbar('policies')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* The left menu splits on scope, which is the model's own distinction rather than a
+	       grouping invented for the page: PolicyType declares a PolicyScope, and only
+	       NAMING_CONVENTION is TENANT_WITH_DATASET_OVERRIDE. Everything else is DATASET_ONLY.
+
+	       A global policy has no data set to hang off, so it is listed and edited directly here.
+	       A data set policy is a node in the graph, connected to its data set, so selecting a data
+	       set loads that graph on the right and the policy is edited where it lives. */-->
+	<div class="flex-container" th:if="${!featureDisabled}">
+		<section class="left-content datahub-form-fields pad20">
+
+			<section id="section-global-policies">
+				<div class="flex-container left-right posrel">
+					<h3 th:text="#{policies.global}"></h3>
+					<div class="actions">
+						<button class="dh-btn primary small" type="button"
+								th:attr="title=#{policies.global.create}" data-type="create-global-policy-btn">
+							<i class="fa fa-fw fa-plus"></i>
+						</button>
+					</div>
+				</div>
+				<p class="section-hint" th:text="#{policies.global.help}"></p>
+				<ul class="data-list slim mtop10 pointer" data-type="global-policy-list">
+					<!--/* The naming policy in force when the tenant has not configured one. It is not
+					       a node, so it cannot come from ${policies}; the API synthesises it per
+					       write. Shown so the list states what is actually being enforced, and
+					       opening it creates a real policy node seeded with these values. */-->
+					<li th:unless="${hasGlobalNamingPolicy}" data-type="shipped-naming-default"
+							class="flex-container left-right">
+						<span class="dl-name" th:text="#{policies.naming.default.name}"></span>
+						<span class="dl-chips">
+							<span class="dl-chip" data-label="POLICY" th:text="#{policies.default.chip}"></span>
+						</span>
+					</li>
+					<th:block th:each="p : ${policies}">
+						<li th:if="${p.dataSetId == null}" th:attr="data-id=${p.id}"
+								th:classappend="${p.deactivated} ? ' is-deactivated' : ''"
+								class="flex-container left-right">
+							<span class="dl-name" th:text="${p.name}"></span>
+							<span class="dl-chips">
+								<span class="dl-chip" data-label="POLICY"
+										th:if="${p.deactivated}"
+										th:text="#{policies.deactivated.chip}"></span>
+							</span>
+						</li>
+					</th:block>
+				</ul>
+			</section>
+
+			<section id="section-dataset-policies" class="mtop20">
+				<h3 th:text="#{policies.dataset}"></h3>
+				<p class="section-hint" th:text="#{policies.dataset.help}"></p>
+				<ul class="data-list slim mtop10 pointer" data-type="dataset-policy-list">
+					<th:block th:each="p : ${policies}">
+						<li th:if="${p.dataSetId != null}"
+								th:attr="data-id=${p.id},data-dataset-id=${p.dataSetId}"
+								th:classappend="${p.deactivated} ? ' is-deactivated' : ''"
+								class="flex-container left-right">
+							<span class="dl-name" th:text="${p.name}"></span>
+							<span class="dl-chips">
+								<span class="dl-chip" data-label="POLICY"
+										th:if="${p.deactivated}"
+										th:text="#{policies.deactivated.chip}"></span>
+								<span class="dl-chip" data-label="DATASET"
+										th:text="${dataSetNames[p.dataSetId]} ?: ${p.dataSetId}"></span>
+							</span>
+						</li>
+					</th:block>
+				</ul>
+				<p class="findings-empty" th:if="${#lists.isEmpty(policies)}"
+						th:text="#{policies.dataset.empty}"></p>
+			</section>
+		</section>
+
+		<section class="flex-container flex-auto graph-network-container" data-type="resource-network">
+		</section>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+	<script th:replace="~{datasets/i18n :: i18nMessages}"></script>
+	<script type="text/javascript" th:inline="javascript">
+		document.addEventListener('DOMContentLoaded', () => {
+
+			const container = document.querySelector('[data-type="resource-network"]');
+
+			const markSelected = li => {
+				document.querySelectorAll('section.left-content li.selected')
+					.forEach(el => el.classList.remove('selected'));
+				li.classList.add('selected');
+			};
+
+			// A global policy has no data set, so there is no one graph it belongs to. It is edited
+			// straight from the list.
+			// li[data-id] deliberately: the shipped-default row is in this list too but has no id,
+			// and it gets its own handler below. Matching bare `li` would bind both to it and open
+			// two forms, the second with an entityId of 0.
+			document.querySelectorAll('[data-type="global-policy-list"] li[data-id]').forEach(li => {
+				li.addEventListener('pointerdown', () => {
+					markSelected(li);
+					new PolicyForm({
+						// The raw attribute: this id is only ever passed on, never counted with.
+						entityId: li.getAttribute('data-id'),
+						afterSave: () => window.location.reload(),
+						afterDelete: () => window.location.reload()
+					}).render();
+				});
+			});
+
+			// A data set policy IS a node in that data set's graph, connected to it by ENFORCED_ON.
+			// So selecting one loads the graph it lives in and the policy can be opened, re-parented
+			// or deleted there, in the context of what it governs, rather than as a row on its own.
+			document.querySelectorAll('[data-type="dataset-policy-list"] li').forEach(li => {
+				li.addEventListener('pointerdown', () => {
+					markSelected(li);
+					// A string, like every other loadNetwork caller: the id goes into a JSON body as-is,
+					// so there is nothing for a conversion to do but lose.
+					const dataSetId = li.getAttribute('data-dataset-id');
+					window.resourceNetwork = new GraphNetwork({ container: container });
+					window.resourceNetwork.loadNetwork(dataSetId, true);
+				});
+			});
+
+			document.querySelector('[data-type="create-global-policy-btn"]')
+				.addEventListener('click', () => {
+					// No dataSetId: that is what makes it tenant-wide.
+					new PolicyForm({ afterSave: () => window.location.reload() }).render();
+				});
+
+			// The shipped default has no node behind it, so opening it is a create, pre-filled with
+			// the values the API is already applying. Saving makes the implicit rule explicit
+			// without changing behaviour; the administrator then edits from there.
+			const shippedDefaultRow = document.querySelector('[data-type="shipped-naming-default"]');
+			if (shippedDefaultRow) {
+				shippedDefaultRow.addEventListener('pointerdown', () => {
+					markSelected(shippedDefaultRow);
+					new PolicyForm({
+						// Named after the rule, not after the operation. This is a create, because
+						// no node exists yet, but the user clicked a policy that is already in
+						// force and "Create policy" would tell them otherwise.
+						title: [[#{policies.naming.default.name}]],
+						meta: { kind: 'naming', preset: 'qualified_tag', mode: 'warn', nearDuplicateMode: 'warn' },
+						afterSave: () => window.location.reload()
+					}).render();
+				});
+			}
+		});
+	</script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/layout-base.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cose-base.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-fcose.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/dagre.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-dagre.js" defer></script>
+	<script src="/static/js/graph-network/lodash.js" defer></script>
+	<script src="/static/js/graph-network/cytoscape-edgehandles.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-node-html-label.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/graph-network.js" defer></script>
+	</th:block>
+</main>
+</body>
+</html>

@@ -1,0 +1,315 @@
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "items": [
+        {
+            "externalId": "nordpool_hourly_energy_price",
+            "datapoints": [
+                {
+                    "timestamp": 1723759200000,
+                    "value": 660.8
+                },
+                {
+                    "timestamp": 1723762800000,
+                    "value": 654.1
+                },
+                {
+                    "timestamp": 1723766400000,
+                    "value": 646.22
+                },
+                {
+                    "timestamp": 1723770000000,
+                    "value": 649.51
+                },
+                {
+                    "timestamp": 1723773600000,
+                    "value": 588.7
+                },
+                {
+                    "timestamp": 1723777200000,
+                    "value": 662.33
+                },
+                {
+                    "timestamp": 1723780800000,
+                    "value": 666.45
+                },
+                {
+                    "timestamp": 1723784400000,
+                    "value": 667.86
+                },
+                {
+                    "timestamp": 1723788000000,
+                    "value": 661.51
+                },
+                {
+                    "timestamp": 1723791600000,
+                    "value": 655.27
+                },
+                {
+                    "timestamp": 1723795200000,
+                    "value": 647.63
+                },
+                {
+                    "timestamp": 1723798800000,
+                    "value": 665.04
+                },
+                {
+                    "timestamp": 1723802400000,
+                    "value": 578.82
+                },
+                {
+                    "timestamp": 1723806000000,
+                    "value": 570.35
+                },
+                {
+                    "timestamp": 1723809600000,
+                    "value": 543.3
+                },
+                {
+                    "timestamp": 1723813200000,
+                    "value": 617.75
+                },
+                {
+                    "timestamp": 1723816800000,
+                    "value": 628.46
+                },
+                {
+                    "timestamp": 1723820400000,
+                    "value": 669.15
+                },
+                {
+                    "timestamp": 1723824000000,
+                    "value": 669.27
+                },
+                {
+                    "timestamp": 1723827600000,
+                    "value": 670.92
+                },
+                {
+                    "timestamp": 1723831200000,
+                    "value": 670.56
+                },
+                {
+                    "timestamp": 1723834800000,
+                    "value": 669.86
+                },
+                {
+                    "timestamp": 1723838400000,
+                    "value": 664.68
+                },
+                {
+                    "timestamp": 1723842000000,
+                    "value": 663.39
+                },{
+					"timestamp": 1723845600000,
+					"value": 646.96
+				},
+				{
+					"timestamp": 1723849200000,
+					"value": 643.06
+				},
+				{
+					"timestamp": 1723852800000,
+					"value": 641.64
+				},
+				{
+					"timestamp": 1723856400000,
+					"value": 640.81
+				},
+				{
+					"timestamp": 1723860000000,
+					"value": 640.81
+				},
+				{
+					"timestamp": 1723863600000,
+					"value": 640.1
+				},
+				{
+					"timestamp": 1723867200000,
+					"value": 640.93
+				},
+				{
+					"timestamp": 1723870800000,
+					"value": 642.35
+				},
+				{
+					"timestamp": 1723874400000,
+					"value": 645.06
+				},
+				{
+					"timestamp": 1723878000000,
+					"value": 642.7
+				},
+				{
+					"timestamp": 1723881600000,
+					"value": 626.16
+				},
+				{
+					"timestamp": 1723885200000,
+					"value": 621.43
+				},
+				{
+					"timestamp": 1723888800000,
+					"value": 537.42
+				},
+				{
+					"timestamp": 1723892400000,
+					"value": 466.16
+				},
+				{
+					"timestamp": 1723896000000,
+					"value": 451.51
+				},
+				{
+					"timestamp": 1723899600000,
+					"value": 508.47
+				},
+				{
+					"timestamp": 1723903200000,
+					"value": 621.08
+				},
+				{
+					"timestamp": 1723906800000,
+					"value": 645.54
+				},
+				{
+					"timestamp": 1723910400000,
+					"value": 650.5
+				},
+				{
+					"timestamp": 1723914000000,
+					"value": 650.26
+				},
+				{
+					"timestamp": 1723917600000,
+					"value": 650.15
+				},
+				{
+					"timestamp": 1723921200000,
+					"value": 649.79
+				},
+				{
+					"timestamp": 1723924800000,
+					"value": 647.78
+				},
+				{
+					"timestamp": 1723928400000,
+					"value": 646.48
+				}
+			]
+        }
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/data
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "nordpool_hourly_energy_price",
+			"datapoints": [
+				{
+					"timestamp": 1723932000000,
+					"value": 625.29
+				},
+				{
+					"timestamp": 1723935600000,
+					"value": 624.23
+				},
+				{
+					"timestamp": 1723939200000,
+					"value": 622.11
+				},
+				{
+					"timestamp": 1723942800000,
+					"value": 620.46
+				},
+				{
+					"timestamp": 1723946400000,
+					"value": 613.52
+				},
+				{
+					"timestamp": 1723950000000,
+					"value": 530.92
+				},
+				{
+					"timestamp": 1723953600000,
+					"value": 617.05
+				},
+				{
+					"timestamp": 1723957200000,
+					"value": 588.1
+				},
+				{
+					"timestamp": 1723960800000,
+					"value": 613.99
+				},
+				{
+					"timestamp": 1723964400000,
+					"value": 508.33
+				},
+				{
+					"timestamp": 1723968000000,
+					"value": 470.32
+				},
+				{
+					"timestamp": 1723971600000,
+					"value": 469.14
+				},
+				{
+					"timestamp": 1723975200000,
+					"value": 437.14
+				},
+				{
+					"timestamp": 1723978800000,
+					"value": 334.53
+				},
+				{
+					"timestamp": 1723982400000,
+					"value": 202.04
+				},
+				{
+					"timestamp": 1723986000000,
+					"value": 428.9
+				},
+				{
+					"timestamp": 1723989600000,
+					"value": 470.55
+				},
+				{
+					"timestamp": 1723993200000,
+					"value": 501.97
+				},
+				{
+					"timestamp": 1723996800000,
+					"value": 543.98
+				},
+				{
+					"timestamp": 1724000400000,
+					"value": 619.76
+				},
+				{
+					"timestamp": 1724004000000,
+					"value": 621.88
+				},
+				{
+					"timestamp": 1724007600000,
+					"value": 622.23
+				},
+				{
+					"timestamp": 1724011200000,
+					"value": 618.46
+				},
+				{
+					"timestamp": 1724014800000,
+					"value": 613.4
+				}
+			]
+		}
+	]
+}

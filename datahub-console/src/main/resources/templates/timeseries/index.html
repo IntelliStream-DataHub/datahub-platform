@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{timeseries}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/related-series.css}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'timeseries')}">
+<main class="layout-body">
+	<nav th:replace="~{timeseries/nav :: navbar('explore')}"></nav>
+	<div class="flex-container left-right topic-content">
+		<section class="left-content datahub-form-fields pad20">
+			<label for="search-timeseries" th:text="#{search.for.timeseries}"></label>
+			<div class="posrel">
+				<input id="search-timeseries" class="w100 left-icon" type="text" name="search-timeseries" th:attr="placeholder=#{write.query.here}"/>
+				<i class="fa fa-fw fa-search"></i>
+			</div>
+
+			<section id="section-root-asset-list">
+				<div class="flex-container left-right posrel" style="height: 40px">
+					<h3 th:text="#{timeseries}"></h3>
+					<div class="actions">
+						<button class="dh-btn primary small" type="button" th:attr="placeholder=#{create.timeseries}" data-type="create-timeseries-btn">
+							<i class="fa fa-fw fa-plus"></i>
+						</button>
+					</div>
+					<ul data-type="create-submenu" class="create-submenu posabs hidden">
+						<li class="text-right"><i class="fa fa-fw fa-close pointer"></i></li>
+						<li data-type="create-ts" th:text="#{create.timeseries}"></li>
+					</ul>
+				</div>
+				<ul class="data-list slim mtop10 pointer" data-type="timeseries-list">
+					<li th:each="n : ${rootResources}" class="dl-row"
+						th:attr="data-root-id=${n.id}, data-external-id=${n.externalId}">
+						<span class="dl-main">
+							<span class="dl-name" th:text="${n.name}"></span>
+							<span class="dl-chips"><span class="dl-chip" data-label="TIMESERIES">TIMESERIES</span></span>
+						</span>
+					</li>
+				</ul>
+			</section>
+		</section>
+		<section style="flex:1;" class="graph-network-container" data-type="resource-network">
+		</section>
+		<section class="right-content timeseries-data">
+			<div id="datapoints-chart"></div>
+			<div id="related-series"></div>
+		</section>
+	</div>
+
+	<script th:replace="~{timeseries/i18n :: i18nMessages}"></script>
+
+	<script th:inline="javascript">
+		document.addEventListener("DOMContentLoaded", () => {
+
+			const renderTopicStats = data => {
+				const rightMenuEle = document.querySelector("section.timeseries-data");
+				const existingTable = rightMenuEle.querySelector('table.topic-stats');
+				if(existingTable) existingTable.remove();
+				const tableEle = Object.assign(document.createElement('TABLE'), {
+					innerHTML: `
+						<table class="data listing">
+						<tbody>
+							<tr>
+								<td>${$L('messages.per.second')}</td>
+								<td></td>
+							</tr>
+							<tr>
+								<td>${$L('message.throughput.per.second')}</td>
+								<td></td>
+							</tr>
+							<tr>
+								<td>${$L('average.msg.size')}</td>
+								<td></td>
+							</tr>
+							<tr>
+								<td>${$L('total.messages')}</td>
+								<td></td>
+							</tr>
+							<tr>
+								<td>${$L('total.megabytes')}</td>
+								<td></td>
+							</tr>
+							<tr>
+								<td colspan="2">
+									<div>${$L('subscriptions')}</div>
+									<ul></ul>
+								</td>
+							</tr>
+						</tbody>
+						</table>
+					`,
+					className: "w100 data listing topic-stats"
+				});
+				rightMenuEle.append(tableEle);
+				rightMenuEle.querySelector("table:first-of-type tr:nth-child(1) td:nth-child(2)").textContent = data.msgRateIn;
+				rightMenuEle.querySelector("table:first-of-type tr:nth-child(2) td:nth-child(2)").textContent = data.msgThroughputIn;
+				rightMenuEle.querySelector("table:first-of-type tr:nth-child(3) td:nth-child(2)").textContent = data.averageMsgSize;
+				rightMenuEle.querySelector("table:first-of-type tr:nth-child(4) td:nth-child(2)").textContent = data.msgInCounter;
+				rightMenuEle.querySelector("table:first-of-type tr:nth-child(5) td:nth-child(2)").textContent = data.bytesInCounter;
+				const subcriptionCell = rightMenuEle.querySelector("table:first-of-type tr:nth-child(6) td:first-child ul");
+				for(let i = 0; i < data.subscriptionNames.length; i++){
+					const subName = data.subscriptionNames[i];
+					subcriptionCell.append( Object.assign(document.createElement('li'), {
+						className: 'subscription-name',
+						textContent: subName
+					}));
+				}
+			};
+
+			// TODO: This may be relevant for other functionality
+			const fetchTopicStats = externalId => {
+				fetch('/api/timeseries/topic-stats', {
+					method: 'POST',
+					headers: {
+						'Accept': 'application/json',
+						'Content-type': 'application/json',
+						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
+					},
+					body: JSON.stringify({items: [{"externalId": externalId}]})
+				})
+					.then(response => {
+						return response.json();
+					})
+					.then( json => {
+						if(json.items.length > 0){
+							renderTopicStats(json.items[0]);
+						}
+					})
+					.catch((e) => {
+						console.log(e);
+					});
+			}
+
+			// Time-window controls live in the sub-nav (rendered by
+			// timeseries/nav.html). They start hidden on this page and reveal
+			// once the user picks a series. The picker writes wall-clock local
+			// times; new Date(localValue).toISOString() gives the right UTC.
+			let selectedExternalId = null;
+			const startDateInput  = document.getElementById('ts-start-date');
+			const startTimeInput  = document.getElementById('ts-start-time');
+			const endDateInput    = document.getElementById('ts-end-date');
+			const endTimeInput    = document.getElementById('ts-end-time');
+			const rangeSelect     = document.getElementById('ts-quick-range');
+
+			const QUICK_RANGE_MS = {
+				"2m":  2 * 60_000,         "5m":  5 * 60_000,
+				"15m": 15 * 60_000,        "30m": 30 * 60_000,
+				"1h":  60 * 60_000,        "3h":  3 * 60 * 60_000,
+				"12h": 12 * 60 * 60_000,   "1d":  24 * 60 * 60_000,
+				"2d":  2 * 24 * 60 * 60_000, "1w":  7 * 24 * 60 * 60_000,
+				"1M":  30 * 24 * 60 * 60_000, "3M":  90 * 24 * 60 * 60_000,
+				"1y":  365 * 24 * 60 * 60_000
+			};
+			const pad = n => String(n).padStart(2, '0');
+			function writeDateTime(dateEl, timeEl, date){
+				dateEl.value = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+				timeEl.value = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+			}
+			function readLocalIso(dateEl, timeEl){
+				if(!dateEl.value) return null;
+				return `${dateEl.value}T${timeEl.value || "00:00"}`;
+			}
+			function applyQuickRange(presetValue){
+				const ms = QUICK_RANGE_MS[presetValue];
+				if(!ms) return;
+				const end = new Date();
+				const start = new Date(end.getTime() - ms);
+				writeDateTime(startDateInput, startTimeInput, start);
+				writeDateTime(endDateInput, endTimeInput, end);
+			}
+			function getCurrentRange(){
+				const startLocal = readLocalIso(startDateInput, startTimeInput);
+				const endLocal   = readLocalIso(endDateInput, endTimeInput);
+				if(!startLocal || !endLocal) return null;
+				const start = new Date(startLocal);
+				const end   = new Date(endLocal);
+				if(Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+				return { start: start, end: end };
+			}
+
+			// Default to last 24h on first load. Don't refetch yet — no
+			// timeseries selected.
+			if(rangeSelect){
+				applyQuickRange("1d");
+				rangeSelect.value = "1d";
+				rangeSelect.addEventListener('change', e => {
+					if(!e.target.value) return;
+					applyQuickRange(e.target.value);
+					if(selectedExternalId) fetchAndDrawTimeseries(selectedExternalId);
+					if(selectedExternalId && window.RelatedSeries) window.RelatedSeries.load(selectedExternalId, getCurrentRange());
+				});
+				[startDateInput, startTimeInput, endDateInput, endTimeInput].forEach(el => {
+					el.addEventListener('change', () => {
+						rangeSelect.value = "";
+						if(selectedExternalId) fetchAndDrawTimeseries(selectedExternalId);
+						if(selectedExternalId && window.RelatedSeries) window.RelatedSeries.load(selectedExternalId, getCurrentRange());
+					});
+				});
+			}
+
+			const fetchAndDrawTimeseries = (externalId) => {
+				const range = getCurrentRange();
+				if(!range) return;
+				const startIso = range.start.toISOString();
+				const endIso   = range.end.toISOString();
+				const spanSec  = (range.end - range.start) / 1000;
+				const granularity = InsightsChart.pickGranularityForSpan(spanSec);
+				fetch('/api/timeseries/data/by-hours-ago', {
+					method: 'POST',
+					headers: {
+						'Accept': 'application/json',
+						'Content-type': 'application/json',
+						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
+					},
+					body: JSON.stringify({
+						"externalId": externalId,
+						"startTime": startIso,
+						"endTime": endIso,
+						"granularity": granularity
+					})
+				})
+					.then(response => {
+						if(response.status !== 200 && response.status >= 400 && response.status < 500) {
+							return response.json().then(json => {
+								const tsDataEle = document.getElementById("datapoints-chart");
+								if(tsDataEle){
+									tsDataEle.innerHTML = `<div class="flash error" style="margin: 10px">${json.error.message}</div>`;
+									const topicStatsEle = tsDataEle.parentElement.querySelector('table.topic-stats');
+									if(topicStatsEle) topicStatsEle.remove();
+								}
+							});
+						} else {
+							return response.json();
+						}
+					})
+					.then( json => {
+						if(json && json.items.length > 0){
+							showLineChart(externalId, json, range.start, range.end);
+							selectedExternalId = externalId;
+						}
+					})
+					.catch((e) => {
+						console.log(e);
+					});
+			}
+
+			// Shared left-panel picker (static/js/resource-list.js). select:'none' because
+			// leftMenuTsClickEvent -> loadGraphNetwork already owns the row highlight. This also wires
+			// the search box (previously unhandled on this page).
+			const picker = ResourcePicker.init({
+				list: '[data-type="timeseries-list"]',
+				section: '#section-root-asset-list',
+				searchInput: '#search-timeseries',
+				event: 'pointerdown',
+				select: 'none',
+				attrs: item => ({ 'data-root-id': item.id, 'data-external-id': item.externalId }),
+				labels: () => ['TIMESERIES'],
+				search: {
+					url: '/api/timeseries/search',
+					body: q => ({ search: { query: q } }),
+					items: json => json.items
+				},
+				onSelect: (id, ctx) => leftMenuTsClickEvent(ctx.el)
+			});
+
+			function leftMenuTsClickEvent(ts) {
+				const externalId = ts.getAttribute('data-external-id');
+				loadGraphNetwork(ts);
+				fetchAndDrawTimeseries(externalId);
+				if(window.RelatedSeries) window.RelatedSeries.load(externalId, getCurrentRange());
+				// Remember the picked series so the Insights page can show it too.
+				// sessionStorage carries the selection across the explore -> insights
+				// navigation within the browser session (Insights consumes it on load).
+				try { sessionStorage.setItem('dh.selectedTimeseries', externalId); } catch(e) { /* storage unavailable */ }
+				// Reveal the time-window controls in the sub-nav now that a
+				// series is selected. They stay visible for the rest of the
+				// session.
+				const actions = document.querySelector('.ts-actions-right');
+				if(actions) actions.classList.remove('hidden');
+			}
+
+			// Single-timeseries chart: each click replaces the previous chart.
+			// The InsightsChart constructor clears the container, so reusing
+			// the same DOM node is fine — no need for an explicit reset.
+			function showLineChart(externalId, data, start, end){
+				const chart = new InsightsChart({
+					container: document.getElementById("datapoints-chart")
+				});
+				chart.setTimeWindow(start, end);
+				chart.addDataSet(externalId, data.items[0]);
+				chart.render();
+				window.insightsChart = chart;
+			}
+
+			const loadGraphNetwork = rootAssetEle => {
+				for (let i = 0; i < rootAssetEle.parentElement.children.length; i++) {
+					rootAssetEle.parentElement.children[i].classList.remove("selected");
+				}
+				rootAssetEle.classList.add("selected");
+				const rootNodeId = rootAssetEle.getAttribute("data-root-id");
+				window.resourceNetwork = new GraphNetwork({
+					container: document.querySelector('[data-type="resource-network"]'),
+					queryDepth: 3
+				});
+				// The root node is highlighted automatically by GraphNetwork.reload()
+				// so the graph mirrors the left-menu selection.
+				resourceNetwork.loadNetwork(rootNodeId, true);
+			};
+
+			// Show create sub menu
+			document.querySelector('[data-type="create-timeseries-btn"]').addEventListener('pointerdown', e => {
+				document.querySelector('[data-type="create-submenu"]').classList.toggle("hidden");
+			});
+
+			// Create events for create sub menu
+			(function(){
+				const createSubMenuEle = document.querySelector('[data-type="create-submenu"]');
+
+				const closeIcon = createSubMenuEle.querySelector(':nth-child(1) i');
+				closeIcon.addEventListener('pointerdown', () => {
+					createSubMenuEle.classList.toggle("hidden");
+				});
+
+				const createTimeseriesForm = createSubMenuEle.querySelector(':nth-child(2)');
+				createTimeseriesForm.addEventListener('pointerdown', () => {
+					openCreateTimeseriesForm();
+					createSubMenuEle.classList.toggle("hidden");
+				});
+			})();
+
+			// Time Series form
+			function openCreateTimeseriesForm(){
+				const tsForm = new TimeseriesForm({
+					afterSave: data => {
+						data.items.forEach( ts => picker.list.prepend(picker.buildRow(ts)) );
+					}
+				});
+				tsForm.render();
+			}
+
+			// Deep link from the datasets → time series table: /timeseries/index?selected=<id>
+			// preselects that series and draws its graph up through the dataset hierarchy. Last in
+			// this handler on purpose: it selects synchronously, so everything the click path uses
+			// (loadGraphNetwork and friends are consts) must already be initialized.
+			const preselectedId = new URLSearchParams(window.location.search).get('selected');
+			if(preselectedId && picker){
+				const existingRow = picker.list.querySelector('li[data-root-id="' + CSS.escape(preselectedId) + '"]');
+				if(existingRow){
+					leftMenuTsClickEvent(existingRow);
+				} else {
+					// Not in the server-rendered recent list — fetch it and prepend a row so the
+					// selection has something to highlight. Browser-direct to datahub-api with a
+					// bearer token from /token, not the deprecated console proxy.
+					const apiBase = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
+					fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+						.then(r => {
+							if(r.status === 401){ if(window.renderSignedOutDialog) window.renderSignedOutDialog(); return null; }
+							if(!r.ok) throw new Error('token');
+							return r.text();
+						})
+						.then(token => token === null ? null : fetch(apiBase + '/timeseries/byids', {
+							method: 'POST',
+							headers: {
+								'Accept': 'application/json',
+								'Content-Type': 'application/json',
+								Authorization: 'Bearer ' + token
+							},
+							// The id as it arrived in the query string: the server reads it into a
+							// Long fine, so converting buys nothing and rounds above 2^53.
+							body: JSON.stringify({ items: [{ id: preselectedId }] })
+						}))
+						.then(response => response === null ? null : response.json())
+						.then(json => {
+							if(json && json.items && json.items.length > 0){
+								const row = picker.buildRow(json.items[0]);
+								picker.list.prepend(row);
+								leftMenuTsClickEvent(row);
+							}
+						})
+						.catch(e => console.log(e));
+				}
+			}
+		});
+	</script>
+
+	<script type="text/javascript" src="/static/js/charts/d3.v7.9.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/charts/insights.js" defer></script>
+	<script type="text/javascript" src="/static/js/datepicker.js" defer></script>
+
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape.min.js" defer></script>
+	<!--script type="text/javascript" src="/static/js/graph-network/cytoscape.js"></script-->
+	<script type="text/javascript" src="/static/js/graph-network/layout-base.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cose-base.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-fcose.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/dagre.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-dagre.js" defer></script>
+	<script src="/static/js/graph-network/lodash.js" defer></script>
+	<script src="/static/js/graph-network/cytoscape-edgehandles.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-node-html-label.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/graph-network.js" defer></script>
+    <script type="text/javascript" src="/static/js/timeseries-related.js" defer></script>
+
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+</main>
+</body>
+</html>

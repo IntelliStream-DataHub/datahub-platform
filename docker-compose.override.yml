@@ -1,0 +1,39 @@
+# Auto-loaded by compose so that a bare `docker compose up -d` brings up the WHOLE platform
+# — backing services, the four apps, and the 3W demo already seeded — with no flags and no
+# launcher script.
+#
+#     docker compose up -d      # everything
+#     podman compose up -d      # same
+#
+# Why a file rather than merging the services into docker-compose.yml: compose loads
+# `docker-compose.override.yml` automatically ONLY when no explicit `-f` is given. So the
+# three deliberate layers stay intact and independently usable —
+#
+#     compose -f docker-compose.yml up -d                    # backing services only,
+#                                                            # for the ./gradlew bootRun flow
+#     compose -f docker-compose.yml -f docker-compose.apps.yml up -d      # stack, no demo
+#     ./scripts/up.sh                                        # same as bare `up`, but also
+#                                                            # sets KC_ADDR (see below)
+#
+# — and this file only changes what you get when you ask for nothing in particular.
+#
+# BROWSER LOGIN: with a bare `compose up`, KC_ADDR is unset and every component agrees on
+# the compose DNS name `keycloak:8090`. That is self-consistent, so the api, the consumers
+# and the demo all work. Your BROWSER cannot resolve `keycloak`, though, so to log in to the
+# console either add
+#
+#     127.0.0.1 keycloak
+#
+# to /etc/hosts (once), or start the stack with ./scripts/up.sh, which points every
+# component at this host's IP instead and needs no hosts entry. Both are documented in
+# GETTING_STARTED.md.
+#
+# PICK ONE AND STAY WITH IT on a given stack. vault-seed re-runs on every `up` and rewrites
+# the issuer, but a running datahub-api only reads it at boot — so alternating between a
+# bare `compose up` (issuer `keycloak`) and ./scripts/up.sh (issuer <host-ip>) leaves a
+# stack that works until the api next restarts and then rejects every token. up.sh detects
+# that change and recreates the apps to stay consistent; a bare `compose up` cannot, so
+# after using up.sh on a stack, keep using it (or `compose down` first).
+include:
+  - docker-compose.apps.yml
+  - docker-compose.demo.yml

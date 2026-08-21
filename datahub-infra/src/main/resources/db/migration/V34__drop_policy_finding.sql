@@ -1,0 +1,29 @@
+-- Retire policy_finding. Findings now live in the event store.
+--
+-- The table was added in V32 on the reasoning that a WARNING verdict is "allowed, and someone should
+-- look at it", and that such a verdict is only useful if it is durable and queryable. That still
+-- holds; what changed is the reading of what a finding *is*. It is a statement that something
+-- happened at a point in time — a policy looked at an external id, let it through, and thought
+-- someone should know — which is an event, and this platform already has an event store with
+-- durability, querying, filtering, per-dataset ACLs and retention built in. V32 answered a question
+-- the system had already answered.
+--
+-- The move is not just relocation. Findings are now readable through the ordinary event filter, so
+-- the SDKs, the MCP tools and a tenant's own queries reach them without anything finding-specific,
+-- and a finding can sit in the same timeline as the alarms and work orders it often explains.
+--
+-- V32's other half — node_external_id_folded_idx, the near-duplicate guard — is untouched and still
+-- required. That index has nothing to do with findings: it backs the lookup that decides whether an
+-- external id collides with an existing one at all. Only the findings table is dropped here, which
+-- is why this is a new migration rather than an edit to V32: V32 has already run against live tenant
+-- schemas, and rewriting it would leave every one of them with a checksum mismatch.
+--
+-- No data is migrated. A finding is the current verdict on a value that is still sitting in the
+-- node table, so re-evaluating an entity produces it again from scratch; and the alternative —
+-- synthesising events with invented ids and event times from rows written days ago — would put
+-- fabricated history into the event store to save re-deriving something derivable. Resolutions are
+-- the one real loss: a steward who resolved a finding before this migration will see it raised again
+-- the next time that entity's external id is written. That is bounded (V32 shipped days ago, in one
+-- release) and it fails safe — a finding wrongly open is a queue item someone dismisses again, where
+-- a finding wrongly resolved is a violation nobody is told about.
+DROP TABLE IF EXISTS policy_finding;

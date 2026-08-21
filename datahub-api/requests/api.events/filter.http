@@ -1,0 +1,83 @@
+# dataSetIds: null means "no data set restriction" — every data set the caller can read.
+# Send an explicit [] instead and nothing matches. See the next request for the list form.
+POST {{hostname}}/events/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"id": null,
+		"externalIdPrefix": null,
+		"source": null,
+		"type": null,
+		"subType": null,
+		"dataSetIds": null,
+		"cursor": null,
+		"metadata": {},
+		"relatedResources": [],
+		"createdTime": null,
+		"lastUpdatedTime": null,
+		"eventTime": {
+			"min": 1650118400.000000000,
+			"max": null
+		}
+	},
+	"limit": 100,
+	"cursor": null,
+	"sort": {
+		"property": null,
+		"order": null,
+		"nulls": null
+	},
+	"advancedFilter": null
+}
+
+###
+# dataSetIds names data sets by id or externalId, the same reference shape as relatedResources.
+# Matched exactly — a parent data set does not cover its children.
+POST {{hostname}}/events/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"id": null,
+		"externalIdPrefix": null,
+		"source": "wp-system",
+		"subType": null,
+		"dataSetIds": [{"id": "43"}, {"id": 234}, {"externalId": "data_set_sap"}]
+	},
+	"limit": 100,
+	"cursor": null,
+	"sort": {
+		"property": null,
+		"order": null,
+		"nulls": null
+	},
+	"advancedFilter": null
+}
+
+###
+POST {{hostname}}/events/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"id": null,
+		"externalIdPrefix": "pump",
+		"description": null,
+		"source": null,
+		"type": null,
+		"subType": null,
+		"dataSetIds": null,
+		"eventTime": null,
+		"metadata": null,
+		"relatedResources": [],
+		"createdTime": null,
+		"lastUpdatedTime": null
+	},
+	"limit": 0,
+	"cursor": null,
+	"advanced_filter": null
+}

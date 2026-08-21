@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+
+<th:block th:fragment="htmlmeta">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
+    <meta http-equiv="X-UA-Compatible" content="IE=edge"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+
+    <link rel="stylesheet" th:href="@{/static/css/all.css}" />
+    <link rel="stylesheet" th:href="@{/static/css/tutorial.css}" />
+    <link rel="icon" th:href="@{/static/img/favicon.ico}" type="image/x-icon">
+
+    <!-- Apply the saved colour theme before first paint to avoid a flash. Dark is the
+         default (no attribute); the toggle lives in the user menu below. -->
+    <script>(function(){try{var t=localStorage.getItem('dh-theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}}());</script>
+
+    <meta name="_csrf" th:content="${_csrf.token}"/>
+    <meta name="_csrf_header" th:content="${_csrf.headerName}"/>
+
+    <!-- datahub-api base URL, for browser JS that calls the api host directly (e.g. the
+         live-datapoint WebSocket and the value-type recommendation) rather than via the proxy. -->
+    <meta name="datahub-api-url" th:content="${@environment.getProperty('datahub.url') ?: 'http://localhost:8081'}"/>
+    <!-- datahub-analysis base URL: the Analyze tab posts the relationship analysis to this service
+         directly (Bearer token from /token), which then gathers its data from the api. -->
+    <meta name="datahub-analysis-url" th:content="${@environment.getProperty('datahub.analysis.url') ?: 'http://localhost:8082'}"/>
+</th:block>
+
+<body th:fragment="htmlbody (content, pageSelected)" th:classappend="${pageSelected == null ? 'page-home' : ''}">
+
+<header>
+    <a th:href="@{/}">
+        <th:block th:replace="~{fragments/logo :: mark}"></th:block>
+    </a>
+
+    <nav>
+        <a th:href="@{/datasets/index}" th:classappend="${pageSelected} == 'datasets' ? 'selected' : ''">
+            <span th:text="#{data.governance}"></span>
+        </a>
+        <a th:href="@{/resources/index}" th:classappend="${pageSelected} == 'resources' ? 'selected' : ''">
+            <span th:text="#{resources}"></span>
+        </a>
+        <a th:href="@{/files/list}" th:classappend="${pageSelected} == 'files' ? 'selected' : ''">
+            <span th:text="#{main.files}"></span>
+        </a>
+        <a th:href="@{/events/index}" th:classappend="${pageSelected} == 'events' ? 'selected' : ''">
+            <span th:text="#{events}"></span>
+        </a>
+        <a th:href="@{/timeseries/index}" th:classappend="${pageSelected} == 'timeseries' ? 'selected' : ''">
+            <span th:text="#{timeseries}"></span>
+        </a>
+        <a th:href="@{/cdc}" th:classappend="${pageSelected} == 'streams' ? 'selected' : ''">
+            <span th:text="#{streams}"></span>
+        </a>
+    </nav>
+
+    <div class="user-menu right-content">
+        <button type="button" class="ask-ai-btn" data-type="open-chat" aria-expanded="false"
+                th:if="${@chatAccess.available()}">
+            <span class="ask-ai-label" th:text="#{chat.ask.ai}">Ask AI</span>
+            <span class="ask-ai-icon">
+                <i class="fa-solid fa-comment"></i>
+                <svg class="ask-ai-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1 L14 10 L23 12 L14 14 L12 23 L10 14 L1 12 L10 10 Z"/></svg>
+            </span>
+        </button>
+        <div>
+            <div class="right-content" th:if="${#authorization.expression('isAuthenticated()')}" data-type="user-menu">
+                <a th:href="@{/#}">
+                    <div><span th:text="${@userSession.getName()}"></span></div>
+                    <div><span class="small-text" th:text="${@userSession.getOrganizationName()}"></span></div>
+                </a>
+                <a th:href="@{/#}">
+                    <span class="circle" th:text="${@userSession.getShortName()}"></span>
+                </a>
+            </div>
+            <ul class="user-sub-menu">
+                <li class="guided-tutorial-entry" data-type="guided-tutorial">
+                    <span th:text="#{guided.tutorial}"></span>
+                    <i class="fa-regular fa-circle-question"></i>
+                </li>
+                <li data-type="copy-token">
+                    <span th:text="#{copy.token}"></span>
+                    <i class="fa-regular fa-copy"></i>
+                </li>
+                <li data-type="toggle-theme">
+                    <span class="theme-when-dark" th:text="#{theme.light}"></span>
+                    <span class="theme-when-light" th:text="#{theme.dark}"></span>
+                    <i class="fa-regular fa-sun theme-when-dark"></i>
+                    <i class="fa-regular fa-moon theme-when-light"></i>
+                </li>
+                <li>
+                    <a th:href="@{/datahub-logout}" th:text="#{logout}"></a>
+                </li>
+
+            </ul>
+
+        </div>
+    </div>
+</header>
+
+<div class="flash info" th:if="${flashMessage}" th:text="${flashMessage}"></div>
+<div class="flash error" th:if="${flashError}" th:text="${flashError}"></div>
+
+<main class="layout-body" th:replace="${content}"></main>
+
+<div class="right-form"></div>
+
+<div class="chat-panel" th:if="${@chatAccess.available()}"></div>
+
+<!-- AGPL section 13: the console is served over a network, so users interacting with it
+     remotely must be offered its Corresponding Source. This link is that offer; do not
+     remove it without replacing it with an equivalent one. -->
+<footer class="site-footer">
+    <span th:text="#{footer.license}">DataHub is free software under the GNU AGPL v3.</span>
+    <a href="https://github.com/IntelliStream-DataHub/datahub-platform"
+       rel="noopener" target="_blank" th:text="#{footer.source}">Source code</a>
+</footer>
+
+<!-- Tutorial UI shell (passive) -->
+<div id="tutorial-start-modal" class="tutorial-modal hidden" aria-hidden="true">
+    <div class="tutorial-modal-backdrop" data-tutorial-dismiss="start"></div>
+    <div class="tutorial-modal-content" role="dialog" aria-modal="true" aria-labelledby="tutorialStartTitle">
+        <h3 id="tutorialStartTitle" th:text="#{tutorial.start.title}"></h3>
+        <p th:text="#{tutorial.start.description}"></p>
+
+        <div class="tutorial-start-actions">
+            <button type="button" class="dh-btn primary" data-tutorial-action="start" th:text="#{tutorial.start.start}"></button>
+            <button type="button" class="dh-btn" data-tutorial-action="dismiss" th:text="#{tutorial.start.dismiss}"></button>
+        </div>
+
+        <p class="tutorial-chapters-label" th:text="#{tutorial.chapters.or}"></p>
+        <div class="tutorial-chapter-grid">
+            <button type="button" class="tutorial-chapter dh-btn" data-chapter="datasets" th:text="#{tutorial.chapters.datasets}"></button>
+            <button type="button" class="tutorial-chapter dh-btn" data-chapter="resources" th:text="#{tutorial.chapters.resources}"></button>
+            <button type="button" class="tutorial-chapter dh-btn" data-chapter="timeseries" th:text="#{tutorial.chapters.timeseries}"></button>
+            <button type="button" class="tutorial-chapter dh-btn" data-chapter="correlation" th:text="#{tutorial.chapters.correlation}"></button>
+            <button type="button" class="tutorial-chapter dh-btn" data-chapter="events" th:text="#{events}"></button>
+            <button type="button" class="tutorial-chapter dh-btn" data-chapter="buildout" th:text="#{tutorial.chapters.buildout}"></button>
+        </div>
+    </div>
+</div>
+
+<div id="tutorial-industry-modal" class="tutorial-modal hidden" aria-hidden="true">
+    <div class="tutorial-modal-backdrop" data-tutorial-dismiss="industry"></div>
+    <div class="tutorial-modal-content" role="dialog" aria-modal="true" aria-labelledby="tutorialIndustryTitle">
+        <h3 id="tutorialIndustryTitle" th:text="#{tutorial.industry.title}"></h3>
+        <p th:text="#{tutorial.industry.description}"></p>
+
+        <div class="tutorial-industry-grid">
+            <button type="button" class="tutorial-industry dh-btn" data-industry="oil_gas" th:text="#{tutorial.industry.oil_gas}"></button>
+            <button type="button" class="tutorial-industry dh-btn" data-industry="tech" th:text="#{tutorial.industry.tech}"></button>
+            <button type="button" class="tutorial-industry dh-btn" data-industry="manufacturing" th:text="#{tutorial.industry.manufacturing}"></button>
+            <button type="button" class="tutorial-industry dh-btn" data-industry="energy" th:text="#{tutorial.industry.energy}"></button>
+        </div>
+
+        <div class="tutorial-modal-actions">
+            <button type="button" class="dh-btn" data-tutorial-action="back" th:text="#{tutorial.industry.back}"></button>
+            <button type="button" class="dh-btn" data-tutorial-action="close-industry" th:text="#{tutorial.industry.close}"></button>
+        </div>
+    </div>
+</div>
+
+<th:block th:replace="~{fragments/assets :: js('app')}"></th:block>
+<th:block th:if="${@chatAccess.available()}"
+          th:replace="~{fragments/assets :: js('chat')}"></th:block>
+
+<script th:inline="javascript" defer>
+    document.addEventListener("DOMContentLoaded", () => {
+        $L('you.have.been.signed.out', [[#{you.have.been.signed.out}]]);
+        $L('ok', [[#{ok}]]);
+    });
+
+    // The user dropdown opens on click, not hover: hovering it (or the neighbouring Ask AI button)
+    // used to reveal it unbidden. Clicking the name/avatar toggles it; an outside click or Escape
+    // closes it.
+    (function(){
+        const menu = document.querySelector('.user-menu');
+        if (!menu) return;
+        const trigger = menu.querySelector('[data-type="user-menu"]');
+        if (!trigger) return;
+        trigger.setAttribute('aria-haspopup', 'true');
+        trigger.setAttribute('aria-expanded', 'false');
+
+        const setOpen = (open) => {
+            menu.classList.toggle('open', open);
+            trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
+        };
+
+        trigger.addEventListener('click', (e) => {
+            // The name/avatar are anchors to "/#"; don't navigate, just toggle.
+            e.preventDefault();
+            e.stopPropagation();
+            setOpen(!menu.classList.contains('open'));
+        });
+        document.addEventListener('click', (e) => {
+            if (!menu.contains(e.target)) setOpen(false);
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') setOpen(false);
+        });
+    }());
+
+    (function(){
+        const copyTokenEl = document.querySelector('[data-type="copy-token"]');
+        if (!copyTokenEl) return;
+
+        copyTokenEl.addEventListener('click', e => {
+            fetch('/token').then(response => {
+                if (response.status === 500) {
+                    response.text().then(text => console.warn(text));
+                } else if (response.status === 401) {
+                    renderSignedOutDialog();
+                } else {
+                    response.text().then(token => {
+                        navigator.clipboard.writeText(token);
+                        const iconTag = copyTokenEl.querySelector('i');
+                        const oldClassName = iconTag.className;
+                        iconTag.className = "fa-regular fa-check";
+                        setTimeout(() => {
+                            iconTag.className = oldClassName;
+                        }, 10000);
+                    });
+                }
+            });
+        });
+    }());
+
+    (function(){
+        const toggle = document.querySelector('[data-type="toggle-theme"]');
+        if (!toggle) return;
+
+        toggle.addEventListener('click', () => {
+            const root = document.documentElement;
+            const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+            root.setAttribute('data-theme', next);
+            try { localStorage.setItem('dh-theme', next); } catch (e) { /* private mode: theme just won't persist */ }
+        });
+    }());
+</script>
+
+
+<!-- Tutorial engine: shared across all pages, loaded only when the global
+     tutorial.enabled toggle is on (tutorialActive, from LocaleModelAdvice).
+     Bundled via the asset pipeline (see ASSETS.md); the i18n bundle itself is
+     loaded for every page by application.js above. -->
+<th:block th:if="${tutorialActive}">
+    <th:block th:replace="~{fragments/assets :: js('tutorial')}"></th:block>
+</th:block>
+
+</body>
+</html>

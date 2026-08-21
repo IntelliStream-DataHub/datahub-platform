@@ -1,0 +1,38 @@
+# Copy this file to application-dev.properties (which is git-ignored) and fill in the Vault
+# values at the bottom, then run the console with the `dev` profile.
+#
+# Working directory: the file: paths below are relative to the datahub-console module directory,
+# so the app must run with datahub-console as its working directory. `./gradlew
+# :datahub-console:bootRun` already does; for IntelliJ set the run config's working directory to
+# datahub-console (see intellij-idea.md in the repo root).
+
+spring.devtools.restart.enabled=true
+spring.devtools.restart.exclude=static/**,templates/**,i18n/**,*.properties,*.yml,*.xml,**/resources/main/**
+
+# Serve the original (unminified) JS sources listed in each manifest instead of the built bundle,
+# so edits to the source files show on refresh with no rebuild (static is served live from src in
+# dev, see spring.web.resources.static-locations below). See ASSETS.md.
+datahub.assets.unbundled=true
+
+# Templates and static assets load from src via file: paths (relative to the datahub-console
+# working directory) with caching off, so edits show on a browser refresh. i18n messages load the
+# same way (configured in I18nDevConfig).
+spring.thymeleaf.prefix=file:src/main/resources/templates/
+spring.thymeleaf.cache=false
+
+spring.web.resources.static-locations=file:src/main/resources/static/,classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/,classpath:/public/
+spring.web.resources.cache.period=0
+spring.devtools.restart.additional-exclude=**/build/resources/main/**
+
+feign.compression.request.enabled=true
+feign.compression.request.mime-types=text/xml,application/xml,application/json
+feign.compression.request.min-request-size=2048
+feign.compression.response.enabled=true
+feign.client.config.default.connectTimeout=600000
+feign.client.config.default.readTimeout=600000
+
+# Vault. The AppRole secret-id is read from the VAULT_SECRET-ID environment variable (set it in
+# your shell or run configuration), NOT this file, so it never lands in source control.
+# If you run separate dev and test Vault clusters, this is where you switch between them.
+vault.address=< vault url here >
+vault.role-id=<your-vault-approle-role-id>

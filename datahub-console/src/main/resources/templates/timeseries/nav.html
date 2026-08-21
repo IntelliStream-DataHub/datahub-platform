@@ -1,0 +1,57 @@
+<nav class="sub-nav" th:fragment="navbar (pageSelected)">
+	<div>
+		<a th:href="@{/timeseries/index}" th:classappend="${pageSelected} == 'explore' ? 'selected' : ''">
+			<span th:text="#{explore}"></span>
+		</a>
+		<a th:href="@{/timeseries/insights}" th:classappend="${pageSelected} == 'insights' ? 'selected' : ''">
+			<span th:text="#{insights}"></span>
+		</a>
+		<a th:href="@{/timeseries/analyze}" th:classappend="${pageSelected} == 'analyze' ? 'selected' : ''">
+			<span th:text="#{analyze}"></span>
+		</a>
+	</div>
+	<div class="ts-actions-right" th:classappend="${pageSelected} == 'explore' ? ' hidden' : ''">
+		<th:block th:if="${pageSelected} == 'insights' or ${pageSelected} == 'explore' or ${pageSelected} == 'analyze'">
+			<label class="ts-time-field ts-range-field" data-picker-role="start">
+				<span th:text="#{insights.startTime}"></span>
+				<input type="text" id="ts-start-date" data-picker="date" th:attr="data-locale=${pageLocale}" readonly>
+				<input type="text" id="ts-start-time" data-picker="time" th:attr="data-locale=${pageLocale}" readonly>
+			</label>
+			<label class="ts-time-field ts-range-field" data-picker-role="end">
+				<span th:text="#{insights.endTime}"></span>
+				<input type="text" id="ts-end-date" data-picker="date" th:attr="data-locale=${pageLocale}" readonly>
+				<input type="text" id="ts-end-time" data-picker="time" th:attr="data-locale=${pageLocale}" readonly>
+			</label>
+			<label class="ts-time-field ts-window-field">
+				<span th:text="#{insights.quickRange}"></span>
+				<!-- Single merged window control. Not live: historical range ([now-X, now]).
+				     Live: rolling window width. The insights page enables/disables options per
+				     mode (grow only while live; anything over 1h disabled while live). 'grow'
+				     ships disabled so the Explore page, which never enables it, can't select it. -->
+				<select id="ts-quick-range" data-enhance>
+					<option value="" th:text="#{insights.quickRange.custom}"></option>
+					<option value="2m"  th:text="#{insights.live.window.2m}"></option>
+					<option value="5m"  th:text="#{insights.quickRange.last5min}"></option>
+					<option value="15m" th:text="#{insights.live.window.15m}"></option>
+					<option value="30m" th:text="#{insights.quickRange.last30min}"></option>
+					<option value="1h"  th:text="#{insights.quickRange.lastHour}"></option>
+					<option value="3h"  th:text="#{insights.quickRange.last3Hours}"></option>
+					<option value="12h" th:text="#{insights.quickRange.last12Hours}"></option>
+					<option value="1d"  th:text="#{insights.quickRange.lastDay}"></option>
+					<option value="2d"  th:text="#{insights.quickRange.last2Days}"></option>
+					<option value="1w"  th:text="#{insights.quickRange.lastWeek}"></option>
+					<option value="1M"  th:text="#{insights.quickRange.lastMonth}"></option>
+					<option value="3M"  th:text="#{insights.quickRange.last3Months}"></option>
+					<option value="1y"  th:text="#{insights.quickRange.lastYear}"></option>
+					<option value="grow" th:text="#{insights.live.window.grow}" disabled></option>
+				</select>
+			</label>
+		</th:block>
+		<button type="button" id="ts-live-toggle" class="dh-btn secondary small ts-live-toggle"
+				th:if="${pageSelected} == 'insights'" th:title="#{insights.live.help}">
+			<i class="fa fa-fw fa-play"></i>
+			<span class="ts-live-label" th:text="#{insights.live.start}"></span>
+		</button>
+		<div class="graph-filter-slot" data-type="graph-filter-slot"></div>
+	</div>
+</nav>

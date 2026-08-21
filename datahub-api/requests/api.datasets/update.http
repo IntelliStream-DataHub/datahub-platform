@@ -1,0 +1,46 @@
+POST {{hostname}}/datasets/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "example_org_datahub_data",
+			"update": {
+				"name": {
+					"set": "Example Org DataHub Data"
+				},
+				"writeProtected": {
+					"set": true
+				},
+				"metadata": {
+					"set": {
+						"key1": "value1",
+						"key2": "value2"
+					}
+				}
+			}
+		}
+	]
+}
+
+###
+POST {{hostname}}/datasets/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test",
+			"update": {
+				"parent": {
+					"set": "test 2"
+				},
+				"external_id": {
+					"set": "test2"
+				}
+			}
+		}
+	]
+}

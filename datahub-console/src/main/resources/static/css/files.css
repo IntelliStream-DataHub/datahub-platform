@@ -1,0 +1,290 @@
+/* === FILES PAGE ===
+   Linked page-specifically from files/index.html; the markup is rendered there and by
+   files-page.js (listing rows, context menu, the file-info / confirm-delete dialogs).
+   Everything here is scoped to that page — nothing else in the console uses these classes. */
+
+/* The files listing sits on its own content surface (matching the left panel) instead of the
+   raw page background. */
+.files-content{
+	background: var(--menu-bg);
+	min-height: calc(100vh - var(--header-height));
+	box-sizing: border-box;
+}
+table.files-table{
+	border-collapse: collapse;
+	width: 100%;
+}
+table.files-table thead th{
+	padding: 10px 14px;
+	text-align: left;
+	white-space: nowrap;
+	font-size: 12px;
+	font-weight: 700;
+	letter-spacing: 0.03em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	border-bottom: 1px solid var(--border);
+}
+table.files-table tbody td{
+	padding: 11px 14px;
+	font-size: 14px;
+	color: var(--text);
+	border-bottom: 1px solid var(--border);
+	vertical-align: middle;
+	white-space: nowrap;
+}
+table.files-table tbody tr:hover td{ background: var(--header-bg-selected); }
+table.files-table tbody td i{
+	width: 18px;
+	margin-right: 10px;
+	text-align: center;
+	color: var(--text-muted);
+}
+table.files-table tbody td i.fa-folder{ color: var(--accent); }
+table.files-table a.inode,
+table.files-table a.inode:visited{
+	color: var(--text);
+	text-decoration: none;
+}
+table.files-table tbody tr:hover a.inode,
+table.files-table tbody tr:hover td i:not(.fa-folder){ color: var(--accent); }
+/* Search-result rows: show each hit's location (containing folder) under the name, since
+   results span the whole tree. */
+table.files-table .fs-path{
+	font-size: 11px;
+	color: var(--text-muted);
+	margin-left: 28px;
+}
+table.files-table .fs-empty td{
+	padding: 22px 14px;
+	text-align: center;
+	color: var(--text-muted);
+}
+/* Current-folder absolute path, shown as a chip to the right of the parent-folder button.
+   align-self keeps it its natural height (not stretched to the toolbar row) so it stays a
+   compact chip with air above/below. */
+.files-breadcrumb{
+	display: flex;
+	align-self: center;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
+	min-width: 0;
+	margin: 0 12px;
+	padding: 4px 12px;
+	background: var(--header-bg-selected);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	color: var(--text);
+	font-size: 13px;
+	font-variant-numeric: tabular-nums;
+}
+.files-breadcrumb > i{ color: var(--accent); flex: 0 0 auto; }
+.files-breadcrumb span{
+	flex: 1 1 auto;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.files-breadcrumb .fb-copy{
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	padding: 3px 5px;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	color: var(--text-muted);
+	cursor: pointer;
+	transition: color 0.12s ease, background 0.12s ease;
+}
+.files-breadcrumb .fb-copy:hover{ color: var(--accent); background: var(--menu-bg); }
+.files-breadcrumb .fb-copy.copied{ color: #30a46c; }
+
+/* Direct-upload progress bar (rendered inside the dark right-form panel) */
+.upload-progress{ margin-top: 18px; }
+.upload-progress-head,
+.upload-progress-stats{
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+.upload-progress-head{
+	font-size: 14px;
+	color: #fff;
+}
+.upload-progress-filename{
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	max-width: 70%;
+}
+.upload-progress-percent{ font-weight: 600; }
+.upload-progress-actions{
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.upload-progress-cancel{
+	background: transparent;
+	border: 0;
+	padding: 0;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 1;
+	color: rgba(255, 255, 255, 0.7);
+	display: flex;
+	align-items: center;
+}
+.upload-progress-cancel:hover{ color: #fff; }
+.upload-progress-track{
+	height: 10px;
+	background: rgba(255, 255, 255, 0.15);
+	border-radius: 5px;
+	overflow: hidden;
+	margin: 8px 0;
+}
+.upload-progress-bar{
+	height: 100%;
+	width: 0;
+	background: var(--accent);
+	border-radius: 5px;
+	transition: width 0.15s ease;
+}
+.upload-progress-stats{
+	font-size: 12px;
+	color: rgba(255, 255, 255, 0.7);
+}
+.flash.error.upload-error{ margin-bottom: 12px; }
+
+/* Right-click context menu for the files listing */
+.dh-context-menu{
+	position: fixed;
+	z-index: 1000;
+	min-width: 170px;
+	padding: 4px;
+	background: var(--menu-bg);
+	border: 1px solid var(--header-bg2);
+	border-radius: 6px;
+	box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.dh-context-item{
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 8px 10px;
+	background: transparent;
+	border: 0;
+	border-radius: 4px;
+	color: inherit;
+	font-size: 14px;
+	text-align: left;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+.dh-context-item:hover,
+.dh-context-item:focus-visible{ background: var(--header-bg-selected); color: var(--accent); outline: none; }
+.dh-context-item.danger{ color: #e5534b; }
+.dh-context-item.danger:hover,
+.dh-context-item.danger:focus-visible{ background: rgba(229, 83, 75, 0.14); color: #e5534b; }
+
+/* Modal dialog (type-to-confirm delete) */
+.dh-modal-overlay{
+	position: fixed;
+	inset: 0;
+	z-index: 1100;
+	background: rgba(0, 0, 0, 0.5);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+.dh-modal{
+	width: 840px;
+	max-width: calc(100vw - 40px);
+	background: var(--menu-bg);
+	border-top: 3px solid var(--accent);
+	border-radius: 8px;
+	box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+}
+.dh-modal h2{
+	margin-top: 0;
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.dh-file-info h2 i{ color: var(--accent); }
+/* The file-info dialog is wider than the plain modals to fit the info + image side by side. */
+.dh-modal.dh-file-info{ width: 1000px; }
+/* Dialog action buttons: right-aligned with consistent spacing. */
+.dh-modal .btns{
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+	gap: 10px;
+}
+/* Dialog body: info list on the left, image preview pinned to the upper-right corner. */
+.dh-file-body{
+	display: flex;
+	gap: 26px;
+	align-items: flex-start;
+	margin: 16px 0;
+}
+/* Image preview (image files only): a clean framed image on the dialog surface — no boxed
+   background around it. */
+.dh-file-preview{ flex: 0 0 auto; }
+.dh-file-preview img{
+	display: block;
+	max-width: 320px;
+	max-height: 340px;
+	border-radius: 10px;
+	border: 1px solid var(--border);
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+/* File-information dialog: two-column key/value grid — accent uppercase labels, row dividers. */
+.dh-file-info-list{
+	flex: 1 1 auto;
+	min-width: 0;
+	display: grid;
+	grid-template-columns: max-content 1fr;
+	gap: 0 18px;
+	margin: 0;
+	max-height: 60vh;
+	overflow: auto;
+}
+.dh-file-info-list dt{
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--accent);
+	align-self: center;
+	padding: 9px 0;
+	border-top: 1px solid var(--border);
+}
+.dh-file-info-list dd{
+	margin: 0;
+	padding: 9px 0;
+	font-size: 14px;
+	color: var(--text);
+	word-break: break-word;
+	border-top: 1px solid var(--border);
+}
+.dh-file-info-list dt:first-of-type,
+.dh-file-info-list dd:first-of-type{ border-top: 0; }
+.dh-file-info-list dd.empty{ color: var(--text-muted); font-style: italic; }
+.dh-file-info-meta{ margin-bottom: 2px; }
+.dh-modal-warning{ color: #e5a23b; }
+.dh-modal-input{
+	width: 100%;
+	box-sizing: border-box;
+	margin-top: 6px;
+	padding: 8px 10px;
+	border: 1px solid var(--header-bg2);
+	border-radius: 4px;
+	background: var(--header-bg);
+	color: inherit;
+}
+.dh-danger-btn{ background: #e5534b; }
+.dh-danger-btn:disabled{ opacity: 0.5; cursor: not-allowed; }

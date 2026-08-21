@@ -1,0 +1,62 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+	id 'idea'
+}
+
+group = 'ai.intellistream.datahub.cleanup'
+version = '0.0.1-SNAPSHOT'
+
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// datahub-infra brings the JPA SubscriptionRepository + the multi-tenant routing datasource and
+	// the Pulsar admin client the subscription sweep needs. datahub-commons brings TenantConfigService
+	// (the tenant list from Vault) used by the file jobs and for per-tenant iteration. Neo4j/ClickHouse/
+	// Valkey clients pulled in transitively connect lazily and stay unused — see the app's @ComponentScan.
+	implementation project(':datahub-infra')
+	implementation project(':datahub-commons')
+
+	implementation 'org.springframework.boot:spring-boot-starter'
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+	// Vault client — loads the tenant list + global secrets (Pulsar admin creds) at startup.
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+
+	// Jackson (JsonMapper) is autoconfigured by Spring Boot and required by TenantConfigService.
+	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
+
+	implementation("org.apache.pulsar:pulsar-client-admin:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client-admin-api:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client-api:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	runtimeOnly 'org.postgresql:postgresql'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}

@@ -1,0 +1,131 @@
+spring:
+  application:
+    name: datahub-api
+  ai:
+    mcp:
+      server:
+        name: datahub-mcp-server-dev
+        protocol: STATELESS
+        base-url: /mcp
+        version: 1.0.0
+  threads:
+    virtual:
+      enabled: true
+  main:
+    lazy-initialization: false
+  #profiles:
+    # Change to prod when running in production
+  #  active: dev
+  devtools:
+    restart:
+      enabled: false
+      #poll-interval: '500ms'
+      #quiet-period: '200ms'
+  # Static resources reloading during development
+  web:
+    resources:
+      static-locations: 'classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/,classpath:/public/'
+      cache:
+        period: 0
+    locale: 'en-US'
+    locale-resolver: fixed
+  mvc:
+    static-path-pattern: /static/**
+  jackson:
+    datetime-feature:
+      write-dates-as-timestamps: false
+  datasource:
+    type: org.springframework.jdbc.datasource.SimpleDriverDataSource
+  jpa:
+    database: default
+    show-sql: true
+    generate-ddl: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      # New entries will be invalid @see PostgresDbConfig
+      hibernate:
+        boot:
+          allow_jdbc_metadata_access: false
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        jdbc:
+          lob:
+            non_contextual_creation: false
+          batch_size: 1000
+        order_updates: true
+        order_inserts: true
+        format_sql: true
+        generate_statistics: false
+    open-in-view: false
+  flyway:
+    enabled: false
+
+server:
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 5
+  servlet:
+    session:
+      cookie:
+        same-site: strict
+  port: 8081
+springdoc:
+  writer-with-order-by-keys: false
+  swagger-ui:
+    path: /swagger-ui.html
+    enabled: true
+  api-docs:
+    resolve-schema-properties: true
+    enabled: true
+    path: /api-docs
+    version: OPENAPI_3_1
+
+datahub:
+  acl:
+    groups:
+      # Caching for the caller's Keycloak organization groups (the dataset grants), read from the
+      # UserInfo endpoint. See datahub-api/KEYCLOAK_ORG_GROUPS.md.
+      # l1-ttl:    in-process, keeps Valkey off the hot path for a burst of requests.
+      # soft-ttl:  when to refresh. Bounds how long a revoked grant lives on the happy path.
+      # stale-ttl: how long a FAILED refresh may keep serving the old answer, and the fail-closed
+      #            deadline. Between soft and stale an identity-provider blip is invisible; past
+      #            stale, requests are denied rather than trusting an increasingly old answer.
+      #            One TTL cannot express both: failing closed at expiry makes Keycloak a hard
+      #            dependency of every request whose entry just lapsed, and serving stale forever
+      #            keeps revoked grants alive for the length of an outage.
+      l1-ttl: 10s
+      soft-ttl: 45s
+      stale-ttl: 90s
+      http-timeout: 3s
+  flyway:
+    per-tenant-migrate: true
+  features:
+    # Defaults for tenants whose Vault tenant-config block doesn't set the flag;
+    # an explicit `policy`/`streaming` value in Vault overrides these per tenant.
+    policy: true
+    streaming: true
+  files:
+    checksum:
+      # Checksum algorithm applied to every uploaded file.
+      # One of: SHA-256 (default), SHA-1, SHA-512, BLAKE3.
+      algorithm: SHA-256
+    upload:
+      # Read/write/hash block size for the upload, in bytes. Larger blocks mean fewer, larger
+      # writes; the 1 MB default lines up with a typical NFS wsize.
+      buffer-size: 1048576
+#keycloak:
+#  issuers:
+#    - uri: https://keycloak.example.com/realms/datahub
+#      username-json-path: $.preferred_username
+#      claims:
+#        - jsonPath: $.realm_access.roles
+#        - jsonPath: $.resource_access.*.roles
+
+
+security:
+  oauth2:
+    resource:
+      filter-order: 1

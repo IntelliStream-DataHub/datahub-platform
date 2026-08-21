@@ -1,0 +1,68 @@
+# 3W demo overlay (LOCAL DEV) — brings the stack up with data already on it.
+#
+# Seeds the Petrobras 3W well fleet (asset model, timeseries, anomaly-detection lineage
+# graph and history) and then keeps appending live datapoints, so the console has
+# something to show the moment it finishes. Opt in by merging this file in:
+#
+#     ./scripts/up.sh --demo
+#     # equivalently:
+#     podman compose -f docker-compose.yml -f docker-compose.apps.yml \
+#                    -f docker-compose.demo.yml up -d
+#
+# The payloads under deploy/demo/data are pre-generated (deploy/demo/generate/), so seeding
+# needs no download and takes seconds. Both services are the same tiny image; `command:`
+# picks which half runs.
+#
+# THE ISSUER TRAP: datahub-api validates a token's `iss` against the issuer vault-seed
+# wrote, and scripts/up.sh sets that to this host's IP via KC_ADDR. A token minted through
+# http://keycloak:8090 therefore 401s on every call even though the credentials are right,
+# so DATAHUB_TOKEN_URL below uses the SAME ${KC_ADDR:-keycloak} expression the vault-seed
+# service uses. Change one, change both.
+services:
+  demo-seed:
+    image: datahub-demo:local
+    build:
+      context: deploy/demo
+      dockerfile: Dockerfile
+    # Ordering only. podman-compose does not honour `condition:`, and the api is not ready
+    # when its port opens, so demo.seed polls for a real authenticated call instead.
+    depends_on: ["datahub-api", "keycloak-bootstrap", "datahub-stateless-consumer"]
+    environment: &demo-env
+      DATAHUB_BASE_URL: http://datahub-api:8081
+      DATAHUB_TOKEN_URL: http://${KC_ADDR:-keycloak}:8090/realms/datahub/protocol/openid-connect/token
+      DATAHUB_CLIENT_ID: datahub-service-foo
+      DATAHUB_CLIENT_SECRET: changeme-foo
+      # MANDATORY. Without an organization selector Keycloak issues a token carrying no
+      # `organization` claim, and SecurityConfig.OrganizationValidator rejects every
+      # request — which reads like bad credentials but is not.
+      DATAHUB_SCOPE: "openid organization:foo"
+      # Wells to seed; blank means every well in the committed manifest.
+      DEMO_WELLS: ""
+      # Opt out without editing compose or dropping the overlay:
+      #   DEMO_ENABLED=false docker compose up -d
+      # Both containers then start and exit immediately. Worth doing on a stack you develop
+      # against rather than demo from: seeding writes ~62k datapoints into the `foo` tenant,
+      # and the feeder adds roughly half a million a day at the default 5s cadence.
+      DEMO_ENABLED: "${DEMO_ENABLED:-true}"
+    volumes:
+      # Mounted over the baked copies so editing the seeder or regenerating the data takes
+      # effect on the next `up` with no image rebuild.
+      - "./deploy/demo/demo:/app/demo:z"
+      - "./deploy/demo/data:/app/data:z"
+    command: ["demo.seed"]
+    restart: "no"
+
+  # Keeps the seeded series growing so the console's live view has something to show.
+  # Separate from the seed so that a crash here restarts the feed without re-running
+  # provisioning.
+  demo-feed:
+    image: datahub-demo:local
+    depends_on: ["demo-seed"]
+    environment:
+      <<: *demo-env
+      DEMO_FEED_INTERVAL: "5"
+    volumes:
+      - "./deploy/demo/demo:/app/demo:z"
+      - "./deploy/demo/data:/app/data:z"
+    command: ["demo.feed"]
+    restart: unless-stopped

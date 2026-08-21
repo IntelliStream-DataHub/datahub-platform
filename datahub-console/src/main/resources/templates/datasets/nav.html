@@ -1,0 +1,15 @@
+<nav class="sub-nav" th:fragment="navbar (pageSelected)">
+    <a th:href="@{/datasets/index}" th:classappend="${pageSelected} == 'datasets' ? 'selected' : ''">
+        <span th:text="#{datasets}"></span>
+    </a>
+    <a th:href="@{/datasets/policies}" th:classappend="${pageSelected} == 'policies' ? 'selected' : ''">
+        <span th:text="#{tab.policies}"></span>
+    </a>
+    <a th:href="@{/datasets/findings}" th:classappend="${pageSelected} == 'findings' ? 'selected' : ''">
+        <span th:text="#{tab.findings}"></span>
+    </a>
+    <a th:href="@{/datasets/timeseries}" th:classappend="${pageSelected} == 'timeseries' ? 'selected' : ''">
+        <span th:text="#{timeseries}"></span>
+    </a>
+    <div class="graph-filter-slot push-right" data-type="graph-filter-slot"></div>
+</nav>

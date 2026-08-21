@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: datahub-stateless-consumer
+  main:
+    web-application-type: none
+  profiles:
+    active: dev
+  flyway:
+    enabled: false
+  jpa:
+    database: default
+    show-sql: true
+    generate-ddl: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      # New entries will be invalid @see PostgresDbConfig
+      hibernate:
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        jdbc:
+          lob:
+            non_contextual_creation: false
+          batch_size: 1000
+        order_updates: true
+        order_inserts: true

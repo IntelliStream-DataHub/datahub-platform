@@ -1,0 +1,130 @@
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "invoice-operations",
+			"name": "Invoice Operations",
+			"description": "Invoice Operations root",
+			"labels": [
+				{
+					"name": "Organization"
+				}
+			],
+			"isRoot": true
+		},
+		{
+			"externalId": "it-operations",
+			"name": "IT Operations",
+			"description": "Infrastructure root",
+			"metadata": {
+				"measurement_started": "20.08.2022",
+				"serial_number": "2930030353"
+			},
+			"labels": [
+				{
+					"name": "Organization"
+				}
+			],
+            "isRoot": true
+		},
+		{
+			"externalId": "it-operations-network",
+			"name": "Network Infrastructure",
+			"description": "Network Infrastructure",
+			"labels": [
+				{
+					"name": "IT_OPS"
+				}
+			]
+		},
+		{
+			"externalId": "switch-backbone-0-01",
+			"name": "Switch backbone 0-01",
+			"description": "Backbone 40GbE switch",
+			"metadata": {
+				"rocev2": "true",
+				"routable-rdma": "true",
+                "pfc": "true",
+                "ports": "32",
+                "max-10GbE-ports": "96",
+                "speed": "40",
+				"speed-unit": "Gb/s",
+				"throughput": "2.56",
+				"throughput-unit": "Tbps",
+                "pps": "1.44 billion packets per second",
+                "VXLAN": "true",
+                "Routing Protocols": "SPF, OSPFv3, BGP, MP-BGP, IS-IS, and RIPv2",
+                "operating-temperature-min": "0",
+                "operating-temperature-max": "40",
+                "operating-temperature-unit": "celsius",
+                "operating-altitude-min": "0",
+                "operating-altitude-max": "3000",
+                "operating-altitude-unit": "meter",
+				"operating-humidity-min": "5",
+				"operating-humidity-max": "95",
+				"operating-humidity-unit": "percent"
+			},
+			"labels": [{"name": "ASSET"},
+				{
+					"name": "SWITCH"
+				}
+			]
+		},
+		{
+			"externalId": "switch-backbone-0-02",
+			"name": "Switch backbone 0-02",
+			"description": "1/10/40GbE access switch",
+			"metadata": {
+				"rocev2": "false",
+				"routable-rdma":"false",
+				"pfc": "false",
+				"ports": "42",
+				"max-10GbE-ports": "16",
+				"speed": "40",
+				"speed-unit": "Gb/s",
+				"throughput": "528",
+				"throughput-unit": "Gbps",
+				"pps": "396 million packets per second",
+				"VXLAN": "false",
+				"Routing Protocols": "OSPFv3, BGP, RIPv2",
+				"operating-temperature-min": "0",
+				"operating-temperature-max": "55",
+				"operating-temperature-unit": "celsius",
+				"operating-altitude-min": "0",
+				"operating-altitude-max": "3000",
+				"operating-altitude-unit": "meter",
+				"operating-humidity-min": "5",
+				"operating-humidity-max": "95",
+				"operating-humidity-unit": "percent"
+			},
+			"labels": [{"name": "ASSET"},
+				{
+					"name": "SWITCH"
+				}
+			]
+		},
+		{
+            "externalId": "switch_backbone_0_03",
+            "name": "Switch backbone 0-03",
+            "description": "24 port 1GbE and 4 port 10GbE access switch",
+			"labels": [{"name": "ASSET"},
+				{
+					"name": "SWITCH"
+				}
+			]
+        },
+		{
+			"externalId": "it-operations-servers",
+			"name": "Server Infrastructure",
+			"description": "Network Infrastructure",
+			"labels": [
+				{
+					"name": "IT_OPS"
+				}
+			]
+		}
+	]
+}

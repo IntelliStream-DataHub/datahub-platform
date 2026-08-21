@@ -1,0 +1,33 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # `build` compiles every module and runs the unit tests. The suite is
+      # hermetic: the context tests use the `ctxtest` profile
+      # (datahub-api/src/test/resources/application-ctxtest.yml), which supplies
+      # dummy values for every placeholder the bean graph needs and mocks out
+      # every external client, so nothing here contacts Vault, Keycloak, Pulsar,
+      # Postgres or ClickHouse.
+      #
+      # Not run here: the @Tag("integration") suites, which need a container
+      # runtime. They are excluded from `test` by each module's build.gradle and
+      # run through the separate `integrationTest` task. See CONTRIBUTING.md.
+      - name: Build and test all modules
+        run: ./gradlew build

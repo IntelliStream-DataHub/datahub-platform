@@ -1,0 +1,2 @@
+GET {{hostname}}/files/download/image_beach_jpg
+Authorization: Bearer {{token}}

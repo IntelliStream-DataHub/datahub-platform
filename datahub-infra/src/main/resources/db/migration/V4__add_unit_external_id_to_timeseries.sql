@@ -1,0 +1,1 @@
+ALTER TABLE timeseries ADD COLUMN unit_external_id text;

@@ -1,0 +1,54 @@
+<configuration>
+
+	<property name="LOGS" value="./logs" />
+
+	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+		<encoder>
+			<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} -%kvp- %msg%n</pattern>
+		</encoder>
+	</appender>
+
+	<appender name="RollingFile"
+			  class="ch.qos.logback.core.rolling.RollingFileAppender">
+		<file>${LOGS}/spring-boot-logger.log</file>
+		<encoder
+				class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+			<Pattern>%d %p %C{1} [%t] %m%n</Pattern>
+		</encoder>
+
+		<rollingPolicy
+				class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+			<!-- rollover daily and when the file reaches 500 MegaBytes -->
+			<fileNamePattern>${LOGS}/archived/spring-boot-logger-%d{yyyy-MM-dd}.%i.log
+			</fileNamePattern>
+			<maxHistory>30</maxHistory>
+			<maxFileSize>100MB</maxFileSize>
+			<totalSizeCap>20GB</totalSizeCap>
+		</rollingPolicy>
+	</appender>
+
+	<root level="info">
+		<appender-ref ref="STDOUT" />
+	</root>
+
+	<springProfile name="dev">
+		<logger name="ai.intellistream" level="trace" additivity="false">
+			<appender-ref ref="STDOUT" />
+			<appender-ref ref="RollingFile" />
+		</logger>
+	</springProfile>
+
+	<springProfile name="test">
+		<!-- LOG "ai.intellistream*" at TRACE level -->
+		<logger name="ai.intellistream" level="trace" additivity="false">
+			<appender-ref ref="STDOUT" />
+		</logger>
+	</springProfile>
+
+	<springProfile name="prod">
+		<!-- LOG "ai.intellistream*" at TRACE level -->
+		<logger name="ai.intellistream" level="info" additivity="false">
+			<appender-ref ref="STDOUT" />
+		</logger>
+	</springProfile>
+</configuration>

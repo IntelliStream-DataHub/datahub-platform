@@ -1,0 +1,1 @@
+CREATE INDEX node_description_idx ON node USING GIN (to_tsvector('simple', description));

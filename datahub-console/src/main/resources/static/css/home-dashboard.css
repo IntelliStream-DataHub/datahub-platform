@@ -1,0 +1,520 @@
+/* === HOME / DASHBOARD PAGE ===
+   Linked page-specifically from base/index.html — this is the only page that renders any of it.
+   (The guided-tutorial overlay, which does run on every page, lives in tutorial.css.)
+
+   The home page uses the standard themed header + page background (all.css) so it matches the
+   rest of the console in both light and dark themes — no page-specific chrome overrides here.
+   Only the dashboard layout + component styling (tokenised) lives in this file.
+
+   Brand palette: navy + neutrals only (no colorways in product UI). Themed card surfaces,
+   Ink text, Hairline borders; Navy is the single accent, used only on hover. */
+
+/* The home page is a content dashboard: a centered, max-width column that scrolls
+   from the top, not a vertically-centered launcher. */
+body.page-home .layout-body.home-dashboard {
+    display: block;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 44px 32px 72px;
+}
+body.page-home .tutorial-tile-grid {
+    height: auto;                         /* was calc(100vh - 250px) — sized by content now */
+}
+
+/* === LAUNCHER TILE GRID === */
+.tutorial-tile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(300px, 400px));
+    gap: 40px;
+    justify-content: center;
+    align-content: center;
+    margin: 0 auto;
+    width: 100%;
+    height: calc(100vh - 250px);
+}
+
+.tutorial-tile {
+    background-color: var(--menu-bg);    /* themed card surface */
+    color: var(--text);
+    padding: 40px 30px;
+    border-radius: 8px;
+    border: 1px solid var(--border);     /* Hairline */
+    text-align: center;
+    font-size: 1.3em;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 18px;
+    transition: transform 0.2s ease, background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: var(--card-shadow);
+}
+
+.tutorial-tile-icon {
+    font-size: 30px;
+    color: var(--accent);                /* restrained brand accent on the cards */
+}
+
+.tutorial-tile:hover {
+    background-color: var(--menu-bg);
+    border-color: var(--accent);
+    box-shadow: var(--card-shadow-hover);
+}
+
+/* === TITLE ABOVE GRID === */
+.tutorial-title {
+    text-align: center;
+    color: var(--text);
+    font-size: 2.2em;
+    font-weight: 600;
+    letter-spacing: 0;                   /* sentence case — no tracking */
+    margin-top: 80px;
+    margin-bottom: 40px;
+}
+
+/* =====================================================================
+   HOME DASHBOARD WIDGETS
+   Navy + neutrals only (brand). Themed panels on the page background,
+   Hairline borders, Ink headings, Muted captions, Navy as the single accent.
+   ===================================================================== */
+
+/* --- Greeting --- */
+.home-greeting { margin-bottom: 32px; }
+.home-greeting-title {
+    margin: 0;
+    color: var(--text);
+    font-size: 2rem;
+    font-weight: 600;
+    letter-spacing: 0;
+}
+.home-greeting-sub {
+    margin: 6px 0 0 0;
+    color: var(--text-muted);
+    font-size: 1rem;
+}
+
+/* --- Shared panel surface --- */
+.home-panel {
+    background: var(--menu-bg);
+    border: 1px solid var(--border);            /* Hairline */
+    border-radius: 10px;
+    box-shadow: var(--card-shadow-sm);
+    padding: 24px;
+}
+.home-panel-title {
+    margin: 0 0 16px 0;
+    color: var(--text);
+    font-size: 1.05rem;
+    font-weight: 600;
+}
+.home-panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+}
+.home-panel-head .home-panel-title { margin-bottom: 16px; }
+.home-panel-link {
+    color: var(--accent);
+    font-size: 0.85rem;
+    text-decoration: none;
+}
+.home-panel-link:hover { text-decoration: underline; }
+.home-empty {
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 24px 0;
+    margin: 0;
+}
+
+/* --- Metric tiles in the metric values --- */
+.metric-tile-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.metric-tile .tutorial-tile-icon {
+    flex-shrink: 0;
+    width: 36px;
+    height: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: var(--header-bg-selected);  /* Navy tint */
+    color: var(--accent);
+    font-size: 16px;
+}
+.metric-tile .tutorial-tile-label {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+.metric-row {
+    display: flex;
+    gap: 24px;
+}
+.metric {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    min-width: 0;
+}
+.metric-value {
+    font-size: 1.7rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;   /* so the count-up animation doesn't jitter width */
+}
+.metric-label {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    letter-spacing: 0.02em;
+}
+/* Empty-state CTA — shown in place of the counts when a tile has nothing yet. The whole tile is
+   already a link to that section's page, so this is a prompt, not a separate anchor. home-dashboard.js
+   toggles .is-hidden between the counts row and this block once the stats arrive. */
+.metric-row.is-hidden,
+.metric-empty.is-hidden,
+.home-empty.is-hidden { display: none; }
+.metric-empty {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 2px;
+}
+.metric-empty-text {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--text);
+}
+.metric-empty-cta {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent);
+}
+.metric-empty-hint {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+
+/* --- This week + spotlight row --- */
+.home-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;   /* equal halves so the divider lines up with the 4-tile midpoint */
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+/* --- This week: top event types --- */
+.eventtype-list,
+.activity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.eventtype-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+}
+.eventtype-name {
+    flex: 0 0 30%;
+    color: var(--text);
+    font-size: 0.88rem;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.eventtype-track {
+    flex: 1 1 auto;
+    height: 8px;
+    border-radius: 4px;
+    background: var(--header-bg-selected);  /* Navy tint track */
+    overflow: hidden;
+}
+.eventtype-fill {
+    display: block;
+    height: 100%;
+    border-radius: 4px;
+    background: var(--accent);                  /* Navy — no alarm colours per brand */
+    transition: width 0.4s ease;
+}
+.eventtype-count {
+    flex: 0 0 auto;
+    min-width: 40px;
+    text-align: right;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+/* --- Spotlight sparklines --- */
+.spotlight-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 12px;
+}
+.spark-card {
+    display: none;                       /* revealed by JS only when the series has real data */
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.spark-card.is-ready { display: block; }
+.spark-card:hover {
+    border-color: var(--accent);
+    box-shadow: 0 1px 4px rgba(16, 89, 132, 0.12);
+}
+.spark-head,
+.spark-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+}
+.spark-name {
+    color: var(--text);
+    font-weight: 500;
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.spark-unit {
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+.spark-svg {
+    display: block;
+    width: 100%;
+    height: 32px;
+    margin: 8px 0 4px 0;
+}
+.spark-latest {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.spark-trend {
+    color: var(--text-muted);   /* Muted — brand forbids alarm colours in product UI */
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+/* Stale/dead stream — no data in 24h (or a flat line). Muted, on-brand (no alarm colour). */
+.spark-card.is-stale { opacity: 0.55; }
+.spark-card.is-stale .spark-svg path {
+    stroke: var(--text-muted);  /* Muted line for a flat/stale series */
+}
+.spark-stale {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+/* --- Recent activity feed --- */
+.home-activity { margin-bottom: 24px; }
+.activity-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 0;
+    border-bottom: 1px solid var(--border);     /* Hairline */
+}
+.activity-item:last-child { border-bottom: none; }
+.activity-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);                  /* Navy — no alarm colors per brand */
+    flex-shrink: 0;
+}
+.activity-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+.activity-type {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+.activity-sub {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+.activity-desc {
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.activity-time {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* --- Jump back in (the original launcher tiles, slimmed) --- */
+.home-quick {
+    margin-top: 8px;
+    margin-bottom: 24px;   /* breathing room between the 4 tiles and the two panels below */
+}
+.home-quick .tutorial-tile-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;             /* match the panel-row gap so the 2+2 tiles line up over the 2 panels */
+}
+.home-quick .tutorial-tile {
+    padding: 20px 22px;
+    font-size: 0.95rem;
+}
+/* Metric tiles are left-aligned cards: a head (icon + label) above two stacked counts,
+   overriding the centered launcher-tile layout. */
+.home-quick .tutorial-tile.metric-tile {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    text-align: left;
+    gap: 16px;
+}
+
+/* --- "What do you want to do today?" — task-framed launcher above the status tiles.
+   Four cards in the same 4-column grid (same gap) as .home-quick, so each action card sits
+   directly above its matching status tile. Brand: themed cards, Navy accent on hover only. --- */
+.home-intro { margin: 8px 0 28px; }
+.home-intro-title {
+    margin: 0 0 16px 0;
+    color: var(--text);
+    font-size: 1.35rem;
+    font-weight: 600;
+}
+.home-actions {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 24px;                            /* match .home-quick's grid so the columns line up */
+}
+.action-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--menu-bg);
+    color: var(--text);
+    border: 1px solid var(--border);           /* Hairline */
+    border-radius: 10px;
+    padding: 22px;
+    text-decoration: none;
+    box-shadow: var(--card-shadow-sm);
+    transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.action-card:hover {
+    border-color: var(--accent);               /* IntelliStream Navy — the one accent */
+    box-shadow: var(--card-shadow-hover);
+    text-decoration: none;                     /* the card is a tile, not a text link */
+}
+.action-title,
+.action-desc { text-decoration: none; }
+.action-icon {
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: var(--header-bg-selected);  /* Navy tint */
+    color: var(--accent);
+    font-size: 18px;
+}
+.action-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.action-title {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.98rem;
+    line-height: 1.25;
+}
+.action-desc {
+    color: var(--text);   /* full contrast — the muted tone was hard to read on dark cards */
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+/* Guided-tutorial launcher — the single Navy-filled element (Navy is the brand accent). */
+.home-tutorial-cta {
+    margin-top: 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    background: var(--accent);
+    color: var(--body-bg);   /* dark ink on the bright dark-theme accent; off-white on the navy light one */
+    border: none;
+    border-radius: 10px;
+    padding: 18px 22px;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    transition: filter 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.home-tutorial-cta:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+}
+.home-tutorial-icon {
+    flex-shrink: 0;
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 11px;
+    background: rgba(0, 0, 0, 0.14);
+    font-size: 20px;
+}
+.home-tutorial-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.home-tutorial-title {
+    font-weight: 600;
+    font-size: 1rem;
+}
+.home-tutorial-sub {
+    font-size: 0.88rem;
+    color: var(--body-bg);
+    opacity: 0.82;
+}
+.home-tutorial-arrow {
+    margin-left: auto;
+    font-size: 1.3rem;
+}
+
+/* --- Responsive --- */
+@media (max-width: 900px) {
+    .home-grid { grid-template-columns: 1fr; }
+    .home-quick .tutorial-tile-grid { grid-template-columns: repeat(2, 1fr); }
+    .home-actions { grid-template-columns: repeat(2, 1fr); }
+    .metric-row { gap: 18px; }
+}

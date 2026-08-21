@@ -1,0 +1,45 @@
+POST {{hostname}}/events/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{"id": "018ec2e7-056e-73a8-a221-de0fb098a5a5"},
+		{"id": "018ec2e9-b512-7df7-8225-4d8ed194e867"},
+		{"externalId": "my_known_id_1"},
+		{"externalId": "my_known_id_2"}
+	]
+}
+
+###
+POST {{hostname}}/events/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{"id": "019c4d4c-3f25-7fb0-82c3-45a1a098b997"}
+	]
+}
+
+###
+POST {{hostname}}/events/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{"externalId": "http_request_3779400"},
+		{"externalId": "http_request_12872400"}
+	]
+}
+###
+POST {{hostname}}/events/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{"externalId": "workpermit-1"}
+	]
+}

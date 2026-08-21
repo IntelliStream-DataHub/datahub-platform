@@ -1,0 +1,13 @@
+
+DELETE {{hostname}}/resources/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+        {"externalId": "test_resource"}
+    ],
+	"relations": [
+
+	]
+}

@@ -1,0 +1,3 @@
+name: datahub-pulsar-filter
+description: Filters entries by matching subscription filter.key property against message partition key
+entryFilterClass: ai.intellistream.datahub.pulsar.filter.SubscriptionKeyEntryFilter

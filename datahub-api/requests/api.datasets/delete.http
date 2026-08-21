@@ -1,0 +1,65 @@
+POST {{hostname}}/datasets/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "power-data-nordpool"
+		},
+		{
+			"externalId": "sensor-data"
+		},
+		{
+			"externalId": "power-data-network-switch"
+        }
+	]
+}
+
+###
+POST {{hostname}}/datasets/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "example-org-data"
+		},
+		{
+			"externalId": "example-org-server-data"
+		},
+		{
+			"externalId": "example-org-invoice-data"
+		},
+		{
+			"externalId": "example-org-invoice-api-requests"
+		}
+	]
+}
+
+###
+POST {{hostname}}/datasets/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_dataset2"
+		}
+	]
+}
+
+###
+POST {{hostname}}/datasets/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "externalId": "sap_safety"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+POST {{hostname}}/edges/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"id": 6728353061711138026
+		}
+	]
+}

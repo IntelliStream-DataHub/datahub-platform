@@ -1,0 +1,10 @@
+POST {{hostname}}/datasets/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "items": [
+		{"id": 15},
+		{"externalId": "sensor_data"}
+    ]
+}

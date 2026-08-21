@@ -1,0 +1,3 @@
+GET {{hostname}}/edges/6728353061711138026
+Authorization: Bearer {{token}}
+

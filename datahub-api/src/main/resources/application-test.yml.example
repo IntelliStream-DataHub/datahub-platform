@@ -1,0 +1,15 @@
+# Copy to application-test.yml (gitignored) and fill in. The `test` profile is
+# activated by the Gradle test task — without this file Spring cannot resolve
+# `${vault.address}` and the context fails to start.
+postgres:
+  datasource:
+    driverClassName: org.postgresql.Driver
+    dialect: org.hibernate.dialect.PostgreSQLDialect
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 50
+
+vault:
+  address: < vault url here >
+  role-id: < role-id here >
+  secret-id: < secret-id here >

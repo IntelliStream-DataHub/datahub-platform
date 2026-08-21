@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  Emits the <script> tags for an asset bundle. In production this is the single minified bundle;
+  in development (datahub.assets.unbundled=true) it is the original source files parsed from the
+  bundle's manifest, so edits show on refresh with no rebuild. See ASSETS.md.
+  Usage:  <th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+*/-->
+<th:block th:fragment="js(bundle)">
+    <!-- defer: bundles download in parallel and run after HTML parse, in order, before
+         DOMContentLoaded — so they no longer block first paint. Every page's inline init lives in
+         DOMContentLoaded / event handlers, which run after all deferred scripts (see ASSETS.md). -->
+    <script th:each="src : ${@assetService.scripts(bundle)}"
+            type="text/javascript" th:src="${src}" defer></script>
+</th:block>
+</body>
+</html>

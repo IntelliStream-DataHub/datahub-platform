@@ -1,0 +1,15 @@
+POST {{hostname}}/subscriptions/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_subscription_heater_2012"
+		},
+		{
+			"externalId": "test2_subscription_heater_2012"
+		}
+	]
+}

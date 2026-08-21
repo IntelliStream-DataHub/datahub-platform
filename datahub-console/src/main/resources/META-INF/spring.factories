@@ -1,0 +1,2 @@
+org.springframework.context.ApplicationListener=\
+ai.intellistream.dhconsole.config.VaultConfigurationLoader

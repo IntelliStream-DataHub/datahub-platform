@@ -1,0 +1,116 @@
+POST {{hostname}}/events/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "mraid_event_1",
+			"update": {
+				"externalId": {
+					"set": "mraid_1_turbo"
+				},
+				"metadata": {
+					"set": {
+						"raid-status": "healthy",
+						"raid-type": "mirror"
+					}
+				},
+                "dataSetId": {
+                    "set": 22
+                },
+				"startTimeHR": {
+					"set": "2024-04-18T10:22:02.000Z"
+				},
+				"endTimeHR": {
+					"set": "2024-04-18T15:11:01.000Z"
+				},
+				"type": {
+					"set": "zraid"
+				},
+				"subType": {
+					"set": "zfs"
+				},
+				"description": {
+					"set": "event in zraid status"
+				},
+				"relatedResources": {
+					"set": [
+						{ "id": 19 }
+					]
+				}
+			}
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "mraid_event_2",
+			"update": {
+				"metadata": {
+					"add": {
+						"raid-status": "healthy",
+						"raid-type": "mirror"
+					}
+				},
+				"type": {
+					"set": "zraid"
+				},
+				"subType": {
+					"set": "zfs"
+				},
+				"description": {
+					"set": "event in zraid status"
+				},
+				"relatedResources": {
+					"set": [
+						{ "id": 19 }
+					]
+				}
+			}
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "my_known_id_5",
+			"update": {
+				"externalId": {
+					"set": "my_known_id_5_turbo_plus"
+				}
+			}
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/update
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "valve_event_alarm_7010",
+			"update": {
+				"description": {
+					"set": "Gas valve attached to pipe AS-PIP-2466"
+				}
+			}
+		}
+	]
+}

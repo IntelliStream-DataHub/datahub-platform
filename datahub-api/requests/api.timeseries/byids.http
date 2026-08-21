@@ -1,0 +1,46 @@
+POST {{hostname}}/timeseries/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{"externalId": "test_timeseries_2"}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "items": [
+		{"externalId": "room_sensor_voc_1001"}
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "items": [
+		{"externalId": "rust_sdk_test_1400_ts_renamed"}
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/byids
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "items": [
+		{"id": 236}
+  ]
+}

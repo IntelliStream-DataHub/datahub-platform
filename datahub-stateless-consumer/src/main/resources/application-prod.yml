@@ -1,0 +1,26 @@
+# Use trace if you want to see parameter binding
+logging:
+  level:
+    org.hibernate.engine.internal.StatisticalLoggingSessionEventListener: OFF
+    org.hibernate.orm.jdbc.bind: info
+    org:
+      hibernate:
+        type: info
+spring:
+  main:
+    web-application-type: none
+  jpa:
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+
+postgres:
+  datasource:
+    driverClassName: org.postgresql.Driver
+    dialect: org.hibernate.dialect.PostgreSQLDialect
+
+vault:
+  address: https://vault.example.com
+  role-id: changeme
+  secret-id: changeme

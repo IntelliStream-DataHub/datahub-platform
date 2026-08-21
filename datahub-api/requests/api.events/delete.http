@@ -1,0 +1,114 @@
+POST {{hostname}}/events/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "my_known_id_1"
+		},
+        {
+			"externalId": "my_known_id_2"
+		},
+        {
+			"externalId": "my_known_id_3"
+		},
+        {
+			"externalId": "my_known_id_4"
+		},
+        {
+			"externalId": "my_known_id_5"
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "pump_event_alarm_7189"
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "my_known_id_10"
+		},
+        {
+			"externalId": "my_known_id_11"
+		},
+        {
+			"externalId": "my_known_id_12"
+		},
+        {
+			"externalId": "my_known_id_13"
+		},
+        {
+			"externalId": "my_known_id_14"
+		},
+		{
+			"externalId": "my_known_id_15"
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "mraid-event-1"
+		},
+        {
+			"externalId": "mraid-event-2"
+		},
+        {
+			"externalId": "mraid-event-3"
+		},
+        {
+			"externalId": "mraid-event-4"
+		},
+        {
+			"externalId": "mraid-event-5"
+		},
+		{
+			"externalId": "mraid-event-6"
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{"externalId":"workpermit-1"}
+	]
+}
+
+###
+POST {{hostname}}/events/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{"id":"019a0565-59a7-7df1-84e5-b0054f5b4037"}
+	]
+}

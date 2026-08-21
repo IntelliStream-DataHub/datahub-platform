@@ -1,0 +1,31 @@
+<section class="left-content datahub-form-fields pad20" th:fragment="timeseries-search">
+	<label for="search-timeseries" th:text="#{search.for.timeseries}"></label>
+	<div class="posrel">
+		<input id="search-timeseries" class="w100 left-icon" type="text" name="search-timeseries" th:attr="placeholder=#{write.query.here}"/>
+		<i class="fa fa-fw fa-search"></i>
+	</div>
+
+	<section id="timeseries-list">
+		<div class="flex-container left-right posrel" style="height: 40px">
+			<h3 th:text="#{timeseries}"></h3>
+			<div class="actions">
+
+			</div>
+			<ul data-type="create-submenu" class="create-submenu posabs hidden">
+				<li class="text-right"><i class="fa fa-fw fa-close pointer"></i></li>
+				<li data-type="create-ts" th:text="#{create.timeseries}"></li>
+			</ul>
+		</div>
+		<ul class="data-list slim pointer" data-type="timeseries-list">
+			<li th:each="n : ${rootResources}" class="dl-row"
+				th:attr="data-root-id=${n.id}, data-external-id=${n.externalId}">
+				<span class="dl-main">
+					<span class="dl-name" th:text="${n.name}"></span>
+					<span class="dl-chips"><span class="dl-chip" data-label="TIMESERIES">TIMESERIES</span></span>
+				</span>
+			</li>
+		</ul>
+	</section>
+</section>
+<!-- The rows + search box are wired by ResourcePicker from the including page (insights.html),
+     which owns leftMenuTsClickEvent (multi-select chart picking). -->

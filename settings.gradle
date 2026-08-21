@@ -1,0 +1,32 @@
+// Plugin versions are centralized here, sourced from the root gradle.properties so every
+// version (plugins + libraries) lives in one file. Modules apply these plugins without a
+// version. pluginManagement must be the first block in this file.
+pluginManagement {
+    plugins {
+        id 'org.springframework.boot' version "${providers.gradleProperty('springBootVersion').get()}"
+        id 'io.spring.dependency-management' version "${providers.gradleProperty('dependencyManagementVersion').get()}"
+    }
+}
+
+// Auto-provision the Java 25 toolchain the build asks for
+// (buildSrc/.../java-common-conventions.gradle) instead of requiring contributors to install
+// it and set JAVA_HOME first. Gradle downloads a matching JDK on the first build if none is
+// present. A locally installed JDK 25 is still used when there is one.
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'datahub'
+include(
+        'datahub-api',
+        'datahub-stateful-consumer',
+        'datahub-stateless-consumer',
+        'datahub-console',
+        'datahub-infra',
+        'datahub-commons',
+        'datahub-api-model',
+        'datahub-analysis',
+        'datahub-java-sdk',
+        'datahub-pulsar-filter',
+        'datahub-cleanup',
+)

@@ -1,0 +1,17 @@
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "wifi_and_vlan2_socket_power",
+			"start": 1685695356838,
+			"end": 1709874510000,
+			"granularity": "1 hour",
+			"aggregates": [
+				"avg"
+			]
+		}
+	]
+}

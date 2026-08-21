@@ -1,0 +1,77 @@
+# /etc/datahub/api/application.yml
+#
+# Deployment tuning for datahub-api, layered on top of the jar's own application.yml
+# and application-prod.yml via SPRING_CONFIG_ADDITIONAL_LOCATION (set in the unit).
+# Only limits, timeouts and proxy trust live here; secrets and tenant config are in
+# Vault, and the business configuration stays in the jar.
+#
+# Every number below assumes the api sits behind the nginx in ../../nginx and runs on
+# virtual threads (spring.threads.virtual.enabled=true in the jar), where a request costs
+# a virtual thread, not a pooled platform thread, so connections rather than threads are
+# the unit to size.
+
+server:
+  # Spring Boot's default since 3.4, stated so it is visible: stop accepting, let
+  # in-flight requests finish (up to the lifecycle timeout below), then exit. Pairs with
+  # TimeoutStopSec=90s in the unit and with nginx marking the instance down after the
+  # first refused connections.
+  shutdown: graceful
+
+  # Trust X-Forwarded-For / X-Forwarded-Proto from nginx (Tomcat's RemoteIpValve), so
+  # request.getRemoteAddr(), isSecure() and generated URLs (Swagger UI) reflect the real
+  # client. The jar sets no strategy at all, so without this every request looks like it
+  # came from the load balancer over plain HTTP.
+  forward-headers-strategy: native
+
+  # Tomcat's default is 8 KB, and that covers the token: the dataset grants are read from
+  # UserInfo rather than carried in it, so a Keycloak access token here is a few KB. This
+  # is headroom for the live-tail WebSocket's request line (?token= plus an externalIds
+  # list) and matches nginx's 4 x 16 KB, so neither side answers 400 before the other.
+  max-http-request-header-size: 16KB
+
+  # Compress here rather than at nginx: spreads the gzip CPU over the app hosts and lets
+  # the edge spend its cycles on TLS. Datapoint and resource JSON compresses 5-10x.
+  compression:
+    enabled: true
+    mime-types: application/json,application/xml,text/plain,text/html,text/css,application/javascript
+    min-response-size: 2KB
+
+  tomcat:
+    # Ceiling on concurrent open sockets, not a reservation: an idle connection costs
+    # Tomcat about 16 KB of buffers plus kernel socket state, so 20000 is some 300 MB
+    # against a 20 GB heap, and nothing at all until the sockets exist. It has to be this
+    # high: nginx alone parks keepalive x worker_processes idle connections on each
+    # instance (128 x 32 workers is 4096 before the first request), and every SDK
+    # subscription and browser live tail is one long-lived WebSocket on top. Tomcat's
+    # own default is 8192. LimitNOFILE in the unit leaves room for this and more.
+    max-connections: 20000
+    # Kernel listen backlog once max-connections is reached; capped by
+    # net.core.somaxconn (sysctl.d/90-datahub-app.conf). Default 100.
+    accept-count: 1024
+    # Time allowed to send the request line and headers after connecting; 20 s shuts
+    # slow-loris sockets without bothering a real client. Default 60 s.
+    connection-timeout: 20s
+    # Keep-alive towards nginx. MUST be longer than nginx's upstream keepalive_timeout
+    # (30 s) so that nginx is always the side that closes an idle connection; the other
+    # way round gives sporadic 502s. Default 100 requests per connection would also make
+    # Tomcat hang up on nginx every 100th request; -1 is unlimited.
+    keep-alive-timeout: 75s
+    max-keep-alive-requests: -1
+    # Only consulted when virtual threads are off; documented so nobody "tunes" it.
+    threads:
+      max: 200
+    # Which proxies the RemoteIpValve believes. Boot's default trusts every private range,
+    # which lets anything on the LAN forge X-Forwarded-For; list the load balancers only,
+    # in every address family nginx connects FROM (a v6-only list silently ignores the
+    # header when the LB reaches the api over v4, and vice versa). CIDR list (Boot 4) or
+    # a regular expression.
+    remoteip:
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      internal-proxies: 10.0.0.10/32, 10.0.0.11/32, fd00:10::10/128, fd00:10::11/128
+
+spring:
+  lifecycle:
+    # How long graceful shutdown waits for in-flight work. Below the unit's
+    # TimeoutStopSec so systemd never has to SIGKILL a clean stop.
+    timeout-per-shutdown-phase: 60s

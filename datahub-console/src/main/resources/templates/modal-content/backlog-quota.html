@@ -1,0 +1,15 @@
+<h2>Backlog quotas</h2>
+
+<div>
+	Backlogs are sets of unacknowledged messages for a topic that have been stored by bookies. Pulsar stores all unacknowledged messages in backlogs until they are processed and acknowledged.
+</div>
+<div>
+	You can control the allowable size and/or time of backlogs, at the namespace level, using backlog quotas. Pulsar uses a quota to enforce a hard limit on the logical size of the backlogs in a topic. Backlog quota triggers an alert policy (for example, producer exception) once the quota limit is reached.
+</div>
+<div>
+	The diagram below illustrates the concept of backlog quota.
+</div>
+<img class="pointer" id="backlog-quota.svg" src="/static/img/backlog-quota.svg" alt="backlog qouta visual description">
+<script>
+	document.getElementById("backlog-quota.svg").addEventListener('pointerdown', e => showImgAsCenterBodyModal(e.target.src));
+</script>

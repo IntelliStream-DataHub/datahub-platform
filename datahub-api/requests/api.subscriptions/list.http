@@ -1,0 +1,10 @@
+POST {{hostname}}/subscriptions/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"filter": { "timeseries": [{"id": 29}, {"externalId": "heater_2012_temp"}] },
+	"limit": 500,
+	"sort": { "property": ["name"], "order": "asc" }
+}

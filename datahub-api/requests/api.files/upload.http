@@ -1,0 +1,37 @@
+# curl -v -X PUT       -H "Authorization: Bearer $TOKEN"       -F "file=@resources/test/random_values.csv;type=text/csv"       -F "path=/some/path/to/file"       -F "name=MyTestFile.csv"       -F "externalId=test-external-id-123"       -F "mimeType=text/csv"       -F "source=manual-upload"       -F "description=This is a test description for the file upload."       http://localhost:8081/files
+PUT {{hostname}}/files/upload
+Authorization: Bearer {{token}}
+Content-Type: multipart/form-data; boundary=WebAppBoundary
+
+--WebAppBoundary
+Content-Disposition: form-data; name="path"
+
+/some/path/to/file
+--WebAppBoundary
+Content-Disposition: form-data; name="name"
+
+runtime.txt
+--WebAppBoundary
+Content-Disposition: form-data; name="externalId"
+
+runtime_txt
+--WebAppBoundary
+Content-Disposition: form-data; name="mimeType"
+
+text/plain
+--WebAppBoundary
+Content-Disposition: form-data; name="source"
+
+manual-upload
+--WebAppBoundary
+Content-Disposition: form-data; name="description"
+
+This is a test description for the file upload.
+--WebAppBoundary
+Content-Disposition: form-data; name="file"; filename="runtime.txt"
+
+< ./runtime.txt
+--WebAppBoundary--
+
+###
+

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{datasets}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'datasets')}">
+<main class="layout-body">
+    <nav th:replace="~{datasets/nav :: navbar('datasets')}"></nav>
+	<div class="flex-container">
+		<section class="left-content datahub-form-fields pad20">
+			<label for="search-dataset" th:text="#{search.for.dataset}"></label>
+			<div class="posrel">
+				<input id="search-dataset" class="w100 left-icon" type="text" name="search-dataset" th:attr="placeholder=#{write.query.here}"/>
+				<i class="fa fa-fw fa-search"></i>
+			</div>
+
+			<section id="section-root-dataset-list">
+				<div class="flex-container left-right posrel">
+					<h3 th:text="#{datasets}"></h3>
+					<div class="actions">
+						<button class="dh-btn primary small" type="button" th:attr="placeholder=#{create.dataset}" data-type="create-dataset-btn">
+							<i class="fa fa-fw fa-plus"></i>
+						</button>
+					</div>
+				</div>
+				<ul class="data-list slim mtop10 pointer" data-type="root-dataset-list">
+					<li th:each="n : ${datasets}" class="dl-row" th:attr="data-id=${n.id}">
+						<span class="dl-main">
+							<span class="dl-name" th:text="${n.name}"></span>
+							<span class="dl-chips"><span class="dl-chip" data-label="DATASET">DATASET</span></span>
+						</span>
+					</li>
+				</ul>
+			</section>
+		</section>
+		<section class="flex-container flex-auto graph-network-container" data-type="resource-network">
+		</section>
+	</div>
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+	<script th:replace="~{datasets/i18n :: i18nMessages}"></script>
+	<script type="text/javascript" th:inline="javascript">
+		document.addEventListener('DOMContentLoaded', () => {
+
+			const container = document.querySelector('[data-type="resource-network"]');
+
+			// Shared left-panel picker (static/js/resource-list.js): every dataset is a DATASET-typed
+			// graph node, so rows carry a DATASET chip coloured by that label.
+			const picker = ResourcePicker.init({
+				list: '[data-type="root-dataset-list"]',
+				section: '#section-root-dataset-list',
+				searchInput: '#search-dataset',
+				event: 'pointerdown',
+				idAttr: 'data-id',
+				attrs: item => ({ 'data-id': item.id }),
+				labels: () => ['DATASET'],
+				search: {
+					direct: true,                 // straight to datahub-api (bearer token), no console proxy
+					path: '/datasets/search',
+					body: q => ({ search: { query: q } }),
+					items: json => json.items
+				},
+				onSelect: (id, ctx) => {
+					window.resourceNetwork = new GraphNetwork(ctx.fromSearch ? { container: container, queryDepth: 2 } : { container: container });
+					window.resourceNetwork.loadNetwork(id, !ctx.fromSearch);
+				}
+			});
+
+			// Deep link from the policy findings table: /datasets/index?selected=<id> preselects that
+			// data set and draws its graph. Depth is pinned to 5 rather than left to GraphNetwork's
+			// default so the link keeps meaning the same thing if that default ever moves.
+			//
+			// Highlighting is done here rather than by synthesizing a pointerdown, because the row's
+			// handler is what a real click runs and firing a fake event to reach it would depend on
+			// ResourcePicker's internals staying as they are.
+			const selectedId = new URLSearchParams(window.location.search).get('selected');
+			if(selectedId){
+				const row = picker.list.querySelector('li[data-id="' + CSS.escape(selectedId) + '"]');
+				// The list is capped server side, so a link can name a data set that is not on it. The
+				// graph is still drawn — that is the thing the link is for — it simply has no row to mark.
+				if(row){
+					picker.list.querySelectorAll('li.selected').forEach(el => el.classList.remove('selected'));
+					row.classList.add('selected');
+					row.scrollIntoView({ block: 'nearest' });
+				}
+				window.resourceNetwork = new GraphNetwork({ container: container, queryDepth: 5 });
+				window.resourceNetwork.loadNetwork(selectedId, true);
+			}
+
+			document.querySelector('[data-type="create-dataset-btn"]').addEventListener('click', () => {
+				new DataSetForm({
+					afterSave: obj => {
+						const li = picker.buildRow(obj);
+						if(obj.parentId || obj.parentExternalId){
+							// Insert as a child of its parent, indented one level deeper than it.
+							li.classList.add('sublist');
+							const refNode = document.querySelector('[data-type="root-dataset-list"] [data-id="' + obj.parentId + '"]');
+							const parentPad = refNode && refNode.style.paddingLeft ? Number(refNode.style.paddingLeft.replace('px', '')) : 10;
+							li.style.paddingLeft = (parentPad + 10) + 'px';
+							refNode.parentElement.insertBefore(li, refNode.nextSibling);
+						} else {
+							picker.list.prepend(li);
+						}
+					}
+				}).render();
+			});
+		});
+	</script>
+    <script type="text/javascript" src="/static/js/graph-network/cytoscape.min.js" defer></script>
+    <script type="text/javascript" src="/static/js/graph-network/layout-base.js" defer></script>
+    <script type="text/javascript" src="/static/js/graph-network/cose-base.js" defer></script>
+    <script type="text/javascript" src="/static/js/graph-network/cytoscape-fcose.js" defer></script>
+    <script type="text/javascript" src="/static/js/graph-network/dagre.min.js" defer></script>
+    <script type="text/javascript" src="/static/js/graph-network/cytoscape-dagre.js" defer></script>
+
+    <script src="/static/js/graph-network/lodash.js" defer></script>
+    <script src="/static/js/graph-network/cytoscape-edgehandles.min.js" defer></script>
+
+    <!-- i18n (application.js) + tutorial scripts (toggle-gated) are loaded globally via the layout -->
+
+    <script type="text/javascript" src="/static/js/graph-network/cytoscape-node-html-label.min.js" defer></script>
+    <script type="text/javascript" src="/static/js/graph-network/graph-network.js" defer></script>
+</main>
+</body>
+</html>

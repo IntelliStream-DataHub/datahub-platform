@@ -1,0 +1,223 @@
+# Local development stack for IntelliStream DataHub.
+#
+# Brings up every backing service the platform needs, wired for LOCAL DEV ONLY:
+#   - no TLS / mTLS anywhere (Pulsar runs plaintext; set datahub.pulsar.tls.enabled=false)
+#   - dev-mode Vault with a fixed root token
+#   - default/weak credentials; Postgres accepts passwordless (trust) connections
+#
+# Seeds two demo tenants, "foo" and "bar", each with its own Postgres + ClickHouse
+# database (Neo4j is shared: community edition has a single database). See
+# GETTING_STARTED.md for the full walkthrough, and run ./scripts/vault-seed.sh
+# after the stack is up to populate Vault with both tenants.
+#
+# Works with both Docker and Podman:
+#   docker compose up -d                      # NOTE: also loads docker-compose.override.yml,
+#                                             # which adds the apps AND the seeded 3W demo
+#   docker compose -f docker-compose.yml up -d  # this file only — backing services, for the
+#                                             # ./gradlew bootRun workflow
+#   podman compose ...                        # identical
+# Image names are fully qualified (docker.io/...) so Podman resolves them without
+# an unqualified-search-registries entry in containers.conf. Bind mounts carry the
+# :z SELinux label so they work on relabeling hosts (Fedora/RHEL); it is a no-op
+# where SELinux is not enforcing.
+#
+# NOT suitable for production.
+
+name: datahub
+
+services:
+  postgres:
+    image: docker.io/library/postgres:18
+    environment:
+      POSTGRES_USER: foobar
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: datahub
+      # The app's per-tenant datasource connects with an EMPTY password
+      # (StatelessRoutingDataSource and TenantFlywayMigrator both set password=""),
+      # so accept passwordless connections. LOCAL DEV ONLY.
+      POSTGRES_HOST_AUTH_METHOD: trust
+    # Published on host 5433 (not 5432) so the stack coexists with a native
+    # PostgreSQL already on 5432. In-container the port stays 5432.
+    ports: ["5433:5432"]
+    volumes:
+      # PG18+ stores data in a version-specific subdir; mount the parent, NOT
+      # /var/lib/postgresql/data (the image errors on the old path).
+      - "pgdata:/var/lib/postgresql"
+      # Creates the foo + bar tenant databases on first volume init.
+      - "./deploy/postgres/init:/docker-entrypoint-initdb.d:z"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foobar -d datahub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:26.5
+    environment:
+      CLICKHOUSE_USER: foobar
+      CLICKHOUSE_PASSWORD: changeme
+      CLICKHOUSE_DB: datahub
+    # Host ports remapped off 8123/9000 so the stack coexists with a native
+    # clickhouse-server on the host. In-network apps reach CH via the `clickhouse`
+    # service name (docker-compose.apps.yml CH_HOST), so this only affects
+    # host-side access (e.g. clickhouse-client --port 19000).
+    ports: ["18123:8123", "19000:9000"]
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - "chdata:/var/lib/clickhouse"
+      # On first volume init: 10-*.sql creates the foo + bar tenant databases, then
+      # 20-*.sh applies the schema below into each (the events + datapoints_* tables).
+      - "./deploy/clickhouse/init:/docker-entrypoint-initdb.d:z"
+      # Authoritative time-series/events schema (shipped with datahub-api), mounted
+      # read-only so it stays the single source of truth; 20-create-tenant-tables.sh
+      # applies it per tenant database.
+      - "./datahub-api/src/main/resources/db/clickhouse.sql:/schema/clickhouse.sql:ro,z"
+
+  neo4j:
+    # Pinned neo4j 5.26.26 with the exact apoc-5.26.27-core.jar baked in, installed
+    # by dropping the specific jar into $NEO4J_HOME/plugins (not an auto-download).
+    # See deploy/neo4j/Dockerfile.
+    build:
+      context: deploy/neo4j
+      dockerfile: Dockerfile
+    image: datahub-neo4j:local
+    environment:
+      NEO4J_AUTH: neo4j/changeme123
+      # The API's graph reads use apoc.path.subgraphAll (Neo4JService), so APOC must
+      # be installed or the resource/dataset graph view fails with
+      # "apoc.path.subgraphAll() was not registered". Allowlist just apoc.path.* —
+      # unrestricted is intentionally NOT set: APOC path procedures don't need it
+      # (only GDS would).
+      NEO4J_dbms_security_procedures_allowlist: apoc.path.*
+      # Neo4j sizes heap and page cache from host RAM when left unset, which is how this
+      # drifted to 1.5GB for a graph of a few hundred nodes. The demo fleet is ~164 nodes and
+      # 242 edges — the page cache only has to hold the store, which is far under a megabyte.
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 128m
+    ports: ["7474:7474", "7687:7687"]
+    volumes: ["neo4jdata:/data"]
+
+  valkey:
+    image: docker.io/valkey/valkey:9.1
+    command: ["valkey-server", "--requirepass", "changeme"]
+    ports: ["6379:6379"]
+
+  kvrocks:
+    image: docker.io/apache/kvrocks:2.14.0
+    ports: ["6666:6666"]
+    volumes: ["kvrocksdata:/var/lib/kvrocks"]
+
+  pulsar:
+    image: docker.io/apachepulsar/pulsar:4.0.11
+    # Plaintext standalone broker — no OAuth2, no TLS. The app must run with
+    # datahub.pulsar.tls.enabled=false and the pulsar.service.url overrides
+    # documented in GETTING_STARTED.md.
+    #
+    # Stable bookie identity: the embedded BookKeeper defaults to registering the bookie
+    # under its container IP. If that IP changes across a restart, existing ledgers point
+    # at an unreachable old address and reads fail ("Bookie handle is not available -
+    # ledger=N"), wedging broker + app startup. Pin a stable hostname and set
+    # useHostNameAsBookieID=true so the bookie registers under `pulsar` (not its container
+    # IP); the broker then resolves `pulsar` via compose DNS to the current IP, so the ID
+    # survives IP changes. `bin/pulsar standalone` doesn't apply PULSAR_PREFIX_* env by
+    # itself, so run apply-config-from-env.py over standalone.conf first.
+    hostname: pulsar
+    environment:
+      PULSAR_PREFIX_useHostNameAsBookieID: "true"
+      # Standalone runs the broker, bookie and ZooKeeper in ONE JVM, and its defaults are
+      # sized for a real deployment — left alone it is the single largest consumer in this
+      # stack (measured: 2.5GB). Capping heap + direct memory keeps the whole dev stack on a
+      # modest laptop. Raise it if you drive real ingest volumes through it.
+      #
+      # Pulsar cannot simply be left out: datahub-api opens its producers eagerly during bean
+      # creation and its entrypoint blocks until the namespaces exist, so with no broker the
+      # api never starts at all.
+      PULSAR_MEM: "-Xms256m -Xmx512m -XX:MaxDirectMemorySize=512m"
+    command:
+      - bash
+      - -c
+      - "bin/apply-config-from-env.py conf/standalone.conf && exec bin/pulsar standalone --no-functions-worker --no-stream-storage"
+    # 6650 = broker binary protocol, 18080 (host) -> 8080 (admin/HTTP). The admin
+    # port is remapped off 8080 so it doesn't collide with datahub-console, which
+    # runs on host :8080. Override pulsar.service.httpUrl to http://localhost:18080
+    # in application-local.yml (see GETTING_STARTED.md).
+    ports: ["6650:6650", "18080:8080"]
+    volumes: ["pulsardata:/pulsar/data"]
+
+  vault:
+    image: docker.io/hashicorp/vault:1.18
+    cap_add: ["IPC_LOCK"]
+    # Persistent (file-storage) Vault, NOT dev-mode: secrets survive restarts, so this is a
+    # real place to keep secrets. It comes up sealed, but the `vault-init` one-shot below
+    # auto-initialises + auto-unseals it on every `up` (no manual step). TLS is disabled —
+    # local network only. For production, switch to KMS/Transit auto-unseal (GETTING_STARTED.md).
+    command: ["server"]
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      VAULT_API_ADDR: http://127.0.0.1:8200
+      VAULT_LOCAL_CONFIG: >-
+        {"storage": {"file": {"path": "/vault/file"}},
+         "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": true}},
+         "disable_mlock": true, "ui": true}
+    ports: ["8200:8200"]
+    volumes:
+      - "vaultdata:/vault/file"
+
+  # One-shot: auto-initialise + auto-unseal Vault on every `up` (keeps the stack turnkey
+  # while Vault stays persistent). The unseal key + root token are saved to the shared
+  # `vaultinit` volume so re-unsealing after a restart needs no human. Runs as root so it
+  # can write that volume; uses the vault CLI only (no server). See scripts/vault-init.sh.
+  vault-init:
+    image: docker.io/hashicorp/vault:1.18
+    depends_on: ["vault"]
+    user: "0"
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_INIT_FILE: /vault/init/vault-init.json
+    volumes:
+      - "./scripts:/scripts:z"
+      - "vaultinit:/vault/init"
+    entrypoint: ["/bin/sh", "/scripts/vault-init.sh"]
+    restart: "no"
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Listen on 8090 *inside* the container too (not the default 8080), and publish it
+      # 1:1 below. This makes the single URL http://keycloak:8090 valid from BOTH the
+      # in-network apps (compose DNS) AND a host browser that maps `keycloak` to 127.0.0.1
+      # (add `127.0.0.1 keycloak` to /etc/hosts). A consistent issuer host:port is what
+      # lets OAuth2 login complete end-to-end. start-dev derives the issuer from the
+      # request host, so both sides see issuer http://keycloak:8090/realms/datahub.
+      KC_HTTP_PORT: 8090
+      # The image runs the JVM with -XX:MaxRAMPercentage=70 / InitialRAMPercentage=50, i.e.
+      # sized from the HOST's RAM with no container limit — on a 91GB workstation that is a
+      # ~64GB ceiling, and on a 16GB laptop a ~11GB one. Same image, wildly different
+      # footprint, which is exactly what you do not want the day of a demo. An explicit heap
+      # makes it deterministic; this realm holds two users and a handful of clients.
+      JAVA_OPTS_KC_HEAP: "-Xms64m -Xmx256m"
+    ports: ["8090:8090"]
+    # --import-realm loads every *.json in the mounted dir on startup, but only
+    # for realms that don't already exist (existing realms are left untouched).
+    # We ship deploy/keycloak/datahub-realm.json: a `datahub` realm with the
+    # login + per-tenant service clients, the realm roles, one organization per
+    # demo tenant (foo/bar, incl. the /datasets/* wildcard grant groups), and the
+    # foo/foo + bar/bar test users. The `keycloak-bootstrap` one-shot service (in
+    # docker-compose.apps.yml) then runs deploy/keycloak/bootstrap-org-groups.sh to
+    # finish what an import cannot carry (protocol mappers + group membership) — no
+    # manual step. See GETTING_STARTED.md.
+    volumes: ["./deploy/keycloak:/opt/keycloak/data/import:z"]
+
+volumes:
+  pgdata:
+  chdata:
+  neo4jdata:
+  kvrocksdata:
+  pulsardata:
+  vaultdata:   # persistent Vault file storage (survives restarts)
+  vaultinit:   # unseal key + root token, written by vault-init for auto-unseal

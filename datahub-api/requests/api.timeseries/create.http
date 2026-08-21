@@ -1,0 +1,334 @@
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_timeseries_2",
+			"name": "test timeseries 2",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "percent",
+			"description": "Test dummy data",
+			"valueType": "float"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_timeseries_2"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_air_pressure_1001",
+			"name": "room sensor air pressure 1001",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "mbar",
+			"description": "Air quality sensor",
+			"valueType": "float",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module"}
+            ]
+		},
+		{
+			"externalId": "room_sensor_co2_1001",
+			"name": "room sensor co2 1001",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "ppm",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module"}
+			]
+		},
+		{
+			"externalId": "room_sensor_temp_1001",
+			"name": "room sensor temperature 1001",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "celsius",
+			"description": "Air quality sensor",
+			"valueType": "decimal",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module"}
+			]
+		},
+		{
+			"externalId": "room_sensor_humidity_1001",
+			"name": "room sensor humidity 1001",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "percent",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module"}
+			]
+		},
+		{
+			"externalId": "room_sensor_voc_1001",
+			"name": "room sensor voc 1001",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "ppb",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module"}
+			]
+		},
+      {
+        "externalId": "room_sensor_battery_1001",
+        "name": "room sensor battery 1001",
+        "metadata": {
+          "measurement_started": "21.11.2023",
+          "serial_number": "2930030353"
+        },
+        "unit": "percent",
+        "description": "Air quality sensor",
+        "valueType": "bigint",
+        "relationsFrom": [
+          {"externalId" : "room_sensor_module"}
+        ]
+      }
+	]
+}
+
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "power_data_for_switch_backbone_0_01",
+			"name": "Power data for switch backbone 0-01",
+			"metadata": {
+				"measurement_started": "20.07.2024",
+				"serial_number": "4430353"
+			},
+			"unit": "watt",
+			"description": "Sum of power",
+			"valueType": "float",
+			"relationsFrom": [
+				{"externalId" : "smart_plug_switch_backbone_0_01", "relationshipType": "sends_data_to"}
+			]
+		}
+	]
+}
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "core-switch-01-socket_power",
+			"name": "core-switch-01 smart plug power",
+			"metadata": {
+				"id": "changeme-device-id",
+				"key": "changeme",
+				"ip": "192.0.2.11",
+				"version": 3.4,
+				"mac": "00:00:5e:00:53:01"
+			},
+			"unit": "Watt",
+			"description": "Smart plug for power monitoring of core switch 01",
+			"valueType": "decimal",
+			"relationsFrom": [
+				{"id" : "5"}
+            ]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "nordpool_hourly_energy_price",
+			"name": "nordpool hourly energy price",
+			"metadata": {
+				"measurement_started": "19.02.2024"
+			},
+			"unit": "NOK",
+			"description": "nordpool hourly energy price",
+			"valueType": "decimal"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "sum_power_server_room",
+			"name": "sum power server room",
+			"metadata": {
+				"measurement_started": "19.02.2024"
+			},
+			"unit": "watt/h",
+			"description": "timeseries with sum of all power consumption in the server room",
+			"valueType": "decimal",
+			"relationsFrom": [
+				{"id" : "92"}
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "energy_cost_forecast_server_room",
+			"name": "Energy cost forecast for server room",
+			"unit": "NOK",
+			"description": "Energy cost forecast for server room",
+			"valueType": "decimal",
+			"relationsFrom": [
+				{"id" : "94"}
+			]
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "compute_node_04_socket_power",
+			"name": "compute_node_04_socket_power",
+			"unit": "watt",
+			"description": "Average power polled for each 5th second",
+			"valueType": "float"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "items": [
+    {
+      "id": 0,
+      "externalId": "rust_sdk_test_1400_ts",
+      "name": "Rust SDK Test 1400 TimeSeries",
+      "metadata": {
+        "foo": "bar",
+        "bar": "baz"
+      },
+      "unit": "celsius",
+      "description": "This is test timeseries generated by rust sdk test code.",
+      "unitExternalId": null,
+      "securityCategories": null,
+      "dataSetId": null,
+      "valueType": "float",
+      "createdTime": null,
+      "lastUpdatedTime": null,
+      "relationsFrom": []
+    },
+    {
+      "id": 0,
+      "externalId": "rust_sdk_test_1401_ts",
+      "name": "Rust SDK Test 1401 TimeSeries",
+      "metadata": null,
+      "unit": "watt",
+      "description": null,
+      "unitExternalId": null,
+      "securityCategories": null,
+      "dataSetId": null,
+      "valueType": "bigint",
+      "createdTime": null,
+      "lastUpdatedTime": null,
+      "relationsFrom": []
+    }
+  ]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "heater_2012_temp",
+			"name": "Heater 2012 Temp",
+			"metadata": {
+				"measurement_started": "2026-04-18",
+				"serial_number": "2930030353"
+			},
+			"unit": "celsius",
+			"description": "Test dummy data",
+			"valueType": "float",
+			"relationsFrom": [
+				{"id" : 12}
+			]
+		}
+	]
+}

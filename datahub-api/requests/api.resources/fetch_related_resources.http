@@ -1,0 +1,18 @@
+POST {{hostname}}/resources/fetch-related
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"id": 1,
+    "depth": 3
+}
+
+###
+POST {{hostname}}/resources/fetch-related
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"externalId": "invoice_operations",
+    "depth": 5
+}

@@ -1,0 +1,4 @@
+GET {{hostname}}/events/count
+Authorization: Bearer {{token}}
+Content-Type: application/json
+

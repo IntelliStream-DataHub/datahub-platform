@@ -1,0 +1,153 @@
+// datahub-api-model — the lean, framework-free wire-contract module.
+//
+// Holds the request/response DTOs, form models and envelopes that make up the
+// datahub-api REST contract (the types referenced by the Feign `DatahubApi`
+// interface). It sits BELOW datahub-commons: datahub-commons depends on this
+// module with `api`, so every existing import of these types across the
+// platform keeps resolving unchanged.
+//
+// Dependency policy: NO frameworks in the produced artifact. Only zero-/tiny-
+// transitive contract jars — Jackson (JSON), Jakarta Bean Validation annotations,
+// Swagger annotations, the openhft hashing helper and the SLF4J API. Lombok is
+// compile-time only. Explicitly absent: Spring, OpenFeign, Vault, Pulsar, JPA —
+// anything heavier belongs in datahub-commons or datahub-infra. This keeps the
+// module consumable by a lean Java SDK without dragging in the server stack.
+//
+// The Spring Boot plugins below are applied ONLY for dependency-version management
+// (the shared BOM), exactly as datahub-commons does — they add no Spring code to
+// the artifact. bootJar is disabled because this is a library, not an app.
+
+plugins {
+    id 'ai.intellistream.datahub.java-library-conventions'
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+    id 'maven-publish'
+    id 'signing'
+}
+
+dependencies {
+    // JSON — Jackson 3 (tools.jackson), matching the Spring Boot 4 server's JsonMapper
+    // and the SDK that will consume this module. Brings tools.jackson.core + the shared
+    // com.fasterxml.jackson.annotations jar (the annotation package is unchanged in v3).
+    api "tools.jackson.core:jackson-databind:${jacksonVersion}"
+
+    // XML is a server-only concern: only DataWrapper carries one Jackson-3
+    // @JacksonXmlElementWrapper. Keep it on the compile classpath but do NOT force
+    // woodstox onto consumers — datahub-commons supplies it at runtime for the web
+    // apps that actually serve XML.
+    compileOnly "tools.jackson.dataformat:jackson-dataformat-xml:${jacksonVersion}"
+
+    // Jakarta Bean Validation — annotations (@NotNull, @Size, …) and the custom
+    // @Constraint validators. Annotations-only API jar, zero transitive deps.
+    api 'jakarta.validation:jakarta.validation-api'
+
+    // OpenAPI @Schema annotations on the DTOs. Annotations-only, small.
+    api 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.47'
+
+    // xxHash helper used by Resource / IdCollection / ResourceFilter / PolicyType.
+    api 'net.openhft:zero-allocation-hashing:0.27ea0'
+
+    // One @Slf4j helper (TextValidator) needs the SLF4J facade.
+    api 'org.slf4j:slf4j-api'
+
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+}
+
+// Library module: no main class, so don't build an executable boot jar.
+bootJar { enabled = false }
+jar { enabled = true; archiveClassifier = '' }
+
+// --- Publishing -----------------------------------------------------------------
+// Published so an out-of-tree consumer (the Java SDK) can resolve these wire types as
+// a versioned Maven artifact: ai.intellistream:datahub-api-model.
+group = 'ai.intellistream'
+version = providers.gradleProperty('apiModelVersion').getOrElse('0.1.0-SNAPSHOT')
+
+// Ship -sources and -javadoc jars so SDK developers get IDE navigation + API docs.
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            // Pin resolved versions into the published POM. Some deps are version-managed by
+            // the Spring Boot BOM at build time and would otherwise be published with no
+            // version, breaking resolution for non-Spring consumers (e.g. the Java SDK).
+            versionMapping {
+                usage('java-api') { fromResolutionResult() }
+                usage('java-runtime') { fromResolutionResult() }
+            }
+            pom {
+                name = 'DataHub API Model'
+                description = 'Lean, framework-free wire-contract types for the DataHub Platform REST API.'
+                url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
+                licenses {
+                    // Apache-2.0, not the platform's AGPL. A client library has to be safe to
+                    // link into someone else's application, and a copyleft one is not.
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution = 'repo'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'intellistream'
+                        name = 'IntelliStream AS'
+                        url = 'https://intellistream.ai'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:https://github.com/IntelliStream-DataHub/datahub-platform.git'
+                    developerConnection = 'scm:git:ssh://git@github.com/IntelliStream-DataHub/datahub-platform.git'
+                    url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
+                }
+            }
+        }
+    }
+    repositories {
+        // No public Maven release yet, so there is no default registry here: a hardcoded
+        // one would advertise a host nobody outside the project can resolve from. Supply a
+        // target to publish remotely:
+        //
+        //   ./gradlew :datahub-api-model:publish \
+        //       -PmavenPublishUrl=https://example.org/api/packages/<owner>/maven
+        //
+        // Credentials come from -PmavenPublishUser / -PmavenPublishToken, or the
+        // MAVEN_PUBLISH_USER / MAVEN_PUBLISH_TOKEN environment variables, so no secrets
+        // live in the repo. Without the URL only publishToMavenLocal is available, which is
+        // how out-of-tree consumers try the artifact today.
+        def mavenPublishUrl = providers.gradleProperty('mavenPublishUrl').orNull
+        if (mavenPublishUrl) {
+            maven {
+                name = 'remote'
+                url = mavenPublishUrl
+                credentials {
+                    username = providers.gradleProperty('mavenPublishUser')
+                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_USER')).getOrNull()
+                    password = providers.gradleProperty('mavenPublishToken')
+                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_TOKEN')).getOrNull()
+                }
+                authentication { basic(BasicAuthentication) }
+            }
+        }
+    }
+}
+
+// Signing. Maven Central rejects unsigned artifacts, but a normal build and
+// publishToMavenLocal must not need a key, so signing is required only when one is
+// configured. Supply it as -PsigningInMemoryKey (an ASCII-armoured secret key) plus
+// -PsigningInMemoryKeyPassword, or via ORG_GRADLE_PROJECT_ equivalents in CI.
+signing {
+    def signingKey = providers.gradleProperty('signingInMemoryKey').orNull
+    def signingPassword = providers.gradleProperty('signingInMemoryKeyPassword').orNull
+    required { signingKey != null }
+    if (signingKey != null) {
+        useInMemoryPgpKeys(signingKey, signingPassword)
+        sign publishing.publications.mavenJava
+    }
+}

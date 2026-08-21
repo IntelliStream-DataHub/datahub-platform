@@ -1,0 +1,8 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package ai.intellistream.datahub.jpa.helpers;
+
+public enum DatabaseOperation {
+    INSERT,
+    UPDATE,
+    DELETE
+}

@@ -1,0 +1,27 @@
+POST {{hostname}}/timeseries/data/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_timeseries_2",
+			"inclusiveBegin": "2025-01-14T15:00:00.000Z"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "externalId": "nordpool_hourly_energy_price",
+      "inclusiveBegin": "2024-02-19T22:00Z",
+      "exclusiveEnd": "2024-02-19T22:00Z"
+    }
+  ]
+}

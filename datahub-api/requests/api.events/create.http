@@ -1,0 +1,332 @@
+POST {{hostname}}/events/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "my.known.id-1",
+			"dataSetId": 2,
+			"eventTime": "2025-05-16T09:03:53.257Z",
+			"type": "string",
+			"subtype": "string",
+			"status": "ALARM_DURATION",
+			"description": "string",
+			"metadata": {
+				"property1": "string",
+				"property2": "string",
+				"endTime": "2025-06-16T09:04:53.257Z"
+			},
+			"relatedResources": [
+				{ "id": 2 }
+			],
+			"source": "string"
+		},
+		{
+			"externalId": "my.known.id-2",
+			"dataSetId": 2,
+			"eventTime": "2025-05-16T09:04:53.257Z",
+			"type": "string",
+			"subtype": "string",
+            "status": "BLOCK_SIGNAL",
+			"description": "string",
+			"metadata": {
+				"property1": "string",
+				"property2": "string"
+			},
+			"relatedResources": [
+				{ "id": 2 }
+			],
+			"source": "string"
+		},
+		{
+			"externalId": "my.known.id-3",
+			"dataSetId": 2,
+			"eventTime": "2025-05-16T09:05:53.257Z",
+			"type": "string",
+			"subtype": "string",
+			"description": "string",
+			"metadata": {
+				"property1": "string",
+				"property2": "string"
+			},
+			"relatedResources": [
+				{ "id": 2 }
+			],
+			"source": "string"
+		}
+	]
+}
+###
+POST {{hostname}}/events/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"items": [
+
+	{
+		"id": null,
+		"externalId": "valve_event_alarm_7010",
+		"metadata": {
+			"version": "0x0",
+			"time": "2025-05-16T09:04:53.257Z",
+			"hostname": "host-01"
+		},
+		"description": "Gas valve attached to pipe AS-PIP-2452",
+		"type": "valve",
+		"subType": "alarm",
+		"dataSetId": 4,
+		"relatedResources": [],
+		"source": "valve-events",
+		"startTime": "2025-05-17T01:00:00Z",
+		"eventTime": "2025-05-17T00:12:12Z",
+		"endTime": null
+	}
+]
+}
+###
+POST {{hostname}}/events/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "my.known.id-10",
+			"dataSetId": 15,
+			"startTimeHR": "2024-03-13T18:29:03.000Z",
+			"endTimeHR": "2024-03-14T18:44:12.000Z",
+			"type": "rebuild",
+			"subType": "tank",
+			"description": "starting rebuild",
+			"metadata": {
+				"size": "63TB",
+				"health": "71%"
+			},
+			"relatedResources": [
+				{ "id": 5 },
+				{ "id": 12 }
+			],
+			"source": "vm-server-004"
+		},
+		{
+			"externalId": "my.known.id-11",
+			"dataSetId": 15,
+			"startTimeHR": "2024-03-13T19:09:57.000Z",
+			"endTimeHR": "2024-03-14T01:12:11.000Z",
+			"type": "error",
+			"subType": "npool",
+			"description": "error detected",
+			"metadata": {
+				"size": "43TB",
+				"health": "55%"
+			},
+			"relatedResources": [
+				{ "id": 1 }
+			],
+			"source": "bigpool"
+		},
+		{
+			"externalId": "my.known.id-12",
+			"dataSetId": 15,
+			"startTimeHR": "2024-03-10T19:08:57.000Z",
+			"endTimeHR": "2024-03-11T01:00:15.000Z",
+			"type": "error",
+			"subType": "npool",
+			"description": "error detected",
+			"metadata": {
+				"size": "55TB",
+				"health": "58%"
+			},
+			"relatedResources": [
+				{ "id": 1 }
+			],
+			"source": "bigpool"
+		},
+		{
+			"externalId": "my.known.id-13",
+			"dataSetId": 15,
+			"startTimeHR": "2024-03-20T19:15:15.000Z",
+			"endTimeHR": "2024-03-21T01:00:10.000Z",
+			"type": "error",
+			"subType": "npool",
+			"description": "error detected",
+			"metadata": {
+				"size": "88TB",
+				"health": "99%"
+			},
+			"relatedResources": [
+				{ "id": 1 }
+			],
+			"source": "bigpool"
+		},
+		{
+			"externalId": "my.known.id-14",
+			"dataSetId": 15,
+			"startTimeHR": "2024-03-23T08:29:03.000Z",
+			"endTimeHR": "2024-03-24T08:44:12.000Z",
+			"type": "rebuild",
+			"subType": "tank",
+			"description": "starting rebuild",
+			"metadata": {
+				"size": "163TB",
+				"health": "99%"
+			},
+			"relatedResources": [
+				{ "id": 5 },
+				{ "id": 12 }
+			],
+			"source": "vm-server-004"
+		},
+		{
+			"externalId": "my.known.id-15",
+			"dataSetId": 15,
+			"startTimeHR": "2024-03-26T07:29:13.000Z",
+			"endTimeHR": "2024-03-27T07:34:44.000Z",
+			"type": "rebuild",
+			"subType": "tank",
+			"description": "starting rebuild",
+			"metadata": {
+				"size": "176TB",
+				"health": "98%"
+			},
+			"relatedResources": [
+				{ "id": 5 },
+				{ "id": 12 }
+			],
+			"source": "vm-server-004"
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "kraid-event-1",
+			"dataSetId": 16,
+			"eventTime": "2026-03-13T18:29:03.000Z",
+			"type": "raid",
+			"description": "event detected in raid status",
+			"relatedResources": [
+				{ "id": 13 }
+			],
+			"source": "kraid-system"
+		},
+		{
+			"externalId": "kraid-event-2",
+			"dataSetId": 16,
+			"eventTime": "2026-03-14T18:29:03.000Z",
+			"type": "raid",
+			"description": "event detected in raid status",
+			"relatedResources": [
+				{ "id": 13 }
+			],
+			"source": "kraid-system"
+		},
+		{
+			"externalId": "kraid-event-3",
+			"dataSetId": 16,
+			"eventTime": "2026-03-16T18:29:03.000Z",
+			"type": "raid",
+			"description": "raid status",
+			"metadata": {
+				"size": "176TB",
+				"health": "100%"
+			},
+			"relatedResources": [
+				{ "id": 13 }
+			],
+			"source": "kraid-system"
+		},
+		{
+			"externalId": "kraid-event-4",
+			"dataSetId": 16,
+			"eventTime": "2026-03-18T18:29:03.000Z",
+			"type": "raid",
+			"description": "event detected in raid status",
+			"relatedResources": [
+				{ "id": 13 }
+			],
+			"source": "kraid-system"
+		},
+		{
+			"externalId": "kraid-event-5",
+			"dataSetId": 16,
+			"eventTime": "2026-03-20T18:29:03.000Z",
+			"type": "raid",
+			"description": "raid status",
+			"metadata": {
+				"size": "179TB",
+				"health": "100%"
+			},
+			"relatedResources": [
+				{ "id": 13 }
+			],
+			"source": "kraid-system"
+		},
+		{
+			"externalId": "kraid-event-6",
+			"dataSetId": 16,
+			"eventTime": "2026-03-21T14:09:03.000Z",
+			"type": "raid",
+			"subType": "low-disk-space",
+			"description": "raid status",
+			"metadata": {
+				"size": "299TB",
+				"health": "99%",
+                "space-left": "1GB"
+			},
+			"relatedResources": [
+				{ "id": 13 }
+			],
+			"source": "kraid-system"
+		}
+	]
+}
+
+###
+POST {{hostname}}/events/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "workpermit-1",
+			"dataSetId": 1088,
+			"eventTime": "2025-10-18T11:00:03.000Z",
+			"type": "workpermit",
+			"description": "work permit created",
+			"relatedResources": [
+				{ "id": 1088 }
+			],
+			"source": "wp-system"
+		},
+		{
+			"externalId": "workpermit-1",
+			"dataSetId": 1088,
+			"eventTime": "2025-10-18T12:00:03.000Z",
+			"type": "workpermit",
+			"description": "work permit in progress",
+			"relatedResources": [
+				{ "id": 1088 }
+			],
+			"source": "wp-system"
+		},{
+			"externalId": "workpermit-1",
+			"dataSetId": 1088,
+			"eventTime": "2025-10-18T13:00:03.000Z",
+			"type": "workpermit",
+			"description": "work permit complete",
+			"relatedResources": [
+				{ "id": 1088 }
+			],
+			"source": "wp-system"
+		}
+	]
+}

@@ -1,0 +1,47 @@
+POST {{hostname}}/files/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "rack_photo_jpg"
+		}
+	]
+}
+###
+POST {{hostname}}/files/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "externalId": "datahub_folder_foo"
+    },
+    {
+      "externalId": "datahub_folder_bar"
+    },
+    {
+      "externalId": "random_values_csv"
+    },
+    {
+      "externalId": "datahub_folder_images"
+    },
+    {
+      "externalId": "image_beach_jpg"
+    },
+    {
+      "externalId": "datahub_folder_insects"
+    },
+    {
+      "externalId": "image_fly_jpg"
+    },
+    {
+      "externalId": "datahub_folder_norway"
+    },
+    {
+      "externalId": "image_landscape_jpg"
+    }
+  ]
+}

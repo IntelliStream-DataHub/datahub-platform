@@ -1,0 +1,65 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+}
+
+group = 'ai.intellistream.datahub.analysis'
+version = '0.0.1-SNAPSHOT'
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// Contract DTOs (request + response) shared with the api. api-model carries Resource/EdgeProxy
+	// used by the response DTOs.
+	implementation project(':datahub-commons')
+	implementation project(':datahub-api-model')
+
+	// Data-gathering: this service fetches its own (ACL'd) series + graph from the api via the SDK,
+	// forwarding the caller's JWT. The SDK depends only on api-model, so this adds no dependency cycle.
+	implementation project(':datahub-java-sdk')
+
+	// The only heavy lifting this service does: numerics for the analysis engine (OLS, ChiSquared, FFT).
+	implementation 'org.apache.commons:commons-math3:3.6.1'
+
+	// Lean web service — no JPA/Neo4j/ClickHouse. It IS an OAuth2 resource server: it validates the
+	// user JWT the api forwards (same issuer as the api) and requires ROLE_DATAHUB_ACCESS. No ACL/DB
+	// — the api already authorized the user and fetched the data; this only authenticates the caller.
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+
+	// Fetches the JWT issuer-uri from Vault at startup (same shared "datahub-platform" secret as the
+	// api/console), so the resource server validates against the same issuer without duplicated config.
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+
+	// MCP server — same WebMVC transport as datahub-api: /mcp is a normal Spring MVC endpoint,
+	// so the resource-server SecurityFilterChain above (JWT + ROLE_DATAHUB_ACCESS) authenticates
+	// it with no MCP-specific wiring. See analysis/mcp/AnalysisMcpConfig.
+	implementation 'org.springframework.ai:spring-ai-starter-mcp-server-webmvc'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+	imports {
+		mavenBom "org.springframework.ai:spring-ai-bom:2.0.0"
+	}
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+}

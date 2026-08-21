@@ -1,0 +1,58 @@
+# Build output. Trailing slashes on purpose: without one these match a *file* of the same
+# name anywhere in the tree, which is the same trap documented for docs below. Left
+# unanchored because every Gradle module has its own build/ directory.
+.gradle/
+build/
+out/
+.logs/
+logs/
+
+# Anchored: an unanchored `docs` matches a directory of that name at ANY depth, which silently
+# swallowed the Java package ai.intellistream.datahub.api.docs — the OpenAPI response wrappers were
+# written, never committed, and master stopped compiling.
+#
+# Narrowed further to the pitch material specifically, rather than all of /docs. Ignoring the
+# whole directory meant there was nowhere in the repository to put documentation: creating
+# docs/ would have silently done nothing.
+/docs/pitch/
+/docs/pitch.zip
+
+# Local-only config and credentials — never commit these
+**/http-client.private.env.json
+**/application-dev.yml
+**/application-dev.yaml
+**/application-dev.properties
+**/application-local.yml
+**/application-local.properties
+**/application-test.yml
+**/application-test.yaml
+**/application-test.properties
+ca.cert.pem
+.env
+# Vault unseal key + root token emitted by scripts/vault-init.sh — never commit
+vault-init.json
+**/vault-init.json
+
+# JVM crash dumps and heap dumps
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# Editors and OS cruft. IntelliJ project files are per-developer: the run configurations that
+# are worth sharing are documented in intellij-idea.md instead.
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.egg-info/
+*.pyc
+.pytest_cache/
+
+# Claude Code local tooling
+.claude/

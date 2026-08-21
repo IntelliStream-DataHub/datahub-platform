@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{resources}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'resources')}">
+<main class="layout-body">
+	<nav class="sub-nav">
+		<div class="graph-filter-slot push-right" data-type="graph-filter-slot"></div>
+	</nav>
+	<div class="flex-container left-right">
+		<section class="left-content datahub-form-fields pad20">
+			<label for="search-asset" th:text="#{search.for.resource}"></label>
+			<div class="posrel">
+				<input id="search-asset" class="w100 left-icon" type="text" name="search-asset" th:attr="placeholder=#{write.query.here}"/>
+				<i class="fa fa-fw fa-search"></i>
+			</div>
+
+			<section id="section-root-asset-list">
+				<div class="flex-container left-right posrel">
+					<h3 th:text="#{root.resources}"></h3>
+					<div class="actions">
+						<button class="dh-btn primary small" type="button" th:attr="placeholder=#{create.root.resource}" data-type="create-root-node-btn" th:title="#{create.root.resource}">
+							<i class="fa fa-fw fa-plus"></i>
+						</button>
+					</div>
+				</div>
+				<ul class="data-list slim mtop10 pointer" data-type="root-asset-list">
+					<li th:each="n : ${rootResources}" class="dl-row" th:attr="data-root-id=${n.id}">
+						<span class="dl-main">
+							<span class="dl-name" th:text="${n.name}"></span>
+							<span class="dl-chips">
+								<span th:each="lbl : ${n.labels}" class="dl-chip" th:attr="data-label=${lbl}" th:text="${lbl}"></span>
+							</span>
+						</span>
+					</li>
+				</ul>
+			</section>
+		</section>
+		<section class="graph-network-container" data-type="resource-network"></section>
+	</div>
+
+	<script th:replace="~{resources/i18n :: i18nMessages}"></script>
+	<script type="application/javascript" th:inline="javascript">
+		document.addEventListener("DOMContentLoaded", () => {
+			const container = document.querySelector('[data-type="resource-network"]');
+
+			// Shared left-panel picker: colours the rows, wires clicks, and runs the search
+			// (rendering results as the same dl-row list). See static/js/resource-list.js.
+			const picker = ResourcePicker.init({
+				list: '[data-type="root-asset-list"]',
+				section: '#section-root-asset-list',
+				searchInput: '#search-asset',
+				idAttr: 'data-root-id',
+				attrs: item => ({ 'data-root-id': item.id }),
+				labels: item => item.labels || [],
+				search: {
+					url: '/api/resources/search',
+					body: q => ({ query: q }),
+					items: json => json.items
+				},
+				onSelect: (id, ctx) => {
+					// From the list: expand the picked root (depth default, isRoot). From search:
+					// centre on the hit with a shallower query.
+					window.resourceNetwork = new GraphNetwork(ctx.fromSearch ? { container: container, queryDepth: 2 } : { container: container });
+					window.resourceNetwork.loadNetwork(id, !ctx.fromSearch);
+				}
+			});
+
+			// Chat hand-off: the assistant navigated here with a search to run. Reads the same
+			// sessionStorage key the events page uses, clears it (read-once), and drives the search
+			// box — the debounced listener then runs /api/resources/search exactly as a user would.
+			(function applyPendingView() {
+				let pending;
+				try { pending = JSON.parse(sessionStorage.getItem('dh-pending-view') || 'null'); } catch (e) { pending = null; }
+				if (!pending || pending.page !== 'resources' || !pending.filter) return;
+				try { sessionStorage.removeItem('dh-pending-view'); } catch (e) { /* ignore */ }
+				const query = pending.filter.query;
+				const input = document.querySelector('#search-asset');
+				if (query && input) {
+					input.value = query;
+					input.dispatchEvent(new Event('input', { bubbles: true }));
+				}
+			})();
+
+			document.querySelector('[data-type="create-root-node-btn"]').addEventListener('click', () => {
+				new RootResourceEditForm({
+					afterSave: data => picker.list.prepend(picker.buildRow(data))
+				}).render();
+			});
+		});
+	</script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape.min.js" defer></script>
+	<!--script type="text/javascript" src="/static/js/graph-network/cytoscape.js"></script-->
+	<script type="text/javascript" src="/static/js/graph-network/layout-base.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cose-base.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-fcose.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/dagre.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-dagre.js" defer></script>
+
+	<script src="/static/js/graph-network/lodash.js" defer></script>
+	<script src="/static/js/graph-network/cytoscape-edgehandles.min.js" defer></script>
+
+	<script type="text/javascript" src="/static/js/graph-network/cytoscape-node-html-label.min.js" defer></script>
+	<script type="text/javascript" src="/static/js/graph-network/graph-network.js" defer></script>
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+</main>
+</body>
+</html>

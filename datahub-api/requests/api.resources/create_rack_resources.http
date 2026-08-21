@@ -1,0 +1,223 @@
+POST {{hostname}}/resources/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"nodes": [
+		{
+			"externalId": "compute_node_01_power_monitor",
+			"isRoot": false,
+			"relations": [],
+			"name": "Compute Node 01 Server Power Monitoring",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				{
+					"name": "SENSOR"
+				}
+			]
+		},
+		{
+			"externalId": "smart_plug_power_monitor_001",
+			"isRoot": false,
+			"relations": [],
+			"name": "Smart Plug Power Monitoring 001",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				{
+					"name": "SENSOR"
+				}
+			]
+		},
+		{
+			"externalId": "compute_node_01_power_monitor_timeseries",
+			"isRoot": false,
+			"relations": [],
+			"name": "Compute Node 01 Power Monitoring Timeseries",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				{
+					"name": "TIMESERIES"
+				}
+			]
+		},
+		{
+			"externalId": "power_monitor_timeseries_001",
+			"isRoot": false,
+			"relations": [],
+			"name": "Power Monitoring Timeseries_001",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				{
+					"name": "TIMESERIES"
+				}
+			]
+		},
+		{
+			"externalId": "compute_node_01_power_monitoring_function",
+			"isRoot": false,
+			"relations": [],
+			"name": "Compute Node 01 Power Monitoring Function",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				{
+					"name": "FUNCTION"
+				}
+			]
+		},
+		{
+			"externalId": "compute_node_01_estimated_power_cost",
+			"isRoot": false,
+			"relations": [],
+			"name": "Compute Node 01 Power Cost Timeseries",
+			"metadata": {},
+			"description": "",
+			"source": "",
+			"labels": [
+				{
+					"name": "TIMESERIES"
+				}
+			]
+		}
+	],
+	"relations": [
+		{
+			"fromExternalId": "compute_node_01_vm_server",
+			"toExternalId": "compute_node_01_power_monitor",
+			"relationshipType": "PULLS_DATA_FROM"
+		},
+		{
+			"fromExternalId": "compute_node_01_vm_server",
+			"toExternalId": "smart_plug_power_monitor_001",
+			"relationshipType": "PULLS_DATA_FROM"
+		},
+		{
+			"fromExternalId": "compute_node_01_power_monitor",
+			"toExternalId": "compute_node_01_power_monitor_timeseries",
+			"relationshipType": "PULLS_DATA_FROM"
+		},
+		{
+			"fromExternalId": "smart_plug_power_monitor_001",
+			"toExternalId": "power_monitor_timeseries_001",
+			"relationshipType": "PULLS_DATA_FROM"
+		},
+		{
+			"fromExternalId": "power_monitor_timeseries_001",
+			"toExternalId": "compute_node_01_power_monitoring_function",
+			"relationshipType": "PULLS_DATA_FROM"
+		},
+		{
+			"fromExternalId": "compute_node_01_power_monitor_timeseries",
+			"toExternalId": "compute_node_01_power_monitoring_function",
+			"relationshipType": "PULLS_DATA_FROM"
+		},
+		{
+			"fromExternalId": "compute_node_01_power_monitoring_function",
+			"toExternalId": "compute_node_01_estimated_power_cost",
+			"relationshipType": "PULLS_DATA_FROM"
+		}
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_radon1",
+			"name": "room_sensor_radon1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "Bq/m³",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_temp_1",
+			"name": "room_sensor_temp_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "celsius",
+			"description": "Air quality sensor",
+			"valueType": "DECIMAL",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_co2_1",
+			"name": "room_sensor_co2_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "ppm",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_air_pressure_1",
+			"name": "room_sensor_air_pressure_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "mBar",
+			"description": "Air quality sensor",
+			"valueType": "decimal",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_humidity_1",
+			"name": "room_sensor_humidity_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "percent",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		},
+		{
+			"externalId": "room_sensor_voc_1",
+			"name": "room_sensor_voc_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "ppb",
+			"description": "Air quality sensor",
+			"valueType": "bigint",
+			"relationsFrom": [
+				{"externalId" : "room_sensor_module", "relationshipType": "sends_data_to"}
+			]
+		}
+	]
+}

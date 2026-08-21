@@ -1,0 +1,16 @@
+/* Explore page — "Related series" side panel in the right pane. Linked page-specifically from
+   timeseries/index.html. Leans on the shared theme tokens (--header-bg-selected / --header-bg-selected2
+   / --accent, all defined in all.css) for panels + accent, matching analyze.css, and only hardcodes the
+   muted-text tints the palette doesn't expose as variables. */
+#related-series { margin-top:16px; }
+.rel-head { font-size:13px; font-weight:600; color:#cfe0ea; margin:0 0 8px; padding-bottom:6px; border-bottom:1px solid var(--header-bg-selected2); }
+.rel-status { font-size:12px; color:#9fc0d4; padding:6px 0; }
+.rel-list { list-style:none; margin:0; padding:0; }
+.rel-item { background: var(--header-bg-selected); border:1px solid var(--header-bg-selected2); border-radius:6px; padding:8px 10px; margin-bottom:8px; cursor:pointer; }
+.rel-item:hover { background: var(--header-bg-selected2); }
+.rel-name { font-size:13px; color:#fff; word-break:break-word; }
+.rel-rank { color: var(--accent); font-weight:700; margin-right:2px; }
+.rel-metrics { font-size:11px; color:#bcd4e2; margin-top:4px; }
+.rel-flag { font-size:10px; padding:1px 6px; border-radius:10px; }
+.rel-flag.pos { background:rgba(0,220,171,0.16); color:#00dcab; }
+.rel-flag.warn { background:rgba(246,172,28,0.18); color:#F6AC1C; }

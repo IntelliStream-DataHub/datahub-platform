@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{events}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'events')}">
+<main class="layout-body">
+	<div class="flex-container left-c-right">
+		<section class="left-content datahub-form-fields" style="width: 400px">
+			<form id="filter-events">
+				<div class="left-content-header pad10">
+					<h3><i class="fa fa-fw fa-filter"></i><span th:text="#{filters}"></span></h3>
+				</div>
+
+				<div class="pad10-no-bot">
+					<label th:for="externalId" th:text="#{external.id}"></label>
+					<div class="posrel">
+						<input id="externalId" class="w100" type="text" name="externalId" th:attr="placeholder=#{starts.with}" tabindex="200"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="dataSetId" th:text="#{dataset}"></label>
+					<div class="posrel">
+						<input id="dataSetId" class="w100" type="text" name="dataSetId" autocomplete="off" th:attr="placeholder=#{dataset.filter.placeholder}" tabindex="205"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="startDate" th:text="#{start.time.utc}"></label>
+					<div class="posrel" data-picker-pair data-picker-role="start">
+						<input id="startDate" type="text" name="startDate" data-picker="date" data-picker-editable th:attr="data-locale=${pageLocale}" th:value="${defaultStartDate}" tabindex="250"/>
+						<input id="startTime" type="text" name="startTime" data-picker="time" data-picker-editable th:attr="data-locale=${pageLocale}" th:value="${defaultTime}" tabindex="260"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="endDate" th:text="#{end.time.utc}"></label>
+					<div class="posrel" data-picker-pair data-picker-role="end">
+						<input id="endDate" type="text" name="endDate" data-picker="date" data-picker-editable th:attr="data-locale=${pageLocale}" th:value="${defaultEndDate}" tabindex="270"/>
+						<input id="endTime" type="text" name="endTime" data-picker="time" data-picker-editable th:attr="data-locale=${pageLocale}" tabindex="280"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="source" th:text="#{source}"></label>
+					<div class="posrel">
+						<input id="source" class="w100" type="text" name="source" autocomplete="off" th:attr="placeholder=#{select.3}" tabindex="290"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="type" th:text="#{type}"></label>
+					<div class="posrel">
+						<input id="type" class="w100" type="text" name="type" autocomplete="off" th:attr="placeholder=#{select.3}" tabindex="320"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="subType" th:text="#{sub.type}"></label>
+					<div class="posrel">
+						<input id="subType" class="w100" type="text" name="subType" autocomplete="off" th:attr="placeholder=#{select.3}" tabindex="330"/>
+					</div>
+				</div>
+
+				<div class="pad10-no-topbot">
+					<label th:for="status" th:text="#{status}"></label>
+					<div class="posrel">
+						<input id="status" class="w100" type="text" name="status" autocomplete="off" th:attr="placeholder=#{select.3}" tabindex="340"/>
+					</div>
+				</div>
+
+			<div class="pad10">
+				<label th:text="#{main.metadata}"></label>
+				<div class="posrel">
+					<label>
+						<input class="w100" type="text" name="key" th:attr="placeholder=#{main.key}" tabindex="270"/>
+					</label>
+				</div>
+				<div class="posrel">
+					<label>
+						<input class="w100" type="text" name="value" th:attr="placeholder=#{main.value}" tabindex="280"/>
+					</label>
+				</div>
+			</div>
+		</form>
+
+		</section>
+		<section class="events-result left-content flex-1">
+			<div class="left-content-header pad10">
+				<h3 th:text="#{event.found}"></h3>
+			</div>
+			<table id="events-list" class="listing slim pointer w100" data-type="events-list">
+				<thead>
+					<tr>
+						<th th:text="#{external.id}"></th>
+						<th th:text="#{type}"></th>
+						<th th:text="#{sub.type}"></th>
+						<th th:text="#{status}"></th>
+						<th th:text="#{event.time}"></th>
+					</tr>
+				</thead>
+				<tbody>
+				</tbody>
+			</table>
+		</section>
+		<section class="event-data left-content">
+			<div class="left-content-header pad10">
+				<h3 th:text="#{event.details}"></h3>
+			</div>
+			<div id="event-details" class="pad10 data-details"></div>
+		</section>
+	</div>
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+	<!-- Same locale-aware date/time picker the timeseries page uses; auto-attaches to the
+	     data-picker date/time inputs in the filter form on DOMContentLoaded. -->
+	<script type="text/javascript" src="/static/js/datepicker.js" defer></script>
+	<script th:replace="~{events/i18n :: i18nMessages}"></script>
+	<script type="text/javascript" th:inline="javascript">
+		document.addEventListener('DOMContentLoaded', () => {
+
+			// Event times are stored/queried in UTC (the filter appends "Z"), so render them in UTC to
+			// user's own timezone (the browser knows it) — no server round-trip needed.
+			// The filter time fields accept the user's local time, so hint the current timezone on their
+			// labels (e.g. "(CEST)") instead of "(UTC)". The result column doesn't get a fixed tz — each
+			// cell carries its own DST-aware tz via formatEventTime.
+			// Timezone display helpers live in application.js so every page renders timestamps identically.
+			const eventTzAbbr = window.tzAbbr;
+			const eventTzOffset = window.tzOffset;
+			(function(){
+				const now = new Date();
+				const abbr = eventTzAbbr(now);
+				if(!abbr) return;
+				const offset = eventTzOffset(now);
+				document.querySelectorAll('#filter-events label[for="startDate"], #filter-events label[for="endDate"]')
+					.forEach(el => { el.textContent = el.textContent.replace(/\s*\(UTC\)\s*$/i, '') + ' (' + abbr + ')'; if(offset) el.title = offset; });
+			})();
+
+			const formatEventTime = window.formatLocalTime;
+
+			const renderSearchResults = data => {
+				const resultsTable = document.getElementById('events-list').querySelector('tbody');
+				if(data.length === 0){
+					resultsTable.replaceChildren(...[]);
+				} else {
+					let results = data.map(event => {
+						const row = Object.assign(document.createElement('TR'), {
+							"data-event-id": event.id,
+						});
+						let externalIdCell = row.insertCell();
+						externalIdCell.textContent = event.externalId;
+						let typeCell = row.insertCell();
+						typeCell.textContent = event.type;
+						let subTypeCell = row.insertCell();
+						subTypeCell.textContent = event.subType;
+						let statusCell = row.insertCell();
+						if(event.status){
+							const badge = Object.assign(document.createElement('span'), { className: 'event-status', textContent: event.status });
+							badge.dataset.status = String(event.status).toLowerCase();
+							statusCell.append(badge);
+						}
+						let eventTimeCell = row.insertCell();
+						eventTimeCell.className = 'event-time-cell';
+						eventTimeCell.setAttribute('data-timestamp', event.eventTime || '');   // raw UTC ISO
+						eventTimeCell.textContent = formatEventTime(event.eventTime);
+						if(event.eventTime) eventTimeCell.title = eventTzOffset(new Date(event.eventTime));   // GMT offset tooltip
+
+						row.addEventListener('click', e => {
+							[...resultsTable.children].forEach( it => {it.classList.remove('selected')});
+							row.classList.toggle("selected");
+							const container = document.getElementById("event-details");
+							const template = document.getElementById("event-details-template");
+							const tmpClone = template.content.cloneNode(true);
+							container.replaceChildren(...tmpClone.children);
+							container.querySelector('[data-type="id"]').textContent = event.id;
+							container.querySelector('[data-type="external-id"]').textContent = event.externalId;
+							container.querySelector('[data-type="type"]').textContent = event.type;
+							container.querySelector('[data-type="sub-type"]').textContent = event.subType;
+							const eventTimeEl = container.querySelector('[data-type="event-time"]');
+							eventTimeEl.setAttribute('data-timestamp', event.eventTime || '');   // raw UTC ISO
+							eventTimeEl.textContent = formatEventTime(event.eventTime);            // local, consistent with the table
+							if(event.eventTime) eventTimeEl.title = eventTzOffset(new Date(event.eventTime));   // GMT offset tooltip
+							container.querySelector('[data-type="description"]').textContent = event.description;
+							// Name the data set rather than showing the bare id, which means nothing to a
+							// reader. The id -> name index is built by the dataset filter script below;
+							// fall back to the id when it has not loaded yet or the data set is gone,
+							// and keep the id in the tooltip either way so it stays copyable.
+							const dataSetEl = container.querySelector('[data-type="dataset"]');
+							const dataSetId = event.dataSetId === undefined || event.dataSetId === null ? '' : String(event.dataSetId);
+							const dataSetName = window.eventDataSetNameById ? window.eventDataSetNameById.get(dataSetId) : undefined;
+							dataSetEl.textContent = dataSetName || dataSetId;
+							if(dataSetId) dataSetEl.title = dataSetId;
+							container.querySelector('[data-type="source"]').textContent = event.source;
+							container.querySelector('[data-type="status"]').textContent = event.status;
+							const relatedResources = container.querySelector('[data-type="related-resources"]');
+							// The API omits empty/null fields, so guard both collections — an
+							// unguarded forEach here throws and aborts the whole detail render.
+							(event.relatedResources || []).forEach(item => {
+								relatedResources.append(Object.assign(document.createElement("LI"),{
+									className: "data-item",
+									textContent: item.externalId || item.id
+								}));
+							});
+							const metadata = container.querySelector('[data-type="metadata"]');
+							Object.entries(event.metadata || {}).forEach(([key, value]) => {
+								const keyField = Object.assign(document.createElement('div'), { className: "w50 data-item" });
+								keyField.append(Object.assign(document.createElement('label'), { textContent: key }));
+								const valueField = Object.assign(document.createElement('div'), { className: "w50 data-item" });
+								valueField.append(Object.assign(document.createElement('label'), { textContent: value }));
+								metadata.append(keyField, valueField);
+							});
+						});
+						return row;
+					});
+					resultsTable.replaceChildren(...results);
+					resultsTable.focus();
+				}
+			};
+
+			const doSearch = query => {
+				const apiBaseUrl = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
+				// Search straight on datahub-api (CORS-enabled), NOT through the console proxy, authorized
+				// with a fresh bearer token from the console session (GET /token), the same browser-direct
+				// pattern the files page uses. The api is stateless with CSRF disabled, so no console CSRF
+				// header is needed here.
+				fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+					.then(response => {
+						if (response.status === 401) { window.renderSignedOutDialog(); return null; }
+						if (!response.ok) throw new Error('token request failed');
+						return response.text();
+					})
+					.then(token => {
+						if (!token) return null;
+						return fetch(`${apiBaseUrl}/events/filter`, {
+							method: 'POST',
+							headers: {
+								'Authorization': 'Bearer ' + token,
+								'Accept': 'application/json',
+								'Content-Type': 'application/json'
+							},
+							body: JSON.stringify(query)
+						});
+					})
+					.then(response => {
+						if (!response) return null;
+						if (response.status === 401) { window.renderSignedOutDialog(); return null; }
+						if (!response.ok) throw new Error(`/events/filter returned ${response.status}`);
+						return response.json();
+					})
+					.then(json => {
+						if (json) renderSearchResults(json.items);
+					})
+					.catch(e => console.log(e));
+			};
+
+			let searchTimer;
+			// Build the /events/filter request body from the current filter form: categorical fields go
+			// in verbatim, start/end date+time collapse into an eventTime range, and a metadata key/value
+			// pair becomes a metadata map. Empty inputs are skipped.
+			const buildQuery = formEle => {
+				const formData = new FormData(formEle);
+				let json = {
+					"filter": {}
+				};
+				formData.forEach((value, key) => {
+					if(value.length < 1){
+						return;
+					}
+					json["filter"][key] = value;
+				});
+
+				// Collapse the date+time fields into an eventTime range. Times default sensibly when
+				// blank: start-of-day for the lower bound, end-of-day for the upper. Only valid ISO
+				// dates (YYYY-MM-DD) contribute a bound, so a partial/invalid typed date is skipped
+				// rather than sent as a broken range.
+				const isoDate = /^\d{4}-\d{2}-\d{2}$/;
+				const isoTime = /^([01]\d|2[0-3]):[0-5]\d$/;
+				const startDate = json["filter"]["startDate"];
+				const endDate = json["filter"]["endDate"];
+				const startTime = isoTime.test(json["filter"]["startTime"] || "") ? json["filter"]["startTime"] : "00:00";
+				const endTime = isoTime.test(json["filter"]["endTime"] || "") ? json["filter"]["endTime"] : "23:59";
+				const eventTime = {};
+				if(isoDate.test(startDate || "")) eventTime["min"] = new Date(startDate + "T" + startTime).toISOString(); // local -> UTC instant
+				if(isoDate.test(endDate || "")) eventTime["max"] = new Date(endDate + "T" + endTime).toISOString(); // local -> UTC instant
+				if(eventTime["min"] || eventTime["max"]) json["filter"]["eventTime"] = eventTime;
+				delete json["filter"]["startDate"];
+				delete json["filter"]["startTime"];
+				delete json["filter"]["endDate"];
+				delete json["filter"]["endTime"];
+
+				// The dataset field holds names (picked from the dropdown) and/or externalIds and/or raw
+				// ids, comma separated. Resolve each through the preloaded reference -> id map and send
+				// what EventFilter.dataSetId actually is: a list of IdCollection OBJECTS ({"id": "..."}),
+				// not bare strings — bare strings are rejected with a 400. The ids stay STRINGS: the api
+				// hands them over as strings and reads them back as strings, so Number() would buy nothing
+				// and can only lose — silently, above 2^53.
+				//
+				// Anything that resolves to nothing is dropped, and if that leaves the list empty the key
+				// goes too — an explicit [] means "match no dataset", and this field is debounced per
+				// keystroke, so a half-typed name must not query for that.
+				if(json["filter"]["dataSetId"]){
+					const byReference = window.eventDataSetIdByReference;
+					const ids = json["filter"]["dataSetId"]
+						.split(",")
+						.map(part => part.trim())
+						.filter(part => part.length > 0)
+						.map(part => /^\d+$/.test(part) ? part : (byReference ? byReference.get(part.toLowerCase()) : undefined))
+						.filter(id => id !== undefined);
+					if(ids.length > 0){
+						json["filter"]["dataSetId"] = [...new Set(ids)].map(id => ({ "id": id }));
+					} else {
+						delete json["filter"]["dataSetId"];
+					}
+				}
+
+				// The external id box is a prefix search, and EventFilter.externalId is a pattern list
+				// where an entry WITHOUT a wildcard means "this exact id, case-sensitively". So append
+				// `*` unless the user typed a wildcard of their own — that keeps the field's "starts
+				// with" promise and, as a pattern, keeps it case-insensitive the way it used to be.
+				if(json["filter"]["externalId"]){
+					const typed = json["filter"]["externalId"];
+					json["filter"]["externalId"] = /[*%]/.test(typed) ? typed : typed + "*";
+				}
+
+				// Handle metadata
+				if(json["filter"]["key"]){
+					json["filter"]["metadata"] = {};
+					const key = json["filter"]["key"];
+					const value = json["filter"]["value"] === undefined ? null : json["filter"]["value"];
+					json["filter"]["metadata"][key] = value;
+					delete json["filter"]["key"];
+					delete json["filter"]["value"];
+				}
+
+				return json;
+			};
+
+			// Debounce filter edits so a burst of keystrokes issues a single search.
+			const prepareSearch = e => {
+				const formEle = e.target.closest("form");
+				clearTimeout(searchTimer);
+				searchTimer = setTimeout(() => doSearch(buildQuery(formEle)), 1000);
+			};
+
+			const filterEventElements = document.getElementById("filter-events").elements;
+			for(let i = 0 ; i < filterEventElements.length; i++){
+				filterEventElements[i].addEventListener('input', prepareSearch);
+				// The date/time fields are readOnly datepicker inputs that commit via 'change'
+				// (not 'input'), so listen for both. prepareSearch is debounced, so the overlap is harmless.
+				filterEventElements[i].addEventListener('change', prepareSearch);
+			}
+
+			// A "pending view" handed over by the chat panel: the assistant looked something up and
+			// offered to show it here. It arrives via sessionStorage rather than the URL — the console
+			// deliberately keeps filter state out of the address bar. Read once and clear, so a later
+			// visit to /events is unaffected.
+			//
+			// The filter speaks the event_filter tool's vocabulary; the only translation needed is
+			// start/end, which arrive as UTC ISO instants while the form's date+time fields are read
+			// back as local time by buildQuery. Converting to local here makes that round-trip land on
+			// the same instant.
+			(function applyPendingView(){
+				let pending;
+				try {
+					pending = JSON.parse(sessionStorage.getItem('dh-pending-view') || 'null');
+				} catch (e) {
+					pending = null;
+				}
+				if(!pending || pending.page !== 'events' || !pending.filter) return;
+				sessionStorage.removeItem('dh-pending-view');
+
+				const form = document.getElementById("filter-events");
+				const set = (name, value) => {
+					const field = form.elements[name];
+					if(field && value !== undefined && value !== null) field.value = String(value);
+				};
+				const pad = n => String(n).padStart(2, '0');
+				const setInstant = (iso, dateField, timeField) => {
+					const at = new Date(iso);
+					if(isNaN(at.getTime())) return;
+					set(dateField, `${at.getFullYear()}-${pad(at.getMonth()+1)}-${pad(at.getDate())}`);
+					set(timeField, `${pad(at.getHours())}:${pad(at.getMinutes())}`);
+				};
+
+				// Start from a clean slate so the page's default date range can't survive alongside
+				// the assistant's filter and silently narrow it.
+				["externalId","dataSetId","source","type","subType","status",
+				 "startDate","startTime","endDate","endTime"].forEach(name => set(name, ""));
+
+				// dataSetId included directly: the handoff names a single data set by id and the form
+				// field holds a comma-separated list of names, externalIds or ids, but buildQuery takes
+				// a bare id as-is, so one value carries over unchanged under the same name.
+				["externalId","dataSetId","source","type","subType","status"]
+					.forEach(name => { if(pending.filter[name] !== undefined) set(name, pending.filter[name]); });
+				if(pending.filter.start) setInstant(pending.filter.start, "startDate", "startTime");
+				if(pending.filter.end) setInstant(pending.filter.end, "endDate", "endTime");
+			})();
+
+			// Show recent events on first load without requiring manual filtering. Run the search
+			// immediately (no debounce, no synthetic input event) using the form's default date range.
+			doSearch(buildQuery(document.getElementById("filter-events")));
+
+			// Add key arrow events for event list
+			(function(){
+				const resultsTableBody = document.querySelector('#events-list tbody');
+				const eventKeypress = e => {
+
+					// First find selected event
+					const selectedEle = [...resultsTableBody.children].find(it => it.classList.contains('selected'));
+					if(selectedEle){
+						// This prevents the page from scrolling
+						e.preventDefault();
+
+						const clickEvent = new Event('click');
+						// Check which key was pressed using event.key
+						// You can alternatively use event.keyCode for older browsers,
+						// where the arrow up and down keys correspond to the codes 38 and 40
+						switch (e.key) {
+							case 'ArrowUp':
+								if(selectedEle.previousElementSibling){
+									selectedEle.previousElementSibling.dispatchEvent(clickEvent);
+								}
+								break;
+							case 'ArrowDown':
+								if(selectedEle.nextElementSibling){
+									selectedEle.nextElementSibling.dispatchEvent(clickEvent);
+								}
+								break;
+							default:
+								// Do nothing if other keys are pressed
+								break;
+						}
+
+					}
+				};
+
+				document.querySelector('#events-list').addEventListener('pointerdown', e => {
+					e.stopPropagation();
+					document.body.removeEventListener('keydown', eventKeypress);
+					document.body.addEventListener('keydown', eventKeypress);
+				});
+				document.body.addEventListener('pointerdown', e => {
+					document.body.removeEventListener('keydown', eventKeypress);
+				});
+			})();
+		});
+	</script>
+	<script type="text/javascript">
+		// Attach a searchable dropdown to each categorical filter field (source / type / sub-type /
+		// status). As the user types, suggestions come from datahub-api's dimension search endpoints
+		// (/events/search/...); on focus with an empty field the top 100 distinct values are listed
+		// (/events/list/...). Both go straight to the api host (read from the <meta name="datahub-api-url">
+		// tag), authorized with a fresh bearer token from the console session (GET /token) — the same
+		// browser-direct pattern the files page uses, NOT the console proxy. The dropdown widget itself
+		// (SearchDropdown) is generic and loaded site-wide; here we only supply its data source.
+		document.addEventListener('DOMContentLoaded', () => {
+			const apiBaseUrl = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
+
+			const fetchToken = () =>
+				fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+					.then(response => {
+						if (response.status === 401) { window.renderSignedOutDialog(); return null; }
+						if (!response.ok) throw new Error('token request failed');
+						return response.text();
+					});
+
+			// Build a SearchDropdown source for one dimension: an empty query lists the top 100 distinct
+			// values, a non-empty query substring-searches them. Resolves to the array of string values.
+			const dimensionSource = endpoints => query => fetchToken().then(token => {
+				if (!token) return [];
+				const url = query
+					? `${apiBaseUrl}${endpoints.search}?q=${encodeURIComponent(query)}&limit=100`
+					: `${apiBaseUrl}${endpoints.list}?limit=100`;
+				return fetch(url, { headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' } })
+					.then(response => {
+						if (!response.ok) throw new Error(`${url} returned ${response.status}`);
+						return response.json();
+					})
+					.then(json => json.items || []);
+			});
+
+			// Filter input id -> its list / substring-search endpoints. Adding another searchable field
+			// later is one more line here plus the matching input in the form.
+			const dimensions = {
+				source:  { list: '/events/list/sources',   search: '/events/search/source' },
+				type:    { list: '/events/list/types',     search: '/events/search/type' },
+				subType: { list: '/events/list/sub-types', search: '/events/search/sub-type' },
+				status:  { list: '/events/list/statuses',  search: '/events/search/status' }
+			};
+
+			Object.entries(dimensions).forEach(([inputId, endpoints]) => {
+				const input = document.getElementById(inputId);
+				if (input) {
+					new SearchDropdown(input, { source: dimensionSource(endpoints), emptyText: $L('no.results.found') });
+				}
+			});
+
+			// The dataset filter works differently to the dimensions above: there is no "list distinct
+			// values" endpoint, and the api filters on ids while people think in names. So fetch the
+			// whole dataset list ONCE (a small, slow-changing set per tenant) and index it three ways:
+			// name -> id and externalId -> id for resolving what the user typed, and id -> name for
+			// naming the data set in the event details panel.
+			//
+			// Typing matches on name OR externalId, but the dropdown only ever shows the name: the
+			// externalId is how the data is keyed, the name is how people read it, and putting both on
+			// a row makes an unreadable wall of near-duplicate text. buildQuery translates whatever was
+			// typed to ids at query time, so a pick needs no rewriting of what the user typed.
+			//
+			// This one goes through the console's own proxy rather than straight to the api like the
+			// dimension lookups above: that is how every other dataset call in the console is made
+			// (/api/datasets/search, /api/datasets/delete), and being same-origin it needs no bearer
+			// token round trip. The proxy asks for a limit but /datasets/list ignores it and returns
+			// every data set in the tenant, so these indexes are complete.
+			const dataSetInput = document.getElementById("dataSetId");
+			if (dataSetInput) {
+				let dataSets = [];
+				const idByReference = new Map();
+				const nameById = new Map();
+				window.eventDataSetIdByReference = idByReference;   // read by buildQuery in the filter script above
+				window.eventDataSetNameById = nameById;             // read by the details panel renderer
+
+				const loadDataSets = fetch('/api/datasets/list', {
+					headers: { 'Accept': 'application/json' },
+					credentials: 'same-origin'
+				})
+					.then(response => {
+						if (!response.ok) throw new Error(`/api/datasets/list returned ${response.status}`);
+						return response.json();
+					})
+					.then(json => {
+						(json.items || []).forEach(dataSet => {
+							if (!dataSet.name || !dataSet.id) return;
+							// Ids arrive as strings (they exceed the JS safe integer range) — keep them
+							// that way all the way back out to /events/filter.
+							const id = String(dataSet.id);
+							const name = String(dataSet.name);
+							dataSets.push({ id: id, name: name, externalId: dataSet.externalId ? String(dataSet.externalId) : '' });
+							// Names are not guaranteed unique, externalIds are; on a name collision the
+							// first data set wins rather than the last, so the dropdown order and what a
+							// pick resolves to agree.
+							if (!idByReference.has(name.toLowerCase())) idByReference.set(name.toLowerCase(), id);
+							if (dataSet.externalId) idByReference.set(String(dataSet.externalId).toLowerCase(), id);
+							nameById.set(id, name);
+						});
+						dataSets.sort((a, b) => a.name.localeCompare(b.name));
+						// If the field already held a name while the list was still loading, that name
+						// could not be resolved and the search ran unfiltered. Re-run it now that it can.
+						if (dataSetInput.value.trim()) {
+							dataSetInput.dispatchEvent(new Event('input', { bubbles: true }));
+						}
+					})
+					.catch(e => console.log(e));
+
+				// Only the segment after the last comma is being edited, so match on that rather than on
+				// the whole field (which may already hold picked datasets).
+				const currentTerm = () => (dataSetInput.value.split(',').pop() || '').trim().toLowerCase();
+
+				new SearchDropdown(dataSetInput, {
+					emptyText: $L('no.results.found'),
+					source: () => loadDataSets.then(() => {
+						const term = currentTerm();
+						return dataSets
+							.filter(dataSet => !term
+								|| dataSet.name.toLowerCase().includes(term)
+								|| dataSet.externalId.toLowerCase().includes(term))
+							.map(dataSet => dataSet.name)
+							.slice(0, 100);
+					}),
+					// This field holds a list, so a pick replaces the segment being typed rather than
+					// the whole value — datasets chosen earlier survive.
+					applySelection: (name, input) => {
+						const parts = input.value.split(',');
+						parts[parts.length - 1] = ' ' + name;
+						input.value = parts.map(part => part.trim()).filter(Boolean).join(', ');
+					}
+				});
+			}
+		});
+	</script>
+	<template id="event-details-template">
+		<label th:text="#{id}"></label>
+		<div class="data-item" data-type="id"></div>
+		<label th:text="#{external.id}"></label>
+		<div class="data-item" data-type="external-id"></div>
+		<div class="flex-container details flex-wrap mtop10">
+			<div class="w50">
+				<label th:text="#{type}"></label>
+			</div>
+			<div class="w50">
+				<label th:text="#{sub.type}"></label>
+			</div>
+			<div class="w50 data-item">
+				<div data-type="type"></div>
+			</div>
+			<div class="w50 data-item">
+				<div data-type="sub-type"></div>
+			</div>
+		</div>
+		<label th:text="#{event.time}"></label>
+		<div class="data-item" data-type="event-time"></div>
+		<label th:text="#{description}"></label>
+		<div class="data-item" data-type="description"></div>
+		<div class="flex-container flex-wrap details mtop10">
+			<div class="w50">
+				<label th:text="#{dataset}"></label>
+			</div>
+			<div class="w50">
+				<label th:text="#{source}"></label>
+			</div>
+			<div class="w50 data-item">
+				<div data-type="dataset"></div>
+			</div>
+			<div class="w50 data-item">
+				<div data-type="source"></div>
+			</div>
+		</div>
+		<label th:text="#{status}"></label>
+		<div class="data-item" data-type="status"></div>
+		<label th:text="#{related.resources}"></label>
+		<ul class="flex-container flex-wrap" data-type="related-resources">
+
+		</ul>
+		<label th:text="#{metadata}"></label>
+		<div class="flex-container flex-wrap details" data-type="metadata">
+			<div class="w50">
+				<label th:text="#{key}"></label>
+			</div>
+			<div class="w50">
+				<label th:text="#{value}"></label>
+			</div>
+		</div>
+	</template>
+</main>
+</body>
+</html>

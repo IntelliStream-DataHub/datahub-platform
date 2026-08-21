@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{data.streams}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/cdc.css}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'streams')}">
+<main class="layout-body">
+	<nav th:replace="~{cdc/nav :: navbar('cdc')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<div class="flex-container left-right cdc-content" th:if="${!featureDisabled}">
+		<section class="left-content datahub-form-fields pad20">
+			<label for="search-topics" th:text="#{search.for.cdc}"></label>
+			<div class="posrel">
+				<input id="search-topics" class="w100 left-icon" type="text" name="search-cdc" th:attr="placeholder=#{write.query.here}"/>
+				<i class="fa fa-fw fa-search"></i>
+			</div>
+
+			<section id="section-cdc-integration-list">
+				<div class="flex-container left-right posrel" style="height: 40px">
+					<h3 th:text="#{cdc.integrations}"></h3>
+					<div class="actions">
+						<a th:href="@{/cdc/create}" class="dh-btn primary small" th:attr="placeholder=#{create.cdc.integration}" data-type="create-cdc-btn">
+							<i class="fa fa-fw fa-plus"></i>
+						</a>
+					</div>
+				</div>
+				<ul class="data-list slim mtop10 pointer" data-type="cdc-list">
+					<li th:each="cdc : ${cdcIntegrations.getItems()}" th:text="${cdc.name}" th:attr="data-id=${cdc.id}"></li>
+				</ul>
+			</section>
+		</section>
+		<section class="cdc-data left-content flex-1">
+			<div class="left-content-header pad20">
+				<h3 th:text="#{cdc.integration.details}"></h3>
+			</div>
+			<div id="cdc-details" class="pad20 data-details"></div>
+		</section>
+	</div>
+	<script th:inline="javascript" th:if="${!featureDisabled}">
+		document.addEventListener("DOMContentLoaded", () => {
+			$L('are.you.sure.delete.entity', [[#{are.you.sure.delete.entity}]]);
+			$L('delete', [[#{delete}]]);
+			$L('name', [[#{name}]]);
+			$L('write.name.here', [[#{write.name.here}]]);
+			$L('description', [[#{description}]]);
+			$L('write.description.here', [[#{write.description.here}]]);
+			$L('save', /*[[#{datahub.save}]]*/);
+			$L('cancel', [[#{cancel}]]);
+			$L('write.name.here.lowercase.only', [[#{write.name.here.lowercase.only}]]);
+			$L('confirm', [[#{confirm}]]);
+			$L('update', [[#{update}]]);
+			$L('close', [[#{close}]]);
+			$L('add', [[#{add}]]);
+		});
+	</script>
+
+</main>
+</body>
+</html>

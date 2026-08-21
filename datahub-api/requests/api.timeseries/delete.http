@@ -1,0 +1,96 @@
+POST {{hostname}}/timeseries/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test_timeseries_2"
+		},
+		{
+			"externalId": "test_timeseries_3"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_radon1"
+		},
+		{
+			"externalId": "room_sensor_radon2"
+		},
+		{
+			"externalId": "vm_sb_01_power1_average"
+		},
+		{
+			"externalId": "vm_sb_01_cpu1_temp_average"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "wifi_and_vlan2_socket_power"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "room_sensor_air_pressure_1",
+			"name": "room_sensor_air_pressure_1",
+			"metadata": {
+				"measurement_started": "21.11.2023",
+				"serial_number": "2930030353"
+			},
+			"unit": "mBar",
+			"description": "Air quality sensor",
+			"valueType": "decimal",
+			"sources": {
+				"assets": [
+					{"id" : "5397199797218658631"}
+				]
+			}
+		}
+    ]
+}
+
+###
+POST {{hostname}}/timeseries/delete
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "core_switch_01_socket_power"
+		},{
+			"externalId": "switch_backbone_0_01_socket_power"
+		},{
+			"externalId": "storage_server_socket_power"
+		},{
+			"externalId": "compute_node_01_socket_power"
+		},{
+			"externalId": "wifi_and_vlan2_socket_power"
+		}
+	]
+}

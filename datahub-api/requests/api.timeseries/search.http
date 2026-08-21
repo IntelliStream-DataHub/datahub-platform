@@ -1,0 +1,21 @@
+POST {{hostname}}/timeseries/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"search": {
+		"query": "power"
+	}
+}
+
+###
+POST {{hostname}}/timeseries/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"search": {
+		"query": "smart plug"
+	}
+}
+

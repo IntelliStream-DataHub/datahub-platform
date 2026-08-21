@@ -1,0 +1,21 @@
+# Copy this file to application-test.properties (which is git-ignored) and fill in the Vault
+# values, then run the console integration tests:
+#
+#   ./gradlew :datahub-console:integrationTest
+#
+# The `test` profile is activated by that task. Without this file Spring cannot resolve
+# vault.address, so VaultConfigurationLoader fails at environment-prepared time and every
+# @SpringBootTest in the module dies with "Cannot invoke String.trim() because address is null"
+# before its first assertion runs.
+#
+# Everything else the tests need (the datahub.url they call, the OAuth2 client registration)
+# comes from Vault itself, so these three values are the whole of it.
+
+# Vault. The AppRole secret-id is read from the VAULT_SECRET-ID environment variable (set it in
+# your shell or run configuration), NOT this file, so it never lands in source control.
+vault.address=< vault url here >
+vault.role-id=<your-vault-approle-role-id>
+
+# Anthropic key for AnthropicLlmClientIT, the one test that spends money. Optional: the test is
+# skipped with a reason when neither this nor the ANTHROPIC_API_KEY environment variable is set.
+#datahub.chat.api-key=sk-ant-...

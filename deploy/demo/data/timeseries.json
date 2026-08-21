@@ -1,0 +1,662 @@
+{
+ "synthetic_3w_well_00001": {
+  "items": [
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_xo_valve_state",
+    "name": "Well 00001 XO Valve State",
+    "metadata": {
+     "isa_tag": "ZS",
+     "source": "3W Dataset",
+     "quantity": "state",
+     "sample_rate_hz": "1",
+     "labels": "XTREE"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_pmw_state",
+    "name": "Well 00001 PMW State",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "quantity": "state",
+     "labels": "XTREE",
+     "isa_tag": "ZS"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_pwv_state",
+    "name": "Well 00001 PWV State",
+    "metadata": {
+     "labels": "XTREE",
+     "sample_rate_hz": "1",
+     "quantity": "state",
+     "source": "3W Dataset",
+     "isa_tag": "ZS"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_amw_state",
+    "name": "Well 00001 AMW State",
+    "metadata": {
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "labels": "XTREE",
+     "isa_tag": "ZS",
+     "quantity": "state"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_awv_state",
+    "name": "Well 00001 AWV State",
+    "metadata": {
+     "quantity": "state",
+     "labels": "XTREE",
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "isa_tag": "ZS"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_tpt_temp",
+    "name": "Well 00001 TPT Temperature",
+    "metadata": {
+     "quantity": "temperature",
+     "isa_tag": "TT",
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "labels": "XTREE"
+    },
+    "unit": "Celsius",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_tpt_pressure",
+    "name": "Well 00001 TPT Pressure",
+    "metadata": {
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "isa_tag": "PT",
+     "quantity": "pressure",
+     "labels": "XTREE"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_dhsv_state",
+    "name": "Well 00001 DHSV State",
+    "metadata": {
+     "quantity": "state",
+     "isa_tag": "ZS",
+     "labels": "DOWNHOLE",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_pdg_pressure",
+    "name": "Well 00001 PDG Pressure",
+    "metadata": {
+     "isa_tag": "PT",
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "quantity": "pressure",
+     "labels": "DOWNHOLE"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_pdg_temp",
+    "name": "Well 00001 PDG Temperature",
+    "metadata": {
+     "isa_tag": "TT",
+     "labels": "DOWNHOLE",
+     "sample_rate_hz": "1",
+     "quantity": "temperature",
+     "source": "3W Dataset"
+    },
+    "unit": "Celsius",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_pck_p_upstream",
+    "name": "Well 00001 PCK Pressure Upstream",
+    "metadata": {
+     "labels": "TOPSIDE",
+     "quantity": "measurement",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_psdv_state",
+    "name": "Well 00001 PSDV State",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "labels": "TOPSIDE",
+     "quantity": "state",
+     "isa_tag": "ZS",
+     "source": "3W Dataset"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_pxo_state",
+    "name": "Well 00001 PXO State",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "isa_tag": "ZS",
+     "quantity": "state",
+     "source": "3W Dataset",
+     "labels": "TOPSIDE"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_annulus_pressure",
+    "name": "Well 00001 Annulus Pressure",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "labels": "TOPSIDE",
+     "source": "3W Dataset",
+     "quantity": "pressure",
+     "isa_tag": "PT"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_glck_p_downstream",
+    "name": "Well 00001 GLCK Pressure Downstream",
+    "metadata": {
+     "quantity": "measurement",
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "labels": "GAS_LIFT"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_sdv_gl_state",
+    "name": "Well 00001 SDV GL State",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "isa_tag": "ZS",
+     "labels": "GAS_LIFT",
+     "quantity": "state"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00001_glck_qgl",
+    "name": "Well 00001 GLCK QGL",
+    "metadata": {
+     "source": "3W Dataset",
+     "isa_tag": "FT",
+     "sample_rate_hz": "1",
+     "labels": "GAS_LIFT",
+     "quantity": "flow rate"
+    },
+    "unit": "m3ps",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   }
+  ]
+ },
+ "synthetic_3w_well_00002": {
+  "items": [
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00002_tpt_temp",
+    "name": "Well 00002 TPT Temperature",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "labels": "XTREE",
+     "quantity": "temperature",
+     "isa_tag": "TT"
+    },
+    "unit": "Celsius",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00002_tpt_pressure",
+    "name": "Well 00002 TPT Pressure",
+    "metadata": {
+     "labels": "XTREE",
+     "quantity": "pressure",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "isa_tag": "PT"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00002_pdg_pressure",
+    "name": "Well 00002 PDG Pressure",
+    "metadata": {
+     "quantity": "pressure",
+     "sample_rate_hz": "1",
+     "labels": "DOWNHOLE",
+     "isa_tag": "PT",
+     "source": "3W Dataset"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00002_annulus_pressure",
+    "name": "Well 00002 Annulus Pressure",
+    "metadata": {
+     "quantity": "pressure",
+     "sample_rate_hz": "1",
+     "labels": "TOPSIDE",
+     "source": "3W Dataset",
+     "isa_tag": "PT"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   }
+  ]
+ },
+ "synthetic_3w_well_00003": {
+  "items": [
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_xo_valve_state",
+    "name": "Well 00003 XO Valve State",
+    "metadata": {
+     "quantity": "state",
+     "labels": "XTREE",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "isa_tag": "ZS"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_awv_state",
+    "name": "Well 00003 AWV State",
+    "metadata": {
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "quantity": "state",
+     "isa_tag": "ZS",
+     "labels": "XTREE"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_tpt_temp",
+    "name": "Well 00003 TPT Temperature",
+    "metadata": {
+     "quantity": "temperature",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "isa_tag": "TT",
+     "labels": "XTREE"
+    },
+    "unit": "Celsius",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_tpt_pressure",
+    "name": "Well 00003 TPT Pressure",
+    "metadata": {
+     "labels": "XTREE",
+     "sample_rate_hz": "1",
+     "quantity": "pressure",
+     "source": "3W Dataset",
+     "isa_tag": "PT"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_pdg_pressure",
+    "name": "Well 00003 PDG Pressure",
+    "metadata": {
+     "labels": "DOWNHOLE",
+     "quantity": "pressure",
+     "isa_tag": "PT",
+     "source": "3W Dataset",
+     "sample_rate_hz": "1"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_pck_p_upstream",
+    "name": "Well 00003 PCK Pressure Upstream",
+    "metadata": {
+     "labels": "TOPSIDE",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "quantity": "measurement"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_psdv_state",
+    "name": "Well 00003 PSDV State",
+    "metadata": {
+     "labels": "TOPSIDE",
+     "sample_rate_hz": "1",
+     "source": "3W Dataset",
+     "quantity": "state",
+     "isa_tag": "ZS"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_pxo_state",
+    "name": "Well 00003 PXO State",
+    "metadata": {
+     "isa_tag": "ZS",
+     "source": "3W Dataset",
+     "sample_rate_hz": "1",
+     "quantity": "state",
+     "labels": "TOPSIDE"
+    },
+    "unit": "State",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "bigInt",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_annulus_pressure",
+    "name": "Well 00003 Annulus Pressure",
+    "metadata": {
+     "sample_rate_hz": "1",
+     "quantity": "pressure",
+     "isa_tag": "PT",
+     "source": "3W Dataset",
+     "labels": "TOPSIDE"
+    },
+    "unit": "Pascal",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   },
+   {
+    "id": null,
+    "externalId": "synthetic_3w_well_00003_glck_qgl",
+    "name": "Well 00003 GLCK QGL",
+    "metadata": {
+     "source": "3W Dataset",
+     "isa_tag": "FT",
+     "labels": "GAS_LIFT",
+     "quantity": "flow rate",
+     "sample_rate_hz": "1"
+    },
+    "unit": "m3ps",
+    "description": null,
+    "unitExternalId": null,
+    "securityCategories": null,
+    "dataSetId": "__DATASET_ID__",
+    "valueType": "float",
+    "createdTime": null,
+    "lastUpdatedTime": null,
+    "relatedResources": []
+   }
+  ]
+ }
+}

@@ -1,0 +1,98 @@
+spring:
+  application:
+    name: datahub-cleanup
+  profiles:
+    # Local default. Deployments override with SPRING_PROFILES_ACTIVE (e.g. prod). The dev profile
+    # turns the file-cleanup jobs into log-only dry-runs — see the dev document at the end of this file.
+    active: dev
+  main:
+    # Pure scheduled job — no web server.
+    web-application-type: none
+  flyway:
+    enabled: false
+  jpa:
+    database: default
+    show-sql: false
+    generate-ddl: false
+    hibernate:
+      ddl-auto: none
+    properties:
+      hibernate:
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+        jdbc:
+          lob:
+            non_contextual_creation: false
+        order_updates: true
+        order_inserts: true
+
+# Vault provides the tenant list and the global secrets (Pulsar admin creds) this app needs,
+# loaded into the environment at startup. Provide the address + credentials via env vars.
+vault:
+  address: ${VAULT_ADDRESS:https://vault.example.com}
+  role-id: ${VAULT_ROLE_ID:}
+  secret-id: ${VAULT_SECRET_ID:}
+  secret-name: ${VAULT_SECRET_NAME:intellistream-datahub}
+
+datahub:
+  cleanup:
+    file:
+      # When true, the file jobs only LOG what they would quarantine/delete and touch nothing.
+      # Defaults false (delete for real); the dev profile flips it on (see the dev document below).
+      dry-run: false
+      # temp-dir-name intentionally omitted: defaults to the shared TextValidator.RESERVED_TMP_DIR
+      # constant (same value the API upload path uses). Only set it to override for a migration.
+      stale-upload-age: 3d
+      quarantine-dir-name: _orphaned
+      quarantine-grace: 30d
+      # Retention window for soft-deleted (trashed) files before DeletedFilePurgeTask deletes them
+      # for good — the time a user has to restore. Keyed off the deletion epoch already embedded in
+      # the trashed inode's external_id (DELETED_..._<epochMillis>) — no extra column.
+      deleted-file-grace: 30d
+      # Schedules (6-field Spring cron). Defaults: temp hourly, orphan every 15 minutes,
+      # deleted-file purge daily at 02:30.
+      temp-upload-cron: "0 0 * * * *"
+      orphan-cron: "0 */15 * * * *"
+      deleted-file-cron: "0 30 2 * * *"
+    migration:
+      # Self-heal retry of per-tenant Flyway migrations, moved off datahub-api. The api provisions a
+      # tenant on demand and gives up after one attempt; this sweep keeps retrying a broken tenant
+      # until its Vault config is fixed. Runs a boot pass over all tenants, then retries only the
+      # failed ones on `sweep-rate`, each respecting per-tenant exponential backoff.
+      enabled: true
+      # How often the sweep wakes to check whether any unhealthy tenant's backoff has elapsed.
+      sweep-rate: PT1M
+      # First retry delay and base of the exponential backoff (n-th failure waits base * 2^(n-1)).
+      base-backoff: 5m
+      # Ceiling on the backoff, so a long-broken tenant is still retried at least this often.
+      max-backoff: 6h
+    subscription:
+      # Enabled but DRY-RUN by default: watch the "would delete" logs first, then flip dry-run off
+      # once you trust the candidates.
+      enabled: true
+      dry-run: true
+      # A user-managed subscription is a candidate only when it has no connected consumers, a backlog
+      # at/above min-backlog-messages, AND has not been updated within stale-age (so a brand-new,
+      # not-yet-connected subscription is never deleted).
+      stale-age: 7d
+      min-backlog-messages: 1000
+      cron: "0 0 */6 * * *"
+
+logging:
+  level:
+    ai.intellistream.datahub.cleanup: INFO
+
+---
+# Dev profile (active by default locally). Make the file-cleanup jobs log-only so local/dev runs
+# never delete real files — they log what they WOULD quarantine/delete instead. Committed here so
+# this holds for every dev checkout without a local config file. Run with a non-dev profile, or
+# set datahub.cleanup.file.dry-run=false, to let the jobs delete for real.
+spring:
+  config:
+    activate:
+      on-profile: dev
+datahub:
+  cleanup:
+    file:
+      dry-run: true

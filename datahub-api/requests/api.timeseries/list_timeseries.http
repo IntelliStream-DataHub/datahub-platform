@@ -1,0 +1,3 @@
+GET {{hostname}}/timeseries?limit=5
+Authorization: Bearer {{token}}
+

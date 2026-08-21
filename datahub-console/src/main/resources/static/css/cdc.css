@@ -1,0 +1,35 @@
+/* === CDC PAGES (CDC list, CDC create) ===
+   Linked page-specifically from cdc/cdc.html and cdc/cdc-create.html. The CDC listing and
+   detail layouts share rules kept in one selector list rather than the near-identical copies
+   these pages used to carry inline. */
+
+/* Full-height content column: the page background should reach the bottom of the viewport even
+   when the listing is short. 40px is the layout-body padding below the header. */
+.topic-content > section,
+.cdc-content > section{ min-height: calc(100vh - var(--header-height) - 40px); }
+/* Left panel and content pane align at the top instead of stretching to equal height. */
+.flex-container.left-right.topic-content,
+.flex-container.left-right.cdc-content{ align-items: flex-start; }
+
+/* --- CDC create form --- */
+.datahub-form-fields .cdc-box input,
+.datahub-form-fields .cdc-box textarea{
+	width: 500px;
+	border-radius: 3px;
+}
+.datahub-form-fields .cdc-box textarea[name="description"]{
+	height: 110px;
+	margin-top: 0;
+}
+/* NOTE: a literal, not a token — it has no light-theme mapping, so this box stays dark on the
+   light theme. Kept as-is here to avoid a visual change during the CSS cleanup; worth retiring
+   in favour of --modal-bg / --menu-bg when the CDC pages next get design attention. */
+.cdc-database{ background: #2d3139; }
+.cdc-database h3{
+	margin: 0 0 10px 0;
+	font-weight: 600;
+}
+.datahub-form-fields .cdc-details label{
+	display: flex;
+	align-items: center;
+}

@@ -1,0 +1,3597 @@
+/*!
+ * Font Awesome Free 6.5.1 by @fontawesome - https://fontawesome.com
+ * License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT)
+ * Copyright 2023 Fonticons, Inc.
+ *
+ * The glyph rules below are a subset of the upstream stylesheet, not the whole of it.
+ * Subsetting is a modification; the notice above is retained as CC BY 4.0 requires.
+ */
+/* === Font Awesome 6 Free (Solid) — SUBSET =====================================================
+   Only the glyphs the console actually renders are kept, plus the base .fa rules and .fa-fw.
+   The upstream stylesheet is ~81KB (1950 glyph rules); this subset is ~2.6KB. The dropped
+   parts are the unused glyphs, the sizing scale (.fa-1x….fa-2xl), .fa-ul/.fa-li/.fa-border/
+   .fa-pull-*, rotate/flip/stack/inverse, and every animation (.fa-spin, .fa-beat, …).
+
+   Adding an icon to a template therefore also needs its rule added on the glyph line below —
+   copy the `.fa-<name>:before{content:"\xxxx"}` rule from the upstream all.css. Do NOT paste
+   the whole upstream file back in. `scripts/fa-subset.py` regenerates this from a full copy.
+   ============================================================================================= */
+:host,:root{--fa-style-family-classic:"Font Awesome 6 Free";--fa-font-solid:normal 900 1em/1 "Font Awesome 6 Free"}@font-face{font-family:"Font Awesome 6 Free";font-style:normal;font-weight:900;font-display:block;src:url(/static/webfonts/fa-solid-900.woff2) format("woff2"),url(/static/webfonts/fa-solid-900.ttf) format("truetype")}.fa-solid,.fas{font-weight:900}
+.fa{font-family:var(--fa-style-family,"Font Awesome 6 Free");font-weight:var(--fa-style,900)}.fa,.fa-brands,.fa-classic,.fa-regular,.fa-sharp,.fa-solid,.fab,.far,.fas{-moz-osx-font-smoothing:grayscale;-webkit-font-smoothing:antialiased;display:var(--fa-display,inline-block);font-style:normal;font-variant:normal;line-height:1;text-rendering:auto}.fa-classic,.fa-regular,.fa-solid,.far,.fas{font-family:"Font Awesome 6 Free"}.fa-fw{text-align:center;width:1.25em}
+
+.fa-trash-can:before{content:"\f2ed"}.fa-file-lines:before{content:"\f15c"}.fa-sitemap:before{content:"\f0e8"}.fa-lock:before{content:"\f023"}.fa-edit:before,.fa-pen-to-square:before{content:"\f044"}.fa-eye-slash:before{content:"\f070"}.fa-chevron-up:before{content:"\f077"}.fa-folder:before{content:"\f07b"}.fa-key:before{content:"\f084"}.fa-folder-open:before{content:"\f07c"}.fa-cloud-arrow-up:before{content:"\f0ee"}.fa-shield-halved:before{content:"\f3ed"}.fa-filter:before{content:"\f0b0"}.fa-chart-line:before{content:"\f201"}.fa-cube:before{content:"\f1b2"}.fa-clipboard-check:before{content:"\f46c"}.fa-circle-question:before{content:"\f059"}.fa-eye:before{content:"\f06e"}.fa-pen:before{content:"\f304"}.fa-trash:before{content:"\f1f8"}.fa-tag:before{content:"\f02b"}.fa-comment:before{content:"\f075"}.fa-circle-nodes:before{content:"\e4e2"}.fa-circle-info:before{content:"\f05a"}.fa-folder-tree:before{content:"\f802"}.fa-download:before{content:"\f019"}.fa-stop:before{content:"\f04d"}.fa-upload:before{content:"\f093"}.fa-sun:before{content:"\f185"}.fa-user-lock:before{content:"\f502"}.fa-bell:before{content:"\f0f3"}.fa-link:before{content:"\f0c1"}.fa-play:before{content:"\f04b"}.fa-search:before{content:"\f002"}.fa-diagram-project:before{content:"\f542"}.fa-copy:before{content:"\f0c5"}.fa-plus:before{content:"\2b"}.fa-close:before,.fa-xmark:before{content:"\f00d"}.fa-moon:before{content:"\f186"}.fa-clone:before{content:"\f24d"}.fa-check:before{content:"\f00c"}.fa-database:before{content:"\f1c0"}.fa-paper-plane:before{content:"\f1d8"}.fa-mask:before{content:"\f6fa"}.fa-graduation-cap:before{content:"\f19d"}
+/*!
+ * Manrope by Mikhail Sharanda - https://github.com/sharanda/manrope
+ * Licensed under the SIL Open Font License 1.1 - https://openfontlicense.org
+ */
+/* manrope-200 - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 200;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-200.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-200.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+/* manrope-300 - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 300;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-300.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-300.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+/* manrope-regular - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 400;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-regular.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-regular.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+/* manrope-500 - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 500;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-500.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-500.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+/* manrope-600 - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 600;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-600.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-600.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+/* manrope-700 - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 700;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-700.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-700.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+/* manrope-800 - latin */
+@font-face {
+	font-family: 'Manrope';
+	font-style: normal;
+	font-weight: 800;
+	src: local(''),
+	url('/static/webfonts/manrope-v13-latin-800.woff2') format('woff2'), /* Chrome 26+, Opera 23+, Firefox 39+ */
+	url('/static/webfonts/manrope-v13-latin-800.woff') format('woff'); /* Chrome 6+, Firefox 3.6+, IE 9+, Safari 5.1+ */
+}
+
+:root{
+	/* Render native UI (the <select> option popup, scrollbars, form-control chrome) in dark
+	   mode. Without this the option list falls back to the browser's default light popup and
+	   looks grey/out of place on the dark console. The light theme flips it below. */
+	color-scheme: dark;
+	--body-bg: #002942;
+	--header-bg: #001929;
+	--header-bg2: #00202f;
+	--header-bg-selected: #0a4367;
+	--header-bg-selected2: #1e5b81;
+	--menu-bg: #072D42;
+	--modal-bg:#363c45;
+	--modal-bg3: #2b333f;
+	--modal-grey:#5d686e;
+	--modal-grey-hover: #c4c4c4;
+	--modal-bg2:#45525c;
+	--header-selected: linear-gradient(to bottom, #172842, var(--header-bg));;
+	--list-bg-selected: #1a702b;
+	--modal-lightgrey: #becacd;
+	--modal-silvergrey: #a0a0a0;
+	--flash-info-bg: #A2C3F4;
+	--flash-warning-bg: #F6AC1C;
+	--flash-error-bg: #e76473;
+	--big-box-shadow: 0 0 20px rgb(17, 17, 17, 0.6);
+	--data-list-bg: #000e17;
+	--icon-primary: #d2d2e1;
+	--icon-secondary: #E5F7FF;
+	--object-background: #2F2F6B;
+	--line-path-orange: #ffb155;
+	--line-path-teal: #7cf0d2;
+	--line-path-purple: #d99ae8;
+	--line-path-yellowgreen: #d4ee68;
+	--line-path-pink: #f7a3cc;
+	--line-path-skyblue: #7cc7ff;
+	--line-area-orange: rgba(255, 177, 85, 0.3);
+	--line-area-teal: rgba(124, 240, 210, 0.3);
+	--line-area-purple: rgba(217, 154, 232, 0.3);
+	--line-area-yellowgreen: rgba(212, 238, 104, 0.3);
+	--line-area-pink: rgba(247, 163, 204, 0.3);
+	--line-area-skyblue: rgba(124, 199, 255, 0.3);
+	--lightgrey: #f2f2f2;
+	--selected-green: #b8e3d1;
+	--selected-teal: #00dcab;
+	--disabled: #CED1D4;
+	--input-error-fg: #C64252;
+	--input-error-bg: #F9EBED;
+	--limit: #FED966;
+	--ok-text: #00AC4F;
+	/* --- Semantic theme tokens. These default to the current dark values (so the
+	   dark theme is unchanged) and are re-mapped by html[data-theme="light"] at the
+	   bottom of this file. --- */
+	--text: #fff;                /* primary body / content text */
+	--text-muted: #8ba0ad;       /* secondary / caption text (muted) */
+	--link: #333;               /* base content links (a, button.link) */
+	--link-alt: #fff;           /* links on elevated/dark surfaces (tables, file inodes) */
+	--chrome-bg: #001929;       /* header + sub-nav bar; stays dark in both themes */
+	--chrome-text: #fff;        /* text/links on the chrome bar */
+	--border: #0a4367;          /* content dividers / hairlines */
+	--accent: #6cb1ff;          /* brand accent (focus / highlights) */
+	/* Recessed card surface for the policy form's starter/kind/summary widgets. Navy in dark
+	   (brand: navy + neutrals — not the purple --object-background), neutral in light below. */
+	--policy-surface: #04263a;
+
+	/* --- Card elevation. Three steps, so the dashboard/tile surfaces stay consistent
+	   instead of each re-inventing an rgba shadow. --big-box-shadow (above) is the
+	   separate, much heavier overlay/popover shadow. --- */
+	--card-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+	--card-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+	--card-shadow-hover: 0 8px 20px rgba(0, 0, 0, 0.12);
+
+	/* Focus ring shared by every themed control (text inputs, selects, the custom dropdown
+	   trigger, the sub-nav time fields). A token because the tint must follow --accent per
+	   theme — as a literal it stayed dark-theme blue on the light theme's navy borders. */
+	--focus-ring: 0 0 0 3px rgba(108, 177, 255, 0.20);
+
+	/* Total footprint of the top chrome bar, border included (header is border-box), so every
+	   `100vh - --header-height` sits flush under it in both themes (border is 1px dark / 2px light). */
+	--header-height: 80px;
+	/* Total footprint of the secondary tab bar, INCLUDING its 1px border-bottom (nav.sub-nav is
+	   border-box). Pages with a sub-nav subtract this on top of --header-height. */
+	--sub-nav-height: 41px;
+
+	/* --- Spacing scale. --space is the standard padding/margin unit; use these tokens
+	   instead of ad-hoc pixel values so padding/margins stay consistent across the UI. --- */
+	--space: 8px;        /* standard unit */
+	--space-xs: 4px;
+	--space-sm: 6px;
+	--space-lg: 12px;
+	--space-xl: 16px;
+}
+
+.dh-btn {
+	padding: 8px 16px;
+	border-radius: 3px;
+	font-weight: 500;
+	font-family: 'Manrope', Helvetica, serif;
+	font-size: 15px;
+	line-height: 15px;
+	letter-spacing: 0.7px;
+	cursor: pointer;
+	border: 0.5px solid transparent;
+	display: flex;
+	align-items: center;
+	text-decoration: none;
+	text-transform: uppercase;
+	justify-content: center;
+}
+
+/* The `hidden` attribute is only a UA `display: none`, which the rule above outranks — so a
+   button carrying it would still be drawn. Restate it so hidden buttons are actually hidden. */
+.dh-btn[hidden]{
+	display: none;
+}
+
+.dh-btn i{
+	width: 24px;
+	font-size: 12px;
+	height: 15px;
+	line-height: 15px;
+}
+
+.dh-btn:disabled,
+.dh-btn.primary:disabled,
+.dh-btn.secondary:disabled {
+	background: #CCCCCC;
+	color: #525252;
+	cursor: not-allowed;
+}
+
+.dh-btn.primary {
+	color: #000000;
+	background: #9494d0;
+	box-shadow: 0 2px 6px rgba(15, 15, 36, 0.5);
+}
+.button.primary a{ color: #000000; }
+
+.dh-btn.danger {
+	color: #000000;
+	background: #bd7474;
+	box-shadow: 0 2px 6px rgba(15, 15, 36, 0.5);
+	transition: padding 0.1s ease-in-out;
+}
+
+.dh-btn.danger:not(:disabled):hover {
+	background: #bf1b1b;
+	color: #E5F7FF;
+	border: 0.5px solid #DCDCEF;
+}
+
+.dh-btn.secondary {
+	color: #E5F7FF;
+	background: #002942;
+	box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+	transition: font-size 0.1s ease-in-out;
+	border: 1px solid #DCDCEF;
+}
+
+.dh-btn.secondary.active { background: #005449; }
+
+.dh-btn.primary:not(:disabled):hover { background: #7272a9; }
+
+.dh-btn.secondary:not(:disabled):hover { background: #001929; }
+
+.dh-btn.small {
+	font-size: 15px;
+	padding: 0 8px;
+	height: 30px;
+}
+.dh-btn.xsmall {
+	font-size: 12px;
+	padding: 0 2px;
+	height: 20px;
+	display: inline-block;
+	line-height: 20px;
+}
+.dh-btn > span{ height: 16px; }
+
+/* Flash messages: theme-aware (a tint of the type colour over --menu-bg, so it adapts to light/dark),
+   with readable --text and a per-type border. */
+.flash {
+	color: var(--text);
+	padding: 10px 14px;
+	font-size: 14px;
+	font-weight: 600;
+	border-radius: 8px;
+	border: 1px solid var(--border);
+	position: relative;
+}
+.flash.info {
+	background: color-mix(in srgb, var(--accent) 16%, var(--menu-bg));
+	border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.flash.error li { list-style: none; }
+.flash.error {
+	margin: 4px 0;
+	background: color-mix(in srgb, #e05271 18%, var(--menu-bg));
+	border-color: color-mix(in srgb, #e05271 50%, transparent);
+}
+.flash.warning {
+	background: color-mix(in srgb, #f6ac1c 20%, var(--menu-bg));
+	border-color: color-mix(in srgb, #f6ac1c 55%, transparent);
+}
+/* Toast variant: a compact floating card with the message + a round close button.
+   Fixed to the viewport and centred, so it is visible wherever the page is scrolled and does not
+   push the layout it appears over. Written as .flash.dh-flash-toast because .flash.error and
+   friends set margin and position at two-class specificity and would otherwise win. */
+.flash.dh-flash-toast{
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	position: fixed;
+	top: 20px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 10001;               /* above the right-form (10000): a toast reports on what it does */
+	width: max-content;
+	max-width: min(520px, calc(100vw - 32px));
+	margin: 0;
+	box-shadow: var(--big-box-shadow);
+}
+.dh-flash-text{ flex: 1 1 auto; }
+.dh-flash-close{
+	flex: 0 0 auto;
+	width: 22px;
+	height: 22px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 18px;
+	line-height: 1;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+.dh-flash-close:hover{
+	background: color-mix(in srgb, var(--text) 14%, transparent);
+	color: var(--text);
+}
+
+body,
+input, select, textarea, .help-modal {
+	font-family: "Manrope", "Open Sans", "HelveticaNeue-Light", "Helvetica Neue Light", "Helvetica Neue", Helvetica, Arial, "Lucida Grande", sans-serif;
+	font-size: 16px;
+	color: #333;
+}
+
+h1, h2, h3, h4, h5, h6 {
+	line-height: 1.1;
+	font-weight: 300;
+	margin: 0;
+}
+
+body {
+	background: var(--body-bg);
+	margin: 0;
+	min-width: 400px;
+	color: var(--text);
+}
+
+a,
+button.link {
+	color: var(--link);
+	background: transparent;
+	border: 0;
+	text-decoration: none;
+}
+
+a:hover,
+button.link:hover {
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+header{
+	height: var(--header-height);
+	/* Border-box so --header-height is the exact total footprint including the border-bottom
+	   (1px dark / 2px light), keeping every `100vh - --header-height` calc correct in both themes. */
+	box-sizing: border-box;
+	display: flex;
+	justify-content: flex-start;
+	padding: 0 30px;
+	align-items: center;
+	box-shadow: var(--big-box-shadow);
+	background: var(--chrome-bg);
+	color: var(--chrome-text);
+	/* Faint accent hairline; the light theme overrides this with a 2px brand-blue rule. */
+	border-bottom: 1px solid rgba(108, 177, 255, 0.16);
+	position: relative;
+	z-index: 1000;
+}
+
+ul{
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+input[type='color'] {
+	width: 150%;
+	height: 150%;
+	margin: -25%;
+}
+
+.color-pick-wrap {
+	overflow: hidden;
+	width: 2em;
+	height: 2em;
+	border-radius: 50%;
+	box-shadow: 1px 1px 3px 1px #282828;
+}
+
+.color-pick-wrap:has(input[type='color']:focus){ box-shadow: 0 0 1px 3px var(--accent); }
+
+header > a > .dh-logo{
+	height: calc(var(--header-height) / 2);
+	width: auto;
+	margin-right: 40px;
+	display: block;
+}
+/* Logo network dots: light-blue on the dark header, navy on the light header. The inline
+   SVG (fragments/logo.html) carries no fill on class "h" so these rules win. */
+.dh-logo .h{ fill: #98bbc8; }
+html[data-theme="light"] .dh-logo .h{ fill: #105984; }
+
+header nav {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+}
+
+header a{ color: var(--chrome-text); }
+
+header nav a{
+	position: relative;
+	padding: 10px 18px;
+	text-decoration: none;
+}
+/* Nav links never take the global a:hover text-decoration; the animated ::after is the indicator. */
+header nav a:hover{ text-decoration: none; }
+/* Active / hover indicator: a thick accent underline that grows in from the centre and sits
+   just beneath the text, echoing the intellistream.ai site nav. Replaces the old dividers + box. */
+header nav a::after{
+	content: "";
+	position: absolute;
+	left: 18px;
+	right: 18px;
+	top: calc(50% + 0.72em);
+	height: 3px;
+	border-radius: 3px;
+	background: var(--accent);
+	transform: scaleX(0);
+	transform-origin: center;
+	transition: transform 0.18s ease, opacity 0.18s ease;
+}
+header nav a:hover::after{
+	transform: scaleX(1);
+	opacity: 0.45;
+}
+header nav a.selected::after{
+	transform: scaleX(1);
+	opacity: 1;
+}
+header nav a.selected{
+	color: var(--accent);
+	font-weight: 600;
+}
+
+header nav span { white-space: nowrap; }
+
+nav.sub-nav {
+	display: flex;
+	justify-content: flex-start;
+	align-items: center;
+	height: var(--sub-nav-height);
+	box-sizing: border-box;
+	padding-left: 20px;
+	background: var(--chrome-bg);
+	/* Hairline to separate the tab strip from the content below; light theme re-tints it. */
+	border-bottom: 1px solid rgba(108, 177, 255, 0.10);
+}
+
+nav.sub-nav a{
+	position: relative;
+	font-size: 0.95em;
+	color: #9db2c4;
+	padding: 0 14px;
+	text-decoration: none;
+}
+nav.sub-nav a:hover{
+	text-decoration: none;
+	color: #e8f1f6;
+}
+/* Active / hover indicator: a thin accent underline beneath the tab text, matching the header nav. */
+nav.sub-nav a::after{
+	content: "";
+	position: absolute;
+	left: 14px;
+	right: 14px;
+	top: calc(50% + 0.7em);
+	height: 2px;
+	border-radius: 2px;
+	background: var(--accent);
+	transform: scaleX(0);
+	transform-origin: center;
+	transition: transform 0.16s ease, opacity 0.16s ease;
+}
+nav.sub-nav a:hover::after{
+	transform: scaleX(1);
+	opacity: 0.4;
+}
+nav.sub-nav a.selected{
+	color: var(--accent);
+	font-weight: 600;
+}
+nav.sub-nav a.selected::after{
+	transform: scaleX(1);
+	opacity: 1;
+}
+
+nav.sub-nav .ts-actions-right{
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding-right: 20px;
+}
+nav.sub-nav .ts-actions-right.hidden{ display: none; }
+nav.sub-nav .ts-time-field{
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	color: inherit;
+}
+/* Outweighs the .ts-time-field display rule above so .hidden actually hides the field
+   (the bare .hidden utility is less specific and would otherwise lose). */
+nav.sub-nav .ts-time-field.hidden{ display: none; }
+nav.sub-nav .ts-time-field input,
+nav.sub-nav .ts-time-field select{
+	background: var(--header-bg-selected);
+	color: inherit;
+	border: 1px solid var(--header-bg-selected2);
+	border-radius: 6px;
+	padding: 4px 8px;
+	font-family: inherit;
+	font-size: 13px;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+nav.sub-nav .ts-time-field input:hover,
+nav.sub-nav .ts-time-field select:hover{ border-color: var(--accent); }
+nav.sub-nav .ts-time-field input:focus,
+nav.sub-nav .ts-time-field select:focus{
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
+}
+/* Period dropdown: swap the native arrow for the themed chevron the right-form
+   selects use, with extra right padding for it and a little more room for the
+   merged window list. Semibold so the active window reads clearly in the sub-nav. */
+nav.sub-nav .ts-time-field select{
+	appearance: none;
+	-webkit-appearance: none;
+	padding: 4px 28px 4px 10px;
+	cursor: pointer;
+	font-weight: 600;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%238ba0ad' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 10px center;
+	background-size: 12px;
+}
+/* The open option list is a native popup: color-scheme (set on :root) makes it render
+   dark/light, and these paint the exact theme surface. Disabled options (grow when not
+   live, long ranges while live) read as muted. */
+nav.sub-nav .ts-time-field select option{
+	background: var(--menu-bg);
+	color: var(--text);
+}
+nav.sub-nav .ts-time-field select option:disabled{ color: var(--text-muted); }
+
+/* === EnhancedSelect: reusable custom dropdown (enhanced-select.js) ==========================
+   A styleable trigger + popup that stands in for a native <select data-enhance>. Options are
+   colour-coded by time unit via a --unit-color set on .unit-* classes. */
+.dh-select{
+	position: relative;
+	display: inline-flex;
+}
+.dh-select-native{
+	display: none !important;   /* the native select stays in the DOM (source of truth) but hidden */
+}
+.dh-select-trigger{
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 150px;
+	padding: 5px 10px 5px 12px;
+	background: var(--header-bg-selected);
+	color: var(--text);
+	border: 1px solid var(--header-bg-selected2);
+	border-radius: 8px;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.dh-select-trigger:hover{ border-color: var(--accent); }
+.dh-select-trigger:focus-visible,
+.dh-select.open .dh-select-trigger{
+	outline: none;
+	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
+}
+.dh-select-label{
+	flex: 1 1 auto;
+	text-align: left;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.dh-select-chevron{
+	flex: 0 0 auto;
+	color: var(--text-muted);
+	transition: transform 0.15s ease;
+}
+.dh-select.open .dh-select-chevron{ transform: rotate(180deg); }
+/* Unit colour dot (trigger + each option). --unit-color comes from the .unit-* class. */
+.dh-select-dot{
+	flex: 0 0 auto;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	background: var(--unit-color, var(--text-muted));
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--unit-color, transparent) 22%, transparent);
+}
+
+.dh-select-menu{
+	display: none;
+	flex-direction: column;
+	gap: 2px;
+	position: fixed;
+	z-index: 1200;
+	min-width: 170px;
+	max-height: 60vh;
+	overflow-y: auto;
+	padding: 6px;
+	background: var(--menu-bg);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	box-shadow: 0 14px 36px rgba(0, 0, 0, 0.38);
+}
+.dh-select.open .dh-select-menu{ display: flex; }
+.dh-select-option{
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	width: 100%;
+	padding: 8px 10px;
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	color: var(--text);
+	font: inherit;
+	font-size: 13px;
+	text-align: left;
+	cursor: pointer;
+}
+.dh-select-option:hover:not(:disabled),
+.dh-select-option.active:not(:disabled){ background: var(--header-bg-selected); }
+.dh-select-option.selected{ font-weight: 700; }
+.dh-select-option.selected::after{
+	content: "\2713";               /* checkmark on the selected row */
+	margin-left: auto;
+	color: var(--accent);
+}
+.dh-select-option:disabled{
+	color: var(--text-muted);
+	opacity: 0.55;
+	cursor: not-allowed;
+}
+.dh-select-opt-label{
+	flex: 0 1 auto;
+	white-space: nowrap;
+}
+
+/* Time-unit palette for the dots (categorical accents; tuned to read on both themes). */
+.unit-custom{ --unit-color: #94a3b8; }
+.unit-min{    --unit-color: #2dd4bf; }
+.unit-hour{   --unit-color: #38bdf8; }
+.unit-day{    --unit-color: #a78bfa; }
+.unit-week{   --unit-color: #fb923c; }
+.unit-month{  --unit-color: #f472b6; }
+.unit-year{   --unit-color: #f87171; }
+.unit-grow{   --unit-color: #4ade80; }
+nav.sub-nav .ts-time-field input[data-picker="date"]{
+	width: 106px;
+	text-align: center;
+	cursor: pointer;
+}
+nav.sub-nav .ts-time-field input[data-picker="time"]{
+	width: 50px;
+	cursor: pointer;
+	text-align: center;
+}
+
+/* === Ghost accent buttons in the sub-nav: the live-stream toggle and the graph filter button ===
+   Idle: a light, theme-aware accent outline. Both override the heavy .dh-btn.secondary block so
+   they sit cleanly on the redesigned sub-nav. The live toggle turns recording-red while streaming;
+   the filter button takes a soft accent tint while its panel is open. */
+nav.sub-nav .ts-live-toggle,
+nav.sub-nav .graph-filter-btn{
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	background: transparent;
+	color: var(--accent);
+	border: 1px solid var(--accent);
+	box-shadow: none;
+	font-weight: 600;
+}
+nav.sub-nav .ts-live-toggle:not(:disabled):hover,
+nav.sub-nav .graph-filter-btn:not(:disabled):hover{
+	background: rgba(108, 177, 255, 0.14);
+	color: var(--accent);
+}
+html[data-theme="light"] nav.sub-nav .ts-live-toggle:not(:disabled):hover,
+html[data-theme="light"] nav.sub-nav .graph-filter-btn:not(:disabled):hover{ background: rgba(0, 89, 132, 0.10); }
+/* Filter button while its panel is open, or while any filter is active: a stronger accent
+   tint (pressed/engaged look). */
+nav.sub-nav .graph-filter-btn.active,
+nav.sub-nav .graph-filter-btn.has-filter{
+	background: rgba(108, 177, 255, 0.18);
+	color: var(--accent);
+}
+html[data-theme="light"] nav.sub-nav .graph-filter-btn.active,
+html[data-theme="light"] nav.sub-nav .graph-filter-btn.has-filter{ background: rgba(0, 89, 132, 0.12); }
+nav.sub-nav .ts-live-toggle i{ font-size: 0.8rem; }
+/* Streaming: a recording-red accent with a soft pulse so it reads as "live". */
+nav.sub-nav .ts-live-toggle.active{
+	background: #e5484d;
+	border-color: #e5484d;
+	color: #fff;
+}
+nav.sub-nav .ts-live-toggle.active:not(:disabled):hover{
+	background: #d13b40;
+	color: #fff;
+}
+nav.sub-nav .ts-live-toggle.active i,
+nav.sub-nav .ts-live-toggle.connecting i{ animation: ts-live-pulse 1.2s ease-in-out infinite; }
+@keyframes ts-live-pulse{
+	0%, 100% { opacity: 1; }
+	50%      { opacity: 0.3; }
+}
+
+/* === Custom date/time picker (datepicker.js) === */
+.dh-picker-popover{
+	position: absolute;
+	background: var(--menu-bg);
+	border: 1px solid var(--header-bg-selected2);
+	color: inherit;
+	font-size: 1rem;
+	border-radius: 4px;
+	box-shadow: var(--big-box-shadow);
+	z-index: 1000;
+	user-select: none;
+}
+/* Light theme: a white picker surface. Structure comes from the tinted month/year header and week
+   column plus the accent hover/selection on interactive segments (day / week / month / year / time
+   cells + nav buttons), so a flat white base reads cleanly. */
+html[data-theme="light"] .dh-picker-popover{ background: #ffffff; }
+html[data-theme="light"] .dh-picker-title-btn:hover,
+html[data-theme="light"] .dh-picker-btn:hover,
+html[data-theme="light"] .dh-picker-week:hover:not(.disabled),
+html[data-theme="light"] .dh-picker-day:hover:not(.blank):not(.disabled),
+html[data-theme="light"] .dh-picker-month:hover,
+html[data-theme="light"] .dh-picker-year:hover,
+html[data-theme="light"] .dh-timepicker-item:hover:not(.disabled){
+	background: color-mix(in srgb, var(--accent) 14%, transparent);
+	color: var(--accent);
+}
+html[data-theme="light"] .dh-picker-day.selected,
+html[data-theme="light"] .dh-picker-month.selected,
+html[data-theme="light"] .dh-picker-year.selected,
+html[data-theme="light"] .dh-timepicker-item.selected{
+	background: var(--accent);
+	color: #ffffff;
+}
+html[data-theme="light"] .dh-picker-year-input{ background: #ffffff; }
+.dh-picker-body{
+	display: flex;
+	align-items: stretch;
+}
+/* Fixed width — derived from the days grid (week column 26px + 7 day columns
+ * × 28px + 7 × 2px gaps + 2 × 6px padding ≈ 248px). Pinning the calendar
+ * panel keeps months/years views at the same width so the popover doesn't
+ * resize when the user toggles between modes. */
+.dh-picker-calendar{
+	width: 248px;
+	box-sizing: border-box;
+}
+.dh-datetimepicker .dh-picker-time{ border-left: 1px solid var(--header-bg-selected2); }
+.dh-picker-header{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 6px 8px;
+	border-bottom: 1px solid var(--header-bg-selected2);
+	/* Tint the month/year band so it reads as its own section above the grid. */
+	background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+.dh-picker-title{
+	font-weight: 600;
+	text-transform: capitalize;
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+.dh-picker-title-btn{
+	background: transparent;
+	color: inherit;
+	border: none;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: inherit;
+	font-weight: inherit;
+	text-transform: inherit;
+	padding: 2px 4px;
+	border-radius: 3px;
+}
+.dh-picker-title-btn:hover{ background: var(--header-bg-selected); }
+.dh-picker-month-grid,
+.dh-picker-year-grid{
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 4px;
+	padding: 6px;
+}
+.dh-picker-month,
+.dh-picker-year{
+	text-align: center;
+	padding: 6px 4px;
+	cursor: pointer;
+	border-radius: 3px;
+}
+.dh-picker-month:hover,
+.dh-picker-year:hover{ background: var(--header-bg-selected); }
+.dh-picker-month.selected,
+.dh-picker-year.selected{ background: var(--header-bg-selected2); }
+.dh-picker-year-input-row{
+	display: flex;
+	gap: 4px;
+	padding: 6px;
+	border-bottom: 1px solid var(--header-bg-selected);
+}
+.dh-picker-year-input{
+	flex: 1;
+	min-width: 0;
+	background: var(--header-bg-selected);
+	color: inherit;
+	border: 1px solid var(--header-bg-selected2);
+	border-radius: 3px;
+	padding: 2px 6px;
+	font-family: inherit;
+	font-size: inherit;
+}
+.dh-picker-btn{
+	background: transparent;
+	color: inherit;
+	border: 1px solid var(--header-bg-selected2);
+	border-radius: 3px;
+	padding: 2px 8px;
+	cursor: pointer;
+	font-family: inherit;
+	font-size: inherit;
+}
+.dh-picker-btn:hover{ background: var(--header-bg-selected); }
+.dh-picker-weekdays,
+.dh-picker-grid{
+	display: grid;
+	grid-template-columns: 26px repeat(7, 28px);
+	gap: 2px;
+	padding: 6px;
+}
+.dh-picker-weekday,
+.dh-picker-day{
+	text-align: center;
+	padding: 4px 0;
+	width: 28px;
+}
+.dh-picker-weekday{
+	color: var(--modal-silvergrey);
+	font-size: 0.7em;
+	text-transform: uppercase;
+	font-weight: 600;
+}
+.dh-picker-weekday.dh-picker-week-header{ width: 26px; }
+.dh-picker-week{
+	width: 26px;
+	text-align: center;
+	padding: 4px 0;
+	color: var(--modal-silvergrey);
+	font-size: 0.75em;
+	font-weight: 600;
+	cursor: pointer;
+	border-radius: 3px;
+	border-right: 1px solid var(--header-bg-selected);
+	/* Set the week-number column apart from the day grid. */
+	background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.dh-picker-week:hover{
+	background: var(--header-bg-selected);
+	color: inherit;
+}
+.dh-picker-week.disabled{ cursor: default; }
+.dh-picker-week.disabled:hover{
+	background: color-mix(in srgb, var(--accent) 7%, transparent);
+	color: var(--modal-silvergrey);
+}
+.dh-picker-day{
+	cursor: pointer;
+	border-radius: 3px;
+}
+/* Day cells and time-list items are the same control in two shapes, so they share their
+   hover / selected / disabled states. */
+.dh-picker-day:hover:not(.blank):not(.disabled),
+.dh-timepicker-item:hover:not(.disabled){ background: var(--header-bg-selected); }
+.dh-picker-day.selected,
+.dh-timepicker-item.selected{
+	background: var(--header-bg-selected2);
+	color: inherit;
+}
+.dh-picker-day.disabled,
+.dh-timepicker-item.disabled{
+	color: var(--modal-silvergrey);
+	opacity: 0.4;
+	cursor: not-allowed;
+}
+.dh-picker-day.today{ outline: 1px solid var(--accent); }
+.dh-picker-day.blank{ cursor: default; }
+.dh-timepicker-cols{
+	display: flex;
+	gap: 4px;
+	padding: 6px;
+	align-items: center;
+}
+.dh-timepicker-col{
+	display: flex;
+	flex-direction: column;
+}
+.dh-timepicker-scroller{
+	height: 260px;
+	overflow-y: auto;
+	width: 50px;
+	border: 1px solid var(--header-bg-selected2);
+	border-radius: 3px;
+}
+.dh-timepicker-scroller::-webkit-scrollbar{ width: 6px; }
+.dh-timepicker-scroller::-webkit-scrollbar-thumb{ background: var(--header-bg-selected); }
+.dh-timepicker-item{
+	display: block;
+	text-align: center;
+	padding: 4px 0;
+	cursor: pointer;
+}
+.dh-timepicker-sep{
+	font-weight: 600;
+	padding: 0 2px;
+}
+.dh-picker-footer{
+	padding: 6px 8px;
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	border-top: 1px solid var(--header-bg-selected2);
+}
+/* Left-aligned, subtle preview of the full selection; the OK button stays on the right. */
+.dh-picker-preview{
+	margin-right: auto;
+	font-size: 0.78em;
+	font-weight: 500;
+	color: var(--text-muted);
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+header div.right-content{
+	flex-grow: 1;
+	display: flex;
+	justify-content: flex-end;
+	align-items: center;
+}
+header div.right-content > *{ margin-left: 20px; }
+
+header div.right-content a{
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	flex-direction: column;
+}
+header div.right-content a > div .small-text{
+	font-size: 12px;
+	font-weight: 900;
+}
+
+header div.right-content span.circle {
+	height: 40px;
+	width: 40px;
+	background: #fff;
+	color: #333;
+	border-radius: 50%;
+	text-align: center;
+	line-height: 38px;
+	font-weight: 900;
+	box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+header .user-menu{ position: relative; }
+header .user-menu [data-type="user-menu"]{ height: 60px; }
+header .user-menu .user-sub-menu{
+	right: 0;
+	min-width: 230px;
+	display: none;
+	position: absolute;
+	z-index: 1001;
+	background: #071a27;
+	border: 1px solid rgba(108, 177, 255, 0.14);
+	border-radius: 12px;
+	box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+	padding: 6px;
+}
+header .user-menu.open .user-sub-menu{ display: block; }
+header .user-menu .user-sub-menu li{
+	padding: 11px 14px;
+	border-radius: 8px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 28px;
+	cursor: pointer;
+	line-height: 18px;
+	white-space: nowrap;
+}
+header .user-menu .user-sub-menu li:hover{ background: rgba(108, 177, 255, 0.10); }
+header .user-menu .user-sub-menu li i{
+	min-width: 20px;
+	text-align: right;
+	opacity: 0.75;
+}
+
+section.left-content{
+	background-color: var(--menu-bg);
+	min-height: calc(100vh - var(--header-height));
+	width: 500px;
+	left: 0;
+	/* Cast the shadow to the RIGHT so the panel reads as sitting above the content to its right
+	   (e.g. the events filter over the results). Light theme softens the colour below. */
+	box-shadow: 5px 0 18px rgba(0, 0, 0, 0.42);
+	box-sizing: border-box;
+	position: relative;
+	z-index: 10;
+}
+/* Side-by-side content panels (e.g. events: filter | results | details) layer left-over-right,
+   so each panel's rightward shadow lands on the panel to its right instead of being covered. */
+.left-content ~ .left-content{ z-index: 9; }
+.left-content ~ .left-content ~ .left-content{ z-index: 8; }
+/* Events layout (filter | results | details): the middle results column carries no shadow; the
+   filter casts its shadow right over it and the details casts left over it. Raise details above the
+   middle so its leftward shadow lands on top. */
+section.events-result.left-content{
+	box-shadow: none;
+	z-index: 8;
+}
+section.event-data.left-content{
+	z-index: 9;
+	/* Rightmost column: cast the shadow LEFT onto the results list beside it (a dedicated value,
+	   not the all-round --big-box-shadow). */
+	box-shadow: -5px 0 18px rgba(0, 0, 0, 0.42);
+	/* Tint the details column so it reads as distinct from the results list beside it. Dark (base)
+	   leans purple (the theme's accent purple); light keeps a subtle blue accent tint (below). */
+	background-color: color-mix(in srgb, #9494d0 12%, var(--menu-bg));
+}
+html[data-theme="light"] section.event-data.left-content{
+	background-color: color-mix(in srgb, var(--accent) 6%, var(--menu-bg));
+	box-shadow: var(--big-box-shadow);
+}
+
+/* === Events results table (#events-list): a clean modern listing — uppercase hairline header,
+   roomy rows with dividers, smooth hover, an accent bar on the selected row, and a colour-coded
+   status pill. Scoped by id so it overrides the generic .listing rules. */
+#events-list{ border-collapse: collapse; }
+#events-list thead th{
+	padding: 9px 14px;
+	text-align: left;
+	white-space: nowrap;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	background: transparent;
+	border-bottom: 1px solid var(--border);
+}
+#events-list tbody td{
+	padding: 9px 14px;
+	font-size: 13px;
+	color: var(--text);
+	border-bottom: 1px solid var(--border);
+	vertical-align: middle;
+	white-space: nowrap;
+}
+#events-list tbody td:first-child{
+	font-weight: 600;   /* external id */
+}
+#events-list tbody tr:hover td{ background: var(--header-bg-selected); }
+#events-list tbody tr.selected td{ background: var(--header-bg-selected); }
+#events-list tbody tr.selected td:first-child{ box-shadow: inset 3px 0 0 var(--accent); }
+#events-list .event-time-cell{
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Status pill: neutral by default, tinted for common severity/state keywords. */
+.event-status{
+	display: inline-block;
+	padding: 1px 9px;
+	border-radius: 999px;
+	font-size: 10px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	white-space: nowrap;
+	border: 1px solid var(--status-color, var(--border));
+	color: var(--status-color, var(--text-muted));
+	background: color-mix(in srgb, var(--status-color, transparent) 12%, transparent);
+}
+.event-status[data-status*="alarm"],
+.event-status[data-status*="critical"],
+.event-status[data-status*="error"],
+.event-status[data-status*="fail"],
+.event-status[data-status*="fault"]{ --status-color: #e5484d; }
+.event-status[data-status*="warn"],
+.event-status[data-status*="pending"],
+.event-status[data-status*="degrad"]{ --status-color: #e5a23b; }
+.event-status[data-status*="ok"],
+.event-status[data-status*="normal"],
+.event-status[data-status*="resolved"],
+.event-status[data-status*="closed"],
+.event-status[data-status*="clear"],
+.event-status[data-status*="healthy"]{ --status-color: #30a46c; }
+.event-status[data-status*="info"],
+.event-status[data-status*="open"],
+.event-status[data-status*="new"],
+.event-status[data-status*="ack"],
+.event-status[data-status*="active"]{ --status-color: #4f9cf0; }
+/* On pages with a sub-nav, the left panel sits below it too, so subtract the sub-nav height as
+   well. Scoped via the sibling combinator to pages that actually render a sub-nav, so the plain
+   pages that reuse .left-content without one (events, timeseries search, files) keep full height. */
+nav.sub-nav ~ .flex-container section.left-content{ min-height: calc(100vh - var(--header-height) - var(--sub-nav-height)); }
+section.data-content,
+section.graph-network-container{
+	height: calc(100vh - var(--header-height));
+	box-sizing: border-box;
+	position: relative;
+	width: calc(100% - 400px);
+}
+/* The graph pages render a sub-nav above the canvas, so its height must be subtracted too,
+   otherwise the network canvas overflows the viewport by the sub-nav's height. */
+section.graph-network-container{ height: calc(100vh - var(--header-height) - var(--sub-nav-height)); }
+
+/* Left-list scroll containment (datasets / resources / timeseries-explore, and the Insights /
+   Analyze pages via the shared #timeseries-list search fragment). Before: the panel was
+   min-height:100vh, so a long root list grew the whole page — and because the graph and right
+   panels are fixed-height, they scrolled out of view up top when you reached down the list (on
+   Insights, selecting series scrolled the chart out of sight). Now the panel is a fixed-height flex
+   column and the list scrolls INSIDE it; the search box and list heading stay put. Scoped via the
+   #section-root-* wrapper (three graph pages) plus #timeseries-list (tssearch fragment), so the
+   other .left-content layouts (events' columns, files' tree) are left untouched. */
+section.left-content:has(> :is(section[id^="section-root-"], section#timeseries-list)){
+	height: calc(100vh - var(--header-height));
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+nav.sub-nav ~ .flex-container section.left-content:has(> :is(section[id^="section-root-"], section#timeseries-list)){ height: calc(100vh - var(--header-height) - var(--sub-nav-height)); }
+section.left-content > :is(section[id^="section-root-"], section#timeseries-list){
+	flex: 1 1 auto;
+	min-height: 0;              /* let the flex child shrink so its list can scroll */
+	display: flex;
+	flex-direction: column;
+}
+section.left-content > :is(section[id^="section-root-"], section#timeseries-list) > ul.data-list{
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+}
+
+section.middle-content{
+	height: calc(100vh - var(--header-height));
+	box-sizing: border-box;
+	position: relative;
+}
+section.right-content{
+	background-color: var(--menu-bg);
+	width: 600px;
+	box-shadow: var(--big-box-shadow);
+	position: relative;
+	z-index: 10;
+}
+
+.datahub-form-fields input[type="checkbox"]{ width: 24px; }
+
+.datahub-form-fields input[type="text"],
+.datahub-form-fields input[type="password"],
+.datahub-form-fields input[type="number"],
+.datahub-form-fields input[type="date"],
+.datahub-form-fields input[type="time"],
+.datahub-form-fields select,
+.datahub-form-fields textarea {
+	padding: 9px 12px;
+	/* Recessed field that adapts to any dark surface; light theme re-maps to a white field. */
+	background: rgba(0, 0, 0, 0.22);
+	font-size: 14px;
+	line-height: 20px;
+	color: var(--text);
+	border-radius: 7px;
+	margin-bottom: 14px;
+	box-sizing: border-box;
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.datahub-form-fields input::placeholder,
+.datahub-form-fields textarea::placeholder {
+	color: var(--text-muted);
+	opacity: 0.9;
+}
+/* Selects: drop the native chrome arrow for a themed chevron so they match the text inputs. */
+.datahub-form-fields select{
+	appearance: none;
+	-webkit-appearance: none;
+	padding-right: 34px;
+	cursor: pointer;
+	background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='none' stroke='%238ba0ad' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M2.5 4.5 6 8l3.5-3.5'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 12px center;
+	background-size: 12px;
+}
+
+.datahub-form-fields label{
+	display: block;
+	margin-bottom: 5px;
+}
+/* Field labels: small uppercase captions (the events-filter look, applied app-wide). Full-contrast
+   --text (not the muted placeholder colour) — the uppercase + small size already sets them apart.
+   Excludes the checkbox toggles and graph-filter rows, which have their own layout/colour. */
+.datahub-form-fields label:not(.checkbox-icons):not(.gf-row){
+	margin: 0 0 6px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text);
+}
+
+.left-content.datahub-form-fields i.fa-search,
+i.fa-search.inside-input{
+	position: absolute;
+	left: 12px;
+	top: 0;
+	/* Anchor to the input's top and match its height, then flex-centre the glyph. Independent of
+	   the .posrel wrapper height (which also spans the input's 14px bottom margin, so the old
+	   top:50% centred against input+margin and sat too low). */
+	height: 40px;
+	display: flex;
+	align-items: center;
+	color: var(--text-muted);
+	font-size: 16px;
+	pointer-events: none;
+}
+.datahub-form-fields input.left-icon{ padding-left: 36px; }
+
+.datahub-form-fields input[type="text"]:focus,
+.datahub-form-fields input[type="number"]:focus,
+.datahub-form-fields input[type="date"]:focus,
+.datahub-form-fields input[type="time"]:focus,
+.datahub-form-fields select:focus,
+.datahub-form-fields textarea:focus {
+	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
+	outline: none;
+}
+.datahub-form-fields input[type="text"]:disabled,
+.datahub-form-fields input[type="text"]:read-only,
+.datahub-form-fields input[type="checkbox"]:disabled,
+.datahub-form-fields select:disabled,
+.datahub-form-fields input[type="date"]:disabled,
+.datahub-form-fields input[type="time"]:disabled {
+	background: rgba(127, 127, 127, 0.16);
+	color: var(--text-muted);
+	cursor: not-allowed;
+	border: 1px solid rgba(127, 127, 127, 0.22);
+}
+
+.datahub-form-fields input[type="text"].error,
+.datahub-form-fields input[type="number"].error,
+.datahub-form-fields select.error,
+.datahub-form-fields input:invalid,
+.datahub-form-fields input[type="date"].error,
+.datahub-form-fields input[type="time"].error {
+	background: var(--input-error-bg);
+	color: var(--input-error-fg);
+	border: 1px solid var(--input-error-fg);
+}
+
+.datahub-form-fields div.error {
+	color: #fff;
+	margin: 5px 0;
+	text-shadow: 0 0 1px #222;
+}
+.flex-container{ display: flex; }
+.flex-container.details{ align-items: stretch; }
+.flex-container.left-right{ justify-content: space-between; }
+.flex-container.left-right-top{ justify-content: space-between; }
+.flex-container.left-c-right{ justify-content: left; }
+.flex-container.wrap{ flex-wrap: wrap; }
+.flex-container.nowrap{ flex-wrap: nowrap; }
+.flex-wrap{ flex-wrap: wrap; }
+form.modal{
+	background-color: var(--modal-bg);
+	padding: 20px;
+	border: 1px solid var(--modal-grey);
+	border-radius: 5px;
+	box-shadow: 0 0 20px var(--big-box-shadow);
+	position: absolute;
+	width: 400px;
+}
+
+.right-form{
+	position: fixed;
+	width: 600px;
+	height: 100vh;
+	right: -600px;
+	top: 0;
+	transition: right 0.4s ease-in-out;
+	color: var(--text);
+	z-index: 1000;
+}
+
+.right-form > *{
+	position: absolute;
+	background: var(--modal-bg);
+	box-shadow: var(--big-box-shadow);
+	box-sizing: border-box;
+	transition: right 0.4s ease-in-out;
+	height: 100vh;
+	display: flex;
+	flex-direction: column;
+}
+
+.right-form > :nth-child(1){
+	width: 600px;
+	z-index: 1001;
+}
+.right-form > :nth-child(2){
+	width: 550px;
+	right: -550px;
+	z-index: 1002;
+}
+.right-form > :nth-child(3){
+	width: 500px;
+	right: -500px;
+	z-index: 1003;
+}
+.right-form > :nth-child(n+4){
+	width: 450px;
+	right: -450px;
+	z-index: 1004;
+}
+
+.right-form > *.visible,
+.right-form.visible{ right: 0; }
+/* A panel that isn't .visible has slid (or is sliding) off-screen. Stop it intercepting
+   clicks during its 0.4s slide-out — otherwise a just-closed picker keeps eating clicks on
+   the form behind it until the transition finishes, which reads as the form being locked. */
+.right-form > *:not(.visible){ pointer-events: none; }
+.right-form .heading{
+	color: var(--text);
+	background: var(--menu-bg);
+	padding: 20px;
+}
+.right-form main{
+	padding: 20px;
+	height: 100%;
+	overflow-y: auto;
+}
+
+.right-form footer {
+	background: #2c2c2c;
+	padding: 10px 20px;
+}
+
+.btns{
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+}
+
+.btns button { min-width: 100px; }
+
+.right-form footer button {
+	margin-left: 10px;
+	min-width: 100px;
+}
+
+.right-form footer button[data-type="form-delete-btn"] { margin-left: 40px; }
+.right-form main label{
+	display: block;
+	margin-bottom: 3px;
+}
+.right-form main label:nth-of-type(n +2) { margin-top: 5px; }
+.right-form main textarea,
+.right-form main input:not([type="color"]):not([type="checkbox"]){
+	width: 100%;
+	box-sizing: border-box;
+}
+.right-form main .form-section{ margin-bottom: 15px; }
+.mtop10{ margin-top: 10px; }
+.mtop20{ margin-top: 20px; }
+.mleft10{ margin-left: 10px; }
+.mleft40{ margin-left: 40px; }
+.mright10{ margin-right: 10px; }
+.mright20{ margin-right: 20px; }
+.pad10{ padding: 10px; }
+.pad10-no-top{ padding: 10px 10px 0 10px; }
+.pad10-no-bot{ padding: 10px 10px 0 10px; }
+.pad10-no-topbot{ padding: 0 10px; }
+.pad20{ padding: 20px; }
+
+table.role-table,
+table.listing { border-collapse: collapse; }
+
+table.listing a {
+	color: var(--link-alt);
+	text-decoration: none;
+}
+
+ul.data-list li,
+table.listing th,
+table.listing > tbody > tr > td {
+	border-bottom: 2px solid var(--body-bg);
+	text-align: left;
+	white-space: nowrap;
+}
+
+table.listing th {
+	font-weight: 300;
+	white-space: nowrap;
+	font-size: 16px;
+    background: var(--header-bg-selected);
+}
+
+table.listing th:last-child { padding-right: 40px; }
+
+ul.data-list li,
+table.listing > tbody > tr > td {
+	padding: 24px 40px;
+	font-size: 15px;
+}
+
+ul.data-list.slim li,
+table.listing.slim td,
+table.listing.slim th{ padding: 4px 10px; }
+ul.data-list.slim li.sublist{ background: #232844; }
+
+ul.data-list,
+table.listing > tbody > tr { background: var(--header-bg); }
+table.listing > tbody > tr img.row-check{ display: none; }
+table.listing > tbody > tr.selected { background: var(--header-bg-selected); }
+table.listing > tbody > tr.selected img.row-check {
+	display: inline-block;
+	margin-right: 5px;
+}
+ul.data-list:not(.no-hover) li:hover{ background: var(--header-bg-selected); }
+
+ul.data-list li.selected{ background: var(--list-bg-selected); }
+table.listing > tbody > tr:hover { background: var(--header-bg-selected2); }
+
+/* Slim data-lists (the left-panel resource / dataset / stream pickers): clean rows that sit right
+   on the panel, with hairline dividers, a smooth hover highlight, and an accent bar on the
+   selected row. All theme tokens, so it works in light + dark unchanged.
+
+   Rules top and bottom rather than a full box: they give the list a visible extent, which the
+   dividers alone do not. With only dividers between rows, and none after the last, a one or two
+   row list reads as loose text rather than as a list. Sides are still left open so the rows keep
+   sitting on the panel instead of turning into a boxed card. */
+ul.data-list.slim{
+	border: 0;
+	border-top: 1px solid var(--border);
+	border-bottom: 1px solid var(--border);
+	border-radius: 0;
+}
+/* An empty list would otherwise collapse to two stacked rules with nothing between them.
+   :not(:has(li)) rather than :empty, because a server-rendered list that produced no rows still
+   contains the whitespace between its tags and so is never :empty. */
+ul.data-list.slim:not(:has(li)){ border: 0; }
+ul.data-list.slim li{
+	padding: 9px 12px;
+	font-size: 13.5px;
+	line-height: 1.35;
+	border-bottom: 1px solid var(--border);
+	transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+ul.data-list.slim li:last-child{ border-bottom: 0; }
+ul.data-list.slim:not(.no-hover) li:hover{ background: var(--header-bg-selected); }
+ul.data-list.slim li.selected{
+	background: var(--header-bg-selected);
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* A deactivated policy stays in the list, because it still exists and can be switched back on,
+   but it should not read as one of the rules currently in force. Dimmed, with its name struck
+   through; the chip beside it says which state it is in. */
+ul.data-list li.is-deactivated .dl-name{
+	opacity: 0.55;
+	text-decoration: line-through;
+}
+ul.data-list li.is-deactivated .dl-chip[data-label="POLICY"]{ opacity: 0.75; }
+
+/* Resource rows (resources / datasets / timeseries pickers) mirror their graph node: the name and
+   its labels as tinted chips. Chip colours are set by resource-list.js via --dl-chip-color from
+   /api/label/list. */
+li.dl-row{
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+/* Related-resource chips in the file forms (related-resources editor): a themed pill with a remove
+   button, replacing the old hardcoded inline styles. */
+.resource-chip{
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 6px 3px 10px;
+	font-size: 12px;
+	line-height: 1.4;
+	color: var(--text);
+	background: color-mix(in srgb, var(--accent) 10%, transparent);
+	border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+	border-radius: 999px;
+}
+.resource-chip-label{ font-weight: 600; }
+.resource-chip [data-type="resource-remove"]{
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 17px;
+	height: 17px;
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: transparent;
+	color: var(--text-muted);
+	font-size: 10px;
+	line-height: 1;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+.resource-chip [data-type="resource-remove"]:hover{
+	background: #e05271;
+	color: #ffffff;
+}
+.dl-main{
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+.dl-name{
+	font-weight: 600;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+li.dl-row.selected .dl-name{ font-weight: 700; }
+/* Timeseries rows also carry the chart-colour swatch (appended on select); keep it from shrinking
+   and pin it to the right of the row. */
+li.dl-row .ts-color-swatch{
+	flex: 0 0 auto;
+	margin-left: auto;
+}
+.dl-chips{
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+.dl-chip{
+	font-size: 9px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	line-height: 1.6;
+	text-transform: uppercase;
+	white-space: nowrap;
+	padding: 0 6px;
+	border-radius: 999px;
+	border: 1px solid var(--dl-chip-color, var(--border));
+	color: var(--text-muted);
+	background: color-mix(in srgb, var(--dl-chip-color, transparent) 12%, transparent);
+}
+
+/* Left-panel section headings ("Root resources", "Datasets", "Timeseries"): a clean uppercase
+   caption instead of the thin default h3, matching the form-field labels. Full-contrast --text
+   (the small uppercase treatment already sets it apart from body text). */
+.left-content h3{
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text);
+	margin: 0;
+}
+
+/* Colour-swatch cells (label picker "Farge" column): the cell background IS the label colour
+   (inline style), so force white text with a shadow that stays legible on every colour — from
+   dark navy to bright yellow. The theme text colour vanished on dark swatches in light mode. */
+table.listing td[style*="background-color"]{
+	color: #ffffff;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+/* Right-form pickers (BaseList: labels, relations, datasets, units — .table-select): a fancier,
+   modern table — uppercase muted headers with a divider, roomy rows, hover + an accent selection
+   marker. Scoped to .table-select so the events/timeseries listings are unaffected. */
+table.listing.table-select thead th{
+	background: transparent;
+	padding: 11px 14px;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	border-bottom: 1px solid var(--border);
+}
+table.listing.table-select thead th:last-child{ padding-right: 14px; }
+table.listing.table-select > tbody > tr{
+	background: transparent;
+	transition: background 0.12s ease;
+}
+table.listing.table-select.slim td,
+table.listing.table-select > tbody > tr > td{
+	padding: 11px 14px;
+	border-bottom: 1px solid var(--border);
+	font-size: 14px;
+	vertical-align: middle;
+}
+table.listing.table-select > tbody > tr:hover{ background: var(--header-bg-selected); }
+table.listing.table-select > tbody > tr.selected{
+	background: var(--header-bg-selected);
+	box-shadow: inset 3px 0 0 var(--accent);
+}
+table.listing.table-select td[data-type="edit"] i{ color: var(--text-muted); }
+table.listing.table-select > tbody > tr:hover td[data-type="edit"] i{ color: var(--accent); }
+.pointer{ cursor: pointer; }
+.w50{ width: 50%; }
+.w100{ width: 100%; }
+
+.posrel{ position: relative; }
+
+.posabs{ position: absolute; }
+.resource-label{
+	border: 2px solid #fff;
+	border-radius: 10px;
+	padding: 0 10px;
+	display: inline-block;
+	margin: 5px 5px 0 0;
+	background: var(--modal-bg3);
+	position: relative;
+}
+
+/* A locked chip is an intrinsic type-label (e.g. DATASET) that can't be removed with a small padlock cue. */
+.resource-label.locked{
+	opacity: 0.85;
+	cursor: default;
+}
+.resource-label.locked > div:first-child::after{
+	content: "\f023"; /* fa-lock */
+	font-family: "Font Awesome 6 Free", "Font Awesome 5 Free", FontAwesome;
+	font-weight: 900;
+	font-size: 10px;
+	opacity: 0.6;
+	margin-left: 6px;
+}
+
+.role-label:hover .remove,
+.resource-label:hover .remove{ display: block; }
+
+.role-label .remove,
+.resource-label .remove{
+	display: none;
+	position: absolute;
+	top: -10px;
+	right: -5px;
+	background: var(--modal-bg3);
+	border-radius: 50%;
+	text-align: center;
+	width: 24px;
+	height: 24px;
+	line-height: 24px;
+	z-index: 10000;
+	font-size: 16px;
+}
+
+.role-label td{
+	padding: 4px 12px;
+	background: var(--header-bg);
+	border-bottom: 2px solid var(--body-bg);
+}
+
+.role-label td:not(.selected) img.row-check{ visibility: hidden; }
+.role-label td img.row-check{ margin-right: 8px; }
+
+table.listing th.text-right,
+table.listing > tbody > tr > td.text-right,
+.text-right{ text-align: right; }
+
+/* Node action toolbar — fans out just above a node when it is clicked (built in
+   graph-network.js as an HTML Font Awesome button bar). A white popover with a downward
+   caret, centered on the node, holding brand-blue icon buttons that fill on hover. Works on
+   both the light and dark graph canvas. */
+.dh-node-actions{
+	position: absolute;
+	transform: translate(-50%, -100%);
+	display: flex;
+	gap: 4px;
+	padding: 6px;
+	background: #ffffff;
+	border: 1px solid #d9e4ea;
+	border-radius: 12px;
+	box-shadow: 0 10px 26px rgba(0, 89, 132, 0.24);
+	z-index: 1000;
+}
+/* downward caret pointing at the node */
+.dh-node-actions::after{
+	content: '';
+	position: absolute;
+	left: 50%;
+	bottom: -6px;
+	width: 12px;
+	height: 12px;
+	background: #ffffff;
+	border-right: 1px solid #d9e4ea;
+	border-bottom: 1px solid #d9e4ea;
+	transform: translateX(-50%) rotate(45deg);
+}
+.dh-node-action{
+	width: 32px;
+	height: 32px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: #005984;
+	font-size: 14px;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+.dh-node-action:hover,
+.dh-node-choice:hover{ background: #005984; color: #ffffff; }
+/* The "+" add-node chooser: reuse the floating action card, stacked as labelled choices
+   (Resource / Policy / …). Same white-card-in-both-themes treatment as the toolbar. */
+.dh-node-actions.is-chooser{
+	flex-direction: column;
+	gap: 2px;
+	min-width: 150px;
+	padding: 5px;
+}
+.dh-node-choice{
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	width: 100%;
+	padding: 8px 12px;
+	border: none;
+	border-radius: 8px;
+	background: transparent;
+	color: #005984;
+	font-family: 'Manrope', Arial, sans-serif;
+	font-size: 13px;
+	font-weight: 600;
+	white-space: nowrap;
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+.dh-node-choice i{
+	width: 16px;
+	text-align: center;
+	font-size: 13px;
+}
+
+/* ── Policy form (kind-driven): starter gallery, kind selector, summary. The text fields (name,
+   external id, description) and the kind/enforcement selects reuse the shared .datahub-form-fields
+   inputs + labels so the form matches the other edit forms; only the starter/kind widgets below
+   need bespoke styling. All theme-aware via the shared CSS custom properties. ── */
+.policy-starter-gallery{
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+	margin: 6px 0 14px;
+}
+.policy-starter{
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	gap: 9px;
+	padding: 10px 12px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--policy-surface);
+	color: var(--text);
+	font-family: 'Manrope', Arial, sans-serif;
+	font-size: 12px;
+	font-weight: 600;
+	text-align: left;
+	cursor: pointer;
+	transition: border-color .12s ease, background .12s ease;
+}
+/* Icon sits on the same baseline as the label (fixed box, vertically centred), not above it. */
+.policy-starter i{ font-size: 14px; color: var(--accent); width: 16px; text-align: center; flex: none; }
+.policy-starter-text{ display: flex; flex-direction: column; line-height: 1.25; }
+.policy-starter em{ font-size: 10px; font-weight: 400; font-style: normal; color: var(--text-muted); }
+.policy-starter:hover{ border-color: var(--accent); }
+.policy-starter.is-selected{ border-color: var(--accent); background: var(--header-bg-selected); }
+.policy-starter.is-disabled{ opacity: .5; cursor: not-allowed; }
+.policy-starter.is-disabled:hover{ border-color: var(--border); }
+
+.policy-kind-selector{
+	display: inline-flex;
+	gap: 2px;
+	padding: 3px;
+	margin: 6px 0 14px;
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	background: var(--policy-surface);
+}
+.policy-kind{
+	padding: 5px 14px;
+	border: none;
+	border-radius: 6px;
+	background: transparent;
+	color: var(--text);
+	font-family: 'Manrope', Arial, sans-serif;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+	transition: background .12s ease, color .12s ease;
+}
+/* Selected fill uses accent with body-bg text, which stays legible in BOTH themes because
+   body-bg is always the opposite lightness of accent. */
+.policy-kind.is-selected{ background: var(--accent); color: var(--body-bg); }
+
+/* Two-up row for the after-amount + unit and the enforcement selects. align to the top so the
+   native fields' 14px bottom margin doesn't skew vertical centring. */
+.policy-field-row{ display: flex; gap: 8px; align-items: flex-start; }
+
+.policy-summary{
+	margin: 8px 0 6px;
+	padding: 8px 10px;
+	border-radius: 6px;
+	background: var(--policy-surface);
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+/* ── Naming policy ──────────────────────────────────────────────────────────────────────────
+   Three pieces, all theme-aware via the shared custom properties: the hint under a field, the
+   inline external-id preflight result, and the findings queue. ── */
+
+/* Quiet explanatory line under a form field (the external-id character set, the near-duplicate
+   guard). Muted and small so it reads as a footnote rather than as another label.
+
+   The negative top margin is deliberate and is why this class only belongs under a field: it pulls
+   the hint up into the input's own bottom margin so the two read as one unit. Under anything
+   without that margin, a heading for instance, it rides up over it. Use .section-hint there. */
+.field-hint{
+	margin: -8px 0 14px;
+	color: var(--text-muted);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+/* The same footnote voice under a section heading rather than a field, so it flows normally
+   instead of being tucked upwards. */
+.section-hint{
+	margin: 2px 0 12px;
+	color: var(--text-muted);
+	font-size: 11px;
+	line-height: 1.45;
+}
+
+/* Inline preflight result under the external-id input. Three states, because the policy has
+   three: OK, allowed-but-flagged, and rejected. */
+.naming-check{
+	margin: -6px 0 6px;
+	font-size: 11px;
+	line-height: 1.45;
+}
+/* Nothing to say yet (or the field is empty): take no space at all, so the character-set hint
+   below keeps its own spacing and the form does not jump as you type. */
+.naming-check:empty{ display: none; }
+.naming-check.is-ok{ color: var(--text-muted); }
+.naming-check.is-warn{ color: #f6ac1c; }
+.naming-check.is-error{ color: #e05271; }
+.naming-check-apply{
+	padding: 1px 7px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	background: transparent;
+	color: var(--text);
+	font-family: 'Manrope', Arial, sans-serif;
+	font-size: 11px;
+	cursor: pointer;
+}
+.naming-check-apply:hover{ border-color: var(--accent); }
+input.naming-invalid{ border-color: #e05271; }
+
+/* Findings queue. Groups collapse by default: a group can hold thousands of findings that are
+   all the same mistake, and the count on the summary is the thing a steward judges. */
+/* Findings queue: three columns like the events page (filters, results, details). A result row is
+   a GROUP of findings; its individual entities are listed in the details column. */
+.findings-subtitle,
+.findings-legend{
+	max-width: 70ch;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.5;
+}
+.findings-empty{ color: var(--text-muted); }
+
+section.findings-result.left-content{
+	box-shadow: none;
+	z-index: 8;
+	min-width: 0;          /* let the message column ellipsize rather than widen the column */
+}
+section.findings-data.left-content{
+	width: 460px;
+	z-index: 9;
+	/* Rightmost column, same treatment as the events details pane: shadow cast LEFT onto the
+	   results list, and a tint so it reads as a separate surface. */
+	box-shadow: -5px 0 18px rgba(0, 0, 0, 0.42);
+	background-color: color-mix(in srgb, #9494d0 12%, var(--menu-bg));
+}
+html[data-theme="light"] section.findings-data.left-content{ background-color: color-mix(in srgb, var(--accent) 6%, var(--menu-bg)); }
+
+/* Status tint. Applied in every view, not only the combined one, so a row's colour means the same
+   thing wherever it is read: amber is outstanding, green has been accepted. Gating it on the mixed
+   view would make the colour a property of the filter rather than of the finding, and someone
+   switching from "open" to "open and resolved" would watch rows change colour without changing.
+
+   Mixed against the row's own background rather than stated as flat colours, so the same two rules
+   read correctly on the dark navy and on white without a per-theme override. Kept at a low
+   percentage because these wash a whole table by default. Amber and green come from the tokens the
+   console already spends on those two meanings.
+
+   Deliberately before the .selected rule below: they carry equal specificity, so source order is what
+   lets a selected row still look selected whatever its status. */
+#findings-list tr.status-open > td{ background: color-mix(in srgb, var(--limit) 12%, var(--header-bg)); }
+#findings-list tr.status-resolved > td{ background: color-mix(in srgb, var(--ok-text) 14%, var(--header-bg)); }
+/* Resolved is history, not work: recede it further by muting the count that would otherwise pull the
+   eye to the biggest pile of things nobody has to do anything about. */
+#findings-list tr.status-resolved > td.findings-count-cell{
+	color: var(--text-muted);
+	font-weight: 500;
+}
+#findings-list tr.selected > td{ background: var(--header-bg-selected); }
+/* Hover, restated at cell level. table.listing gives every listing a tr-level hover highlight, but
+   the status tints above paint the td, which sits on top of it — so without this the findings table
+   would be the one table in the console that stops responding to the pointer. Wins on specificity
+   rather than source order (an extra element in the selector), so it holds over selected rows too:
+   the row under the pointer is the one that should light up. */
+#findings-list > tbody > tr:hover > td{ background: var(--header-bg-selected2); }
+.findings-count-cell{
+	width: 1%;
+	white-space: nowrap;
+	font-weight: 700;
+	font-variant-numeric: tabular-nums;
+}
+.findings-shape{
+	padding: 1px 7px;
+	border: 1px solid var(--border);
+	border-radius: 5px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+/* Capped rather than free-flowing: a data set external id can be long, and the message column beside
+   it is the one that should absorb the remaining width. */
+td.findings-dataset-cell{
+	max-width: 22ch;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+}
+td.findings-group-message{
+	color: var(--text-muted);
+	font-size: 12px;
+	max-width: 0;          /* with table-layout auto this lets the cell shrink and ellipsize */
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+/* One finding inside the details column. Stacked rather than tabular: the column is 460px and the
+   five things a finding carries (offending id, suggestion, subject, time, action) have no width to
+   share — an external id has no spaces to wrap at and the subject is a 36-character uuid, so columns
+   could only push the pane wider than it is. Same shape as .resource-findings on the edit form. */
+.findings-rows .finding-row{
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	gap: 2px 12px;
+	padding: 10px 0;
+	border-top: 1px solid var(--border);
+}
+.findings-rows .finding-row > *{ grid-column: 1; }
+.findings-rows .finding-row > .finding-action{
+	grid-column: 2;
+	grid-row: 1 / -1;
+	align-self: center;
+}
+.findings-rows .finding-id,
+.findings-rows .finding-suggestion{
+	font-size: 13px;
+	/* External ids have no spaces to wrap at, so break mid-token. Anything else overflows. */
+	word-break: break-all;
+}
+.findings-rows .finding-suggestion{ color: var(--text-muted); }
+.findings-rows .finding-meta{
+	display: flex;
+	gap: 6px;
+	min-width: 0;
+	font-size: 11px;
+	color: var(--text-muted);
+}
+.findings-rows .finding-meta > span + span::before{
+	content: "\00B7";
+	margin-right: 6px;
+	opacity: 0.7;
+}
+.findings-rows .finding-when{ flex: 0 0 auto; white-space: nowrap; }
+/* The raiser is the one part that may be cut: it is a uuid, it is the least useful of the three at
+   a glance, and its full value is on the hover. */
+.findings-rows .finding-raisedby{
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.findings-resolved{ color: var(--text-muted); font-size: 12px; }
+.findings-actions{ margin-top: 14px; }
+
+/* This resource's own open findings, on the edit form. Only rendered when there are any, so a
+   conforming resource's form is unchanged. */
+.resource-findings{ margin-top: 22px; }
+.resource-findings .finding-row{
+	display: grid;
+	grid-template-columns: 1fr auto;
+	gap: 2px 12px;
+	padding: 10px 0;
+	border-top: 1px solid var(--border);
+}
+.resource-findings .finding-row > button{ grid-row: 1 / span 2; align-self: center; }
+.resource-findings .finding-message{ font-size: 13px; }
+.resource-findings .finding-meta{ color: var(--text-muted); font-size: 11px; }
+
+/* Detail list inside a flash: one line per offending external id. A policy rejection has to name
+   every item it refused, and a run-on sentence of ten of them is unreadable. */
+.dh-flash-details{
+	margin: 6px 0 0;
+	padding: 0;
+	max-height: 40vh;
+	overflow-y: auto;
+	font-weight: 400;
+	font-size: 13px;
+	line-height: 1.5;
+}
+.dh-flash-details li{ list-style: none; }
+
+/* Graph node HTML labels (cytoscape-node-html-label) render inside a transform-scaled layer,
+   which makes the browser drop sub-pixel text anti-aliasing so the text looks soft. Push it
+   toward cleaner grayscale AA + precise glyph rendering. (The residual softness is inherent to
+   scaling HTML labels; fully crisp text would mean canvas-native labels.) */
+[class^="cy-node-html"],
+[class^="cy-node-html"] * {
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	text-rendering: geometricPrecision;
+}
+
+/* Graph node HTML label (renderNodeLabel in graph-network.js): a small uppercase type line
+   over the bold node name. Both lines truncate with an ellipsis within the node's width. */
+.dh-node-label{
+	text-align: center;
+	font-family: 'Manrope', Arial, sans-serif;
+	line-height: 1.15;
+}
+.dh-nl-types{
+	font-size: 7px;
+	letter-spacing: 0.04em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.dh-nl-sep{ opacity: 0.4; }
+/* Built-in types (ASSET/FUNCTION/...): highlighted with one shared colour, heavier + larger. */
+.dh-nl-type-std{
+	font-weight: 900;
+	font-size: 8px;
+	color: #8ec3e0;
+}
+html[data-theme="light"] .dh-nl-type-std{ color: #005984; }
+/* Custom label names: subtle. */
+.dh-nl-type-other{
+	font-weight: 400;
+	/* Dark theme: a brighter muted grey so custom types stay subtle but legible on the dark node. */
+	color: #8a949a;
+}
+html[data-theme="light"] .dh-nl-type-other{
+	/* Light theme: rgb(58, 66, 69) — subtle grey on the white node. */
+	color: #3a4245;
+}
+.dh-nl-name{
+	font-size: 11px;
+	font-weight: 700;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	color: #e8f1f6;
+}
+html[data-theme="light"] .dh-nl-name{ color: #17313d; }
+/* A selected node fills with its colour, so its label text goes white. */
+.dh-node-label.sel .dh-nl-name,
+.dh-node-label.sel .dh-nl-type-std{ color: #ffffff; }
+.dh-node-label.sel .dh-nl-type-other{ color: rgba(255, 255, 255, 0.65); }
+
+/* Edge "data flow" travelers: a small chip carrying a datatype value that streams from the
+   source node to the target node along edges tagged with an "animate::datatype" metadata key
+   (built in graph-network.js). The layer sits over the canvas; chips are positioned per frame. */
+.dh-edge-traveler-layer{
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	pointer-events: none;
+	z-index: 10;
+}
+.dh-edge-traveler{
+	position: absolute;
+	top: 0;
+	left: 0;
+	color: #8a80a0;   /* dark-theme default: muted grey-purple text on the dark canvas */
+	font: 600 9px/1.45 'Manrope', Arial, sans-serif;
+	letter-spacing: 0.02em;
+	white-space: nowrap;
+	/* Just text — no background/shadow (cheaper per frame, and subtler). */
+	will-change: transform, opacity;
+}
+/* Light theme: a deeper grey-purple so the text reads on the white canvas. */
+html[data-theme="light"] .dh-edge-traveler{ color: #675d80; }
+
+/* Hover tooltip showing a node's full name when its canvas label is truncated. */
+.dh-node-tooltip{
+	position: absolute;
+	transform: translate(-50%, -100%);
+	padding: 3px 9px;
+	background: #17313d;
+	color: #ffffff;
+	font: 600 11px/1.4 'Manrope', Arial, sans-serif;
+	border-radius: 6px;
+	white-space: nowrap;
+	pointer-events: none;
+	z-index: 1000;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+
+/* Edge form: the "animate data flow" control (checkbox + datatype field + click-to-open help),
+   laid out as one horizontal row. */
+.animate-flow-field{
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-top: 12px;
+}
+.animate-flow-toggle-label{
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+.animate-flow-help{
+	position: relative;
+	cursor: pointer;
+	color: var(--icon-primary);
+}
+.animate-flow-help .help-modal{
+	width: 260px;
+	font-weight: 400;
+	color: #17313d;   /* readable on the white popup in both themes */
+}
+.animate-flow-field input[type="text"]{
+	flex: 1;
+	min-width: 0;
+	margin: 0;
+}
+.h80px{ height: 80px; }
+/* Floating graph canvas buttons (add-relation + layout toggles): clean square icon buttons on a
+   themed surface so they're legible over the white/dark canvas, with an accent-filled active state.
+   Overrides the heavy .dh-btn.secondary block they're built with. */
+.dh-btn.network-btns{
+	position: absolute;
+	right: 10px;
+	width: 36px;
+	height: 36px;
+	min-width: 0;
+	padding: 0;
+	border-radius: 8px;
+	background: var(--menu-bg);
+	color: var(--text);
+	border: 1px solid var(--border);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+}
+.dh-btn.network-btns i{
+	width: auto;
+	font-size: 15px;
+}
+.dh-btn.network-btns:not(:disabled):hover{
+	border-color: var(--accent);
+	color: var(--accent);
+	background: var(--menu-bg);
+}
+.dh-btn.network-btns.active{
+	background: var(--accent);
+	color: var(--body-bg);
+	border-color: var(--accent);
+}
+.add-rel-btn{ top:10px; }
+.layout-dagre-btn{ top:50px; }
+.layout-fcose-btn{ top:90px; }
+/* Graph filter: a panel in the shared right-form slide-out. Two grouped listings (node types +
+   relation types) built on the .data-list base listing; every type shown by default, uncheck to
+   hide. The .right-form > * rules already give it the panel chrome (width, slide, shadow). */
+.graph-filter-form .gf-group{ margin-top:var(--space-lg); }
+.graph-filter-form .gf-group-title{
+	font-size:12px;
+	letter-spacing:0.04em;
+	text-transform:uppercase;
+	opacity:0.6;
+	font-weight:700;
+	margin:0 0 var(--space-sm);
+}
+.graph-filter-form .gf-list{ margin:0; }
+/* Each row is a checkbox + colour chip + type name; override the block .right-form label. */
+.graph-filter-form .gf-list .gf-row{
+	display:flex;
+	align-items:center;
+	gap:var(--space);
+	margin:0;
+	cursor:pointer;
+}
+.graph-filter-form .gf-list .gf-row input[type="checkbox"]{
+	flex:0 0 auto;
+	width:16px;
+	height:16px;
+	margin:0;
+	accent-color:var(--accent);
+}
+.graph-filter-form .gf-chip{
+	width:12px;
+	height:12px;
+	border-radius:3px;
+	flex:0 0 auto;
+	border:1px solid rgba(127,127,127,0.45);
+}
+.graph-filter-form .gf-row-name{
+	font-size:14px;
+	white-space:nowrap;
+	overflow:hidden;
+	text-overflow:ellipsis;
+}
+.sub-nav .graph-filter-slot{
+	position:relative;
+	display:flex;
+	align-items:center;
+}
+.sub-nav .graph-filter-slot.push-right{
+	margin-left:auto;
+	padding-right:20px;
+}
+table.metadata{ border-collapse: collapse; }
+table.metadata th,
+table.metadata td{ text-align: left; }
+table.metadata thead tr { border-bottom: 1px solid var(--border); }
+table.metadata tr th:last-child,
+table.metadata tr td:last-child{
+	display: flex;
+	justify-content: flex-end;
+}
+table.metadata th,
+table.metadata td{
+	padding: 4px 0;
+	margin-bottom: 0;
+}
+.datahub-form-fields table.metadata input{
+	padding: 8px 10px;
+	margin-bottom: 0;
+}
+.datahub-form-fields table.metadata tbody td:not(:last-child){ padding-right: 8px; }
+table.metadata input{ margin: 0; }
+/* The metadata add button and the add-label button both keep the standard .dh-btn primary small
+   look so the "+" actions match. Only the per-row delete button gets a subtle danger treatment. */
+.datahub-form-fields table.metadata td .dh-btn.secondary{
+	background: transparent;
+	border: 1px solid var(--border);
+	color: var(--text-muted);
+	box-shadow: none;
+}
+.datahub-form-fields table.metadata td .dh-btn.secondary:not(:disabled):hover{
+	background: rgba(229, 72, 77, 0.12);
+	border-color: #e5484d;
+	color: #e5484d;
+}
+.hidden{ display: none; }
+
+/* The insights chart sits on its own content surface (matching the left search panel) instead of
+   the raw page background. */
+#datapoints-chart{
+	background: var(--menu-bg);
+	min-height: calc(100vh - var(--header-height) - var(--sub-nav-height));
+	box-sizing: border-box;
+}
+#datapoints-chart svg path.ts-line{
+	stroke: var(--accent);
+	stroke-width: 0.5px;
+	fill: none;
+}
+
+#datapoints-chart svg path.ts-line.area{
+	stroke-dasharray: 2px;
+	fill: #284d627a;
+}
+#datapoints-chart svg path.ts-line.avg{ stroke-width: 1px; }
+#datapoints-chart svg rect.focus-line{ fill: #e1d4ff; }
+#datapoints-chart svg g.grid g.tick line{ stroke: var(--border); }
+#datapoints-chart svg text.lfv-text{ fill: var(--text); }
+#datapoints-chart svg text.dh-brush-label{
+	fill: var(--text);
+	font-size: 12px;
+	font-weight: 600;
+	pointer-events: none;
+}
+#datapoints-chart svg g.y-axis text{ fill: var(--text); }
+#datapoints-chart svg g.y-axis path,
+#datapoints-chart svg g.y-axis line{ stroke: var(--border); }
+/* Axis domain lines (x + y): D3 renders these with stroke="currentColor" (black). Match the
+   themed axis colour instead. CSS stroke overrides the presentation attribute. */
+#datapoints-chart svg path.domain{ stroke: var(--border); }
+#datapoints-chart svg text.y-axis-unit{
+	fill: var(--text);
+	font-size: 11px;
+}
+
+#datapoints-chart svg path.ts-line.avg.orange      { stroke: var(--line-path-orange); }
+#datapoints-chart svg path.ts-line.avg.teal        { stroke: var(--line-path-teal); }
+#datapoints-chart svg path.ts-line.avg.purple      { stroke: var(--line-path-purple); }
+#datapoints-chart svg path.ts-line.avg.yellowgreen { stroke: var(--line-path-yellowgreen); }
+#datapoints-chart svg path.ts-line.avg.pink        { stroke: var(--line-path-pink); }
+#datapoints-chart svg path.ts-line.avg.skyblue     { stroke: var(--line-path-skyblue); }
+
+#datapoints-chart svg path.ts-line.area.orange      { fill: var(--line-area-orange);      stroke: var(--line-path-orange); }
+#datapoints-chart svg path.ts-line.area.teal        { fill: var(--line-area-teal);        stroke: var(--line-path-teal); }
+#datapoints-chart svg path.ts-line.area.purple      { fill: var(--line-area-purple);      stroke: var(--line-path-purple); }
+#datapoints-chart svg path.ts-line.area.yellowgreen { fill: var(--line-area-yellowgreen); stroke: var(--line-path-yellowgreen); }
+#datapoints-chart svg path.ts-line.area.pink        { fill: var(--line-area-pink);        stroke: var(--line-path-pink); }
+#datapoints-chart svg path.ts-line.area.skyblue     { fill: var(--line-area-skyblue);     stroke: var(--line-path-skyblue); }
+
+#datapoints-chart svg rect.lfv-rect.orange      { fill: var(--line-path-orange); }
+#datapoints-chart svg rect.lfv-rect.teal        { fill: var(--line-path-teal); }
+#datapoints-chart svg rect.lfv-rect.purple      { fill: var(--line-path-purple); }
+#datapoints-chart svg rect.lfv-rect.yellowgreen { fill: var(--line-path-yellowgreen); }
+#datapoints-chart svg rect.lfv-rect.pink        { fill: var(--line-path-pink); }
+#datapoints-chart svg rect.lfv-rect.skyblue     { fill: var(--line-path-skyblue); }
+
+#datapoints-chart svg g.y-axis.orange path,
+#datapoints-chart svg g.y-axis.orange line      { stroke: var(--line-path-orange); }
+#datapoints-chart svg g.y-axis.teal path,
+#datapoints-chart svg g.y-axis.teal line        { stroke: var(--line-path-teal); }
+#datapoints-chart svg g.y-axis.purple path,
+#datapoints-chart svg g.y-axis.purple line      { stroke: var(--line-path-purple); }
+#datapoints-chart svg g.y-axis.yellowgreen path,
+#datapoints-chart svg g.y-axis.yellowgreen line { stroke: var(--line-path-yellowgreen); }
+#datapoints-chart svg g.y-axis.pink path,
+#datapoints-chart svg g.y-axis.pink line        { stroke: var(--line-path-pink); }
+#datapoints-chart svg g.y-axis.skyblue path,
+#datapoints-chart svg g.y-axis.skyblue line     { stroke: var(--line-path-skyblue); }
+
+#datapoints-chart svg g.y-axis.orange text,
+#datapoints-chart svg text.y-axis-unit.orange      { fill: var(--line-path-orange); }
+#datapoints-chart svg g.y-axis.teal text,
+#datapoints-chart svg text.y-axis-unit.teal        { fill: var(--line-path-teal); }
+#datapoints-chart svg g.y-axis.purple text,
+#datapoints-chart svg text.y-axis-unit.purple      { fill: var(--line-path-purple); }
+#datapoints-chart svg g.y-axis.yellowgreen text,
+#datapoints-chart svg text.y-axis-unit.yellowgreen { fill: var(--line-path-yellowgreen); }
+#datapoints-chart svg g.y-axis.pink text,
+#datapoints-chart svg text.y-axis-unit.pink        { fill: var(--line-path-pink); }
+#datapoints-chart svg g.y-axis.skyblue text,
+#datapoints-chart svg text.y-axis-unit.skyblue     { fill: var(--line-path-skyblue); }
+
+ul[data-type="timeseries-list"] li {
+	position: relative;
+	padding-right: 32px;
+}
+.ts-color-swatch {
+	position: absolute;
+	right: 10px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 14px;
+	height: 14px;
+	border-radius: 50%;
+	border: 1px solid rgba(255, 255, 255, 0.4);
+	cursor: pointer;
+	box-sizing: border-box;
+}
+.ts-color-swatch.orange      { background: var(--line-path-orange); }
+.ts-color-swatch.teal        { background: var(--line-path-teal); }
+.ts-color-swatch.purple      { background: var(--line-path-purple); }
+.ts-color-swatch.yellowgreen { background: var(--line-path-yellowgreen); }
+.ts-color-swatch.pink        { background: var(--line-path-pink); }
+.ts-color-swatch.skyblue     { background: var(--line-path-skyblue); }
+
+.ts-color-popover {
+	position: absolute;
+	right: 6px;
+	top: calc(50% + 12px);
+	display: flex;
+	gap: 6px;
+	padding: 6px 8px;
+	background: var(--header-bg);
+	border: 1px solid rgba(255, 255, 255, 0.1);
+	border-radius: 4px;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+	z-index: 100;
+}
+.ts-color-option {
+	width: 16px;
+	height: 16px;
+	border-radius: 50%;
+	cursor: pointer;
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	box-sizing: border-box;
+}
+.ts-color-option.taken {
+	outline: 2px solid rgba(255, 255, 255, 0.6);
+	outline-offset: 1px;
+}
+.ts-color-option.orange      { background: var(--line-path-orange); }
+.ts-color-option.teal        { background: var(--line-path-teal); }
+.ts-color-option.purple      { background: var(--line-path-purple); }
+.ts-color-option.yellowgreen { background: var(--line-path-yellowgreen); }
+.ts-color-option.pink        { background: var(--line-path-pink); }
+.ts-color-option.skyblue     { background: var(--line-path-skyblue); }
+form.form-signin{ margin: 110px auto; }
+#grey-body-overlay{
+	position: fixed;
+	height: 100vh;
+	width: 100%;
+	background: #333333aa;
+	top:0;
+	z-index: 1000;
+}
+.overlay-container{
+	background: var(--header-bg);
+	width: 500px;
+	margin: 250px auto;
+	border-radius: 3px;
+}
+table.listing.topic-stats td{ padding: 8px 14px; }
+table.listing.topic-stats tr:hover{ background: var(--header-bg); }
+table.topic-stats ul li{
+	padding-left: 20px;
+	overflow-wrap: break-word;
+}
+
+.right-form main label.checkbox-icons{
+	display: flex;
+	align-items: center;
+	margin-bottom: 15px;
+}
+
+label.checkbox-icons input[type="checkbox"] {
+	opacity: 0;
+	width: 0;
+	position: absolute;
+}
+
+label.checkbox-icons input[type="checkbox"]:checked + span {
+	background: #efffe8;
+	border-color: #efffe8;
+}
+
+label.checkbox-icons input[type="checkbox"]:focus + span,
+label.checkbox-icons input[type="checkbox"]:focus:checked + span{ border-color: var(--accent); }
+
+label.checkbox-icons input[type="checkbox"] + span img { display: none; }
+
+label.checkbox-icons input[type="checkbox"] + span:first-of-type{ margin-right: 10px; }
+
+label.checkbox-icons input[type="checkbox"] + span {
+	background: #fde5e5;
+	border: 3px solid #fde5e5;
+	width: 24px;
+	height: 24px;
+	border-radius: 3px;
+	display: inline-block;
+	cursor: pointer;
+	position: relative;
+}
+
+label.checkbox-icons input[type="checkbox"]:checked + span img {
+	display: block;
+	position: absolute;
+	top: 2px;
+	left: 2px;
+	height: 20px;
+}
+
+label.checkbox-icons input[type="checkbox"]:disabled + span { background: #bbb; }
+
+label.checkbox-icons input[type="checkbox"]:disabled + span i {
+	color: #666;
+	cursor: not-allowed;
+}
+.left-content-header{ background: var(--header-bg-selected); }
+.flex-1{ flex:1; }
+.flex-auto{ flex: auto; }
+/* Entity/event details: a clean caption + value list — small uppercase muted captions over
+   plain readable values (no more full-width dark strips). */
+.data-details{ font-size: 14px; }
+.data-details label{
+	display: block;
+	margin: 16px 0 4px;
+	font-size: 11px;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+	font-weight: 700;
+	color: var(--text);
+}
+.data-details > label:first-child{ margin-top: 0; }
+.data-details .data-item{
+	background: transparent;
+	padding: 0;
+	box-sizing: border-box;
+	font-size: 14px;
+	line-height: 1.45;
+	color: var(--text);
+	word-break: break-word;
+}
+/* Two-column field rows (type/subtype, dataset/source, metadata grid). */
+.data-details .flex-container.details{ margin-top: 16px; }
+.data-details .flex-container.details label{ margin: 0 0 4px; }
+/* A grid that follows its own caption (metadata) hugs it instead of taking the field gap. */
+.data-details label + .flex-container.details{ margin-top: 4px; }
+/* Values rendered inside .data-item as <label> (metadata key/value) read as plain text. */
+.data-details .data-item label{
+	margin: 0;
+	text-transform: none;
+	letter-spacing: 0;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--text);
+}
+/* Related resources as pill chips. */
+.data-details ul[data-type="related-resources"]{
+	list-style: none;
+	margin: 6px 0 0;
+	padding: 0;
+	gap: 6px;
+}
+.data-details ul[data-type="related-resources"] .data-item{
+	background: var(--header-bg-selected);
+	padding: 4px 11px;
+	border-radius: 999px;
+	font-size: 12.5px;
+}
+.topics.middle-content{ width: 40%; }
+form main.datahub-form-fields i.fa-circle-question{
+	margin-left: 5px;
+	color: var(--icon-primary);
+}
+
+.datahub-form-fields i.right-icon{
+	position: absolute;
+	right: 10px;
+	color: #666;
+	top: 8px;
+}
+.datahub-form-fields i.right-icon.fa-eye{ color: var(--icon-primary); }
+
+.help-modal{
+	display: none;
+	background: #fff;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	padding: 10px 15px;
+	font-weight: 350;
+	position: absolute;
+	width: 500px;
+	text-align: left;
+	z-index: 1000;
+}
+form main.datahub-form-fields .help-modal{ left: 10px; }
+.show-help-text:hover > .help-modal{ display: block; }
+.help-modal > img,
+.help-modal > div{ margin: 8px 0; }
+.help-modal img{ width: 100%; }
+.centered-body-img{
+	background: #fff;
+	border-radius: 15px;
+	position: fixed;
+	z-index: 1200;
+	top:20px;
+	width: 1000px;
+	left:1000px;
+	margin-left: -50%;
+	text-align: center;
+}
+.centered-body-img i{
+	color: #333;
+	font-size: 48px;
+	padding: 20px;
+	cursor: pointer;
+	position: absolute;
+	right: 0;
+}
+.centered-body-img img{
+	text-align: center;
+	padding: 20px;
+	width: 950px;
+}
+.datahub-form-fields .trash-field{
+	text-align: right;
+	margin-right: 5px;
+	color: var(--header-bg-selected2);
+}
+.datahub-form-fields ul .trash-field:hover,
+.datahub-form-fields table .trash-field:hover{ color:var(--text); }
+.data-horizontal{
+	display: flex;
+	align-content: flex-start;
+	flex-wrap: wrap;
+	max-width: 500px;
+}
+.data-horizontal li{
+	padding: 4px 20px;
+	margin-left: 20px;
+	margin-bottom: 4px;
+	background: var(--modal-bg);
+}
+li.nothing{ background: transparent; }
+
+ul.data-list li i.fa{ color: var(--icon-primary); }
+ul.data-list li i.fa:hover{ color: var(--text); }
+.create-submenu {
+	right: 0;
+	z-index: 10;
+	min-width: 210px;
+	padding: 6px;
+	list-style: none;
+	background: var(--menu-bg);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	box-shadow: var(--big-box-shadow);
+}
+.create-submenu li:first-child{
+	display: flex;
+	justify-content: flex-end;
+	padding: 0 2px 4px;
+}
+.create-submenu li:first-child i{
+	color: var(--text-muted);
+	cursor: pointer;
+	padding: 4px 6px;
+	border-radius: 6px;
+	transition: color 0.12s ease, background 0.12s ease;
+}
+.create-submenu li:first-child i:hover,
+.create-submenu li:not(:first-child):hover{ color: var(--accent); background: var(--header-bg-selected); }
+.create-submenu li:not(:first-child){
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 9px 12px;
+	border-radius: 6px;
+	color: var(--text);
+	cursor: pointer;
+	transition: background 0.12s ease, color 0.12s ease;
+}
+a.inode,
+a.inode:visited{ color: var(--link-alt); }
+/* File picker: a vibrant dashed drop-zone that tints toward the accent on hover, instead of a bare
+   inline row. Holds the upload icon, the Browse button, and the selected file name + size. */
+.file-upload-info{
+	gap: 10px;
+	margin: 6px 0 10px;
+	padding: 14px 16px;
+	align-items: center;
+	border: 1.5px dashed var(--header-bg-selected2);
+	border-radius: 10px;
+	background: color-mix(in srgb, var(--accent) 6%, transparent);
+	color: var(--text);
+	font-size: 0.9em;
+	transition: border-color 0.15s ease, background 0.15s ease;
+}
+.file-upload-info:hover{
+	border-color: var(--accent);
+	background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+.file-upload-info .file-upload-icon{
+	color: var(--accent);
+	font-size: 20px;
+	flex: 0 0 auto;
+}
+.file-upload-info .file-name{
+	font-weight: 600;
+	color: var(--text);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.file-upload-info > span{ padding-left: 4px; }
+.file-upload-info > span:last-child{
+	text-align: right;
+	flex: 1;
+	color: var(--text-muted);
+	font-variant-numeric: tabular-nums;
+}
+
+/* Reusable search-as-you-type dropdown (SearchDropdown, static/js/search-dropdown.js).
+   Positioned by JS (top/left/width) against the input's relatively-positioned parent. */
+.search-dropdown{
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
+	z-index: 100;
+	margin: -8px 0 0;   /* pull up under the field, over its 14px bottom margin */
+	padding: 6px;
+	list-style: none;
+	background: var(--menu-bg);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	max-height: 240px;
+	overflow-y: auto;
+	box-sizing: border-box;
+	box-shadow: var(--big-box-shadow);
+	display: none;
+}
+.search-dropdown.visible{ display: block; }
+.search-dropdown li{
+	padding: 8px 10px;
+	cursor: pointer;
+	font-size: 14px;
+	line-height: 18px;
+	/* No border-radius: the accent left-bar shown on hover/active needs square corners to sit flush. */
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.search-dropdown li.active,
+.search-dropdown li:not(.empty):hover{
+	background: color-mix(in srgb, var(--accent) 15%, transparent);
+	color: var(--accent);
+	box-shadow: inset 2px 0 0 var(--accent);
+}
+.search-dropdown li.empty{
+	color: var(--text-muted);
+	font-style: italic;
+	cursor: default;
+}
+
+/* Event filter date/time picker fields: fixed, centered. Scoped to the filter form so the
+   timeseries nav picker is unaffected. */
+#filter-events input[data-picker="date"]{
+	width: 140px;
+	text-align: center;
+}
+#filter-events input[data-picker="time"]{
+	width: 100px;
+	text-align: center;
+}
+/* Tighten the events filter field wrappers (labels are now the app-wide uppercase captions). */
+#filter-events .pad10-no-topbot,
+#filter-events .pad10-no-bot,
+#filter-events .pad10{ margin-bottom: 4px; }
+
+/* === Event filter form: a livelier, interactive look. Each field grows an accent rail + tint and
+   its label turns accent when focused, so the filter you're editing stands out. The header gets an
+   accent filter icon over a soft accent wash. === */
+#filter-events .left-content-header{
+	background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent);
+	border-bottom: 1px solid var(--border);
+}
+#filter-events .left-content-header h3{
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+#filter-events .left-content-header h3 i{
+	color: var(--accent);
+	font-size: 13px;
+}
+/* Filter inputs: compact, evenly-sized filled fields — the text inputs and the date/time pickers
+   share the same height + padding — with an accent border on hover/focus. */
+#filter-events input{
+	padding: 7px 10px;
+	font-size: 13px;
+	border-radius: 8px;
+	/* A very faint, theme-aware tint — subtler than the raised header-bg-selected surface. */
+	background: color-mix(in srgb, var(--text) 4%, transparent);
+	border: 1px solid var(--border);
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+#filter-events input:hover,
+#filter-events input:focus{ border-color: var(--accent); }
+
+/* === Field help: the small question mark that follows a form label's caption, and the dialog it
+   opens on click (see js/right-form-content/naming-help.js). Everything below is token-driven, so
+   the light theme needs no override. === */
+/* `form main.datahub-form-fields i.fa-circle-question` above already sets the margin + colour, and
+   it outranks a bare class selector, so these rules stay scoped to .datahub-form-fields (otherwise
+   the hover colour never lands) and only add what that rule does not cover. */
+.datahub-form-fields .field-help-icon{
+	/* One step over the 11px caption, the same way .policy-starter and the filter header size
+	   their icons above the text they sit next to. */
+	font-size: 12px;
+	/* Keep the glyph off the caption's cap-height line so it reads as an affordance beside the
+	   label rather than part of the word. */
+	vertical-align: -1px;
+	transition: color 0.15s ease;
+}
+.datahub-form-fields .field-help-icon:hover{ color: var(--accent); }
+.datahub-form-fields .field-help-icon:focus-visible{
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 50%;
+}
+
+.naming-help-dialog{
+	width: min(720px, calc(100vw - 40px));
+	max-height: min(80vh, 860px);
+	padding: 0;
+	overflow: hidden;         /* the body scrolls, not the dialog, so head + foot stay put */
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--menu-bg);
+	color: var(--text);
+	box-shadow: var(--big-box-shadow);
+	font-family: 'Manrope', Arial, sans-serif;
+	/* The app's base reading size (body), not a dialog-only size. */
+	font-size: 16px;
+	line-height: 1.45;
+}
+/* Only when open — a bare `display: flex` would override the closed dialog's display: none. */
+.naming-help-dialog[open]{
+	display: flex;
+	flex-direction: column;
+}
+.naming-help-dialog::backdrop{ background: rgba(0, 0, 0, 0.55); }
+.naming-help-dialog .nh-head{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 14px 20px;
+	background: var(--header-bg-selected);
+	border-bottom: 1px solid var(--border);
+}
+/* No font-size: inherits the global h1-h6 rule, so it reads at the same weight and size as the
+   right-form panel heading it is opened from. */
+.naming-help-dialog .nh-head h3{ margin: 0; }
+.naming-help-dialog .nh-head i{
+	color: var(--icon-primary);
+	font-size: 16px;
+}
+.naming-help-dialog .nh-head i:hover{ color: var(--accent); }
+.naming-help-dialog .nh-body{
+	padding: 18px 20px;
+	overflow-y: auto;
+}
+.naming-help-dialog .nh-foot{
+	display: flex;
+	justify-content: flex-end;
+	padding: 12px 20px;
+	background: var(--header-bg2);
+	border-top: 1px solid var(--border);
+}
+/* Section captions borrow the app's uppercase field-label treatment (see .datahub-form-fields
+   label) but set two steps under the 16px body rather than at the label's 11px, so they carry a
+   long scrolling document. Full-contrast --text, not --text-muted: muted grey on the dark navy
+   surface is too dim, and the uppercase + weight already sets the caption apart. */
+.naming-help-dialog h4{
+	margin: 20px 0 8px;
+	font-size: 14px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text);
+}
+.naming-help-dialog .nh-body > *:first-child{ margin-top: 0; }
+.naming-help-dialog p{ margin: 0 0 10px; }
+/* Lead-in line for the block right under it (the RDF snippet, the examples table). Full-contrast
+   like the rest of the prose: --text-muted washes out on the dark navy surface. It earns its
+   separate class by hugging the block it introduces instead of taking the full paragraph gap. */
+.naming-help-dialog p.nh-caption{ margin-bottom: 6px; }
+/* The app-wide `ul` reset drops the markers; bring them back here, this is running prose. */
+.naming-help-dialog ul{
+	margin: 0 0 10px;
+	padding-left: 18px;
+	list-style: disc;
+}
+/* No ::marker colour: the marker inherits it from the list item, which is the full-contrast
+   --text the dialog sets. */
+.naming-help-dialog li{ margin-bottom: 6px; }
+.naming-help-dialog pre{
+	margin: 0 0 10px;
+	padding: 12px 14px;
+	overflow-x: auto;
+	background: var(--policy-surface);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	/* Under the 16px body: monospace reads larger than Manrope at the same px. */
+	font-size: 14px;
+	line-height: 1.5;
+}
+.naming-help-dialog table{
+	width: 100%;
+	margin: 0 0 10px;
+	border-collapse: collapse;
+}
+/* Same caption treatment, and full-contrast for the same reason as the h4 above: the table's
+   border and position already mark these as column headers. */
+.naming-help-dialog th{
+	padding: 0 10px 5px 0;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	text-align: left;
+	color: var(--text);
+	border-bottom: 1px solid var(--border);
+}
+.naming-help-dialog td{
+	padding: 6px 10px 6px 0;
+	vertical-align: top;
+	border-bottom: 1px solid var(--border);
+}
+/* Same size as the pre block: both are monospace identifiers, so they should read alike. The
+   monospace face is what marks this column apart from the name beside it, not a dimmer colour:
+   these are values to copy, and --text-muted washes out on the dark navy surface. */
+.naming-help-dialog td.nh-id{
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 14px;
+	white-space: nowrap;
+}
+
+/* =====================================================================================
+   LIGHT THEME — fully light, inspired by intellistream.ai: a white header with a blue
+   underline over an off-white content area, brand-blue accents. Activated by
+   <html data-theme="light">, set from localStorage in layout/main.html. Dark is the
+   default and everything above is unchanged; this block only re-maps the theme tokens
+   and patches the spots that hard-code a dark-only colour.
+   ===================================================================================== */
+html[data-theme="light"] {
+	/* Native UI (option popup, scrollbars) follows the light theme. */
+	color-scheme: light;
+	/* text + links */
+	--text: #17313d;                 /* ink on light */
+	--text-muted: #5a6b78;           /* muted caption text */
+	--link: #005984;                 /* brand blue */
+	--link-alt: #005984;
+
+	/* header + sub-nav: white bar, dark ink text, subtle blue active highlight */
+	--chrome-bg: #ffffff;
+	--chrome-text: #17313d;
+	--header-selected: rgba(0, 89, 132, 0.08);
+
+	/* surfaces: off-white page, white elevated content */
+	--body-bg: #faf8f3;              /* off-white page */
+	--header-bg: #ffffff;            /* tables / lists / overlays (elevated content) */
+	--header-bg2: #f2f6f8;
+	--header-bg-selected: #e4eef4;   /* table header, hover, selected row */
+	--header-bg-selected2: #d3e2ec;
+	--menu-bg: #ffffff;              /* side panels, right-form heading, popovers */
+	--modal-bg: #ffffff;
+	--modal-bg2: #eef3f6;
+	--modal-bg3: #eef3f6;
+	--modal-grey: #d9e4ea;
+	--modal-grey-hover: #6b8995;
+	--modal-lightgrey: #6b8995;
+	--modal-silvergrey: #6b8995;
+	--data-list-bg: #f2f6f8;
+	--object-background: #e9eef5;
+	--list-bg-selected: #d7efe0;     /* selected list row (soft green) */
+
+	/* accents / icons / borders / shadow */
+	--accent: #005984;
+	--icon-primary: #4a6472;
+	--icon-secondary: #005984;
+	--border: #d9e4ea;
+	--big-box-shadow: 0 8px 24px rgba(0, 89, 132, 0.12);
+	--focus-ring: 0 0 0 3px rgba(0, 89, 132, 0.18);   /* brand blue, to match the light --accent */
+	/* Light theme already reads neutral, so the policy cards keep the object surface. */
+	--policy-surface: var(--object-background);
+
+	/* Datapoints chart: the series colours default to pastels tuned for the dark canvas and wash
+	   out on a light plot, so remap them (and the default line + axes) to darker, saturated
+	   variants. The var overrides also recolour the matching timeseries colour swatches. */
+	--line-path-orange:      #e0670f;
+	--line-path-teal:        #0e9c8a;
+	--line-path-purple:      #7a3b9d;
+	--line-path-yellowgreen: #5f8f1e;
+	--line-path-pink:        #cf3f86;
+	--line-path-skyblue:     #1f7bc4;
+	--line-area-orange:      rgba(224, 103, 15, 0.15);
+	--line-area-teal:        rgba(14, 156, 138, 0.15);
+	--line-area-purple:      rgba(122, 59, 157, 0.15);
+	--line-area-yellowgreen: rgba(95, 143, 30, 0.15);
+	--line-area-pink:        rgba(207, 63, 134, 0.15);
+	--line-area-skyblue:     rgba(31, 123, 196, 0.15);
+}
+
+/* Light header: white bar with a brand-blue underline; dark nav text; blue avatar.
+   The inline logo's dots recolour to navy via .dh-logo .h (see the logo block above). */
+html[data-theme="light"] header {
+	border-bottom: 2px solid var(--accent);
+	box-shadow: 0 1px 3px rgba(0, 89, 132, 0.10);
+}
+/* `header nav a.selected` needs no light override: it already resolves var(--accent), which the
+   light token block above remaps. */
+html[data-theme="light"] nav.sub-nav { border-bottom-color: var(--border); }
+html[data-theme="light"] section.left-content { box-shadow: 5px 0 18px rgba(0, 89, 132, 0.10); }
+/* The right-form heading is a navy bar in dark theme (--menu-bg); in light theme --menu-bg is
+   white and blends into the form, so give it a subtle tinted bar with a divider. */
+html[data-theme="light"] .right-form .heading {
+	background: var(--header-bg-selected);
+	border-bottom: 1px solid var(--border);
+}
+html[data-theme="light"] nav.sub-nav a { color: #5a6b78; }
+html[data-theme="light"] nav.sub-nav a:hover { color: #17313d; }
+html[data-theme="light"] nav.sub-nav a.selected { color: var(--accent); }
+/* Sub-nav time/period fields in the light theme: dark text on the light field, and the
+   light-accent focus ring (the dark-accent ring above is tuned for the dark sub-nav). */
+html[data-theme="light"] nav.sub-nav .ts-time-field input,
+html[data-theme="light"] nav.sub-nav .ts-time-field select{ color: #17313d; }
+html[data-theme="light"] nav.sub-nav .ts-time-field input:focus,
+html[data-theme="light"] nav.sub-nav .ts-time-field select:focus{ box-shadow: 0 0 0 3px rgba(0, 89, 132, 0.15); }
+/* EnhancedSelect: light-theme focus ring + popup shadow (its surfaces already use theme tokens). */
+html[data-theme="light"] .dh-select-trigger:focus-visible,
+html[data-theme="light"] .dh-select.open .dh-select-trigger{ box-shadow: 0 0 0 3px rgba(0, 89, 132, 0.15); }
+html[data-theme="light"] .dh-select-menu{ box-shadow: 0 14px 36px rgba(0, 89, 132, 0.16); }
+html[data-theme="light"] header div.right-content span.circle {
+	background: var(--accent);
+	color: #ffffff;
+	box-shadow: 0 0 0 3px rgba(0, 89, 132, 0.10);
+}
+html[data-theme="light"] header div.right-content a > div .small-text { color: #5a6b78; }
+html[data-theme="light"] header .user-menu .user-sub-menu {
+	background: #ffffff;
+	border-color: var(--border);
+	box-shadow: var(--big-box-shadow);
+}
+html[data-theme="light"] header .user-menu .user-sub-menu li:hover { background: var(--header-bg-selected); }
+
+/* Toggle menu item: show the mode you can switch TO (see layout/main.html). */
+html[data-theme="light"] .theme-when-dark { display: none; }
+html:not([data-theme="light"]) .theme-when-light { display: none; }
+
+/* Row dividers were painted with the (now light) --body-bg; use a hairline instead. */
+html[data-theme="light"] ul.data-list li,
+html[data-theme="light"] table.listing th,
+html[data-theme="light"] table.listing > tbody > tr > td,
+html[data-theme="light"] .role-label td { border-bottom-color: var(--border); }
+
+/* Form controls: a clean white field with a hairline border in the light theme. */
+html[data-theme="light"] .datahub-form-fields input[type="text"],
+html[data-theme="light"] .datahub-form-fields input[type="password"],
+html[data-theme="light"] .datahub-form-fields input[type="number"],
+html[data-theme="light"] .datahub-form-fields input[type="date"],
+html[data-theme="light"] .datahub-form-fields input[type="time"],
+html[data-theme="light"] .datahub-form-fields select,
+html[data-theme="light"] .datahub-form-fields textarea {
+	background: #ffffff;
+	border-color: var(--border);
+	color: #17313d;
+}
+html[data-theme="light"] .datahub-form-fields input:focus,
+html[data-theme="light"] .datahub-form-fields select:focus,
+html[data-theme="light"] .datahub-form-fields textarea:focus { box-shadow: 0 0 0 3px rgba(0, 89, 132, 0.15); }
+/* Error / required (:invalid) fields: the light input override above resets border-color, so it
+   would hide the red border — re-assert the error colours in the light theme. */
+html[data-theme="light"] .datahub-form-fields input.error,
+html[data-theme="light"] .datahub-form-fields input:invalid,
+html[data-theme="light"] .datahub-form-fields select.error,
+html[data-theme="light"] .datahub-form-fields textarea.error {
+	background: var(--input-error-bg);
+	color: var(--input-error-fg);
+	border-color: var(--input-error-fg);
+}
+
+/* Light-theme buttons. Primary = solid brand blue with white text (the dark-theme lavender looks
+   wrong on white); secondary = a clean white button with a hairline border + dark ink (the base
+   .dh-btn.secondary is a dark navy chip, out of place on a light surface). :not(:disabled) so the
+   shared grey :disabled style still wins. */
+html[data-theme="light"] .dh-btn.primary:not(:disabled) {
+	background: var(--accent);
+	color: #ffffff;
+	border: 1px solid transparent;
+	box-shadow: 0 1px 2px rgba(0, 89, 132, 0.22);
+}
+html[data-theme="light"] .dh-btn.primary:not(:disabled):hover {
+	background: color-mix(in srgb, var(--accent) 88%, #000000);
+	box-shadow: 0 2px 8px rgba(0, 89, 132, 0.30);
+}
+html[data-theme="light"] .dh-btn.secondary {
+	background: #ffffff;
+	color: var(--text);
+	border: 1px solid var(--border);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+html[data-theme="light"] .dh-btn.secondary:not(:disabled):hover {
+	background: var(--header-bg-selected);
+	border-color: var(--accent);
+	color: var(--accent);
+}
+/* Danger had no light rule, so on white it kept the dark theme's muted dusty red with black ink
+   and a heavy dark drop shadow: legible on paper, but it reads as disabled rather than as the
+   destructive action, and the shadow belongs on a dark surface. Solid and white-on-red like
+   primary, reusing --input-error-fg so the app has one red for "this went wrong / this destroys
+   something" (white on it is 4.8:1, above the 4.5 floor). */
+html[data-theme="light"] .dh-btn.danger:not(:disabled) {
+	background: var(--input-error-fg);
+	color: #ffffff;
+	border: 1px solid transparent;
+	box-shadow: 0 1px 2px rgba(150, 30, 45, 0.22);
+}
+html[data-theme="light"] .dh-btn.danger:not(:disabled):hover {
+	background: color-mix(in srgb, var(--input-error-fg) 85%, #000000);
+	border-color: transparent;
+	color: #ffffff;
+	box-shadow: 0 2px 8px rgba(150, 30, 45, 0.30);
+}
+
+/* Remaining dark-only hard-codes patched for light. */
+html[data-theme="light"] .datahub-form-fields div.error { color: var(--input-error-fg); text-shadow: none; }
+html[data-theme="light"] .resource-label { border-color: var(--border); }
+html[data-theme="light"] .right-form footer { background: #eef3f6; }
+html[data-theme="light"] ul.data-list.slim li.sublist { background: #eef3f6; }
+/* .create-submenu is now fully theme-tokenised (var(--menu-bg)/--border/--header-bg-selected), so no
+   light-theme override is needed. */
+
+/* The light-theme series-colour remap lives with the other light tokens at the top of this
+   section; these are the chart-specific rules that go with it. */
+html[data-theme="light"] #datapoints-chart svg path.ts-line { stroke: #2d6a8c; }
+html[data-theme="light"] #datapoints-chart svg path.ts-line.area { fill: rgba(0, 89, 132, 0.12); }
+html[data-theme="light"] #datapoints-chart svg g.y-axis path,
+html[data-theme="light"] #datapoints-chart svg g.y-axis line { stroke: #9bb9cc; }
+html[data-theme="light"] #datapoints-chart svg g.grid g.tick line { stroke: #e4eef4; }
+
+/* Graph network: a clean white canvas in light theme so the pill nodes and connectors read
+   like the intellistream.ai hero graph (the Cytoscape canvas itself is transparent). */
+html[data-theme="light"] section.graph-network-container { background: #ffffff; }
+
+/* ---- Chat panel -------------------------------------------------------------------------
+   A launcher bubble pinned bottom-right that expands into a card. Deliberately not the
+   .right-form full-height overlay: the page stays visible while you ask about it, and the
+   launcher is always in reach rather than hidden behind the user menu. Colours come from the
+   shared custom properties so both themes work without extra rules. */
+.chat-panel{
+	/* No box of its own: the panel is fixed to the viewport and opened from the header button. */
+	display: contents;
+	color: var(--text);
+}
+
+/* "Ask AI" launcher in the header, by the user dropdown. Purple with a chat bubble + star so it
+   reads unmistakably as the AI assistant. */
+.ask-ai-btn{
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 14px;
+	border: none;
+	border-radius: 999px;
+	background: linear-gradient(135deg, #7c3aed, #a855f7);
+	color: #fff;
+	font: inherit;
+	font-weight: 600;
+	font-size: 0.9rem;
+	white-space: nowrap;
+	cursor: pointer;
+	box-shadow: 0 1px 4px rgba(124, 58, 237, 0.4);
+	transition: filter 0.15s ease-out, transform 0.15s ease-out;
+}
+
+.ask-ai-btn:hover{
+	filter: brightness(1.08);
+	transform: translateY(-1px);
+}
+
+.ask-ai-icon{
+	position: relative;
+	display: inline-flex;
+	font-size: 1rem;
+	line-height: 1;
+}
+
+/* The star sits on the corner of the bubble. */
+/* 4-point sparkle sitting on the bubble's corner. Inline SVG (a true 4-point star isn't in the
+   free Font Awesome set); white so it reads against the purple button rather than gold. */
+.ask-ai-star{
+	position: absolute;
+	top: -6px;
+	right: -7px;
+	width: 11px;
+	height: 11px;
+	fill: #fff;
+}
+
+.chat-window{
+	position: fixed;
+	/* Start below the header bar so the panel slides in under it rather than covering it. */
+	top: var(--header-height);
+	right: 0;
+	bottom: 0;
+	z-index: 999; /* just under the header (1000) so the header edge stays visible */
+	width: 560px; /* JS overrides with a remembered pixel width, clamped to <= 92vw / 720px */
+	max-width: 92vw;
+	background: var(--modal-bg);
+	box-shadow: -4px 0 24px rgba(0, 0, 0, 0.25);
+	box-sizing: border-box;
+	display: flex; /* [resize handle] [body] */
+	/* Kept in the DOM while closed (slid off-screen) so the transcript survives a toggle. */
+	transform: translateX(100%);
+	visibility: hidden;
+	transition: transform 0.22s ease-out, visibility 0.22s;
+}
+
+.chat-panel.visible .chat-window{
+	transform: translateX(0);
+	visibility: visible;
+}
+
+/* Restored-open on page load: appear already open instead of sliding in every navigation. */
+.chat-window.no-anim{ transition: none; }
+
+/* Left drag handle: a full-height grab strip with a centered grip pill. */
+.chat-resize{
+	flex: none;
+	width: 10px;
+	cursor: ew-resize;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	touch-action: none;
+}
+
+.chat-resize::before{
+	content: '';
+	width: 4px;
+	height: 44px;
+	border-radius: 2px;
+	background: var(--text);
+	opacity: 0.25;
+	transition: opacity 0.15s ease-out;
+}
+
+.chat-resize:hover::before,
+.chat-resize:focus-visible::before{ opacity: 0.55; }
+
+.chat-resize:focus{ outline: none; }
+
+/* While dragging, keep the whole page from selecting text and show the resize cursor everywhere. */
+body.chat-resizing{
+	cursor: ew-resize;
+	user-select: none;
+}
+
+.chat-body{
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+.chat-header{
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 14px 16px;
+	border-bottom: 1px solid var(--menu-bg);
+}
+
+.chat-title{
+	flex: 1;
+	font-weight: 600;
+}
+
+.chat-header button{
+	background: none;
+	border: none;
+	color: var(--text);
+	cursor: pointer;
+	opacity: 0.7;
+	padding: 4px;
+}
+
+.chat-header button:hover{ opacity: 1; }
+
+.chat-log{
+	flex: 1;
+	overflow-y: auto;
+	padding: 16px;
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.chat-message{
+	padding: 10px 12px;
+	border-radius: 10px;
+	max-width: 90%;
+	white-space: pre-wrap;
+	word-break: break-word;
+	line-height: 1.45;
+}
+
+.chat-message-user{
+	align-self: flex-end;
+	background: var(--accent);
+	color: #fff;
+}
+
+.chat-message-assistant{
+	align-self: flex-start;
+	background: var(--menu-bg);
+}
+
+.chat-message-error{
+	align-self: flex-start;
+	background: transparent;
+	border: 1px solid #c0563f;
+	font-size: 0.9em;
+}
+
+/* The turn is one blocking request, so this is the only progress signal the user gets. */
+.chat-pending{
+	opacity: 0.65;
+	font-style: italic;
+}
+
+.chat-tools{
+	align-self: flex-start;
+	font-size: 0.8em;
+	opacity: 0.65;
+	padding: 0 4px;
+}
+
+.chat-input{
+	padding: 12px 16px;
+	border-top: 1px solid var(--menu-bg);
+}
+
+/* The bordered box the whole composer lives in. The textarea and the controls below it are
+   borderless children, so text and controls read as one field rather than three stacked widgets —
+   the control row sits inside the input, not under it. */
+.chat-composer{
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	background: var(--body-bg);
+	border: 1px solid var(--menu-bg);
+	border-radius: 14px;
+	padding: 8px 10px 6px;
+	transition: border-color 0.15s ease;
+}
+
+.chat-composer:focus-within{
+	border-color: var(--accent);
+}
+
+.chat-input textarea{
+	width: 100%;
+	resize: none;
+	min-height: 24px;
+	max-height: 160px;
+	background: transparent;
+	color: var(--text);
+	border: none;
+	padding: 2px 2px 0;
+	font: inherit;
+}
+
+.chat-input textarea:focus{
+	outline: none;
+}
+
+.chat-controls{
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+/* Borderless until hovered, so it reads as part of the field rather than a widget sitting on it. */
+.chat-effort{
+	background: transparent;
+	color: var(--text-muted);
+	border: none;
+	border-radius: 8px;
+	padding: 3px 6px;
+	font: inherit;
+	font-size: 0.82em;
+	cursor: pointer;
+	max-width: 45%;
+}
+
+.chat-effort:hover,
+.chat-effort:focus{
+	background: var(--menu-bg);
+	color: var(--text);
+	outline: none;
+}
+
+/* The dropdown itself is rendered by the OS, which does not inherit the transparent background. */
+.chat-effort option{
+	background: var(--body-bg);
+	color: var(--text);
+}
+
+.chat-input button[type=submit]{
+	margin-left: auto;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	background: var(--accent);
+	color: #002942;
+	border: none;
+	border-radius: 50%;
+	cursor: pointer;
+	font-size: 0.85em;
+}
+
+.chat-input button[type=submit]:disabled{
+	opacity: 0.45;
+	cursor: default;
+}
+
+/* ---- Rendered Markdown (assistant replies only; see chat-markdown.js) ---------------------- */
+.chat-md{
+	/* Block markup supplies its own spacing, so drop the plain-text pre-wrap. */
+	white-space: normal;
+	max-width: 100%;
+}
+
+.chat-md > :first-child{ margin-top: 0; }
+.chat-md > :last-child{ margin-bottom: 0; }
+
+.chat-md p{ margin: 0 0 8px; }
+
+.chat-md h1, .chat-md h2, .chat-md h3,
+.chat-md h4, .chat-md h5, .chat-md h6{
+	margin: 12px 0 6px;
+	font-weight: 600;
+	line-height: 1.25;
+}
+.chat-md h1{ font-size: 1.3em; }
+.chat-md h2{ font-size: 1.2em; }
+.chat-md h3{ font-size: 1.1em; }
+.chat-md h4, .chat-md h5, .chat-md h6{ font-size: 1em; }
+
+.chat-md ul, .chat-md ol{ margin: 4px 0 8px; padding-left: 20px; }
+.chat-md li{ margin: 2px 0; }
+
+.chat-md a{ color: var(--accent); text-decoration: underline; }
+
+.chat-md code{
+	background: var(--body-bg);
+	border: 1px solid var(--menu-bg);
+	border-radius: 4px;
+	padding: 1px 4px;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 0.85em;
+}
+
+.chat-md pre{
+	background: var(--body-bg);
+	border: 1px solid var(--menu-bg);
+	border-radius: 8px;
+	padding: 10px 12px;
+	overflow-x: auto;
+	margin: 6px 0;
+}
+
+.chat-md pre code{
+	background: none;
+	border: none;
+	padding: 0;
+	white-space: pre;
+}
+
+.chat-md blockquote{
+	margin: 6px 0;
+	padding: 2px 0 2px 10px;
+	border-left: 3px solid var(--menu-bg);
+	opacity: 0.9;
+}
+
+.chat-md hr{
+	border: none;
+	border-top: 1px solid var(--menu-bg);
+	margin: 10px 0;
+}
+
+/* Tables can be wide; scroll them inside their own container so the panel never grows sideways. */
+.chat-table{ overflow-x: auto; margin: 6px 0; }
+.chat-md table{ border-collapse: collapse; width: auto; font-size: 0.9em; }
+.chat-md th, .chat-md td{
+	border: 1px solid var(--menu-bg);
+	padding: 5px 9px;
+	text-align: left;
+}
+.chat-md th{ background: var(--menu-bg); font-weight: 600; }
+
+@media (max-width: 520px){
+	.ask-ai-label{ display: none; } /* icon-only button on narrow screens */
+	.chat-window{ width: 100vw; max-width: 100vw; }
+}
+
+/* Offers to open a lookup in the console. Rendered inline in the transcript so they read as part
+   of the answer rather than as chrome. */
+.chat-views{
+	align-self: flex-start;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+}
+
+.chat-view{
+	background: transparent;
+	color: var(--accent);
+	border: 1px solid var(--accent);
+	border-radius: 999px;
+	padding: 5px 12px;
+	font: inherit;
+	font-size: 0.9em;
+	cursor: pointer;
+}
+
+.chat-view:hover{
+	background: var(--accent);
+	color: #fff;
+}
+
+/* AGPL section 13 source offer. Quiet, but always present: it is a licence obligation,
+   not decoration. */
+.site-footer{
+	padding: 1rem 1.5rem;
+	border-top: 1px solid var(--border);
+	color: var(--text-muted);
+	font-size: .8125rem;
+	text-align: center;
+}
+.site-footer a{
+	color: var(--text-muted);
+	text-decoration: underline;
+}
+.site-footer a:hover{ color: var(--accent); }

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{data.streams}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/cdc.css}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'streams')}">
+<main class="layout-body">
+	<nav th:replace="~{cdc/nav :: navbar('cdc')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<form id="cdc-form" class="cdc-form pad20 datahub-form-fields" th:action="@{/cdc/save}" method="POST" th:if="${!featureDisabled}">
+		<div class="flex-container left-right">
+			<h1 th:text="#{create.cdc.integration}"></h1>
+			<div>
+				<button class="dh-btn primary">
+					<span th:text="#{datahub.save}"></span>
+				</button>
+			</div>
+		</div>
+		<div class="cdc-database cdc-box flex-container flex-wrap pad20 mtop20">
+			<div>
+				<label for="name" th:text="#{name}"></label>
+				<input id="name" type="text" name="name" th:placeholder="#{write.name.here}" tabindex="100"/>
+
+				<label for="externalId" th:text="#{external.id}"></label>
+				<input id="externalId" type="text" name="externalId" th:placeholder="#{write.external.id.here}" tabindex="110"/>
+			</div>
+			<div class="mleft40">
+				<label for="description" th:text="#{description}"></label>
+				<textarea id="description" name="description" tabindex="120"></textarea>
+			</div>
+			<div class="mleft40">
+				<label class="checkbox-icons " for="deactivated">
+					<span class="mright20" th:text="#{deactivated}"></span>
+					<input type="checkbox" id="deactivated" name="deactivated" tabindex="150" checked>
+					<span>
+						<img class="row-check" src="/static/img/row-check.svg" alt="row selected">
+					</span>
+				</label>
+			</div>
+		</div>
+
+		<div class="cdc-database cdc-box flex-container flex-wrap pad20 mtop20">
+			<div class="w100">
+				<h3 th:text="#{database.details}"></h3>
+			</div>
+			<div>
+				<label for="connector" th:text="#{connector}"></label>
+				<select id="connector" name="connector" tabindex="200">
+					<option th:text="PostgreSQL" th:value="1"></option>
+					<option th:text="MS-SQL-Server" th:value="2"></option>
+				</select>
+			</div>
+			<div class="mleft40">
+				<label for="dbHostname" th:text="#{hostname}"></label>
+				<input id="dbHostname" type="text" name="dbHostname" th:placeholder="#{write.name.here}" tabindex="210"/>
+
+				<label for="dbPort" th:text="#{port}"></label>
+				<input style="width: 120px;" id="dbPort" type="text" name="dbPort" th:placeholder="5432" tabindex="220"/>
+			</div>
+			<div class="mleft40">
+				<label for="dbUser" th:text="#{username}"></label>
+				<input id="dbUser" type="text" name="dbUser" tabindex="230"/>
+
+				<label for="dbPassword" th:text="#{password}"></label>
+				<div class="posrel">
+					<input id="dbPassword" type="password" name="dbPassword" tabindex="240"/>
+					<i class="fa fa-fw fa-eye-slash right-icon pointer"></i>
+				</div>
+			</div>
+
+			<div class="mleft40">
+				<button class="dh-btn secondary" type="button" data-type="test-db">
+					<i class="fa fa-fw fa-plus"></i>
+					<span th:text="#{test.connection}"></span>
+				</button>
+			</div>
+		</div>
+
+		<div class="cdc-database cdc-box flex-container flex-wrap pad20 mtop20">
+			<div class="w100">
+				<h3 th:text="#{cdc.integration.details}"></h3>
+			</div>
+			<div>
+				<label for="topicPrefix" th:text="#{topic}"></label>
+				<input id="topicPrefix" type="text" name="topicPrefix" th:placeholder="#{write.name.here}" tabindex="310"/>
+
+				<label for="publicationName" th:text="#{publication.name}"></label>
+				<input id="publicationName" type="text" name="publicationName" th:placeholder="#{write.name.here}" tabindex="320"/>
+			</div>
+
+			<div class="mleft40">
+				<label for="offsetFlushIntervalMs" th:text="#{offset.flush.interval.ms}"></label>
+				<input style="width: 120px;" id="offsetFlushIntervalMs" type="text" name="offsetFlushIntervalMs" th:placeholder="6000" tabindex="330"/>
+			</div>
+
+			<div class="mleft40 flex-container nowrap">
+				<div>
+					<button class="dh-btn secondary" type="button" data-type="add-table">
+						<i class="fa fa-fw fa-plus"></i>
+						<span th:text="#{add.table}"></span>
+					</button>
+				</div>
+				<ul class="mleft40 no-hover data-horizontal">
+					<li class="nothing" th:text="#{no.table.found}"></li>
+				</ul>
+			</div>
+		</div>
+	</form>
+	<script th:inline="javascript" th:if="${!featureDisabled}">
+		document.addEventListener("DOMContentLoaded", () => {
+			$L('are.you.sure.delete.entity', [[#{are.you.sure.delete.entity}]]);
+
+			document.querySelector('form .cdc-database i.fa-eye-slash').addEventListener('pointerdown', e => {
+				const passwordField = e.target.closest(".posrel").querySelector('input');
+				if(passwordField.type === "password"){
+					passwordField.type = "text";
+					e.target.classList.remove("fa-eye-slash");
+					e.target.classList.add("fa-eye");
+				} else {
+					passwordField.type = "password";
+					e.target.classList.remove("fa-eye");
+					e.target.classList.add("fa-eye-slash");
+				}
+			});
+
+			// Test Database
+			document.querySelector('button[data-type="test-db"]').addEventListener('pointerdown', e => {
+				const formEle = document.getElementById('cdc-form');
+				const formData = new FormData(formEle);
+				fetch("/cdc/test", {
+					method: "POST",
+					headers: {
+						'Accept': 'application/json',
+						'Content-Type': 'application/json',
+						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
+					},
+					body: JSON.stringify(formData),
+					signal: AbortSignal.timeout(10000)
+				}).then( response => {
+					if(response.status === 200 || response.status === 201){
+						return response.json();
+					} else {
+						throw Error();
+					}
+				}).then( json => {
+					console.log(json)
+				})
+					.catch(e => {
+						console.error(e);
+					});
+			});
+		});
+	</script>
+</main>
+</body>
+</html>

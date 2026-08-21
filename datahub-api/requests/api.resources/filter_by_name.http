@@ -1,0 +1,66 @@
+POST {{hostname}}/assets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+        "name": "it operations"
+    }
+}
+###
+POST {{hostname}}/assets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"metadata": {
+			"rocev2": true
+        }
+	}
+}
+###
+POST {{hostname}}/assets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"createdTime": {
+			"min": 1696769511000
+		}
+	}
+}
+###
+POST {{hostname}}/assets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"createdTime": {
+			"isoMin": "2023-10-08T07:00",
+			"isoMax": "2023-11-08T07:00"
+		}
+	}
+}
+###
+POST {{hostname}}/assets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"isRoot": true
+	}
+}
+###
+POST {{hostname}}/assets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"isRoot": false
+	}
+}

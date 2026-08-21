@@ -1,0 +1,19 @@
+POST {{hostname}}/subscriptions/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"name": "test_subscription_heater_2012",
+			"externalId": "test_subscription_heater_2012",
+			"timeseries_id": 29
+		},
+		{
+			"name": "test2_subscription_heater_2012",
+			"externalId": "test2_subscription_heater_2012",
+			"timeseries_external_id": "heater_2012_temp"
+		}
+	]
+}

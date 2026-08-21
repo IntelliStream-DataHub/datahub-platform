@@ -1,0 +1,6 @@
+### Connect to the subscription listen WebSocket
+# On connect the server sends back the tenant info derived from the JWT.
+# Requires env var `wsHostname` (e.g. "localhost:8081") — {{hostname}} includes
+# the "http://" scheme and can't be reused here.
+WEBSOCKET ws://{{wsHostname}}/subscriptions/listen/test2_subscription_heater_2012
+Authorization: Bearer {{token}}

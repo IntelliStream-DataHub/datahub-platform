@@ -1,0 +1,267 @@
+{
+  "realm": "datahub",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 3600,
+  "ssoSessionIdleTimeout": 7200,
+  "ssoSessionMaxLifespan": 36000,
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "config": {
+          "kc.user.profile.config": [
+            "{\"unmanagedAttributePolicy\":\"ENABLED\",\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"validations\":{\"length\":{\"min\":3,\"max\":255}}},{\"name\":\"email\",\"displayName\":\"${email}\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"validations\":{\"email\":{},\"length\":{\"max\":255}}}]}"
+          ]
+        }
+      }
+    ]
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "DATAHUB_ACCESS",
+        "description": "Grants access to DataHub. Surfaces in JWT realm_access.roles and is checked by @PreAuthorize (ROLE_DATAHUB_ACCESS)."
+      },
+      {
+        "name": "DATAHUB_CONSOLE",
+        "description": "Grants access to the DataHub console UI. The console reads realm roles from the ID token (realm_access.roles) and requires this authority for every page (WebSecurityConfig hasAuthority DATAHUB_CONSOLE)."
+      },
+      {
+        "name": "DATAHUB_CHAT",
+        "description": "Grants access to the AI chat assistant in the console. Per-user gate on top of the tenant's Vault tenant-config.chat flag; the console requires this authority to show or call the chat (ChatAccess / @PreAuthorize @chatAccess.available())."
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "foo",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "foo@datahub.local",
+      "firstName": "Foo",
+      "lastName": "Tenant",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "foo",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "DATAHUB_ACCESS",
+        "DATAHUB_CONSOLE",
+        "DATAHUB_CHAT"
+      ]
+    },
+    {
+      "username": "bar",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "bar@datahub.local",
+      "firstName": "Bar",
+      "lastName": "Tenant",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bar",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "DATAHUB_ACCESS",
+        "DATAHUB_CONSOLE",
+        "DATAHUB_CHAT"
+      ]
+    },
+    {
+      "username": "service-account-datahub-service-foo",
+      "enabled": true,
+      "serviceAccountClientId": "datahub-service-foo",
+      "realmRoles": [
+        "DATAHUB_ACCESS"
+      ]
+    },
+    {
+      "username": "service-account-datahub-service-bar",
+      "enabled": true,
+      "serviceAccountClientId": "datahub-service-bar",
+      "realmRoles": [
+        "DATAHUB_ACCESS"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "datahub-client",
+      "name": "DataHub console login client",
+      "description": "Authorization-code login client (Spring registrationId 'keycloak'). Console relays the user's token to datahub-api. Direct access grants enabled so you can curl a user token for Swagger/API testing.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "changeme",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8080/login/oauth2/code/keycloak",
+        "http://localhost:*/login/oauth2/code/keycloak",
+        "http://localhost:8081/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "protocolMappers": [
+        {
+          "name": "datahub-realm-roles-id-token",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "datahub-service-foo",
+      "name": "DataHub machine-to-machine client (tenant foo)",
+      "description": "Client-credentials client for the SDKs (TOKEN_URI/CLIENT_ID/CLIENT_SECRET). Tenant is bound to the client: the service-account user belongs to that tenant's organization; request scope=organization:* for the claim. One client == one tenant.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "changeme-foo",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true
+    },
+    {
+      "clientId": "datahub-service-bar",
+      "name": "DataHub machine-to-machine client (tenant bar)",
+      "description": "Client-credentials client for tenant bar. See datahub-service-foo.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "changeme-bar",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "fullScopeAllowed": true
+    }
+  ],
+  "organizationsEnabled": true,
+  "organizations": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Foo",
+      "alias": "foo",
+      "enabled": true,
+      "description": "Dev tenant 'foo'. The id is pinned so it matches the tenant key the platform's Vault config uses; Keycloak would otherwise generate one.",
+      "domains": [
+        {
+          "name": "foo.datahub.local",
+          "verified": true
+        }
+      ],
+      "members": [
+        {
+          "username": "foo"
+        },
+        {
+          "username": "service-account-datahub-service-foo"
+        }
+      ],
+      "groups": [
+        {
+          "name": "datasets",
+          "subGroups": [
+            {
+              "name": "*",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            },
+            {
+              "name": "data_set_demo",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Bar",
+      "alias": "bar",
+      "enabled": true,
+      "description": "Dev tenant 'bar'. The id is pinned so it matches the tenant key the platform's Vault config uses; Keycloak would otherwise generate one.",
+      "domains": [
+        {
+          "name": "bar.datahub.local",
+          "verified": true
+        }
+      ],
+      "members": [
+        {
+          "username": "bar"
+        },
+        {
+          "username": "service-account-datahub-service-bar"
+        }
+      ],
+      "groups": [
+        {
+          "name": "datasets",
+          "subGroups": [
+            {
+              "name": "*",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            },
+            {
+              "name": "data_set_demo",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

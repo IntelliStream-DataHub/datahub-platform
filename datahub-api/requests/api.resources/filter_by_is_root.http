@@ -1,0 +1,37 @@
+POST {{hostname}}/resources/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+        "isRoot": true
+    }
+}
+
+###
+POST {{hostname}}/resources/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"minCreatedTime": null,
+		"maxCreatedTime": null,
+		"minLastUpdatedTime": null,
+		"maxLastUpdatedTime": null,
+		"id": null,
+		"externalId": null,
+		"name": null,
+		"source": null,
+		"isRoot": true,
+		"dataSetIds": null,
+		"cursor": null,
+		"metadata": null,
+		"createdTime": null,
+		"lastUpdateTime": null,
+		"externalIdHash": null
+	},
+	"limit": 1000,
+	"sort": null,
+	"cursor": null
+}

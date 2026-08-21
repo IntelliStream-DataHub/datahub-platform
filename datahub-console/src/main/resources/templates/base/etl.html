@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{intellistream.console.title}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<!-- One rule for one element on one page: kept inline rather than paying for a stylesheet
+	     request. --header-height is the token the rest of the console subtracts, so the frame
+	     stays flush under the header if that ever changes. -->
+	<style>
+		#nifi-frame{
+			width: 100%;
+			height: calc(100vh - var(--header-height));
+			border: 0;
+		}
+	</style>
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'etl')}">
+<main class="layout-body">
+	<iframe id="nifi-frame" src="/nifi"></iframe>
+</main>
+</body>
+</html>

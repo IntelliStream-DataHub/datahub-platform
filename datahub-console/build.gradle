@@ -1,0 +1,80 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+}
+
+group = 'ai.intellistream.datahub'
+version = '0.0.1-SNAPSHOT'
+
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+
+	implementation project(':datahub-commons')
+
+	//implementation "org.springframework.boot:spring-boot-starter-security"
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+	implementation 'com.jayway.jsonpath:json-path:2.9.0'
+
+	//implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
+	implementation 'org.springframework.session:spring-session-data-redis'
+
+	// OpenFeign client
+	implementation group: 'io.github.openfeign', name: 'feign-core', version: feignVersion
+	implementation group: 'io.github.openfeign', name: 'feign-jackson', version: feignVersion
+	implementation "io.github.openfeign:feign-java11:${feignVersion}"
+	implementation "tools.jackson.dataformat:jackson-dataformat-xml:${jacksonVersion}"
+	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
+
+	// Vault client
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+
+	implementation "com.anthropic:anthropic-java:${anthropicSdkVersion}"
+	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'
+	implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6:3.1.3.RELEASE'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	compileOnly 'org.projectlombok:lombok'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	annotationProcessor 'org.projectlombok:lombok'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+	// Keep the default `test` task runnable in a bare checkout: the @Tag("integration") tests
+	// drive a live datahub-api and need Vault credentials, so they run only under the dedicated
+	// `integrationTest` task below.
+	useJUnitPlatform { excludeTags 'integration' }
+}
+
+// Integration tests that require a running datahub-api and Vault access. They exercise the console
+// against real endpoints rather than a stub, so they need a `test` profile config supplying
+// `vault.*` — copy application-test.properties.example to application-test.properties (gitignored)
+// and fill it in.
+//
+//   ./gradlew :datahub-console:integrationTest
+//
+tasks.register('integrationTest', Test) {
+	description = 'Runs @Tag("integration") tests (require a running datahub-api and Vault).'
+	group = 'verification'
+	useJUnitPlatform { includeTags 'integration' }
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	// Activate the `test` profile so application-test.properties layers on top of the base
+	// config. Without it Spring cannot resolve vault.address and the context fails to start.
+	systemProperty 'spring.profiles.active', 'test'
+}
+
+// JS/CSS asset pipeline (JVM-based, no Node) — see assets.gradle and ASSETS.md.
+apply from: "$projectDir/assets.gradle"

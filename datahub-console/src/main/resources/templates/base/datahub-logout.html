@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{logout}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+</head>
+<body>
+<div class="flex-container flex-content">
+	<form class="form-signin" method="post" action="/datahub-logout">
+		<h2 class="form-signin-heading">Are you sure you want to log out?</h2>
+		<input name="_csrf" type="hidden" th:value="${_csrf.token}" />
+		<div class="btns mtop20">
+			<button class="dh-btn btn-lg btn-primary btn-block" type="submit">Log Out</button>
+		</div>
+	</form>
+</div>
+</body>
+</html>

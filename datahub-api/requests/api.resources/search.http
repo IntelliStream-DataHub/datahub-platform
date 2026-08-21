@@ -1,0 +1,10 @@
+POST {{hostname}}/resources/search
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"search": {
+        "query": "room sensor"
+    }
+}
+###

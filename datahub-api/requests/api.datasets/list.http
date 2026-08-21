@@ -1,0 +1,52 @@
+POST {{hostname}}/datasets/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+###
+POST {{hostname}}/datasets/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+        "externalIdPrefix": "power_data",
+		"writeProtected": false
+    }
+}
+
+###
+POST {{hostname}}/datasets/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+        "externalIdPrefix": "power_data",
+		"writeProtected": false,
+		"metadata": {
+			"property2": "string"
+		}
+    }
+}
+
+###
+POST {{hostname}}/datasets/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "filter": {
+		"metadata": {
+			"property2": "string"
+		}
+    }
+}
+
+###
+POST {{hostname}}/datasets/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{"limit": 100}

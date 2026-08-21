@@ -1,0 +1,12 @@
+# The app images now build FROM SOURCE inside a JDK 25 build stage (see
+# deploy/app/Dockerfile), so the build context must include the source tree.
+# Keep it lean by excluding VCS, host Gradle/build outputs (rebuilt in-image),
+# and node artifacts (node-gradle re-provisions node during the container build).
+.git
+.gradle
+**/.gradle
+**/build
+**/node_modules
+**/*.log
+.idea
+dist

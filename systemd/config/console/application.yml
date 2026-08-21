@@ -1,0 +1,47 @@
+# /etc/datahub/console/application.yml
+#
+# Deployment tuning for datahub-console, layered on top of the jar's application.properties
+# and application-prod.properties via SPRING_CONFIG_ADDITIONAL_LOCATION (set in the unit).
+# The console is a thin UI with its session in Valkey; what matters here is behaving well
+# behind nginx and shutting down cleanly. The jar already sets
+# server.forward-headers-strategy=framework (needed for the OAuth2 redirect URI), so that
+# is left alone.
+
+server:
+  shutdown: graceful
+
+  # Session cookie plus the occasional long Referer; the 8 KB default is usually enough,
+  # but nginx passes 4 x 16 KB, so match it.
+  max-http-request-header-size: 16KB
+
+  compression:
+    enabled: true
+    mime-types: text/html,text/css,application/javascript,application/json,image/svg+xml
+    min-response-size: 2KB
+
+  tomcat:
+    # max-connections stays at Tomcat's default (8192): only nginx connects to the console
+    # (its idle keep-alive pool is keepalive x worker_processes per LB, a few thousand at
+    # most), never browsers directly, so the default has margin. The api is different,
+    # see its config.
+    accept-count: 512
+    connection-timeout: 20s
+    # Longer than nginx's 30 s upstream keepalive_timeout; unlimited requests per
+    # connection (see the api config for why).
+    keep-alive-timeout: 75s
+    max-keep-alive-requests: -1
+    # The console does not enable virtual threads in the jar, so this pool IS the
+    # concurrency limit. 200 platform threads handle a lot of page renders; raise it or
+    # uncomment the virtual-thread switch below if the pool ever saturates.
+    threads:
+      max: 200
+      min-spare: 20
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 60s
+  # Optional: run requests on virtual threads like the api does. Behaviour change rather
+  # than a limit, so it is off here until it has been exercised on your setup.
+  # threads:
+  #   virtual:
+  #     enabled: true

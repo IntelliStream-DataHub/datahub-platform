@@ -1,0 +1,4 @@
+GET {{hostname}}/stream/roles
+Authorization: Bearer {{token}}
+Accept: application/json
+

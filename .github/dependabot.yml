@@ -1,0 +1,46 @@
+# Dependency updates. Grouped and rate-limited on purpose: a wall of individual pull
+# requests is how dependency automation gets muted, and a muted bot is worse than none.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Spring Boot and Spring Cloud move as a set; upgrading them one artifact at a
+      # time produces combinations nobody tests.
+      spring:
+        patterns:
+          - "org.springframework*"
+          - "io.spring*"
+      testing:
+        patterns:
+          - "org.junit*"
+          - "org.mockito*"
+          - "org.testcontainers*"
+          - "org.assertj*"
+      # Everything else, patch and minor only. Majors arrive as their own pull request
+      # because they usually need a decision rather than a merge.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: docker
+    directories:
+      - "/deploy/app"
+      - "/deploy/neo4j"
+      - "/deploy/demo"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"

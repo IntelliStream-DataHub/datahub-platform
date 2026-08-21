@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{main.files}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/files.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'files')}">
+<main class="layout-body">
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<div class="flex-container" th:if="${!featureDisabled}">
+		<section class="left-content datahub-form-fields pad20">
+			<label for="search-files" th:text="#{search.files}">Search files</label>
+			<div class="posrel">
+				<input id="search-files" class="w100 left-icon" type="text" name="search-files" th:placeholder="#{write.query.here}">
+				<i class="fa fa-fw fa-search"></i>
+			</div>
+
+			<section id="section-root-dataset-list">
+				<div class="flex-container left-right posrel">
+					<h3 th:text="#{files.grouped.by.dataset}">Files grouped by dataset</h3>
+				</div>
+			</section>
+		</section>
+
+		<section class="flex-auto files-content">
+			<div class="files-tabs flex-container pad10">
+				<button type="button" class="dh-btn primary small" data-type="tab-files" th:text="#{files.tab.active}">Files</button>
+				<button type="button" class="dh-btn small mleft10" data-type="tab-trash" th:text="#{files.tab.deleted}">Deleted files</button>
+			</div>
+			<div class="flex-container left-right">
+				<div class="flex-container actions pad10">
+					<a th:href="${parentPath}" class="dh-btn primary small mleft10" type="button" data-type="go-up-btn" th:title="#{parent.folder}">
+						<i class="fa fa-fw fa-chevron-up"></i>
+					</a>
+				</div>
+				<div class="files-breadcrumb" th:title="#{main.path}">
+					<i class="fa fa-fw fa-folder-open"></i>
+					<span th:text="${#strings.isEmpty(currentPath) ? '/' : currentPath}">/</span>
+					<button type="button" class="fb-copy" data-type="copy-path" th:title="#{copy.path}">
+						<i class="fa fa-fw fa-copy"></i>
+					</button>
+				</div>
+				<div class="flex-container actions pad10">
+					<button class="dh-btn primary small mleft10" type="button" data-type="upload-file-btn" th:data-current-path="${currentPath}" th:title="#{upload.file}">
+						<i class="fa fa-fw fa-upload"></i>
+					</button>
+				</div>
+			</div>
+			<table class="files-table w100" th:data-nodes-json="${inodesJson}">
+				<thead>
+					<tr>
+						<th th:text="#{filename}"></th>
+						<th th:text="#{main.dataset}"></th>
+						<th th:text="#{size}"></th>
+						<th th:text="#{file.type}"></th>
+						<th th:text="#{date.created}"></th>
+						<th th:text="#{last.modified}"></th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr th:each="inode : ${inodes}"
+						th:data-external-id="${inode.getExternalId()}"
+						th:data-name="${inode.getName()}"
+						th:data-node-type="${inode.getType()}">
+						<td th:if="${inode.isFolder()}">
+							<a class="inode" th:href="${'/files/list' + inode.getPath()}">
+								<i class="fa-solid fa-folder"></i>
+								<span th:text="${inode.getName()}"></span>
+							</a>
+						</td>
+						<td th:if="${inode.isFile()}">
+							<i class="fa-solid fa-file-lines"></i>
+							<a class="inode" data-type="file-info"
+							   th:href="${'/files/download/' + inode.getExternalId()}"><span th:text="${inode.getName()}"></span></a>
+						</td>
+						<td th:text="${inode.getDataSetId()}"></td>
+						<td>
+							<span th:if="${inode.isFile()}" th:text="${inode.getHumanReadableSize()}"></span>
+						</td>
+						<td th:text="${inode.getMimeType()}"></td>
+						<td th:text="${@displayTime.format(inode.getDateCreated())}"></td>
+						<td th:text="${@displayTime.format(inode.getLastUpdated())}"></td>
+					</tr>
+				</tbody>
+			</table>
+			<div id="view-trash" hidden>
+				<table class="files-table w100">
+					<thead>
+						<tr>
+							<th th:text="#{filename}"></th>
+							<th th:text="#{files.path}"></th>
+							<th th:text="#{files.deleted.when}"></th>
+							<th></th>
+						</tr>
+					</thead>
+					<tbody data-type="trash-body"></tbody>
+				</table>
+				<p class="pad20" data-type="trash-empty" hidden th:text="#{files.trash.empty}">The trash is empty.</p>
+			</div>
+			<script th:inline="javascript">
+				window.FILES_I18N = {
+					restore: /*[[#{files.restore}]]*/ 'Restore',
+					restoreFail: /*[[#{files.restore.fail}]]*/ 'Could not restore',
+					loadFail: /*[[#{files.trash.loadfail}]]*/ 'Could not load deleted files'
+				};
+			</script>
+		</section>
+	</div>
+	<th:block th:if="${!featureDisabled}">
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+	<th:block th:replace="~{fragments/assets :: js('files')}"></th:block>
+	<script type="text/javascript" th:inline="javascript">
+		// Files search: tree-wide file+folder search that goes straight to datahub-api (bearer token
+		// from /token), no console proxy — same as the upload path. Replaces the folder listing with
+		// results (folders navigate, files download/open); clearing the box restores the listing.
+		document.addEventListener('DOMContentLoaded', () => {
+			// Copy the current folder path to the clipboard (button in the breadcrumb chip).
+			(function(){
+				const copyBtn = document.querySelector('.files-breadcrumb [data-type="copy-path"]');
+				const pathSpan = document.querySelector('.files-breadcrumb span');
+				if(!copyBtn || !pathSpan) return;
+				const flash = () => {
+					copyBtn.classList.add('copied');
+					const icon = copyBtn.querySelector('i');
+					const prev = icon.className;
+					icon.className = 'fa fa-fw fa-check';
+					setTimeout(() => { icon.className = prev; copyBtn.classList.remove('copied'); }, 1200);
+				};
+				copyBtn.addEventListener('click', () => {
+					const text = pathSpan.textContent;
+					if(navigator.clipboard && navigator.clipboard.writeText){
+						navigator.clipboard.writeText(text).then(flash).catch(() => {});
+					} else {
+						// Fallback for non-secure contexts (no navigator.clipboard).
+						const ta = Object.assign(document.createElement('textarea'), { value: text });
+						ta.style.position = 'fixed';
+						ta.style.opacity = '0';
+						document.body.appendChild(ta);
+						ta.select();
+						try { document.execCommand('copy'); flash(); } catch(e) { /* ignore */ }
+						ta.remove();
+					}
+				});
+			})();
+
+			const input = document.getElementById('search-files');
+			const table = document.querySelector('table.files-table');
+			if(!input || !table) return;
+			const tbody = table.querySelector('tbody');
+			const originalRows = tbody.innerHTML;                 // restore targets when the search is cleared
+			const originalNodesJson = table.dataset.nodesJson;    // full node records the context menu reads
+
+			const pad = n => String(n).padStart(2, '0');
+			const fmtDate = iso => {
+				if(!iso) return '';
+				const d = new Date(iso);
+				if(isNaN(d.getTime())) return '';
+				return `${d.getFullYear()}.${pad(d.getMonth() + 1)}.${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+			};
+			const parentDir = path => {
+				const p = path || '';
+				const i = p.lastIndexOf('/');
+				return i > 0 ? p.substring(0, i) : '/';
+			};
+
+			const renderResults = items => {
+				tbody.replaceChildren();
+				// Expose the result records to the context menu / file-info dialog (files-page.js reads
+				// data-nodes-json fresh on each lookup), so right-click works on search hits too.
+				table.dataset.nodesJson = JSON.stringify(items);
+				if(!items.length){
+					const tr = tbody.insertRow();
+					tr.className = 'fs-empty';
+					const td = tr.insertCell();
+					td.colSpan = 6;
+					td.textContent = /*[[#{no.results.found}]]*/ 'No results found';
+					return;
+				}
+				items.forEach(inode => {
+					const isFolder = inode.type === 'FOLDER' || inode.folder === true;
+					const tr = tbody.insertRow();
+					tr.setAttribute('data-external-id', inode.externalId || '');
+					tr.setAttribute('data-name', inode.name || '');
+					tr.setAttribute('data-node-type', inode.type || '');
+					// Each hit lives elsewhere in the tree; carry its own parent path for rename/move.
+					tr.setAttribute('data-parent-path', parentDir(inode.path));
+
+					const nameTd = tr.insertCell();
+					const link = Object.assign(document.createElement('a'), {
+						className: 'inode',
+						href: isFolder ? ('/files/list' + (inode.path || '')) : ('/files/download/' + inode.externalId)
+					});
+					if(!isFolder) link.setAttribute('data-type', 'file-info');
+					link.innerHTML = `<i class="fa-solid ${isFolder ? 'fa-folder' : 'fa-file-lines'}"></i>`;
+					link.append(Object.assign(document.createElement('span'), { textContent: inode.name }));
+					nameTd.append(link);
+					nameTd.append(Object.assign(document.createElement('div'), { className: 'fs-path', textContent: parentDir(inode.path) }));
+
+					tr.insertCell().textContent = inode.dataSetId || '';
+					tr.insertCell().textContent = isFolder ? '' : (inode.humanReadableSize || '');
+					tr.insertCell().textContent = inode.mimeType || '';
+					tr.insertCell().textContent = fmtDate(inode.dateCreated);
+					tr.insertCell().textContent = fmtDate(inode.lastUpdated);
+				});
+			};
+
+			const doSearch = query => {
+				const apiBase = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
+				fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+					.then(r => {
+						if(r.status === 401){ if(window.renderSignedOutDialog) window.renderSignedOutDialog(); return null; }
+						if(!r.ok) throw new Error('token');
+						return r.text();
+					})
+					.then(token => token === null ? null : fetch(`${apiBase}/files/search?q=${encodeURIComponent(query)}`, {
+						headers: { Accept: 'application/json', Authorization: 'Bearer ' + token }
+					}))
+					.then(r => (r && r.ok) ? r.json() : null)
+					.then(json => { if(json) renderResults(json.items || []); })
+					.catch(e => console.log(e));
+			};
+
+			let timer;
+			input.addEventListener('input', e => {
+				clearTimeout(timer);
+				const q = e.target.value;
+				if(q && q.trim().length >= 3){
+					timer = setTimeout(() => doSearch(q.trim()), 400);
+				} else {
+					tbody.innerHTML = originalRows;             // restore the current-folder listing
+					table.dataset.nodesJson = originalNodesJson; // and its node records
+				}
+			});
+		});
+	</script>
+	</th:block>
+</main>
+</body>
+</html>

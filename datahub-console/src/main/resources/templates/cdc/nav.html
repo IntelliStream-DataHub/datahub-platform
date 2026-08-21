@@ -1,0 +1,5 @@
+<nav class="sub-nav" th:fragment="navbar (pageSelected)">
+	<a th:href="@{/cdc}" th:classappend="${pageSelected} == 'cdc' ? 'selected' : ''">
+		<span th:text="#{change.data.capture}"></span>
+	</a>
+</nav>

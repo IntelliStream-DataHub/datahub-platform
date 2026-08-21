@@ -1,0 +1,35 @@
+POST {{hostname}}/timeseries/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"items": [
+		{
+			"externalId": "nordpool_hourly_energy_price",
+			"name": "nordpool hourly energy price",
+			"metadata": {
+				"measurement_started": "15.06.2024"
+			},
+			"unit": "NOK",
+			"description": "nordpool hourly energy price",
+			"valueType": "decimal"
+		}
+	]
+}
+
+###
+POST {{hostname}}/timeseries/data/list
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "nordpool_hourly_energy_price",
+			"start": "2024-06-15T00:00Z",
+			"end": "2024-07-15T00:00Z",
+            "limit": 10000
+		}
+	]
+}

@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<body>
+
+<!-- Shared chrome for the standalone error pages (403, no-organization).
+
+     These pages render when the session, the tenant or the OAuth2 flow is broken, so they
+     deliberately do NOT go through layout/main.html and do NOT link /static/css — a page whose
+     job is to explain a failure must not depend on anything that can fail with it. The CSS is
+     therefore inlined, but it lives here once instead of being copy-pasted into each page.
+
+     A page tints the heading and the notice bar by setting --error-accent before this block:
+         <style>:root { --error-accent: #b45309; }</style> -->
+<th:block th:fragment="styles">
+    <style>
+        body { font-family: system-ui, Arial, sans-serif; margin: 2rem; color: #1f2937; }
+        .wrap { max-width: 720px; margin: auto; }
+        h1 { font-size: 2rem; margin-bottom: .5rem; color: var(--error-accent, #b91c1c); }
+        p { margin: .5rem 0; line-height: 1.5; }
+        a { color: #2563eb; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        a.button { display: inline-block; padding: .5rem 1rem; background-color: #2563eb; color: white; border-radius: 4px; margin-top: 1rem; }
+        a.button:hover { background-color: #1d4ed8; text-decoration: none; }
+        .notice { background: #fffbeb; border-left: 4px solid var(--error-accent, #b91c1c); padding: 1rem; border-radius: 4px; margin: 1.5rem 0; }
+    </style>
+</th:block>
+
+</body>
+</html>

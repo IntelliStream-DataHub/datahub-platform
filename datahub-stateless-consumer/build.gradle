@@ -1,0 +1,114 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+	id 'idea'
+}
+
+group = 'ai.intellistream.datahub.consumer.stateless'
+version = '0.0.1-SNAPSHOT'
+
+
+idea {
+	module {
+		downloadJavadoc = true
+		downloadSources = true
+	}
+}
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation project(':datahub-infra')
+	implementation project(':datahub-commons')
+
+	// Vault client
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+
+	// Open Feign
+	implementation group: 'io.github.openfeign', name: 'feign-core', version: feignVersion
+	implementation group: 'io.github.openfeign', name: 'feign-jackson', version: feignVersion
+	implementation "io.github.openfeign:feign-java11:${feignVersion}"
+	implementation "tools.jackson.dataformat:jackson-dataformat-xml:${jacksonVersion}"
+	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
+
+	implementation("org.apache.pulsar:pulsar-client-admin:${pulsarVersion}"){
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client-admin-api:${pulsarVersion}"){
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation ("org.apache.pulsar:pulsar-client-api:${pulsarVersion}"){
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+
+	implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
+
+	implementation 'at.yawk.lz4:lz4-java:1.11.0'
+	implementation 'com.github.luben:zstd-jni:1.5.7-7'
+
+	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+	implementation 'org.springframework.boot:spring-boot-starter-validation'
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+	developmentOnly 'org.springframework.boot:spring-boot-devtools'
+	runtimeOnly 'org.postgresql:postgresql'
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
+	testImplementation 'org.testcontainers:pulsar:1.20.4'
+	testImplementation "org.apache.pulsar:pulsar-client-admin:${pulsarVersion}"
+}
+
+tasks.named('test') {
+	// Keep the default `test` task runnable without a container runtime: the @Tag("integration")
+	// Pulsar fan-out tests run only under the dedicated `integrationTest` task below.
+	useJUnitPlatform { excludeTags 'integration' }
+}
+
+// Integration tests that require a container runtime (Podman or Docker). They spin up an Apache
+// Pulsar standalone broker with the datahub-pulsar-filter NAR loaded, so the broker-side
+// subscription filtering is exercised against the REAL fanout producer configuration in
+// BatchedDatapointsListener (KEY_BASED batching + key/orderingKey).
+//
+//   ./gradlew :datahub-stateless-consumer:integrationTest
+//
+tasks.register('integrationTest', Test) {
+	description = 'Runs @Tag("integration") Pulsar fan-out tests (require Podman/Docker).'
+	group = 'verification'
+	useJUnitPlatform { includeTags 'integration' }
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter tasks.named('test')
+
+	// Build and hand the broker-side entry-filter NAR to the tests so they can mount it into the
+	// Pulsar container.
+	def narTask = project(':datahub-pulsar-filter').tasks.named('nar')
+	dependsOn narTask
+	systemProperty 'datahub.pulsar.image.version', project.findProperty('pulsarVersion') ?: '4.0.11'
+	doFirst {
+		systemProperty 'datahub.pulsar.filter.nar', narTask.get().archiveFile.get().asFile.absolutePath
+	}
+
+	// Point Testcontainers at the rootless Podman socket when DOCKER_HOST isn't already set, and
+	// disable the Ryuk reaper (it does not work under rootless Podman; the test JVM stops the
+	// container via a shutdown hook instead).
+	if (!System.getenv('DOCKER_HOST')) {
+		def uid = ['id', '-u'].execute().text.trim()
+		def podmanSocket = "/run/user/${uid}/podman/podman.sock"
+		if (file(podmanSocket).exists()) {
+			environment 'DOCKER_HOST', "unix://${podmanSocket}"
+		}
+	}
+	environment 'TESTCONTAINERS_RYUK_DISABLED', 'true'
+}

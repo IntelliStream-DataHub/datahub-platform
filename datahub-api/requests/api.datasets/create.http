@@ -1,0 +1,136 @@
+POST {{hostname}}/datasets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "example_site_rack5",
+			"name": "Example Site Rack 5",
+			"description": "Data Set which contains data from equipment in rack 5",
+			"metadata": {
+				"property1": "foobar",
+				"property2": "barfoo"
+			},
+			"policies": [
+              "policy_is_read_protected",
+              "policy_is_write_protected"
+            ]
+		}
+	]
+}
+
+
+###
+POST {{hostname}}/datasets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "power-data-nordpool",
+			"name": "Power Data From Nordpool",
+			"description": "Data Set which contains power data from Nordpool",
+			"writeProtected": false
+		},
+		{
+			"externalId": "sensor-data",
+			"name": "Sensor Data",
+			"description": "Air quality data from room sensor devices",
+			"writeProtected": false
+		},
+		{
+			"externalId": "power-data-network-switch",
+			"name": "Power Data Network Switch"
+		}
+	]
+}
+
+###
+POST {{hostname}}/datasets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "example-org-data",
+			"name": "Example Org data"
+		},
+		{
+			"externalId": "example-org-server-data",
+			"name": "Example Org Server Data",
+            "parentExternalId": "example-org-data"
+		},
+		{
+			"externalId": "example-org-invoice-data",
+			"name": "Example Org Invoice Data",
+			"parentExternalId": "example-org-data"
+		},
+		{
+			"externalId": "example-org-invoice-api-requests",
+			"name": "Example Org Invoice Api Requests",
+			"parentExternalId": "example-org-invoice-data"
+		}
+	]
+}
+
+###
+POST {{hostname}}/datasets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "items": [
+        {
+          "connectedDataSets": [
+            1088
+          ],
+          "name": "SAP SAFETY",
+          "externalId": "sap_safety",
+          "description": "",
+          "writeProtected": true,
+          "deactivated": false,
+          "policies": ["policy_is_write_protected"]
+        }
+]}
+
+###
+POST {{hostname}}/datasets/create
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"items": [
+		{
+			"externalId": "test-dataset1",
+			"name": "Test Data Set 1",
+			"description": "Test Data Set",
+			"metadata": {
+				"property1": "string",
+				"property2": "string"
+			}
+		},
+		{
+			"externalId": "test-dataset2",
+			"name": "Test Data Set 2",
+            "parentExternalId": "test-dataset1",
+			"description": "Test Data Set",
+			"metadata": {
+				"property1": "string",
+				"property2": "string"
+			}
+		},
+		{
+			"externalId": "test-dataset3",
+			"name": "Test Data Set 3",
+			"parentExternalId": "test-dataset2",
+			"description": "Test Data Set",
+			"metadata": {
+				"property1": "string",
+				"property2": "string"
+			}
+		}
+	]
+}

@@ -1,0 +1,48 @@
+/* Timeseries → Analyze tab. Linked page-specifically from timeseries/analyze.html (not the shared
+   layout), so it loads only on this page. Colors are driven by the shared semantic theme tokens
+   (--text, --text-muted, --border, --accent, --header-bg-selected*) defined in all.css, so the
+   page reads correctly in BOTH the dark and light themes instead of assuming the dark palette. */
+/* Right column is one continuous elevated surface (like the chart that fills the column on the other
+   timeseries pages), so the page background never shows through below the shortened chart. */
+.analyze-content { background: var(--menu-bg); min-height: calc(100vh - var(--header-height) - var(--sub-nav-height)); box-sizing: border-box; }
+.analyze-surface { padding:6px 0 14px; min-height:200px; }
+.analyze-toolbar { display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; margin-bottom:14px; }
+.analyze-toolbar label { display:flex; flex-direction:column; font-size:12px; color:var(--text-muted); gap:3px; }
+.analyze-toolbar select, .analyze-toolbar input { font:inherit; padding:4px 8px; border:1px solid var(--border); border-radius:3px; background:#F5FCFF; color:#002942; }
+.analyze-toolbar input[type="number"] { width:80px; }
+.an-focus { font-size:13px; color:var(--text-muted); align-self:center; }
+.an-focus b { color:var(--text); }
+.an-band { font-size:12px; color:var(--text-muted); margin:0 0 10px; cursor:help; }
+.an-status { font-size:13px; color:var(--text-muted); padding:8px 0; }
+#an-ts-list { max-height:680px; overflow-y:auto; margin-top:6px; }
+#an-ts-list li.selected { background: var(--list-bg-selected, #1a702b); }
+#datapoints-chart { min-height:360px; margin-bottom:14px; }
+.an-card { background: var(--header-bg-selected); color:var(--text); border:1px solid var(--header-bg-selected2); border-left:3px solid transparent; border-radius:6px; padding:10px 12px; margin-bottom:10px; cursor:pointer; }
+.an-card:hover { background: var(--header-bg-selected2); }
+.an-card.active { box-shadow:0 0 0 1px var(--accent) inset; }
+.an-card .an-overlay-hint { float:right; font-size:10px; color:var(--text-muted); }
+.an-card h4 { margin:0 0 6px; font-size:14px; color:var(--text); word-break:break-word; }
+.an-rank { color: var(--accent); font-weight:700; margin-right:1px; }
+/* Below-threshold candidates: greyed but still visible + clickable; brighten on hover. */
+.an-card.weak { opacity:0.45; filter:grayscale(0.5); }
+.an-card.weak:hover { opacity:0.9; filter:grayscale(0.1); }
+.an-weak-divider { font-size:11px; color:var(--text-muted); text-align:center; margin:14px 4px 8px; border-top:1px dashed var(--header-bg-selected2); padding-top:8px; }
+.an-metrics { display:flex; flex-wrap:wrap; gap:4px 12px; font-size:12px; color:var(--text-muted); align-items:center; }
+.an-metrics b { color:var(--text); }
+.an-badge { font-size:10px; padding:1px 7px; border-radius:10px; }
+.an-badge.pos { background:rgba(0,220,171,0.16); color:#00dcab; }
+.an-badge.warn { background:rgba(246,172,28,0.18); color:#F6AC1C; }
+.an-badge.muted { background:var(--header-bg-selected2); color:var(--text-muted); }
+/* Light theme: the bright teal/amber text washes out on a light tint — darken the ink and
+   deepen the fill so the badges keep the same meaning with adequate contrast. */
+html[data-theme="light"] .an-badge.pos { background:rgba(0,172,79,0.14); color:var(--ok-text); }
+html[data-theme="light"] .an-badge.warn { background:rgba(246,172,28,0.22); color:#8a5a00; }
+.an-path { font-size:11px; color:var(--text-muted); margin-top:5px; word-break:break-word; }
+.an-coh { margin-top:8px; }
+.an-coh .lbl { display:flex; justify-content:space-between; font-size:10px; color:var(--text-muted); width:260px; }
+.an-skipped { font-size:11px; color:var(--text-muted); margin-top:8px; }
+/* Coherence sparkline (SVG built in analyze.js). Gridlines, axis labels and the trace track the
+   theme so they stay visible on the card in both palettes. */
+.an-coh svg .an-grid { stroke: var(--header-bg-selected2); }
+.an-coh svg .an-axis { fill: var(--text-muted); }
+.an-coh svg .an-spark { stroke: var(--accent); }

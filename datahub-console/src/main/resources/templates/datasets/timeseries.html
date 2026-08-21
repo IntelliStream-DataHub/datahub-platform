@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{datasets}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'datasets')}">
+<main class="layout-body">
+    <nav th:replace="~{datasets/nav :: navbar('timeseries')}"></nav>
+	<div class="flex-container left-c-right">
+		<section class="left-content datahub-form-fields" style="width: 400px">
+			<div class="left-content-header pad10 flex-container left-right">
+				<h3><i class="fa fa-fw fa-database"></i><span th:text="#{datasets}"></span></h3>
+				<div class="actions">
+					<button class="dh-btn primary small" type="button" th:attr="placeholder=#{create.dataset}" data-type="create-dataset-btn">
+						<i class="fa fa-fw fa-plus"></i>
+					</button>
+				</div>
+			</div>
+
+			<div class="pad10-no-bot">
+				<label for="search-dataset" th:text="#{search.for.dataset}"></label>
+				<div class="posrel">
+					<input id="search-dataset" class="w100 left-icon" type="text" name="search-dataset" th:attr="placeholder=#{write.query.here}"/>
+					<i class="fa fa-fw fa-search"></i>
+				</div>
+			</div>
+
+			<section id="section-root-dataset-list" class="pad10-no-topbot">
+				<ul class="data-list slim mtop10 pointer" data-type="root-dataset-list">
+					<th:block th:each="n : ${datasets}" th:attr="data-id=${n.id}">
+						<li th:attr="data-id=${n.id}" class="flex-container left-right">
+							<span th:text="${n.name}"></span>
+						</li>
+					</th:block>
+				</ul>
+			</section>
+		</section>
+		<section class="left-content flex-1">
+			<div class="left-content-header pad10">
+				<h3 th:text="#{timeseries}"></h3>
+			</div>
+			<table id="dataset-timeseries-list" class="listing slim pointer w100">
+				<thead>
+				<tr>
+					<th th:text="#{id}"></th>
+					<th th:text="#{external.id}"></th>
+					<th th:text="#{name}"></th>
+					<th th:text="#{main.unit}"></th>
+					<th th:text="#{part.of.dataset}"></th>
+				</tr>
+				</thead>
+				<tbody data-type="dataset-timeseries-rows">
+				</tbody>
+			</table>
+		</section>
+	</div>
+	<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+	<script type="text/javascript" th:inline="javascript">
+		document.addEventListener('DOMContentLoaded', () => {
+
+			$L('name', [[#{name}]]);
+			$L('delete', [[#{delete}]]);
+			$L('create.dataset', [[#{create.dataset}]]);
+			$L('are.you.sure.delete.entity', [[#{are.you.sure.delete.entity}]]);
+			$L('write.name.here', [[#{write.name.here}]]);
+			$L('external.id', [[#{external.id}]]);
+			$L('write.external.id.here', [[#{write.external.id.here}]]);
+			$L('description', [[#{description}]]);
+			$L('write.description.here', [[#{write.description.here}]]);
+			$L('save', /*[[#{datahub.save}]]*/);
+			$L('cancel', [[#{cancel}]]);
+			$L('update', [[#{update}]]);
+			$L('main.metadata', [[#{main.metadata}]]);
+			$L('main.key', [[#{main.key}]]);
+			$L('main.value', [[#{main.value}]]);
+			$L('add.metadata', [[#{add.metadata}]]);
+			$L('metadata.key.here', [[#{metadata.key.here}]]);
+			$L('metadata.value.here', [[#{metadata.value.here}]]);
+			$L('deactivated', [[#{deactivated}]]);
+			$L('write.protected', [[#{write.protected}]]);
+			$L('parent.dataset', [[#{parent.dataset}]]);
+			$L('find.dataset', [[#{find.dataset}]]);
+			$L('choose.dataset', [[#{choose.dataset}]]);
+			$L('confirm', [[#{confirm}]]);
+			$L('close', [[#{close}]]);
+			$L('edit.dataset', [[#{edit.dataset}]]);
+			$L('search.for.dataset', [[#{search.for.dataset}]]);
+			$L('write.query.here', [[#{write.query.here}]]);
+			$L('external.id.exists', /*[[#{datahub.externalid.exists}]]*/);
+			$L('no.timeseries.found', [[#{no.timeseries.found}]]);
+
+			// ---- Timeseries table: click a dataset to list its timeseries, including every
+			// timeseries attached to a descendant dataset (the api walks the BELONGS_TO
+			// hierarchy for us via POST /timeseries/filter). Browser-direct to datahub-api
+			// with a bearer token from /token — no console proxy, same pattern as resource-list.
+			const apiBase = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
+			const tsTableBody = document.querySelector('[data-type="dataset-timeseries-rows"]');
+
+			const apiToken = () => fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+				.then(r => {
+					if(r.status === 401){ if(window.renderSignedOutDialog) window.renderSignedOutDialog(); return null; }
+					if(!r.ok) throw new Error('token');
+					return r.text();
+				});
+
+			const fetchJson = (token, path, options) => fetch(apiBase + path, Object.assign({
+				headers: {
+					Accept: 'application/json',
+					'Content-Type': 'application/json',
+					Authorization: 'Bearer ' + token
+				}
+			}, options)).then(r => { if(!r.ok) throw new Error(path + ' -> ' + r.status); return r.json(); });
+
+			const renderTimeseriesRows = (items, datasetNames) => {
+				tsTableBody.replaceChildren();
+				if(items.length === 0){
+					const cell = tsTableBody.insertRow().insertCell();
+					cell.colSpan = 5;
+					cell.textContent = $L('no.timeseries.found');
+					return;
+				}
+				for(const ts of items){
+					const row = tsTableBody.insertRow();
+					row.insertCell().textContent = ts.id;
+					row.insertCell().textContent = ts.externalId;
+					row.insertCell().textContent = ts.name;
+					row.insertCell().textContent = ts.unit || '';
+					const datasetCell = row.insertCell();
+					if(ts.dataSetId){
+						// Deep link to the explore page: it preselects this timeseries and draws
+						// the graph from the timeseries up through its dataset hierarchy.
+						datasetCell.append(Object.assign(document.createElement('a'), {
+							href: '/timeseries/index?selected=' + encodeURIComponent(ts.id),
+							textContent: datasetNames.get(ts.dataSetId) || String(ts.dataSetId)
+						}));
+					}
+				}
+			};
+
+			const loadTimeseriesForDataset = dataSetId => {
+				apiToken()
+					.then(token => {
+						if(token === null) return;
+						return fetchJson(token, '/timeseries/filter', {
+							method: 'POST',
+							// dataSetId is a list of IdCollection OBJECTS ({"id": "..."}), not a bare id —
+							// a bare number is rejected with a 400. The id stays a STRING all the way
+							// through: that is how the api hands it over and how it reads it back, so
+							// Number() buys nothing and can only lose precision above 2^53.
+							body: JSON.stringify({ limit: 10000, filter: { dataSetId: [{ id: dataSetId }] } })
+						})
+							.then(json => {
+								const items = json.items || [];
+								// Descendant timeseries carry their own dataset id; resolve the
+								// distinct ids to names for the "part of data set" column.
+								const datasetIds = [...new Set(items.map(ts => ts.dataSetId).filter(id => id))];
+								if(datasetIds.length === 0){
+									renderTimeseriesRows(items, new Map());
+									return;
+								}
+								return fetchJson(token, '/datasets/byids', {
+									method: 'POST',
+									body: JSON.stringify({ items: datasetIds.map(id => ({ id: id })) })
+								}).then(dsJson => {
+									renderTimeseriesRows(items, new Map((dsJson.items || []).map(ds => [ds.id, ds.name])));
+								});
+							});
+					})
+					.catch(e => console.log(e));
+			};
+
+			const selectDataset = ele => {
+				document.querySelectorAll('[data-type="root-dataset-list"] li.selected, #left-content-dataset-search-results .selected')
+					.forEach(el => el.classList.remove('selected'));
+				ele.classList.add('selected');
+				loadTimeseriesForDataset(ele.getAttribute('data-id'));
+			};
+
+			// Delegated, so rows added later (create form, search results) work too.
+			document.querySelector('[data-type="root-dataset-list"]').addEventListener('click', e => {
+				const li = e.target.closest('li[data-id]');
+				if(li) selectDataset(li);
+			});
+
+			document.querySelector('[data-type="create-dataset-btn"]').addEventListener('click', () => {
+				const dataSetForm = new DataSetForm({
+					afterSave: obj => {
+						const newDataSetEle = Object.assign(document.createElement('LI'), {
+							innerHTML: '<span></span>',
+							className: "sublist flex-container left-right"
+						});
+						newDataSetEle.querySelector('span').textContent = obj.name;
+						newDataSetEle.setAttribute('data-id', obj.id);
+						if(obj.parentId || obj.parentExternalId){
+							// Insert into DOM as a child of parent
+							let refNode = document.querySelector('[data-type="root-dataset-list"] [data-id="'+obj.parentId+'"]');
+							if(refNode.style.paddingLeft){
+								const pixels = Number(newDataSetEle.style.paddingLeft.replace("px", ""));
+								newDataSetEle.style.paddingLeft = (pixels + 10) + "px";
+							} else {
+								newDataSetEle.style.paddingLeft = "20px";
+							}
+							refNode.parentElement.insertBefore(newDataSetEle, refNode.nextSibling);
+						} else {
+							// Is a new Root Data Set
+							document.querySelector('[data-type="root-dataset-list"]').prepend(newDataSetEle);
+						}
+					}
+				});
+				dataSetForm.render();
+			});
+
+			const renderSearchResults = data => {
+				const existingSearchTable = document.getElementById('left-content-dataset-search-results');
+				if(existingSearchTable) {
+					existingSearchTable.remove();
+				}
+				const sectionEle = Object.assign(document.createElement('section'), {
+					id: "left-content-dataset-search-results",
+					innerHTML: `
+						<table class="listing slim objects w100 table-select">
+							<thead>
+								<tr>
+									<th>${$L('name')}</th>
+								</tr>
+							</thead>
+							<tbody></tbody>
+						</table>`
+				});
+				const tableBody = sectionEle.firstElementChild.tBodies[0];
+				for(let i = 0; i < data.length; i++){
+					const r = tableBody.insertRow();
+					r.className = 'pointer';
+					r.setAttribute('data-id', data[i].id);
+					const cellName = r.insertCell();
+					const nameField = Object.assign(document.createElement('div'), {});
+					nameField.textContent = data[i].name;
+					cellName.append( nameField );
+
+					// On this page a dataset click means "show its timeseries" — editing lives on
+					// the datasets index page.
+					r.addEventListener('pointerdown', () => selectDataset(r));
+				}
+				document.querySelector('section.left-content').append(sectionEle);
+				document.getElementById('section-root-dataset-list').style.display = "none";
+			};
+
+			const doSearch = query => {
+				fetch('/api/datasets/search', {
+					method: 'POST',
+					headers: {
+						'Accept': 'application/json',
+						'Content-type': 'application/json',
+						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
+					},
+					body: JSON.stringify({
+						"search": {
+							"query": query
+						}
+					})
+				})
+					.then(response => {
+						return response.json();
+					})
+					.then( json => {
+						renderSearchResults(json.items);
+					})
+					.catch((e) => {
+						console.log(e);
+					});
+			};
+
+			let searchTimer;
+			document.getElementById('search-dataset').addEventListener('input', e => {
+				clearTimeout(searchTimer);
+				if(e.target.value && e.target.value.length >= 3){
+					document.getElementById('section-root-dataset-list').style.display = "none";
+					searchTimer = setTimeout(() => {
+						doSearch(e.target.value);
+					}, 500);
+				} else {
+					clearTimeout(searchTimer);
+					document.getElementById('section-root-dataset-list').style.display = "block";
+					const searchResultsTable = document.getElementById('left-content-dataset-search-results');
+					if(searchResultsTable){
+						searchResultsTable.remove();
+					}
+				}
+			});
+		});
+	</script>
+</main>
+</body>
+</html>

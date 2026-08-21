@@ -1,0 +1,46 @@
+# Hermetic context-load profile (used only by ApiDatahubApplicationTests).
+#
+# Supplies dummy values for every @Value placeholder the bean graph needs so the Spring
+# context can assemble. All external clients (Vault, Keycloak, Pulsar, ClickHouse, Postgres,
+# Neo4j, Valkey) are replaced with Mockito beans in the test, so none of these endpoints are
+# ever contacted — the values just have to be present and well-formed.
+#
+# A distinct profile name (not "test") is used on purpose so the committed
+# src/main/resources/application-test.yml (which points at the real vault-dev server) is NOT
+# loaded here.
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://issuer.example.invalid/realms/datahub
+
+# PulsarConfig builds a non-connecting client only when security is "off"; quoted so YAML does
+# not coerce it to a boolean.
+security:
+  mode: "off"
+
+datahub:
+  # Disables TenantFlywayMigrator (@ConditionalOnProperty) so no per-tenant migration runs.
+  flyway:
+    per-tenant-migrate: false
+  pulsar:
+    tls:
+      enabled: false
+
+pulsar:
+  service:
+    url: pulsar://localhost:6650
+    httpUrl: http://localhost:8080
+  client-id: ctxtest
+  client-secret: ctxtest
+  admin-client-id: ctxtest
+  admin-client-secret: ctxtest
+  issuer-url: https://issuer.example.invalid
+  internal-tenant: ctxtest
+
+vault:
+  address: http://localhost:8200
+  role-id: ctxtest
+  secret-id: ctxtest

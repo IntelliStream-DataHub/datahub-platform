@@ -1,0 +1,16 @@
+postgres:
+  datasource:
+    driverClassName: org.postgresql.Driver
+    dialect: org.hibernate.dialect.PostgreSQLDialect
+    hikari:
+      connection-timeout: 30000
+      maximum-pool-size: 50
+
+vault:
+  address: < vault url here >
+  role-id: < role-id here >
+  secret-id: < secret-id here >
+
+# CORS: browser origins allowed to call the API directly (e.g. the datahub-console).
+# Comma-separated. Defaults to http://localhost:8080 when unset (local console).
+origins: http://localhost:8080

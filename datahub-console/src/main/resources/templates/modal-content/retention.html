@@ -1,0 +1,18 @@
+<h2>Retention policies</h2>
+
+<div>
+	By default, when a Pulsar message arrives at a broker, the message is stored until it has been acknowledged on all subscriptions, at which point it is marked for deletion. You can override this behavior and retain messages that have already been acknowledged on all subscriptions by setting a retention policy for all topics in a given namespace. Retention is based on both a size limit and a time limit.
+</div>
+<div>
+	The diagram below illustrates the concept of message retention.
+</div>
+<img class="pointer" id="retention.svg" src="/static/img/retention.svg" alt="backlog qouta visual description">
+<script>
+	document.getElementById("retention.svg").addEventListener('pointerdown', e => showImgAsCenterBodyModal(e.target.src));
+</script>
+<div>
+	The retention settings apply to all messages on topics that do not have any subscriptions, or to messages that have been acknowledged by all subscriptions. The retention policy settings do not affect unacknowledged messages on topics with subscriptions. The unacknowledged messages are controlled by the backlog quota.
+</div>
+<div>
+	When a retention limit on a topic is exceeded, the oldest message is marked for deletion until the set of retained messages falls within the specified limits again.
+</div>

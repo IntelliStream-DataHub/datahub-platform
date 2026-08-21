@@ -1,0 +1,6 @@
+GET {{hostname}}/files/list/
+Authorization: Bearer {{token}}
+
+###
+GET {{hostname}}/files/list/foo
+Authorization: Bearer {{token}}

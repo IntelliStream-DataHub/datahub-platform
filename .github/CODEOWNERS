@@ -1,0 +1,17 @@
+# Default owner for everything. GitHub requests a review from the owner of any path a
+# pull request touches.
+*       @olavgg
+
+# The wire contract and the published SDKs. A change here is a change every consumer
+# outside this repository has to absorb, so it should never merge unreviewed.
+/datahub-api-model/     @olavgg
+/datahub-java-sdk/      @olavgg
+
+# Licence, attribution and security posture.
+/LICENSE                @olavgg
+/NOTICE                 @olavgg
+/SECURITY.md            @olavgg
+/CODE_OF_CONDUCT.md     @olavgg
+
+# CI, and the DCO check that enforces the sign-off CONTRIBUTING.md requires.
+/.github/               @olavgg
