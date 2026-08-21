@@ -17,7 +17,7 @@ jobs:
           distribution: temurin
           java-version: '25'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v6
 
       # `build` compiles every module and runs the unit tests. The suite is
       # hermetic: the context tests use the `ctxtest` profile
