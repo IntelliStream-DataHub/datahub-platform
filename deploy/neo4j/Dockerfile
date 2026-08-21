@@ -8,7 +8,7 @@
 # reproducible (neo4j 5.26.26 + apoc-5.26.27-core.jar).
 #
 # The allowlist/unrestricted config lives on the service in docker-compose.yml.
-FROM docker.io/library/neo4j:5.26.26
+FROM docker.io/library/neo4j:5.26.28
 
 ADD https://github.com/neo4j/apoc/releases/download/5.26.27/apoc-5.26.27-core.jar \
     /var/lib/neo4j/plugins/apoc-5.26.27-core.jar
