@@ -56,7 +56,7 @@ dependencies {
 	implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
 
 	implementation 'at.yawk.lz4:lz4-java:1.11.0'
-	implementation 'com.github.luben:zstd-jni:1.5.7-7'
+	implementation 'com.github.luben:zstd-jni:1.5.7-15'
 
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
