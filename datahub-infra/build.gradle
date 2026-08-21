@@ -45,7 +45,7 @@ dependencies {
 
     // Redis client
     //implementation group: 'redis.clients', name: 'jedis', version: '5.1.2'
-    implementation group: 'io.lettuce', name: 'lettuce-core', version: '6.7.1.RELEASE'
+    implementation group: 'io.lettuce', name: 'lettuce-core', version: '7.7.0.RELEASE'
     // Redis client pool Not in use, doesnt work correctly
     // implementation group: 'org.apache.commons', name: 'commons-pool2', version: '2.12.0'
 
