@@ -17,7 +17,7 @@ jobs:
     name: Check commits are signed off
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # The merge commit GitHub synthesises has no sign-off of its own, and
           # the default shallow clone cannot see the branch point. Fetch enough
