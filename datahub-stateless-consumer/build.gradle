@@ -31,7 +31,7 @@ dependencies {
 	implementation project(':datahub-commons')
 
 	// Vault client
-	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
 	// Open Feign
 	implementation group: 'io.github.openfeign', name: 'feign-core', version: feignVersion
@@ -55,7 +55,7 @@ dependencies {
 
 	implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
 
-	implementation 'at.yawk.lz4:lz4-java:1.11.0'
+	implementation 'at.yawk.lz4:lz4-java:1.11.2'
 	implementation 'com.github.luben:zstd-jni:1.5.7-15'
 
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -65,8 +65,8 @@ dependencies {
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	runtimeOnly 'org.postgresql:postgresql'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
-	testImplementation 'org.testcontainers:pulsar:1.20.4'
+	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+	testImplementation 'org.testcontainers:pulsar:1.21.4'
 	testImplementation "org.apache.pulsar:pulsar-client-admin:${pulsarVersion}"
 }
 

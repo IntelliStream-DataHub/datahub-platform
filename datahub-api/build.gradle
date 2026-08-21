@@ -28,7 +28,7 @@ dependencies {
 	implementation project(':datahub-commons')
 	testImplementation project(':datahub-infra')
 
-	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
 	implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
 	implementation("org.apache.pulsar:pulsar-client-admin:${pulsarVersion}"){
 		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
@@ -44,7 +44,7 @@ dependencies {
 	}
 
 	// Vault client
-	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
@@ -75,9 +75,9 @@ dependencies {
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
-	testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
-	testImplementation 'org.testcontainers:pulsar:1.20.4'
-	testImplementation 'org.testcontainers:postgresql:1.20.4'
+	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+	testImplementation 'org.testcontainers:pulsar:1.21.4'
+	testImplementation 'org.testcontainers:postgresql:1.21.4'
 	// SharedPostgres: one migrated PostgreSQL container shared across the integration tests.
 	testImplementation testFixtures(project(':datahub-infra'))
 	// @DataJpaTest and @AutoConfigureTestDatabase live in these Boot 4 slices, which the base

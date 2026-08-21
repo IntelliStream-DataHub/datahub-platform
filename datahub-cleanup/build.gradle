@@ -32,7 +32,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 
 	// Vault client — loads the tenant list + global secrets (Pulsar admin creds) at startup.
-	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
 	// Jackson (JsonMapper) is autoconfigured by Spring Boot and required by TenantConfigService.
 	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
