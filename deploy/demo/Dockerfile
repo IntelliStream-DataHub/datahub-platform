@@ -10,7 +10,7 @@
 # Pinned exactly, on purpose: the demo replays payloads captured against a known SDK, and an
 # unpinned build would silently pick up a new major one day and fail mid-seed. Bump it
 # deliberately and re-run the demo; demo.seed logs the version it is running.
-FROM docker.io/library/python:3.13-slim
+FROM docker.io/library/python:3.14-slim
 
 RUN pip install --no-cache-dir --root-user-action=ignore \
       intellistream-datahub-sdk==0.2.0
