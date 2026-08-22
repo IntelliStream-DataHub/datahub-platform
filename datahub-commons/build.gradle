@@ -17,7 +17,7 @@ dependencies {
     api project(':datahub-api-model')
 
     // Vault client
-    implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+    implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
     // Open Feign
     implementation group: 'io.github.openfeign', name: 'feign-core', version: feignVersion
@@ -28,17 +28,17 @@ dependencies {
 
     implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
     // UUID v7
-    implementation 'com.fasterxml.uuid:java-uuid-generator:5.1.0'
+    implementation 'com.fasterxml.uuid:java-uuid-generator:5.2.0'
 
     // Blake3
-    implementation 'commons-codec:commons-codec:1.21.0'
+    implementation 'commons-codec:commons-codec:1.22.1'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
     // OpenAPI/Swagger annotations only (e.g. @Schema on DTOs). The full springdoc
     // starter (Spring MVC + Swagger UI) belongs in the web app modules, not in this leaf.
-    implementation 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.47'
+    implementation 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.54'
 
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-validation'

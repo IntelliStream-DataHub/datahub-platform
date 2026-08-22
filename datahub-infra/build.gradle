@@ -37,11 +37,11 @@ dependencies {
     implementation project(':datahub-commons')
 
     // Neo4j
-    implementation 'org.neo4j.driver:neo4j-java-driver:6.1.0'
-    implementation 'org.neo4j:neo4j-cypher-dsl:2025.2.7'
+    implementation 'org.neo4j.driver:neo4j-java-driver:6.2.1'
+    implementation 'org.neo4j:neo4j-cypher-dsl:2025.3.0'
 
     // Vault client
-    implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+    implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
     // Redis client
     //implementation group: 'redis.clients', name: 'jedis', version: '5.1.2'
@@ -62,12 +62,12 @@ dependencies {
     // BouncyCastle for Pulsar TLS. Declared explicitly because Pulsar only pulls it in via the
     // jar-in-jar 'bouncy-castle-bc:pkg' artifact, whose nested classes a flat classloader (IDE run
     // configs) cannot load. See https://pulsar.apache.org/docs/4.0.x/security-bouncy-castle/
-    runtimeOnly 'org.bouncycastle:bcprov-jdk18on:1.84'
-    runtimeOnly 'org.bouncycastle:bcpkix-jdk18on:1.84'
+    runtimeOnly 'org.bouncycastle:bcprov-jdk18on:1.85.2'
+    runtimeOnly 'org.bouncycastle:bcpkix-jdk18on:1.85.2'
 
-    implementation 'org.apache.tika:tika-core:3.3.0'
+    implementation 'org.apache.tika:tika-core:3.3.2'
     // Apache Commons Hashing
-    implementation 'commons-codec:commons-codec:1.21.0'
+    implementation 'commons-codec:commons-codec:1.22.1'
 
     // Open Feign
     implementation group: 'io.github.openfeign', name: 'feign-core', version: feignVersion
@@ -78,9 +78,9 @@ dependencies {
 
     implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
 
-    implementation 'com.clickhouse:client-v2:0.9.8'
-    implementation 'com.clickhouse:clickhouse-http-client:0.9.8'
-    implementation 'org.apache.httpcomponents.client5:httpclient5:5.6'
+    implementation 'com.clickhouse:client-v2:0.10.0'
+    implementation 'com.clickhouse:clickhouse-http-client:0.10.0'
+    implementation 'org.apache.httpcomponents.client5:httpclient5:5.6.4'
 
     implementation 'org.postgresql:postgresql'
 
@@ -90,12 +90,12 @@ dependencies {
     implementation 'org.flywaydb:flyway-core:13.3.0'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql:13.3.0'
 
-    implementation 'at.yawk.lz4:lz4-java:1.11.0'
+    implementation 'at.yawk.lz4:lz4-java:1.11.2'
     implementation 'com.github.luben:zstd-jni:1.5.7-15'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.3'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
 
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -111,17 +111,17 @@ dependencies {
     // Testcontainers: spins up a real ClickHouse to validate RowBinary encoding end-to-end, and a
     // real PostgreSQL to validate JPA repository behaviour (node_type filtering on the shared `node`
     // table). Integration tests are tagged "integration" and need a container runtime (Docker/Podman).
-    testImplementation 'org.testcontainers:junit-jupiter:1.20.4'
-    testImplementation 'org.testcontainers:clickhouse:1.20.4'
-    testImplementation 'org.testcontainers:postgresql:1.20.4'
+    testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+    testImplementation 'org.testcontainers:clickhouse:1.21.4'
+    testImplementation 'org.testcontainers:postgresql:1.21.4'
 
     // Test fixtures (SharedPostgres). These are `implementation` on the main source set, so they
     // are not on the fixtures compile classpath by inheritance and have to be named again.
     testFixturesImplementation 'org.flywaydb:flyway-core:13.3.0'
-    testFixturesImplementation 'org.testcontainers:postgresql:1.20.4'
+    testFixturesImplementation 'org.testcontainers:postgresql:1.21.4'
     testFixturesRuntimeOnly 'org.flywaydb:flyway-database-postgresql:13.3.0'
     testFixturesRuntimeOnly 'org.postgresql:postgresql'
-    testImplementation 'org.testcontainers:neo4j:1.20.4'
+    testImplementation 'org.testcontainers:neo4j:1.21.4'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     // Boot 4 split the test slices into per-technology modules: @DataJpaTest lives in
     // spring-boot-data-jpa-test and @AutoConfigureTestDatabase in spring-boot-jdbc-test.

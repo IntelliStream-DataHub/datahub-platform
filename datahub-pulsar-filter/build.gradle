@@ -19,7 +19,7 @@ dependencies {
     // No Spring Boot BOM in this module, so pin the JUnit BOM directly. The shared convention
     // declares junit-jupiter / junit-platform-launcher without a version (Boot modules get them
     // from the Boot BOM); this supplies the version for this non-Boot module.
-    testImplementation platform('org.junit:junit-bom:6.1.0')
+    testImplementation platform('org.junit:junit-bom:6.1.3')
 }
 
 // This plugin's classes are loaded by the BROKER's JVM, not ours. Apache Pulsar 4.0.x ships a Java

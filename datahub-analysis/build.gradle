@@ -39,7 +39,7 @@ dependencies {
 
 	// Fetches the JWT issuer-uri from Vault at startup (same shared "datahub-platform" secret as the
 	// api/console), so the resource server validates against the same issuer without duplicated config.
-	implementation 'io.github.jopenlibs:vault-java-driver:6.2.0'
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
 	// MCP server — same WebMVC transport as datahub-api: /mcp is a normal Spring MVC endpoint,
 	// so the resource-server SecurityFilterChain above (JWT + ROLE_DATAHUB_ACCESS) authenticates
