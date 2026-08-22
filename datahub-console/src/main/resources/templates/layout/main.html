@@ -310,22 +310,14 @@
 
     // About dialog. showModal() puts it in the browser's top layer, so it floats above the
     // right-form, the chat panel and the tutorial overlays; Escape and focus trapping come with
-    // the element. The dropdown it was opened from is closed first, so it is not left hanging
-    // behind the modal.
+    // the element. The dropdown it was opened from needs no closing: it shows only while hovered
+    // or focused, and the modal takes the pointer and the focus.
     (function(){
         const dialog = document.getElementById('about-dialog');
         const opener = document.querySelector('[data-type="about"]');
         if (!dialog || !opener) return;
 
-        opener.addEventListener('click', () => {
-            const menu = opener.closest('.user-menu');
-            if (menu) {
-                menu.classList.remove('open');
-                const trigger = menu.querySelector('[data-type="user-menu"]');
-                if (trigger) trigger.setAttribute('aria-expanded', 'false');
-            }
-            dialog.showModal();
-        });
+        opener.addEventListener('click', () => dialog.showModal());
 
         const close = () => dialog.close();
         dialog.querySelectorAll('[data-type="about-close"]').forEach(el => el.addEventListener('click', close));
