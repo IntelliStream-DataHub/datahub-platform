@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.cleanup.file;
 
+import ai.intellistream.datahub.config.VaultProperties;
 import ai.intellistream.datahub.cleanup.file.TrashPurger.TrashedNode;
 import ai.intellistream.datahub.tenant.FileStorage;
 import ai.intellistream.datahub.tenant.Tenant;
@@ -40,7 +41,7 @@ class DeletedFilePurgeTaskTest {
     }
 
     private static TenantConfigService serviceWith(Tenant t) {
-        TenantConfigService svc = new TenantConfigService(null, null);
+        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }

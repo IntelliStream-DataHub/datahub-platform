@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.cleanup.file;
 
+import ai.intellistream.datahub.config.VaultProperties;
 import ai.intellistream.datahub.tenant.FileStorage;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
@@ -29,7 +30,7 @@ class OrphanTenantFolderCleanupTaskTest {
     }
 
     private static TenantConfigService serviceWith(Tenant t) {
-        TenantConfigService svc = new TenantConfigService(null, null);
+        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }
@@ -73,7 +74,7 @@ class OrphanTenantFolderCleanupTaskTest {
         fs.setRootPath(root.toString());
         fs.setTrashPath(trash.toString());
         t.setFileStorage(fs);
-        TenantConfigService svc = new TenantConfigService(null, null);
+        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
         svc.cachedTenants.put("org-1", t);
 
         new OrphanTenantFolderCleanupTask(svc, new FileCleanupProperties()).cleanOrphanTenantFolders();
@@ -108,7 +109,7 @@ class OrphanTenantFolderCleanupTaskTest {
         fs.setRootPath(root.toString());
         fs.setTrashPath(trash.toString());
         t.setFileStorage(fs);
-        TenantConfigService svc = new TenantConfigService(null, null);
+        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
         svc.cachedTenants.put("org-1", t);
 
         new OrphanTenantFolderCleanupTask(svc, new FileCleanupProperties()).cleanOrphanTenantFolders();
@@ -158,7 +159,7 @@ class OrphanTenantFolderCleanupTaskTest {
         Path looksOrphan = Files.createDirectories(base.resolve("something"));
 
         // Empty tenant cache → no known paths → must not scan/delete anything.
-        new OrphanTenantFolderCleanupTask(new TenantConfigService(null, null), new FileCleanupProperties())
+        new OrphanTenantFolderCleanupTask(new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test")), new FileCleanupProperties())
                 .cleanOrphanTenantFolders();
 
         assertTrue(Files.exists(looksOrphan), "with no tenants loaded, nothing must be touched");

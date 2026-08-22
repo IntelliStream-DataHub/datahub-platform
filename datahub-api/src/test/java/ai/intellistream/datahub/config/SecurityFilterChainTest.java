@@ -4,7 +4,6 @@ package ai.intellistream.datahub.config;
 import ai.intellistream.datahub.api.ApiDatahubApplication;
 import ai.intellistream.datahub.api.init.pulsar.SubscriptionTopicProvisioner;
 import ai.intellistream.datahub.clickhouse.ClickHouseClientPool;
-import io.github.jopenlibs.vault.Vault;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -97,8 +96,6 @@ class SecurityFilterChainTest {
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
-    @MockitoBean
-    private Vault vault;
 
     @MockitoBean
     private PulsarClient pulsarClient;

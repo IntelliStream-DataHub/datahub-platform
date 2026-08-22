@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.cleanup.file;
 
+import ai.intellistream.datahub.config.VaultProperties;
 import ai.intellistream.datahub.tenant.FileStorage;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
@@ -32,7 +33,7 @@ class TempUploadCleanupTaskTest {
 
     private static TenantConfigService serviceWith(Tenant t) {
         // Construct directly (no Spring) so @PostConstruct/Vault never runs; populate the cache.
-        TenantConfigService svc = new TenantConfigService(null, null);
+        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }
