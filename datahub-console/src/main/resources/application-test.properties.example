@@ -15,6 +15,14 @@
 # your shell or run configuration), NOT this file, so it never lands in source control.
 vault.address=< vault url here >
 vault.role-id=<your-vault-approle-role-id>
+# Client certificate for a Vault listener that requires mutual TLS (PKCS12, or JKS by the .jks
+# extension), and optionally the CA that signed Vault's server certificate. Leave unset for a
+# Vault that does not require a client certificate. Also settable as VAULT_KEYSTORE,
+# VAULT_KEYSTORE_PASSWORD, VAULT_TRUSTSTORE and VAULT_TRUSTSTORE_PASSWORD.
+#vault.keystore=< path to client .p12 here >
+#vault.keystore-password=< keystore password here >
+#vault.truststore=< path to CA .p12 here >
+#vault.truststore-password=< truststore password here >
 
 # Anthropic key for AnthropicLlmClientIT, the one test that spends money. Optional: the test is
 # skipped with a reason when neither this nor the ANTHROPIC_API_KEY environment variable is set.

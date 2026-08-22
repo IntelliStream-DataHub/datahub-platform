@@ -88,6 +88,12 @@ service reads are documented in [GETTING_STARTED.md](GETTING_STARTED.md#vault-co
 The Vault address and AppRole credentials themselves come from
 `application-{profile}.yml` (gitignored; see the `*.yml.example` templates) or
 environment variables (`VAULT_ADDRESS`, `VAULT_ROLE_ID`, `VAULT_SECRET_ID`).
+A Vault listener that requires mutual TLS is reached by pointing
+`vault.keystore` / `vault.keystore-password` (`VAULT_KEYSTORE`,
+`VAULT_KEYSTORE_PASSWORD`) at a PKCS12 holding the client certificate, and
+optionally `vault.truststore` (`VAULT_TRUSTSTORE`) at the CA that signed
+Vault's server certificate. The same stores serve the startup loader and
+`TenantConfigService`'s periodic refresh.
 
 ## Architecture notes
 

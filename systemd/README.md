@@ -78,7 +78,9 @@ journalctl -fu datahub@api
 ```
 
 `common.env` holds the Vault secret-id, hence mode 0600; systemd reads it as root, the
-service never sees the file. Firewall: the api listens on 8081 and the console on 8080
+service never sees the file. If Vault requires a client certificate, the `VAULT_KEYSTORE`
+lines in the same file point at a PKCS12 under `/etc/datahub`, which the unit's
+`ProtectSystem=strict` still lets the service read. Firewall: the api listens on 8081 and the console on 8080
 for the load balancer only; open them to the LB addresses, not the world.
 
 The apps expect a **pgbouncer on localhost** (`StatelessRoutingDataSource` opens a

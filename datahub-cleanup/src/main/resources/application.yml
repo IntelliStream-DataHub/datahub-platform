@@ -34,6 +34,13 @@ vault:
   role-id: ${VAULT_ROLE_ID:}
   secret-id: ${VAULT_SECRET_ID:}
   secret-name: ${VAULT_SECRET_NAME:intellistream-datahub}
+  # Client certificate for a Vault listener that requires mutual TLS (PKCS12, or JKS by the .jks
+  # extension), and optionally the CA that signed Vault's server certificate. Leave unset for a
+  # Vault that does not require a client certificate.
+  keystore: ${VAULT_KEYSTORE:}
+  keystore-password: ${VAULT_KEYSTORE_PASSWORD:}
+  truststore: ${VAULT_TRUSTSTORE:}
+  truststore-password: ${VAULT_TRUSTSTORE_PASSWORD:}
 
 datahub:
   cleanup:
