@@ -1043,6 +1043,17 @@ header .user-menu .user-sub-menu li{
 	white-space: nowrap;
 }
 header .user-menu .user-sub-menu li:hover{ background: rgba(108, 177, 255, 0.10); }
+/* Logout is the one row whose action is a link rather than a click handler on the row itself, so
+   the anchor has to cover the row: otherwise the padding around the word highlights on hover and
+   then swallows the click. The padding moves from the row to the anchor to include it. */
+header .user-menu .user-sub-menu li:has(> a){ padding: 0; }
+header .user-menu .user-sub-menu li > a{
+	flex: 1;
+	padding: 11px 14px;
+	color: inherit;
+}
+/* The row highlight is the hover cue here, as it is for the rows that are not links. */
+header .user-menu .user-sub-menu li > a:hover{ text-decoration: none; }
 header .user-menu .user-sub-menu li i{
 	min-width: 20px;
 	text-align: right;
