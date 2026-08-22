@@ -59,6 +59,11 @@ public class AboutInfo {
         return apiUrl;
     }
 
+    /** The api's Swagger UI. Assembled here so the template needs no expression arithmetic. */
+    public String getSwaggerUrl() {
+        return apiUrl + "/swagger-ui.html";
+    }
+
     public String getAnalysisUrl() {
         return analysisUrl;
     }

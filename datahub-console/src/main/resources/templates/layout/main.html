@@ -170,7 +170,12 @@
                    rel="noopener" target="_blank">
                     <i class="fa fa-fw fa-cube"></i><span th:text="#{about.link.sdk}">SDK documentation</span>
                 </a>
-                <a th:href="${@aboutInfo.apiUrl} + '/swagger-ui.html'" rel="noopener" target="_blank">
+                <!-- th:with, rather than the bean reference straight in th:href: Thymeleaf
+                     evaluates href and src in SpEL restricted mode, where @bean access is
+                     forbidden, and the failure aborts the render mid-page. th:with is not
+                     restricted, so the bean is read there and th:href sees a plain variable. -->
+                <a th:with="swaggerUrl=${@aboutInfo.swaggerUrl}" th:href="${swaggerUrl}"
+                   rel="noopener" target="_blank">
                     <i class="fa fa-fw fa-diagram-project"></i><span th:text="#{about.link.api}">API reference</span>
                 </a>
                 <a href="https://github.com/IntelliStream-DataHub/datahub-platform/issues"
