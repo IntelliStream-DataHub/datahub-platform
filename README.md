@@ -325,8 +325,8 @@ It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; 
 the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
 
 Because DataHub is served over a network, AGPL section 13 gives anyone interacting with the
-console the right to its Corresponding Source. The console footer links to this repository
-to satisfy that.
+console the right to its Corresponding Source. The console's About dialog, under the user
+menu, links to this repository to satisfy that.
 
 **The client libraries are Apache-2.0, not AGPL.** `datahub-api-model` and `datahub-java-sdk`
 are licensed under the [Apache License 2.0](datahub-java-sdk/LICENSE) so they can be linked

@@ -87,6 +87,10 @@
                     <i class="fa-regular fa-sun theme-when-dark"></i>
                     <i class="fa-regular fa-moon theme-when-light"></i>
                 </li>
+                <li data-type="about">
+                    <span th:text="#{about.menu}"></span>
+                    <i class="fa-regular fa-circle-info"></i>
+                </li>
                 <li>
                     <a th:href="@{/datahub-logout}" th:text="#{logout}"></a>
                 </li>
@@ -106,14 +110,103 @@
 
 <div class="chat-panel" th:if="${@chatAccess.available()}"></div>
 
-<!-- AGPL section 13: the console is served over a network, so users interacting with it
-     remotely must be offered its Corresponding Source. This link is that offer; do not
-     remove it without replacing it with an equivalent one. -->
-<footer class="site-footer">
-    <span th:text="#{footer.license}">DataHub is free software under the GNU AGPL v3.</span>
-    <a href="https://github.com/IntelliStream-DataHub/datahub-platform"
-       rel="noopener" target="_blank" th:text="#{footer.source}">Source code</a>
-</footer>
+<!-- About DataHub. Opened from the user menu, and the console's AGPL section 13 source offer:
+     the console is served over a network, so users interacting with it remotely must be offered
+     its Corresponding Source. The "Source code" link below is that offer; do not remove it
+     without replacing it with an equivalent one.
+
+     A native <dialog> opened with showModal(): the browser's top layer puts it above the
+     right-form, the chat panel and the tutorial overlays without another z-index to maintain,
+     and gives Escape-to-close and focus trapping for free. Server-rendered rather than built in
+     JS so every string comes from the message bundle. -->
+<dialog id="about-dialog" class="about-dialog" aria-labelledby="aboutTitle">
+    <div class="about-head">
+        <button type="button" class="about-close" data-type="about-close" th:attr="aria-label=#{close}">
+            <i class="fa fa-fw fa-close"></i>
+        </button>
+        <div class="about-logo" role="img" aria-label="IntelliStream"></div>
+        <h3 id="aboutTitle" th:text="#{about.title}">About DataHub</h3>
+        <p class="about-tagline" th:text="#{about.tagline}"></p>
+        <div class="about-badges">
+            <span class="about-badge" th:text="'v' + ${@aboutInfo.version}">v0.0.1</span>
+            <span class="about-badge" th:if="${@aboutInfo.buildTime != null}"
+                  th:text="${@aboutInfo.buildTime}"></span>
+        </div>
+    </div>
+
+    <div class="about-body">
+        <section>
+            <h4 th:text="#{about.license.title}">License</h4>
+            <p th:text="#{about.license.body}"></p>
+            <p th:text="#{about.license.network}"></p>
+            <p th:text="#{about.license.apache}"></p>
+            <div class="about-links">
+                <a href="https://github.com/IntelliStream-DataHub/datahub-platform"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-link"></i><span th:text="#{about.link.source}">Source code</span>
+                </a>
+                <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-file-lines"></i><span th:text="#{about.link.license}">License text</span>
+                </a>
+                <a href="https://github.com/IntelliStream-DataHub/datahub-platform/blob/main/NOTICE"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-clipboard-check"></i><span th:text="#{about.link.notice}">Third-party notices</span>
+                </a>
+            </div>
+        </section>
+
+        <section>
+            <h4 th:text="#{about.docs.title}">Documentation</h4>
+            <div class="about-links">
+                <a href="https://github.com/IntelliStream-DataHub/datahub-docs"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-graduation-cap"></i><span th:text="#{about.link.docs}">Operator documentation</span>
+                </a>
+                <a href="https://github.com/IntelliStream-DataHub/datahub-sdk-docs"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-cube"></i><span th:text="#{about.link.sdk}">SDK documentation</span>
+                </a>
+                <a th:href="${@aboutInfo.apiUrl} + '/swagger-ui.html'" rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-diagram-project"></i><span th:text="#{about.link.api}">API reference</span>
+                </a>
+                <a href="https://github.com/IntelliStream-DataHub/datahub-platform/issues"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-comment"></i><span th:text="#{about.link.issues}">Report an issue</span>
+                </a>
+            </div>
+        </section>
+
+        <section>
+            <h4 th:text="#{about.deployment.title}">This deployment</h4>
+            <p class="about-caption" th:text="#{about.deployment.caption}"></p>
+            <dl class="about-facts">
+                <div th:if="${@userSession.getName()}">
+                    <dt th:text="#{about.fact.user}">Signed in as</dt>
+                    <dd th:text="${@userSession.getName()}"></dd>
+                </div>
+                <div th:if="${@userSession.getOrganizationName()}">
+                    <dt th:text="#{about.fact.organization}">Organization</dt>
+                    <dd th:text="${@userSession.getOrganizationName()}"></dd>
+                </div>
+                <div>
+                    <dt th:text="#{about.fact.api}">API endpoint</dt>
+                    <dd th:text="${@aboutInfo.apiUrl}"></dd>
+                </div>
+                <div>
+                    <dt th:text="#{about.fact.analysis}">Analysis service</dt>
+                    <dd th:text="${@aboutInfo.analysisUrl}"></dd>
+                </div>
+            </dl>
+        </section>
+    </div>
+
+    <footer class="about-foot">
+        <span class="about-copyright" th:text="#{about.copyright}">Copyright (C) 2023-2026 IntelliStream AS</span>
+        <button type="button" class="dh-btn primary" data-type="about-close">
+            <span th:text="#{close}">Close</span>
+        </button>
+    </footer>
+</dialog>
 
 <!-- Tutorial UI shell (passive) -->
 <div id="tutorial-start-modal" class="tutorial-modal hidden" aria-hidden="true">
@@ -233,6 +326,34 @@
             const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
             root.setAttribute('data-theme', next);
             try { localStorage.setItem('dh-theme', next); } catch (e) { /* private mode: theme just won't persist */ }
+        });
+    }());
+
+    // About dialog. showModal() puts it in the browser's top layer, so it floats above the
+    // right-form, the chat panel and the tutorial overlays; Escape and focus trapping come with
+    // the element. The dropdown it was opened from is closed first, so it is not left hanging
+    // behind the modal.
+    (function(){
+        const dialog = document.getElementById('about-dialog');
+        const opener = document.querySelector('[data-type="about"]');
+        if (!dialog || !opener) return;
+
+        opener.addEventListener('click', () => {
+            const menu = opener.closest('.user-menu');
+            if (menu) {
+                menu.classList.remove('open');
+                const trigger = menu.querySelector('[data-type="user-menu"]');
+                if (trigger) trigger.setAttribute('aria-expanded', 'false');
+            }
+            dialog.showModal();
+        });
+
+        const close = () => dialog.close();
+        dialog.querySelectorAll('[data-type="about-close"]').forEach(el => el.addEventListener('click', close));
+        // A click that lands on the dialog element itself is a backdrop click: head, body and
+        // foot fill it edge to edge, so nothing else can be the target.
+        dialog.addEventListener('click', e => {
+            if (e.target === dialog) close();
         });
     }());
 </script>
