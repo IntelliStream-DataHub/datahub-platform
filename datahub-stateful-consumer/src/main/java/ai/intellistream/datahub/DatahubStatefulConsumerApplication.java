@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub;
 
+import ai.intellistream.datahub.config.PulsarVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,7 +25,7 @@ public class DatahubStatefulConsumerApplication {
 
 	public static void main(String[] args) {
 		SpringApplication app = new SpringApplication(DatahubStatefulConsumerApplication.class);
-		app.addListeners(new VaultConfigurationLoader());
+		app.addListeners(new VaultConfigurationLoader(new PulsarVaultSecrets()));
 		app.run(args);
 	}
 
