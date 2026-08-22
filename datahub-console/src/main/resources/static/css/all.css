@@ -1027,7 +1027,10 @@ header .user-menu .user-sub-menu{
 	box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
 	padding: 6px;
 }
-header .user-menu.open .user-sub-menu{ display: block; }
+/* :focus-within alongside :hover so the dropdown is reachable without a pointer: the only
+   focusable thing inside it is the Logout link, and it was otherwise unreachable by keyboard. */
+header .user-menu:hover .user-sub-menu,
+header .user-menu:focus-within .user-sub-menu{ display: block; }
 header .user-menu .user-sub-menu li{
 	padding: 11px 14px;
 	border-radius: 8px;

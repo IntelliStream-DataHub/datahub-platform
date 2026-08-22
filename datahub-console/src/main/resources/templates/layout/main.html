@@ -53,7 +53,11 @@
         </a>
     </nav>
 
-    <div class="user-menu right-content">
+    <!-- The right-hand header cluster. Ask AI is a sibling of the user menu, not part of it:
+         while the button sat inside .user-menu, hovering it opened the dropdown, which is why
+         the dropdown was moved to click. .user-menu now wraps the name/avatar and the dropdown
+         and nothing else, so :hover on it means what it says. -->
+    <div class="right-content">
         <button type="button" class="ask-ai-btn" data-type="open-chat" aria-expanded="false"
                 th:if="${@chatAccess.available()}">
             <span class="ask-ai-label" th:text="#{chat.ask.ai}">Ask AI</span>
@@ -62,7 +66,7 @@
                 <svg class="ask-ai-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1 L14 10 L23 12 L14 14 L12 23 L10 14 L1 12 L10 10 Z"/></svg>
             </span>
         </button>
-        <div>
+        <div class="user-menu">
             <div class="right-content" th:if="${#authorization.expression('isAuthenticated()')}" data-type="user-menu">
                 <a th:href="@{/#}">
                     <div><span th:text="${@userSession.getName()}"></span></div>
@@ -261,36 +265,6 @@
         $L('you.have.been.signed.out', [[#{you.have.been.signed.out}]]);
         $L('ok', [[#{ok}]]);
     });
-
-    // The user dropdown opens on click, not hover: hovering it (or the neighbouring Ask AI button)
-    // used to reveal it unbidden. Clicking the name/avatar toggles it; an outside click or Escape
-    // closes it.
-    (function(){
-        const menu = document.querySelector('.user-menu');
-        if (!menu) return;
-        const trigger = menu.querySelector('[data-type="user-menu"]');
-        if (!trigger) return;
-        trigger.setAttribute('aria-haspopup', 'true');
-        trigger.setAttribute('aria-expanded', 'false');
-
-        const setOpen = (open) => {
-            menu.classList.toggle('open', open);
-            trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-        };
-
-        trigger.addEventListener('click', (e) => {
-            // The name/avatar are anchors to "/#"; don't navigate, just toggle.
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen(!menu.classList.contains('open'));
-        });
-        document.addEventListener('click', (e) => {
-            if (!menu.contains(e.target)) setOpen(false);
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') setOpen(false);
-        });
-    }());
 
     (function(){
         const copyTokenEl = document.querySelector('[data-type="copy-token"]');
