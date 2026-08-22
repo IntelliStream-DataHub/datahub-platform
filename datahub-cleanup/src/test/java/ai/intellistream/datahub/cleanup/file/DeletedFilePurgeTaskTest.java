@@ -27,6 +27,9 @@ import static org.mockito.Mockito.when;
 
 class DeletedFilePurgeTaskTest {
 
+    private static final VaultProperties VAULT =
+            VaultProperties.of("http://vault.invalid:8200", "test", "test");
+
     private static final long OLD = Instant.now().minus(40, ChronoUnit.DAYS).toEpochMilli();   // > 30d grace
     private static final long RECENT = Instant.now().toEpochMilli();
 
@@ -41,7 +44,7 @@ class DeletedFilePurgeTaskTest {
     }
 
     private static TenantConfigService serviceWith(Tenant t) {
-        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
+        TenantConfigService svc = new TenantConfigService(null, null, VAULT);
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }

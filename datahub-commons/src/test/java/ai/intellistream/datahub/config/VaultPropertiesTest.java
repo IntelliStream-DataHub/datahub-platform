@@ -80,8 +80,10 @@ class VaultPropertiesTest {
 
     @Test
     void blankKeystoreCountsAsUnset() {
-        // datahub-cleanup's application.yml binds `${VAULT_KEYSTORE:}`, i.e. "" when the variable is absent.
-        var props = VaultProperties.from(resolver(Map.of(), withFileSettings("vault.keystore", "")));
+        // datahub-cleanup's application.yml binds `${VAULT_KEYSTORE:}`, i.e. "" when the variable
+        // is absent.
+        var props = VaultProperties.from(
+                resolver(Map.of(), withFileSettings("vault.keystore", "")));
 
         assertThat(props.keystore()).isNull();
         assertThat(props.tlsConfigured()).isFalse();
@@ -98,9 +100,12 @@ class VaultPropertiesTest {
 
     @Test
     void toStringNeverPrintsSecrets() {
-        var props = new VaultProperties("https://v", "role", "the-secret", "mount", "/k.p12", "kpw", "/t.p12", "tpw");
+        var props = new VaultProperties("https://v", "role", "the-secret", "mount",
+                "/k.p12", "kpw", "/t.p12", "tpw");
 
-        assertThat(props.toString()).doesNotContain("the-secret", "kpw", "tpw").contains("https://v", "/k.p12");
+        assertThat(props.toString())
+                .doesNotContain("the-secret", "kpw", "tpw")
+                .contains("https://v", "/k.p12");
     }
 
     private static Map<String, Object> withFileSettings(String key, Object value) {
@@ -109,7 +114,8 @@ class VaultPropertiesTest {
         return all;
     }
 
-    private static PropertySourcesPropertyResolver resolver(Map<String, Object> env, Map<String, Object> file) {
+    private static PropertySourcesPropertyResolver resolver(Map<String, Object> env,
+                                                            Map<String, Object> file) {
         var sources = new MutablePropertySources();
         sources.addLast(new SystemEnvironmentPropertySource("systemEnvironment", env));
         sources.addLast(new MapPropertySource("application", file));

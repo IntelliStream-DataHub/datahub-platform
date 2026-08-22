@@ -31,7 +31,8 @@ import java.util.Map;
  * in {@code main} never run in test contexts, which is what keeps those hermetic.
  */
 @Slf4j
-public class VaultConfigurationLoader implements ApplicationListener<ApplicationEnvironmentPreparedEvent> {
+public class VaultConfigurationLoader
+        implements ApplicationListener<ApplicationEnvironmentPreparedEvent> {
 
     public static final String PROPERTY_SOURCE_NAME = "vaultProperties";
 
@@ -53,10 +54,13 @@ public class VaultConfigurationLoader implements ApplicationListener<Application
                 contributor.contribute(vault, properties, vaultMap);
             }
         } catch (VaultException e) {
-            log.error("Failed to load configuration from Vault at {}: {}", properties.address(), e.getMessage(), e);
-            throw new IllegalStateException("Failed to load configuration from Vault at " + properties.address(), e);
+            log.error("Failed to load configuration from Vault at {}: {}",
+                    properties.address(), e.getMessage(), e);
+            throw new IllegalStateException(
+                    "Failed to load configuration from Vault at " + properties.address(), e);
         }
 
-        environment.getPropertySources().addLast(new MapPropertySource(PROPERTY_SOURCE_NAME, vaultMap));
+        environment.getPropertySources()
+                .addLast(new MapPropertySource(PROPERTY_SOURCE_NAME, vaultMap));
     }
 }

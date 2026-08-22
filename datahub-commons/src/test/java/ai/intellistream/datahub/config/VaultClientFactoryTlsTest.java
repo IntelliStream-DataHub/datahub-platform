@@ -42,10 +42,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class VaultClientFactoryTlsTest {
 
     private static final String PASSWORD = "changeit";
-    private static final String HEALTH_BODY =
-            "{\"initialized\":true,\"sealed\":false,\"standby\":false,\"performance_standby\":false,"
-                    + "\"replication_performance_mode\":\"disabled\",\"replication_dr_mode\":\"disabled\","
-                    + "\"server_time_utc\":1700000000,\"version\":\"1.18.0\",\"cluster_name\":\"test\",\"cluster_id\":\"test\"}";
+    private static final String HEALTH_BODY = """
+            {"initialized":true,"sealed":false,"standby":false,"performance_standby":false,
+             "replication_performance_mode":"disabled","replication_dr_mode":"disabled",
+             "server_time_utc":1700000000,"version":"1.18.0",
+             "cluster_name":"test","cluster_id":"test"}
+            """;
 
     @TempDir
     static Path dir;
@@ -66,18 +68,22 @@ class VaultClientFactoryTlsTest {
         trustStore = dir.resolve("trust.p12");
         keytool(keytool, "-genkeypair", "-alias", "server", "-keyalg", "EC", "-validity", "1",
                 "-dname", "CN=localhost", "-ext", "SAN=dns:localhost,ip:127.0.0.1",
-                "-storetype", "PKCS12", "-keystore", serverStore.toString(), "-storepass", PASSWORD);
+                "-storetype", "PKCS12", "-keystore", serverStore.toString(),
+                "-storepass", PASSWORD);
         keytool(keytool, "-genkeypair", "-alias", "client", "-keyalg", "EC", "-validity", "1",
                 "-dname", "CN=datahub-client",
-                "-storetype", "PKCS12", "-keystore", clientStore.toString(), "-storepass", PASSWORD);
+                "-storetype", "PKCS12", "-keystore", clientStore.toString(),
+                "-storepass", PASSWORD);
         // Self-signed on both sides, so each certificate is its own CA: one truststore holding both
         // lets the server verify the client and the client verify the server.
         for (String alias : List.of("server", "client")) {
             Path cert = dir.resolve(alias + ".crt");
-            keytool(keytool, "-exportcert", "-alias", alias, "-keystore", dir.resolve(alias + ".p12").toString(),
-                    "-storepass", PASSWORD, "-rfc", "-file", cert.toString());
+            keytool(keytool, "-exportcert", "-alias", alias,
+                    "-keystore", dir.resolve(alias + ".p12").toString(), "-storepass", PASSWORD,
+                    "-rfc", "-file", cert.toString());
             keytool(keytool, "-importcert", "-noprompt", "-alias", alias, "-file", cert.toString(),
-                    "-storetype", "PKCS12", "-keystore", trustStore.toString(), "-storepass", PASSWORD);
+                    "-storetype", "PKCS12", "-keystore", trustStore.toString(),
+                    "-storepass", PASSWORD);
         }
 
         SSLContext serverContext = serverSslContext();
@@ -114,9 +120,7 @@ class VaultClientFactoryTlsTest {
         var ssl = VaultClientFactory.sslContext(tls(clientStore, trustStore));
 
         assertThat(ssl).isPresent();
-        HttpResponse<String> response = HttpClient.newBuilder().sslContext(ssl.get()).build()
-                .send(HttpRequest.newBuilder(URI.create(baseUrl + "/v1/sys/health")).GET().build(),
-                        HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = health(ssl.get());
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.body()).contains("\"sealed\":false");
     }
@@ -124,7 +128,8 @@ class VaultClientFactoryTlsTest {
     @Test
     void vaultDriverUsesTheSameSslSettings() throws Exception {
         var sslConfig = VaultClientFactory.sslConfig(tls(clientStore, trustStore)).orElseThrow();
-        var config = new VaultConfig().address(baseUrl).engineVersion(2).sslConfig(sslConfig).build();
+        var config = new VaultConfig().address(baseUrl).engineVersion(2)
+                .sslConfig(sslConfig).build();
 
         var health = Vault.create(config).debug().health();
 
@@ -135,12 +140,11 @@ class VaultClientFactoryTlsTest {
     @Test
     void withoutAClientCertificateTheServerRejectsTheHandshake() {
         var ssl = VaultClientFactory.sslContext(tls(null, trustStore)).orElseThrow();
-        var client = HttpClient.newBuilder().sslContext(ssl).build();
-        var request = HttpRequest.newBuilder(URI.create(baseUrl + "/v1/sys/health")).GET().build();
 
-        assertThatThrownBy(() -> client.send(request, HttpResponse.BodyHandlers.ofString()))
+        assertThatThrownBy(() -> health(ssl))
                 .isInstanceOf(IOException.class)
-                .satisfies(e -> assertThat(e instanceof SSLHandshakeException || e.getCause() instanceof SSLHandshakeException
+                .satisfies(e -> assertThat(e instanceof SSLHandshakeException
+                        || e.getCause() instanceof SSLHandshakeException
                         || String.valueOf(e.getMessage()).contains("SSL")).isTrue());
     }
 
@@ -148,21 +152,23 @@ class VaultClientFactoryTlsTest {
     void jksTruststoreIsRecognisedByExtension() throws Exception {
         Path jks = dir.resolve("trust.jks");
         Path keytool = Path.of(System.getProperty("java.home"), "bin", "keytool");
-        keytool(keytool, "-importkeystore", "-noprompt", "-srckeystore", trustStore.toString(), "-srcstoretype", "PKCS12",
-                "-srcstorepass", PASSWORD, "-destkeystore", jks.toString(), "-deststoretype", "JKS", "-deststorepass", PASSWORD);
+        keytool(keytool, "-importkeystore", "-noprompt",
+                "-srckeystore", trustStore.toString(), "-srcstoretype", "PKCS12",
+                "-srcstorepass", PASSWORD,
+                "-destkeystore", jks.toString(), "-deststoretype", "JKS",
+                "-deststorepass", PASSWORD);
 
-        var ssl = VaultClientFactory.sslContext(tls(clientStore, jks));
+        var ssl = VaultClientFactory.sslContext(tls(clientStore, jks)).orElseThrow();
 
-        HttpResponse<String> response = HttpClient.newBuilder().sslContext(ssl.orElseThrow()).build()
-                .send(HttpRequest.newBuilder(URI.create(baseUrl + "/v1/sys/health")).GET().build(),
-                        HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(health(ssl).statusCode()).isEqualTo(200);
     }
 
     @Test
     void noTlsSettingsMeansNoCustomContext() {
-        assertThat(VaultClientFactory.sslConfig(VaultProperties.of(baseUrl, "role", "secret"))).isEmpty();
-        assertThat(VaultClientFactory.sslContext(VaultProperties.of(baseUrl, "role", "secret"))).isEmpty();
+        var plain = VaultProperties.of(baseUrl, "role", "secret");
+
+        assertThat(VaultClientFactory.sslConfig(plain)).isEmpty();
+        assertThat(VaultClientFactory.sslContext(plain)).isEmpty();
     }
 
     @Test
@@ -186,6 +192,12 @@ class VaultClientFactoryTlsTest {
                 .hasMessageContaining("vault.keystore")
                 .hasMessageContaining("nope.p12")
                 .hasMessageContaining("does not exist");
+    }
+
+    private static HttpResponse<String> health(SSLContext ssl) throws Exception {
+        return HttpClient.newBuilder().sslContext(ssl).build().send(
+                HttpRequest.newBuilder(URI.create(baseUrl + "/v1/sys/health")).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
     }
 
     private static VaultProperties tls(Path keystore, Path truststore) {
@@ -219,7 +231,8 @@ class VaultClientFactoryTlsTest {
         Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
         if (process.waitFor() != 0) {
-            throw new IllegalStateException("keytool " + String.join(" ", args) + " failed:\n" + output);
+            throw new IllegalStateException(
+                    "keytool " + String.join(" ", args) + " failed:\n" + output);
         }
     }
 }

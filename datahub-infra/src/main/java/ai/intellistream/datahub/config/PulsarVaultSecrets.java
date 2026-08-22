@@ -13,11 +13,13 @@ import java.util.Map;
 public final class PulsarVaultSecrets implements VaultSecretContributor {
 
     @Override
-    public void contribute(Vault vault, VaultProperties properties, Map<String, Object> out) throws VaultException {
+    public void contribute(Vault vault, VaultProperties properties, Map<String, Object> out)
+            throws VaultException {
         // Shared cross-application config lives in the "datahub-platform" secret, with each
         // field namespaced by subsystem (pulsar.*). Pulsar is global today; the per-tenant
         // pulsar block in the tenant registry stays unread until multi-cluster work lands.
-        var vaultData = vault.logical().read(properties.secretName() + "/datahub-platform").getData();
+        var vaultData = vault.logical()
+                .read(properties.secretName() + "/datahub-platform").getData();
         String host = vaultData.get("pulsar.host");
 
         out.put("pulsar.client-id", vaultData.get("pulsar.client-id"));

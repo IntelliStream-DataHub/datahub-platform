@@ -9,7 +9,8 @@ package ai.intellistream.dhconsole.config;
  * ({@code PolicyApiIT}) run against a live api and need the Vault-provided OAuth2 client and
  * {@code datahub.url}. Do not also add it in {@code main}: that would log in to Vault twice.
  */
-public class VaultConfigurationLoader extends ai.intellistream.datahub.config.VaultConfigurationLoader {
+public class VaultConfigurationLoader
+        extends ai.intellistream.datahub.config.VaultConfigurationLoader {
 
     public VaultConfigurationLoader() {
         super(new ConsoleVaultSecrets());

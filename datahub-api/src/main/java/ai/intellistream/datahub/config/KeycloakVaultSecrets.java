@@ -13,11 +13,13 @@ import java.util.Map;
 public final class KeycloakVaultSecrets implements VaultSecretContributor {
 
     @Override
-    public void contribute(Vault vault, VaultProperties properties, Map<String, Object> out) throws VaultException {
+    public void contribute(Vault vault, VaultProperties properties, Map<String, Object> out)
+            throws VaultException {
         // The Keycloak issuer is the single shared atom between the api (JWT resource server)
         // and the console (OAuth2 client), so it lives in the cross-application
         // "datahub-platform" secret rather than being duplicated per module.
-        var vaultData = vault.logical().read(properties.secretName() + "/datahub-platform").getData();
+        var vaultData = vault.logical()
+                .read(properties.secretName() + "/datahub-platform").getData();
         String issuer = vaultData.get("keycloak.issuer");
         out.put("keycloak.issuers[0].uri", issuer);
         out.put("spring.security.oauth2.resourceserver.jwt.issuer-uri", issuer);

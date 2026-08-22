@@ -11,13 +11,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TenantFeatureDefaultsTest {
 
+    private static final VaultProperties VAULT =
+            VaultProperties.of("http://vault.invalid:8200", "test", "test");
+
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     private TenantConfigService service;
 
     @BeforeEach
     void setUp() {
-        service = new TenantConfigService(jsonMapper, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
+        service = new TenantConfigService(jsonMapper, null, VAULT);
         ReflectionTestUtils.setField(service, "policyFeatureDefault", true);
         ReflectionTestUtils.setField(service, "streamingFeatureDefault", true);
     }

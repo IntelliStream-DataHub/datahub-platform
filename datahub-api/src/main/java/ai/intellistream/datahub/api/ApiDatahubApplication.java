@@ -138,7 +138,8 @@ public class ApiDatahubApplication {
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(ApiDatahubApplication.class);
         // Registered here, not in spring.factories, so @SpringBootTest contexts never reach Vault.
-        app.addListeners(new VaultConfigurationLoader(new PulsarVaultSecrets(), new KeycloakVaultSecrets()));
+        app.addListeners(new VaultConfigurationLoader(
+                new PulsarVaultSecrets(), new KeycloakVaultSecrets()));
         app.run(args);
     }
 

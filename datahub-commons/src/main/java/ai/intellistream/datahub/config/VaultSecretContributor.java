@@ -14,5 +14,6 @@ import java.util.Map;
 @FunctionalInterface
 public interface VaultSecretContributor {
 
-    void contribute(Vault vault, VaultProperties properties, Map<String, Object> out) throws VaultException;
+    void contribute(Vault vault, VaultProperties properties, Map<String, Object> out)
+            throws VaultException;
 }

@@ -56,10 +56,11 @@ public record VaultProperties(String address,
 
     /** Settings without TLS material, for contexts that only need to know where Vault is. */
     public static VaultProperties of(String address, String roleId, String secretId) {
-        return new VaultProperties(address, roleId, secretId, DEFAULT_SECRET_NAME, null, "", null, "");
+        return new VaultProperties(address, roleId, secretId, DEFAULT_SECRET_NAME,
+                null, "", null, "");
     }
 
-    /** True when a client keystore or a truststore is configured, i.e. a custom SSL context is needed. */
+    /** True when a keystore or truststore is configured, i.e. a custom SSL context is needed. */
     public boolean tlsConfigured() {
         return keystore != null || truststore != null;
     }
@@ -74,7 +75,8 @@ public record VaultProperties(String address,
         if (value == null) {
             throw new IllegalStateException("Vault is not configured: " + key
                     + " is missing (set it in application.yml/.properties or as the "
-                    + key.toUpperCase().replace('.', '_').replace('-', '_') + " environment variable)");
+                    + key.toUpperCase().replace('.', '_').replace('-', '_')
+                    + " environment variable)");
         }
     }
 
@@ -85,7 +87,8 @@ public record VaultProperties(String address,
     @Override
     public String toString() {
         // Never print the AppRole secret or store passwords.
-        return "VaultProperties[address=" + address + ", roleId=" + roleId + ", secretName=" + secretName
-                + ", keystore=" + keystore + ", truststore=" + truststore + "]";
+        return "VaultProperties[address=" + address + ", roleId=" + roleId
+                + ", secretName=" + secretName + ", keystore=" + keystore
+                + ", truststore=" + truststore + "]";
     }
 }

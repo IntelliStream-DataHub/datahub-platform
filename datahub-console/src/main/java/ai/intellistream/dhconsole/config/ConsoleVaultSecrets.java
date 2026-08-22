@@ -15,13 +15,16 @@ import java.util.Map;
 public final class ConsoleVaultSecrets implements VaultSecretContributor {
 
     @Override
-    public void contribute(Vault vault, VaultProperties properties, Map<String, Object> vaultMap) throws VaultException {
+    public void contribute(Vault vault, VaultProperties properties, Map<String, Object> vaultMap)
+            throws VaultException {
         // Console-owned config (OAuth2 login client + the Spring Session Valkey store) lives in
         // the "datahub-console" secret, fields namespaced by subsystem (oauth.*,
         // http.session.valkey.*). The Keycloak issuer is shared with the api, so it is read once
         // from the cross-application "datahub-platform" secret rather than duplicated here.
-        var consoleData = vault.logical().read(properties.secretName() + "/datahub-console").getData();
-        var platformData = vault.logical().read(properties.secretName() + "/datahub-platform").getData();
+        var consoleData = vault.logical()
+                .read(properties.secretName() + "/datahub-console").getData();
+        var platformData = vault.logical()
+                .read(properties.secretName() + "/datahub-platform").getData();
 
         var clientId = consoleData.get("oauth.client-id");
         var clientSecret = consoleData.get("oauth.client-secret");
@@ -38,11 +41,14 @@ public final class ConsoleVaultSecrets implements VaultSecretContributor {
 
         vaultMap.put("spring.security.oauth2.client.registration.keycloak.client-name", clientName);
         vaultMap.put("spring.security.oauth2.client.registration.keycloak.client-id", clientId);
-        vaultMap.put("spring.security.oauth2.client.registration.keycloak.client-secret", clientSecret);
+        vaultMap.put("spring.security.oauth2.client.registration.keycloak.client-secret",
+                clientSecret);
         vaultMap.put("spring.security.oauth2.client.registration.keycloak.provider", provider);
         vaultMap.put("spring.security.oauth2.client.registration.keycloak.scope", scope);
-        vaultMap.put("spring.security.oauth2.client.registration.keycloak.authorization-grant-type", grantType);
-        vaultMap.put("spring.security.oauth2.client.registration.keycloak.redirect-uri", redirectUri);
+        vaultMap.put("spring.security.oauth2.client.registration.keycloak.authorization-grant-type",
+                grantType);
+        vaultMap.put("spring.security.oauth2.client.registration.keycloak.redirect-uri",
+                redirectUri);
         vaultMap.put("spring.security.oauth2.client.provider.keycloak.issuer-uri", issuerUri);
 
         vaultMap.put("authorities-mapping.issuers[0].uri", issuerUri);
@@ -69,8 +75,10 @@ public final class ConsoleVaultSecrets implements VaultSecretContributor {
         // and reasoning turned off; a hosted one wants neither. Both are per-deployment facts, so
         // they belong beside the credentials rather than in a properties file on one machine.
         putIfPresent(vaultMap, "datahub.chat.effort", consoleData.get("llm.effort"));
-        putIfPresent(vaultMap, "datahub.chat.reasoning-effort", consoleData.get("llm.reasoning-effort"));
-        putIfPresent(vaultMap, "datahub.chat.max-output-tokens", consoleData.get("llm.max-output-tokens"));
+        putIfPresent(vaultMap, "datahub.chat.reasoning-effort",
+                consoleData.get("llm.reasoning-effort"));
+        putIfPresent(vaultMap, "datahub.chat.max-output-tokens",
+                consoleData.get("llm.max-output-tokens"));
         putIfPresent(vaultMap, "datahub.chat.turn-timeout", consoleData.get("llm.turn-timeout"));
         putIfPresent(vaultMap, "datahub.chat.instructions", consoleData.get("llm.instructions"));
     }

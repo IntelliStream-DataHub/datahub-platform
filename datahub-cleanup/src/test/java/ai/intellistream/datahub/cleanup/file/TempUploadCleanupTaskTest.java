@@ -19,6 +19,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TempUploadCleanupTaskTest {
 
+    private static final VaultProperties VAULT =
+            VaultProperties.of("http://vault.invalid:8200", "test", "test");
+
     private static final String TMP = new FileCleanupProperties().getTempDirName(); // shared ".tmp"
 
     private static Tenant tenant(String id, String rootPath) {
@@ -33,7 +36,7 @@ class TempUploadCleanupTaskTest {
 
     private static TenantConfigService serviceWith(Tenant t) {
         // Construct directly (no Spring) so @PostConstruct/Vault never runs; populate the cache.
-        TenantConfigService svc = new TenantConfigService(null, null, VaultProperties.of("http://vault.invalid:8200", "test", "test"));
+        TenantConfigService svc = new TenantConfigService(null, null, VAULT);
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }
