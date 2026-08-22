@@ -1045,10 +1045,15 @@ header .user-menu .user-sub-menu li{
 header .user-menu .user-sub-menu li:hover{ background: rgba(108, 177, 255, 0.10); }
 /* Logout is the one row whose action is a link rather than a click handler on the row itself, so
    the anchor has to cover the row: otherwise the padding around the word highlights on hover and
-   then swallows the click. The padding moves from the row to the anchor to include it. */
+   then swallows the click. The padding moves from the row to the anchor to include it.
+   `display: block` is what puts the label where every other row's label sits: the header rule
+   `header div.right-content a` makes anchors centred column flexboxes for the name-over-org stack
+   beside the avatar, and it reaches in here as a descendant, which centred the word. Opting this
+   one anchor out is enough; dropping flex-direction from that rule would unstack the header. */
 header .user-menu .user-sub-menu li:has(> a){ padding: 0; }
 header .user-menu .user-sub-menu li > a{
-	flex: 1;
+	display: block;
+	width: 100%;
 	padding: 11px 14px;
 	color: inherit;
 }
