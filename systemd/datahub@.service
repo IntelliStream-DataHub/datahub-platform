@@ -52,8 +52,9 @@ TimeoutStopSec=90s
 KillMode=mixed
 KillSignal=SIGTERM
 
-# /var/lib/datahub/<name> (heap dumps, SDK spool) and /var/log/datahub/<name> (GC log),
-# created and owned by the service user, and writable even under ProtectSystem=strict.
+# /var/lib/datahub/<name> (JFR repository, SDK spool, a heap dump if one is ever taken on
+# purpose) and /var/log/datahub/<name> (GC log, crash log), created and owned by the
+# service user, and writable even under ProtectSystem=strict.
 StateDirectory=datahub/%i
 LogsDirectory=datahub/%i
 StateDirectoryMode=0750
@@ -66,6 +67,11 @@ LimitNOFILE=524288
 TasksMax=16384
 # A memory hog elsewhere should die before the service does.
 OOMScoreAdjust=-500
+# No core dumps, for the same reason the JVM flags take no heap dump: a core is a copy of
+# process memory, credentials and tenant data included. systemd-coredump honours this
+# limit too. A crash still leaves hs_err_<pid>.log (ErrorFile in the env file) and the
+# JFR repository; see "Diagnostics" in the README.
+LimitCORE=0
 
 # Hardening. MemoryDenyWriteExecute must stay OFF: the JIT needs writable, executable
 # pages. No SystemCallFilter either, the JVM's syscall surface is wide and a missing
