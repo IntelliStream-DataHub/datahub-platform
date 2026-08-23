@@ -107,9 +107,9 @@ addresses on the app hosts; a server's source address must stay put.
 
 **Heap 16-20 GB, fixed size.** `-Xms` = `-Xmx` plus `AlwaysPreTouch`: the whole heap is
 faulted in at start, under the unit's `NUMAPolicy=bind`, so it is node-local and never
-grows or pages in the request path. Startup takes a few seconds longer. G1 at a 200 ms
-pause target is the safe default; generational ZGC (`-XX:+UseZGC`) trades
-some throughput for sub-millisecond pauses if the api's latency tail matters more.
+grows or pages in the request path. Startup takes a few seconds longer. G1 with its defaults is the safe choice;
+generational ZGC (`-XX:+UseZGC`) trades some throughput for sub-millisecond pauses if the
+api's latency tail matters more.
 
 **Transparent huge pages** (`-XX:+UseTransparentHugePages` with THP in `madvise` mode)
 cut TLB misses on a 20 GB heap. Combined with pre-touch the huge pages are assembled at
@@ -120,10 +120,9 @@ the tmpfiles line above.
 Java 25): 8-byte instead of 12-byte headers, 5-10 % less heap churn on object-heavy
 JSON workloads.
 
-**Off-heap.** `MaxDirectMemorySize` is sized per service for Netty, the Pulsar client and
-the ClickHouse client; the memory ceiling in each `placement.conf` (`MemoryMax`) leaves
-heap + direct + metaspace + code cache + stacks comfortably inside it. It is a guard
-against a leak, not a target. `MALLOC_ARENA_MAX=4` keeps glibc from holding on to one
+**Off-heap.** Direct buffers (Netty, the Pulsar and ClickHouse clients), metaspace and the
+code cache are left at the JVM defaults; the memory ceiling in each `placement.conf`
+(`MemoryMax`) is the guard against a leak, not a target. `MALLOC_ARENA_MAX=4` keeps glibc from holding on to one
 arena per thread.
 
 **Never `-XX:TieredStopAtLevel=1` in production.** It disables the C2 compiler and with
@@ -165,20 +164,18 @@ fails in odd places).
 
 ## Diagnostics
 
-No heap dump on OOM (`-XX:-HeapDumpOnOutOfMemoryError`) and no core dump (`LimitCORE=0`):
+No heap dump on OOM (the JVM default) and no core dump (`LimitCORE=0`):
 both are a copy of process memory, credentials and tenant data included. An OOM still ends
 the process (`ExitOnOutOfMemoryError`) and systemd restarts it. The standing diagnostics:
 
 | Source | Flag | Where | What it gives |
 |---|---|---|---|
-| JFR recording `datahub` | `-XX:StartFlightRecording=...` | `/var/lib/datahub/<name>/jfr`, last 24 h or 1 GB | allocation paths, leak candidates with allocation stacks, GC, safepoints, exceptions, method samples, native memory |
-| GC log | `-Xlog:gc*,safepoint` | `/var/log/datahub/<name>/gc.log`, 10 x 64 MB | pauses, heap before/after, humongous allocations |
+| JFR recording `datahub` | `-XX:StartFlightRecording=...` | `/var/lib/datahub/<name>/jfr`, last 24 h or 1 GB | allocation paths, leak candidates with allocation stacks, GC, exceptions, method samples, native memory |
+| GC log | `-Xlog:gc*` | `/var/log/datahub/<name>/gc.log`, 10 x 64 MB | pauses, heap before/after, humongous allocations |
 | Native memory tracking | `-XX:NativeMemoryTracking=summary` | `jcmd <pid> VM.native_memory` | off-heap by category |
-| Crash log | `-XX:ErrorFile` | `/var/log/datahub/<name>/hs_err_<pid>.log` | a JVM crash |
 
-The recording is `default.jfc` with `jdk.InitialEnvironmentVariable`, `jdk.InitialSystemProperty`
-and `jdk.SystemProcess` turned off, so it holds neither the Vault secret-id from `common.env`
-nor other processes' command lines. It still holds exception messages and stack traces:
+The recording is `default.jfc` with `jdk.InitialEnvironmentVariable` turned off, so it does
+not hold the Vault secret-id from `common.env`. It still holds exception messages and stack traces:
 treat a `.jfr` like a log file.
 
 ```sh
