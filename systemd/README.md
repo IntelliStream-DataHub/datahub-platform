@@ -165,79 +165,61 @@ fails in odd places).
 
 ## Diagnostics
 
-**No heap dump by default.** `-XX:-HeapDumpOnOutOfMemoryError` in every env file, and
-`LimitCORE=0` in the unit for the same reason: a heap dump or a core is a copy of process
-memory, and the heap of a running service holds the Vault token, database and Pulsar
-credentials, the JWTs of every caller in flight and whatever tenant data was being served.
-A file like that written automatically to `/var/lib/datahub` on every OOM is a secret
-waiting to be copied around. An OOM still ends the process (`ExitOnOutOfMemoryError`) and
-systemd restarts it.
-
-**What stands in.** None of it is a copy of the heap:
+No heap dump on OOM (`-XX:-HeapDumpOnOutOfMemoryError`) and no core dump (`LimitCORE=0`):
+both are a copy of process memory, credentials and tenant data included. An OOM still ends
+the process (`ExitOnOutOfMemoryError`) and systemd restarts it. The standing diagnostics:
 
 | Source | Flag | Where | What it gives |
 |---|---|---|---|
-| JFR recording `datahub` | `-XX:StartFlightRecording=...` | repository `/var/lib/datahub/<name>/jfr`, last 24 h or 1 GB | allocation paths (`ObjectAllocationSample`), leak candidates with allocation stack traces (`OldObjectSample`, `memory-leaks=stack-traces`), GC, safepoints, compilation, exceptions, method samples, native memory |
-| GC log | `-Xlog:gc*,safepoint` | `/var/log/datahub/<name>/gc.log`, 10 x 64 MB | pause times, heap before/after, humongous allocations |
-| Native memory tracking | `-XX:NativeMemoryTracking=summary` | `jcmd <pid> VM.native_memory` | off-heap by category (Netty, metaspace, code cache, GC, threads), also in the JFR recording as `NativeMemoryUsage` |
-| Crash log | `-XX:ErrorFile` | `/var/log/datahub/<name>/hs_err_<pid>.log` | a JVM crash; registers and a few words of stack, not the heap |
+| JFR recording `datahub` | `-XX:StartFlightRecording=...` | `/var/lib/datahub/<name>/jfr`, last 24 h or 1 GB | allocation paths, leak candidates with allocation stacks, GC, safepoints, exceptions, method samples, native memory |
+| GC log | `-Xlog:gc*,safepoint` | `/var/log/datahub/<name>/gc.log`, 10 x 64 MB | pauses, heap before/after, humongous allocations |
+| Native memory tracking | `-XX:NativeMemoryTracking=summary` | `jcmd <pid> VM.native_memory` | off-heap by category |
+| Crash log | `-XX:ErrorFile` | `/var/log/datahub/<name>/hs_err_<pid>.log` | a JVM crash |
 
-The recording is `default.jfc`, the profile the JDK ships for always-on use (about 1 %
-overhead), with three events turned off: `jdk.InitialEnvironmentVariable` (it would record
-the Vault secret-id from `common.env`), `jdk.InitialSystemProperty` (a credential passed as
-`-D`) and `jdk.SystemProcess` (the command lines of every other process on the host). What
-is left is still operational data: class and thread names, exception messages, stack traces
-and the JVM flags. Handle a `.jfr` like a log file, not like a heap dump.
+The recording is `default.jfc` with `jdk.InitialEnvironmentVariable`, `jdk.InitialSystemProperty`
+and `jdk.SystemProcess` turned off, so it holds neither the Vault secret-id from `common.env`
+nor other processes' command lines. It still holds exception messages and stack traces:
+treat a `.jfr` like a log file.
 
 ```sh
 PID=$(systemctl show -p MainPID --value datahub@api)
 
-# Pull the last 24 h with leak candidates and their reference chains. The JVM stops at a
-# safepoint while it walks the live heap, tens of seconds on a large live set, so pick a
-# quiet moment on a loaded instance.
+# Last 24 h with leak candidates and their reference chains (a safepoint while the live
+# heap is walked; pick a quiet moment)
 jcmd $PID JFR.dump name=datahub path-to-gc-roots=true filename=/var/log/datahub/api/api-%t.jfr
-jfr view memory-leaks-by-site /var/log/datahub/api/api-*.jfr        # or open it in JDK Mission Control
+jfr view memory-leaks-by-site /var/log/datahub/api/api-*.jfr        # or JDK Mission Control
 jfr view allocation-by-site /var/log/datahub/api/api-*.jfr
 jfr view gc-pauses /var/log/datahub/api/api-*.jfr
 jfr view native-memory-committed /var/log/datahub/api/api-*.jfr
 
-# A sharper look for a short while: switch to profile.jfc (about 2 %) for the next 10 minutes
+# More detail for a short while
 jcmd $PID JFR.start name=deep settings=profile duration=10m filename=/var/log/datahub/api/deep-%t.jfr
 
-# Off-heap growth: take a baseline, wait, diff
+# Off-heap growth
 jcmd $PID VM.native_memory baseline
 jcmd $PID VM.native_memory summary.diff
 ```
 
-**After the process died.** An OOM exit (and a crash) is a quick exit, so the recording is
-not written out; the chunk files it had already rotated stay in the repository, under one
-directory per JVM start. Assemble them, dropping the newest chunk, which the JVM was still
-writing:
+After an OOM exit or a crash the recording is not written out, but its rotated chunks stay in
+the repository (one directory per JVM start; a clean stop deletes it). Assemble them without
+the newest chunk, which was still being written:
 
 ```sh
 cd /var/lib/datahub/api/jfr/<date>_<pid>/
 mkdir done && cp $(ls *.jfr | head -n -1) done/ && jfr assemble done /var/log/datahub/api/last.jfr
 ```
 
-Leak candidates (`OldObjectSample`) are only materialised by a dump, so the assembled file
-has everything except those; a leak that ends in an OOM is found by dumping the recording
-while the heap is still growing, which the GC log shows well before the exit. A clean stop
-deletes the repository; the directories that stay behind are from abnormal exits, and
-nothing prunes them, so clear them once read.
+Leak candidates are only materialised by a dump, so dump while the heap is still growing.
 
-**When a heap dump is genuinely needed**, take it on purpose:
+When a heap dump is genuinely needed, take it deliberately:
 
 ```sh
 jcmd $PID GC.heap_dump -gz=1 /var/lib/datahub/api/api-$(date +%F).hprof.gz
 ```
 
-The JVM pauses while it writes, a full GC first and then the walk; on a 20 GB heap that is
-a visible outage for the instance, so take it out of the load balancer first.
-`StateDirectoryMode=0750` keeps the file readable by the service user and root only. Analyse
-it on the host (`jhat` is gone; Eclipse MAT runs headless with `ParseHeapDump.sh`) or on an
-encrypted volume, delete it when done, and if the file ever left the host, rotate every
-secret that was in that process: the Vault AppRole secret-id at least, plus whatever it had
-read from Vault.
+The JVM pauses while it writes (take the instance out of the load balancer first). Analyse
+it on the host or on an encrypted volume, delete it when done, and rotate every secret that
+was in the process if the file ever left the host.
 
 ## Checking a running service
 
