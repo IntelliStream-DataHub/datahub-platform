@@ -51,12 +51,7 @@ public class SecurityConfig {
     @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
     private String issuerUri;
 
-    /**
-     * The actuator endpoints, served on the management port (see {@code management.server.port}).
-     * The Prometheus scrape needs no token; the port is reached by the Prometheus host only, never
-     * through the load balancer. Everything else under the actuator path is denied, whatever is
-     * exposed. Ordered before the main chain so none of its filters run on a scrape.
-     */
+    /** The actuator chain on the management port: the scrape is open, everything else denied. */
     @Bean
     @Order(1)
     SecurityFilterChain actuatorFilterChain(HttpSecurity http) {
@@ -65,8 +60,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(EndpointRequest.to("prometheus")).permitAll()
                         .anyRequest().denyAll())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(AbstractHttpConfigurer::disable);
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
     }
 

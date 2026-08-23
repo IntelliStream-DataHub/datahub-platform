@@ -39,11 +39,7 @@ import java.util.stream.Collectors;
 @EnableWebSecurity
 public class SecurityConfig {
 
-    /**
-     * The actuator endpoints on the management port ({@code management.server.port}): the
-     * Prometheus scrape needs no token, the port is reached by the Prometheus host only, and
-     * every other actuator path is denied. Ordered before the main chain.
-     */
+    /** The actuator chain on the management port: the scrape is open, everything else denied. */
     @Bean
     @Order(1)
     SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
@@ -52,8 +48,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(EndpointRequest.to("prometheus")).permitAll()
                         .anyRequest().denyAll())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(AbstractHttpConfigurer::disable);
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
     }
 

@@ -20,7 +20,6 @@ import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -63,12 +62,7 @@ import java.util.stream.StreamSupport;
 @Slf4j
 public class WebSecurityConfig {
 
-    /**
-     * The actuator endpoints on the management port ({@code management.server.port}): the
-     * Prometheus scrape needs no login, the port is reached by the Prometheus host only, and
-     * every other actuator path is denied. Ordered before the login chain, so a scrape is never
-     * redirected to the identity provider.
-     */
+    /** The actuator chain on the management port: the scrape is open, everything else denied. */
     @Bean
     @Order(1)
     SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
@@ -77,8 +71,7 @@ public class WebSecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(EndpointRequest.to("prometheus")).permitAll()
                         .anyRequest().denyAll())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(AbstractHttpConfigurer::disable);
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
     }
 
