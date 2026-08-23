@@ -1,8 +1,19 @@
+# The only thing listening: the Prometheus scrape endpoint, /actuator/prometheus. Open the
+# port to the Prometheus host only.
+server:
+  port: 9084
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+  health:
+    defaults:
+      enabled: false
+
 spring:
   application:
     name: datahub-stateful-consumer
-  main:
-    web-application-type: none
   profiles:
     active: dev
   flyway:

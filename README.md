@@ -297,6 +297,10 @@ Run **one instance**: two janitors deleting concurrently is wasteful and racy.
 
 It is also the only persistent retrier of the per-tenant Flyway migration: `datahub-api` provisions a tenant on demand and gives up after a single attempt, so without this service a tenant whose migration failed once stays broken.
 
+### Metrics
+
+Every service serves Prometheus metrics at `/actuator/prometheus`, with no token, on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, stateful consumer 9084, cleanup 9085. For the api, console and analysis that is a second port next to the application port, so a load balancer never reaches it. Open the metrics ports to the Prometheus host only. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
+
 ### Flyway
 
 Per-tenant schemas are migrated through the shared `TenantMigrationService`. `datahub-api` provisions on demand — at boot, on a `TenantAddedEvent`, and on the first request for an unconfirmed org — and does not retry on a timer; `datahub-cleanup` owns the retry sweep. Flyway's schema-history lock prevents concurrent migrations from racing when multiple instances boot in parallel; non-leader instances wait and then see "already applied".

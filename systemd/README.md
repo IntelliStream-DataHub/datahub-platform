@@ -81,7 +81,8 @@ journalctl -fu datahub@api
 service never sees the file. If Vault requires a client certificate, the `VAULT_KEYSTORE`
 lines in the same file point at a PKCS12 under `/etc/datahub`, which the unit's
 `ProtectSystem=strict` still lets the service read. Firewall: the api listens on 8081 and the console on 8080
-for the load balancer only; open them to the LB addresses, not the world.
+for the load balancer only; open them to the LB addresses, not the world, and the metrics ports
+(9080, 9081; see [Metrics](#metrics)) to the Prometheus host.
 
 The apps expect a **pgbouncer on localhost** (`StatelessRoutingDataSource` opens a
 connection per request and has no pool of its own). The unit orders itself after
@@ -104,6 +105,43 @@ setting. Three things to line up:
 
 `sysctl.d/90-datahub-app.conf` turns off router advertisements, autoconf and temporary
 addresses on the app hosts; a server's source address must stay put.
+
+## Metrics
+
+Every service exposes Prometheus metrics at `/actuator/prometheus` on a port of its own, with
+no token: JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint.
+The api, console and analysis serve it on a second port next to the application port, so the
+load balancer never reaches it; the consumers and cleanup listen on nothing else.
+
+| Instance | Application port | Metrics port |
+|---|---|---|
+| `datahub@api` | 8081 | 9081 |
+| `datahub@console` | 8080 | 9080 |
+| `datahub@analysis` | 8082 | 9082 |
+| `datahub@stateless-consumer` | none | 9083 |
+| `datahub@stateful-consumer` | none | 9084 |
+| `datahub@cleanup` | none | 9085 |
+
+Open the metrics ports to the Prometheus host only. They bind the wildcard address like the
+application ports; `management.server.address` (or `server.address` for the three without an
+application port) in `/etc/datahub/<name>/application.yml` narrows that if the host has an
+internal interface. A scrape job per host:
+
+```yaml
+scrape_configs:
+  - job_name: datahub
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app-1.internal.example.org:9081", "app-2.internal.example.org:9081"]
+        labels: { service: api }
+      - targets: ["app-1.internal.example.org:9080", "app-2.internal.example.org:9080"]
+        labels: { service: console }
+```
+
+The health endpoint is not exposed: its indicators would probe the tenant-routing datasource,
+which has no connection to offer without a tenant. nginx's passive checks (`max_fails`) cover
+upstream health.
+
 
 ## Why these numbers
 

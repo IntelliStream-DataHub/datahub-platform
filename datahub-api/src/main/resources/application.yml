@@ -64,6 +64,9 @@ spring:
 
 server:
   tomcat:
+    # For the tomcat_connections and tomcat_threads metrics.
+    mbeanregistry:
+      enabled: true
     threads:
       max: 200
       min-spare: 5
@@ -72,6 +75,21 @@ server:
       cookie:
         same-site: strict
   port: 8081
+
+# Prometheus scrape endpoint on its own port, so the load balancer never sees it and no token
+# is needed. Open the port to the Prometheus host only.
+management:
+  server:
+    port: 9081
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+  # Health is not exposed, and its auto-configured indicators cannot even be built: the tenant
+  # routing datasource has no connection to probe without a tenant.
+  health:
+    defaults:
+      enabled: false
 springdoc:
   writer-with-order-by-keys: false
   swagger-ui:

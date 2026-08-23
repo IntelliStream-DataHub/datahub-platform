@@ -123,7 +123,7 @@ services:
     # Keycloak realm import can outlast the entrypoint's poll on a cold start; recover instead
     # of dying permanently on a transient dependency hiccup.
     restart: unless-stopped
-    ports: ["8081:8081"]
+    ports: ["8081:8081", "9081:9081"]   # 9081: Prometheus scrape, /actuator/prometheus
 
   datahub-console:
     image: datahub-console:local
@@ -135,7 +135,7 @@ services:
     depends_on: ["postgres", "valkey", "keycloak"]
     environment: *app-env
     restart: unless-stopped
-    ports: ["8080:8080"]
+    ports: ["8080:8080", "9080:9080"]
 
   datahub-stateless-consumer:
     image: datahub-stateless-consumer:local
@@ -187,17 +187,18 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:8080
       WAIT_FOR_API_URL: http://datahub-api:8081/
     restart: unless-stopped
+    ports: ["9084:9084"]
     # Published because the request comes from the host's browser, not from inside the network.
-    ports: ["8082:8082"]
+    ports: ["8082:8082", "9082:9082"]
 
   # Scheduled housekeeping: stale upload temp files, orphaned Pulsar subscriptions, and the
   # per-tenant Flyway self-heal sweep. It is the ONLY persistent retrier of that migration —
   # datahub-api provisions a tenant on demand and gives up after one attempt — so without it
   # a tenant whose migration failed once stays broken.
   #
-  # Single instance by design (the jobs are not built to run concurrently), and headless: no
-  # web server, so nothing to publish. SPRING_PROFILES_ACTIVE=dev, set in the shared env
-  # above, keeps the file jobs in dry-run; the subscription sweep is dry-run by default too.
+  # Single instance by design (the jobs are not built to run concurrently); the only port is
+  # the Prometheus scrape. SPRING_PROFILES_ACTIVE=dev, set in the shared env above, keeps the
+  # file jobs in dry-run; the subscription sweep is dry-run by default too.
   #
   # DISABLED for the local/demo stack: a demo does not need the housekeeping sweeps, and the
   # self-heal retrier is moot on the seeded single-tenant demo. Re-enable by uncommenting the
@@ -214,3 +215,4 @@ services:
   #     <<: *app-env
   #     WAIT_FOR_API_URL: http://datahub-api:8081/
   #   restart: unless-stopped
+  #   ports: ["9085:9085"]

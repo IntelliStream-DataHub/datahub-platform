@@ -1,3 +1,16 @@
+# The only thing listening: the Prometheus scrape endpoint, /actuator/prometheus. Open the
+# port to the Prometheus host only.
+server:
+  port: 9085
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+  health:
+    defaults:
+      enabled: false
+
 spring:
   application:
     name: datahub-cleanup
@@ -5,9 +18,6 @@ spring:
     # Local default. Deployments override with SPRING_PROFILES_ACTIVE (e.g. prod). The dev profile
     # turns the file-cleanup jobs into log-only dry-runs — see the dev document at the end of this file.
     active: dev
-  main:
-    # Pure scheduled job — no web server.
-    web-application-type: none
   flyway:
     enabled: false
   jpa:
