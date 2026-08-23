@@ -11,7 +11,7 @@ systemd/
   datahub@.service                     one template for all six services
   datahub@<name>.service.d/placement.conf   per-instance NUMA node, memory ceiling, extra mounts
   env/common.env                       profile, Vault AppRole, Pulsar, shared env
-  env/<name>.env                       JAVA_OPTS per service (heap, GC log)
+  env/<name>.env                       JAVA_OPTS per service
   config/<name>/application.yml        Spring Boot / Tomcat tuning (api, console, analysis)
   sysctl.d/90-datahub-app.conf         kernel settings for the app hosts
 ```
@@ -166,12 +166,15 @@ fails in odd places).
 
 No heap dump on OOM (the JVM default) and no core dump (`LimitCORE=0`): both are a copy of
 process memory, credentials and tenant data included. An OOM ends the process
-(`ExitOnOutOfMemoryError`) and systemd restarts it. The GC log in
-`/var/log/datahub/<name>/gc.log` is the only standing diagnostic; it shows the heap creeping
-long before an OOM. Everything else is switched on when needed:
+(`ExitOnOutOfMemoryError`) and systemd restarts it. Nothing else is logged by default;
+everything below is switched on when needed:
 
 ```sh
 PID=$(systemctl show -p MainPID --value datahub@api)
+
+# Heap occupancy now, and a GC log from now on (one line per collection, before->after)
+jcmd $PID GC.heap_info
+jcmd $PID VM.log output=file=/var/log/datahub/api/gc.log what=gc decorators=time
 
 # Heap growing: start a recording (about 1 % overhead, bounded to 24 h / 1 GB). The
 # environment event is off so the recording does not hold the Vault secret-id.
@@ -211,7 +214,6 @@ grep AnonHugePages /proc/$(systemctl show -p MainPID --value datahub@api)/smaps_
 jcmd $(systemctl show -p MainPID --value datahub@api) VM.flags       # effective JVM flags
 jcmd $(systemctl show -p MainPID --value datahub@api) GC.heap_info
 ss -tn state established '( sport = :8081 )' | wc -l                 # open connections
-tail -f /var/log/datahub/api/gc.log
 ```
 
 `numastat -p` should show all but a few MB under the bound node. If the `Huge` column
