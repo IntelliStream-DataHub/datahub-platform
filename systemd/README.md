@@ -11,7 +11,7 @@ systemd/
   datahub@.service                     one template for all six services
   datahub@<name>.service.d/placement.conf   per-instance NUMA node, memory ceiling, extra mounts
   env/common.env                       profile, Vault AppRole, Pulsar, shared env
-  env/<name>.env                       JAVA_OPTS per service (heap, GC, diagnostics)
+  env/<name>.env                       JAVA_OPTS per service (heap, GC log)
   config/<name>/application.yml        Spring Boot / Tomcat tuning (api, console, analysis)
   sysctl.d/90-datahub-app.conf         kernel settings for the app hosts
 ```
@@ -164,49 +164,33 @@ fails in odd places).
 
 ## Diagnostics
 
-No heap dump on OOM (the JVM default) and no core dump (`LimitCORE=0`):
-both are a copy of process memory, credentials and tenant data included. An OOM still ends
-the process (`ExitOnOutOfMemoryError`) and systemd restarts it. The standing diagnostics:
-
-| Source | Flag | Where | What it gives |
-|---|---|---|---|
-| JFR recording `datahub` | `-XX:StartFlightRecording=...` | `/var/lib/datahub/<name>/jfr`, last 24 h or 1 GB | allocation paths, leak candidates with allocation stacks, GC, exceptions, method samples, native memory |
-| GC log | `-Xlog:gc*` | `/var/log/datahub/<name>/gc.log`, 10 x 64 MB | pauses, heap before/after, humongous allocations |
-| Native memory tracking | `-XX:NativeMemoryTracking=summary` | `jcmd <pid> VM.native_memory` | off-heap by category |
-
-The recording is `default.jfc` with `jdk.InitialEnvironmentVariable` turned off, so it does
-not hold the Vault secret-id from `common.env`. It still holds exception messages and stack traces:
-treat a `.jfr` like a log file.
+No heap dump on OOM (the JVM default) and no core dump (`LimitCORE=0`): both are a copy of
+process memory, credentials and tenant data included. An OOM ends the process
+(`ExitOnOutOfMemoryError`) and systemd restarts it. The GC log in
+`/var/log/datahub/<name>/gc.log` is the only standing diagnostic; it shows the heap creeping
+long before an OOM. Everything else is switched on when needed:
 
 ```sh
 PID=$(systemctl show -p MainPID --value datahub@api)
 
-# Last 24 h with leak candidates and their reference chains (a safepoint while the live
-# heap is walked; pick a quiet moment)
+# Heap growing: start a recording (about 1 % overhead, bounded to 24 h / 1 GB). The
+# environment event is off so the recording does not hold the Vault secret-id.
+jcmd $PID JFR.start name=datahub disk=true maxage=24h maxsize=1g memory-leaks=stack-traces jdk.InitialEnvironmentVariable#enabled=false
+
+# Later, pull it with leak candidates and their reference chains (a safepoint while the
+# live heap is walked; pick a quiet moment)
 jcmd $PID JFR.dump name=datahub path-to-gc-roots=true filename=/var/log/datahub/api/api-%t.jfr
 jfr view memory-leaks-by-site /var/log/datahub/api/api-*.jfr        # or JDK Mission Control
 jfr view allocation-by-site /var/log/datahub/api/api-*.jfr
 jfr view gc-pauses /var/log/datahub/api/api-*.jfr
-jfr view native-memory-committed /var/log/datahub/api/api-*.jfr
-
-# More detail for a short while
-jcmd $PID JFR.start name=deep settings=profile duration=10m filename=/var/log/datahub/api/deep-%t.jfr
-
-# Off-heap growth
-jcmd $PID VM.native_memory baseline
-jcmd $PID VM.native_memory summary.diff
+jcmd $PID JFR.stop name=datahub
 ```
 
-After an OOM exit or a crash the recording is not written out, but its rotated chunks stay in
-the repository (one directory per JVM start; a clean stop deletes it). Assemble them without
-the newest chunk, which was still being written:
+A recording holds exception messages and stack traces: treat a `.jfr` like a log file.
 
-```sh
-cd /var/lib/datahub/api/jfr/<date>_<pid>/
-mkdir done && cp $(ls *.jfr | head -n -1) done/ && jfr assemble done /var/log/datahub/api/last.jfr
-```
-
-Leak candidates are only materialised by a dump, so dump while the heap is still growing.
+RSS growing while the heap stays flat is off-heap. Native memory tracking cannot be enabled
+at runtime: add `-XX:NativeMemoryTracking=summary` to the env file, restart that instance,
+then `jcmd $PID VM.native_memory baseline` and, after a while, `summary.diff`.
 
 When a heap dump is genuinely needed, take it deliberately:
 
@@ -228,8 +212,6 @@ jcmd $(systemctl show -p MainPID --value datahub@api) VM.flags       # effective
 jcmd $(systemctl show -p MainPID --value datahub@api) GC.heap_info
 ss -tn state established '( sport = :8081 )' | wc -l                 # open connections
 tail -f /var/log/datahub/api/gc.log
-jcmd $(systemctl show -p MainPID --value datahub@api) JFR.check             # the standing recording
-jcmd $(systemctl show -p MainPID --value datahub@api) VM.native_memory summary
 ```
 
 `numastat -p` should show all but a few MB under the bound node. If the `Huge` column

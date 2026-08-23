@@ -52,7 +52,7 @@ TimeoutStopSec=90s
 KillMode=mixed
 KillSignal=SIGTERM
 
-# /var/lib/datahub/<name> (JFR repository, SDK spool) and /var/log/datahub/<name> (GC log),
+# /var/lib/datahub/<name> (SDK spool, diagnostics) and /var/log/datahub/<name> (GC log),
 # created and owned by the service user, writable under ProtectSystem=strict.
 StateDirectory=datahub/%i
 LogsDirectory=datahub/%i
