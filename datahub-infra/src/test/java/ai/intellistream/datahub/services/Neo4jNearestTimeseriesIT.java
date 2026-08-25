@@ -77,11 +77,12 @@ class Neo4jNearestTimeseriesIT {
         when(neo4j.getSession()).thenAnswer(inv -> driver.session());
         LabelService labelService = mock(LabelService.class);
         when(labelService.list()).thenReturn(Collections.emptyList());
-        service = new Neo4JService(neo4j, labelService);
+        service = new Neo4JService(neo4j, labelService,
+                new ai.intellistream.datahub.transformers.NodeReadMapper());
     }
 
     private Set<Long> nodeIds(ResourceNetwork net) {
-        return net.nodes().stream().map(Resource::getId).collect(Collectors.toSet());
+        return net.nodes().stream().map(ai.intellistream.datahub.models.NodeModel::getId).collect(Collectors.toSet());
     }
 
     @Test

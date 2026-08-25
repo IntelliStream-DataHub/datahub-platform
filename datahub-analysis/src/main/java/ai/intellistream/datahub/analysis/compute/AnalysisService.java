@@ -9,6 +9,7 @@ import ai.intellistream.datahub.api.responses.ResourceNetwork;
 import ai.intellistream.datahub.jpa.dto.DatapointAggsDTO;
 import ai.intellistream.datahub.models.FetchNearestResourcesForm;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.analysis.AnalysisComputeRequest;
 import ai.intellistream.datahub.models.analysis.AnalysisResponse;
@@ -93,8 +94,8 @@ public class AnalysisService {
 
         // Candidate node ids (everything reachable except the focus); keep the focus's graph resource.
         Set<Long> candidateIds = new HashSet<>();
-        Resource focusResource = null;
-        for (Resource r : network.nodes()) {
+        NodeModel focusResource = null;
+        for (NodeModel r : network.nodes()) {
             if (r.getId() == null) {
                 continue;
             }
