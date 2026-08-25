@@ -2,6 +2,8 @@
 package ai.intellistream.datahub.transformers;
 
 import ai.intellistream.datahub.jpa.domains.NodeType;
+
+import java.util.List;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.Policy;
 import org.junit.jupiter.api.DisplayName;
@@ -43,15 +45,18 @@ class PolicyTransformerTest {
         PolicyEntity entity = new DetachedNodeTypePolicy();
         entity.setName("IS_WRITE_PROTECTED");
 
-        // Fails with the IllegalStateException above if anyone reinstates item.getNodeType().
+        // Fails with the IllegalStateException above if anyone makes the transformer read
+        // item.getNodeType(). The DTO no longer carries a nodeType field at all — the POLICY
+        // type-label in labels is the wire discriminator, seeded by the Policy constructor —
+        // so the association has nothing left to feed.
         Policy policy = PolicyTransformer.toPolicy(entity);
 
-        assertEquals("POLICY", policy.getNodeType());
+        assertEquals(List.of("POLICY"), policy.getLabels());
     }
 
     @Test
-    @DisplayName("A policy's node type is the constant POLICY, whatever the association would say")
-    void nodeTypeIsConstant() {
+    @DisplayName("The type travels as the POLICY label, whatever the association would say")
+    void typeLabelIsConstant() {
         PolicyEntity entity = new PolicyEntity();
         entity.setName("NAMING_CONVENTION");
         NodeType wrong = new NodeType();
@@ -60,7 +65,7 @@ class PolicyTransformerTest {
 
         // Every policy query filters node_type = 6, so the association is redundant by construction
         // and the transformer must not depend on it being populated — or populated correctly.
-        assertEquals("POLICY", PolicyTransformer.toPolicy(entity).getNodeType());
+        assertEquals(List.of("POLICY"), PolicyTransformer.toPolicy(entity).getLabels());
     }
 
     @Test

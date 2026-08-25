@@ -45,6 +45,22 @@ class NodeFamilyParityTest {
                 FunctionController.class);
     }
 
+    // ---- Wire-side discriminator registry ------------------------------------------------------
+
+    /**
+     * The wire-side dispatch table ({@code NodeModelSubtypes.BY_TYPE_LABEL} in datahub-api-model)
+     * and the entity-side authority ({@code TypeLabels.ALL} in datahub-infra) must name the same
+     * type-labels. They live in different modules and cannot reference each other, so this is the
+     * one place they are held equal: adding a node type to one without the other fails here, not
+     * in review.
+     */
+    @Test
+    @DisplayName("F0: the label-keyed deserializer registry matches TypeLabels")
+    void subtypeRegistryMatchesTypeLabels() {
+        assertThat(ai.intellistream.datahub.models.NodeModelSubtypes.BY_TYPE_LABEL.keySet())
+                .isEqualTo(ai.intellistream.datahub.jpa.domains.TypeLabels.ALL);
+    }
+
     // ---- Endpoint surface ----------------------------------------------------------------------
 
     @ParameterizedTest(name = "{0} exposes a single-item GET")
