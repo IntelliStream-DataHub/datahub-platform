@@ -573,14 +573,14 @@ public class ResourceController {
             )
             @RequestBody
             @Schema(implementation = CreateResources.class)
-            GraphDataWrapper<Resource, RelForm> apiReqData
+            GraphDataWrapper<NodeModel, RelForm> apiReqData
     ){
         try{
-            Set<ConstraintViolation<GraphDataWrapper<Resource, RelForm>>> errors = validator.validate(apiReqData);
+            Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> errors = validator.validate(apiReqData);
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
             }
-            GraphDataWrapper<Resource, EdgeProxy> results = resourceService.create(apiReqData);
+            GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.create(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.CREATED);
         } catch (ConstraintViolationException cve){
             var e = BuildErrorResponse.createConstraintViolationError(cve);

@@ -10,6 +10,10 @@ import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 
 import ai.intellistream.datahub.models.NodeModel;
+import java.util.Set;
+import ai.intellistream.datahub.models.NodeModelSubtypes;
+import ai.intellistream.datahub.models.GeoLocation;
+import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import lombok.extern.slf4j.Slf4j;
@@ -70,10 +74,17 @@ public class NodeService {
      * @return AssetNode
      */
 
+    /**
+     * Build the concrete entity a create body asks for. The body's runtime DTO type and its
+     * type-label are two spellings of the same fact — over HTTP the label-keyed deserializer
+     * already made them agree; for direct callers a mismatch is rejected here. A body typed as
+     * plain {@link Resource} dispatches on its type-label alone (the adapter services build
+     * exactly that shape), and no type-label at all is a plain resource.
+     */
     @Transactional
-    public NodeEntity createFromResource(Resource resource) throws InvalidResourceException {
+    public NodeEntity createFromResource(NodeModel form) throws InvalidResourceException {
         try {
-            List<Label> labels = labelService.findAllAndCreateFromNames(resource.getLabels());
+            List<Label> labels = labelService.findAllAndCreateFromNames(form.getLabels());
             List<String> labelNames = labels.stream().map(Label::getName).toList();
 
             // A node's type is intrinsic: it may carry at most one type-label. Reject ambiguous input
@@ -82,35 +93,55 @@ public class NodeService {
             if (typeLabelCount > 1) {
                 throw invalidResource("A node may have at most one type-label (one of " + TypeLabels.ALL + ").");
             }
-            // TypeLabels.CREATABLE is the single authority for which types this API may mint
-            // (TIMESERIES is created through its own API today).
-            Optional<String> nonCreatable = labelNames.stream()
-                    .filter(TypeLabels::isTypeLabel)
-                    .filter(name -> !TypeLabels.CREATABLE.contains(name))
-                    .findFirst();
-            if (nonCreatable.isPresent()) {
-                throw invalidResource("Not allowed to create " + nonCreatable.get() + " using the resource api!");
+
+            Set<String> types = TypeLabels.typeLabelsIn(labelNames);
+            String labelType = types.isEmpty() ? null : types.iterator().next();
+            String dtoType = dtoTypeOf(form);
+            if (dtoType != null && labelType != null && !dtoType.equals(labelType)) {
+                throw invalidResource("The body's type (" + dtoType + ") and its type-label ("
+                        + labelType + ") disagree.");
+            }
+            String type = dtoType != null ? dtoType : labelType;
+
+            // TypeLabels.CREATABLE is the single authority for which types this API may mint.
+            if (type != null && !TypeLabels.CREATABLE.contains(type)) {
+                throw invalidResource("Not allowed to create " + type + " using the resource api!");
+            }
+
+            if (TypeLabels.TIMESERIES.equals(type)) {
+                if (!(form instanceof Timeseries ts)) {
+                    // Unreachable over HTTP (the deserializer binds TIMESERIES-labelled bodies as
+                    // Timeseries); guards a direct caller handing a flat shape that cannot carry
+                    // the type-specific fields.
+                    throw invalidResource("A TIMESERIES create must use the Timeseries shape.");
+                }
+                return mapNewNodeFromTimeseries(ts);
             }
 
             NodeEntity node;
-            if (labelNames.contains(TypeLabels.ASSET)) {
+            if (TypeLabels.ASSET.equals(type)) {
                 AssetEntity asset = new AssetEntity();
-                asset.setGeoLocation(resource.getGeoLocation() == null ? null : resource.getGeoLocation().getJson());
+                GeoLocation geo = form instanceof Asset a ? a.getGeoLocation()
+                        : form instanceof Resource r ? r.getGeoLocation() : null;
+                asset.setGeoLocation(geo == null ? null : geo.getJson());
                 node = asset;
-            } else if (labelNames.contains(TypeLabels.FUNCTION)) {
+            } else if (TypeLabels.FUNCTION.equals(type)) {
                 node = new FunctionEntity();
-            } else if (labelNames.contains(TypeLabels.DATASET)) {
+            } else if (TypeLabels.DATASET.equals(type)) {
                 node = new DatasetEntity();
-            } else if (labelNames.contains(TypeLabels.POLICY)) {
+            } else if (TypeLabels.POLICY.equals(type)) {
                 node = new PolicyEntity();
             } else {
                 node = new ResourceEntity();
             }
             applyLabels(node, labels);
-            mapCommonNodeFields(node, resource);
-            // isRoot is not a NodeModel primitive (it lives on Resource/Asset), so it is applied
-            // here rather than in the shared mapper.
-            node.setIsRoot(resource.getIsRoot());
+            mapCommonNodeFields(node, form);
+            // isRoot is not a NodeModel primitive; it exists on the Resource/Asset shapes only.
+            if (form instanceof Asset a) {
+                node.setIsRoot(a.getIsRoot());
+            } else if (form instanceof Resource r) {
+                node.setIsRoot(r.getIsRoot());
+            }
             return node;
         } catch(InvalidResourceException e) {
             throw e;
@@ -118,6 +149,16 @@ public class NodeService {
             log.error(e.getMessage(), e);
             throw e;
         }
+    }
+
+    /** The type-label this DTO's runtime class stands for; null for the base/plain-resource shapes. */
+    private static String dtoTypeOf(NodeModel form) {
+        for (var entry : NodeModelSubtypes.BY_TYPE_LABEL.entrySet()) {
+            if (entry.getValue().isInstance(form)) {
+                return entry.getKey();
+            }
+        }
+        return null;
     }
 
     private static InvalidResourceException invalidResource(String message) {

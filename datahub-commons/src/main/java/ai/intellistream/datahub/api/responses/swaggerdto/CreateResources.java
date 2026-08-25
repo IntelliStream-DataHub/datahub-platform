@@ -10,7 +10,12 @@ import jakarta.validation.constraints.Size;
 import java.util.ArrayList;
 import java.util.Collection;
 
-@Schema(name = "CreateResources", description = "CreateResources for graph data network.")
+@Schema(name = "CreateResources",
+        description = "Create request for the graph data network. Each node body is dispatched by "
+                + "its type-label: ASSET builds an asset (may carry geoLocation), TIMESERIES a "
+                + "time series (may carry unit/valueType), DATASET a data set, POLICY a policy, "
+                + "FUNCTION a function; no type-label builds a plain resource. DATASET and POLICY "
+                + "creates require the all-datasets manage grant.")
 public class CreateResources {
 
     @Size(max = 1000)

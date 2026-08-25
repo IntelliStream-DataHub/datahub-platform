@@ -115,9 +115,9 @@ public class EdgeService {
      */
     @Transactional(rollbackFor = Exception.class)
     public DataWrapper<EdgeProxy> createRelationships(DataWrapper<RelForm> data) throws PulsarClientException {
-        GraphDataWrapper<Resource, RelForm> request = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> request = new GraphDataWrapper<>();
         request.setRelations(data.getItems());
-        GraphDataWrapper<Resource, EdgeProxy> created = resourceService.create(request);
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> created = resourceService.create(request);
         return new DataWrapper<EdgeProxy>().setItems(created.getRelations());
     }
 

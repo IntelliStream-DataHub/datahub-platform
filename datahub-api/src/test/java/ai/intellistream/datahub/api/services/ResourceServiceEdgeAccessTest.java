@@ -149,12 +149,12 @@ class ResourceServiceEdgeAccessTest {
                 .thenReturn(Optional.of(new NameAndExternalIdDTO(id, "node-" + id, "ext-" + id, id)));
     }
 
-    private static GraphDataWrapper<Resource, RelForm> linkRequest(long fromId, long toId) {
+    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> linkRequest(long fromId, long toId) {
         RelForm rel = new RelForm();
         rel.setFromId(fromId);
         rel.setToId(toId);
         rel.setRelationshipType("BELONGS_TO");
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return req;
     }
