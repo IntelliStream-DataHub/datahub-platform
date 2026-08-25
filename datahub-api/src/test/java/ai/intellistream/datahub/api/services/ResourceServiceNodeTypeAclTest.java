@@ -112,13 +112,13 @@ class ResourceServiceNodeTypeAclTest {
         return node;
     }
 
-    private static GraphDataWrapper<Resource, RelForm> createRequest(Long dataSetId, String... labels) {
+    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> createRequest(Long dataSetId, String... labels) {
         Resource resource = new Resource();
         resource.setExternalId("new_node");
         resource.setName("new node");
         resource.setDataSetId(dataSetId);
         resource.setLabels(List.of(labels));
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getNodes().add(resource);
         return req;
     }
@@ -308,7 +308,7 @@ class ResourceServiceNodeTypeAclTest {
         rel.setFromId(1L);
         rel.setToId(2L);
         rel.setRelationshipType("BELONGS_TO");
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
 
         assertThatThrownBy(() -> service.create(req))

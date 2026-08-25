@@ -81,13 +81,13 @@ class ResourceServiceCreateEventTest {
         TenantContext.clear();
     }
 
-    private static GraphDataWrapper<Resource, RelForm> request(Long dataSetId) {
+    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> request(Long dataSetId) {
         Resource r = new Resource();
         r.setExternalId("pipe_1");
         r.setName("Pipe 1");
         r.setDataSetId(dataSetId);
         r.setLabels(List.of("PIPE"));
-        GraphDataWrapper<Resource, RelForm> w = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> w = new GraphDataWrapper<>();
         w.getNodes().add(r);
         return w;
     }

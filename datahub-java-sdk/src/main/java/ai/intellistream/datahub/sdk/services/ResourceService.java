@@ -31,13 +31,15 @@ public final class ResourceService {
 
     private final ApiHttp http;
     private final JavaType nodes;            // DataWrapper<NodeModel> — typed reads
-    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat write echoes
+    private final JavaType nodeGraph;        // GraphDataWrapper<NodeModel, EdgeProxy> — typed create echo
+    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat update/delete echoes
     private final JavaType resourceNetwork;  // ResourceNetwork
 
     public ResourceService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.nodes = tf.constructParametricType(DataWrapper.class, NodeModel.class);
+        this.nodeGraph = tf.constructParametricType(GraphDataWrapper.class, NodeModel.class, EdgeProxy.class);
         this.resourceGraph = tf.constructParametricType(GraphDataWrapper.class, Resource.class, EdgeProxy.class);
         this.resourceNetwork = tf.constructType(ResourceNetwork.class);
     }
@@ -107,11 +109,23 @@ public final class ResourceService {
      * POST /resources/create — create resources, optionally with relations between them.
      * Returns the created graph (nodes as {@link Resource}, relations as {@link EdgeProxy}).
      */
-    public GraphDataWrapper<Resource, EdgeProxy> create(List<ResourceForm> nodes, List<RelForm> relations) {
+    public GraphDataWrapper<NodeModel, EdgeProxy> create(List<ResourceForm> nodes, List<RelForm> relations) {
         GraphDataWrapper<ResourceForm, RelForm> request = new GraphDataWrapper<>();
         request.setNodes(nodes);
         request.setRelations(relations);
-        return http.post("/resources/create", request, resourceGraph);
+        return http.post("/resources/create", request, nodeGraph);
+    }
+
+    /**
+     * POST /resources/create with typed node bodies. Any creatable node kind rides one call —
+     * an {@code Asset} with a geoLocation, a {@code DataSetModel}, a {@code Timeseries} next to
+     * the assets it measures — each dispatched by its type-label. The echo comes back typed.
+     */
+    public GraphDataWrapper<NodeModel, EdgeProxy> createNodes(List<NodeModel> nodes, List<RelForm> relations) {
+        GraphDataWrapper<NodeModel, RelForm> request = new GraphDataWrapper<>();
+        request.setNodes(new java.util.ArrayList<>(nodes));
+        request.setRelations(new java.util.ArrayList<>(relations));
+        return http.post("/resources/create", request, nodeGraph);
     }
 
     /** DELETE /resources/delete — delete resources by id; returns the removed graph. */

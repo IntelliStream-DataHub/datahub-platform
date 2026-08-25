@@ -8,6 +8,8 @@ import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 import ai.intellistream.datahub.jpa.domains.Label;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
+import ai.intellistream.datahub.timeseries.Timeseries;
+import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.ResourceEntity;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
@@ -20,6 +22,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -94,10 +97,41 @@ class NodeServiceTest {
         assertEquals(List.of("PIPE", "SENSOR").size(), node.getLabels().split(",").length);
     }
 
+    /**
+     * TIMESERIES is creatable now, but only through the Timeseries shape — a flat resource body
+     * cannot carry the type-specific fields (unit, value type), so a bare TIMESERIES label on a
+     * Resource-shaped body is still rejected. Over HTTP this is unreachable: the label-keyed
+     * deserializer binds such a body as a Timeseries before the service sees it.
+     */
     @Test
-    void timeseriesLabelIsRejectedOnResourceApi() {
+    void timeseriesLabelOnAFlatResourceShapeIsRejected() {
         assertThrows(InvalidResourceException.class,
                 () -> nodeService.createFromResource(resource("TIMESERIES")));
+    }
+
+    @Test
+    void aTimeseriesBodyCreatesATimeseriesEntity() {
+        Timeseries ts = new Timeseries();
+        ts.setExternalId("engine_temp");
+        ts.setName("Engine Temp");
+        ts.setUnit("Deg C");
+
+        NodeEntity node = nodeService.createFromResource(ts);
+
+        TimeseriesEntity entity = assertInstanceOf(TimeseriesEntity.class, node);
+        assertEquals("Deg C", entity.getUnit());
+        assertTrue(entity.getLabels().contains("TIMESERIES"));
+    }
+
+    /** The DTO class and the type-label are two spellings of one fact; a disagreement is a 400. */
+    @Test
+    void aBodyWhoseTypeAndLabelDisagreeIsRejected() {
+        Timeseries ts = new Timeseries();
+        ts.setExternalId("odd");
+        ts.setName("Odd");
+        ts.getLabels().add("DATASET");
+
+        assertThrows(InvalidResourceException.class, () -> nodeService.createFromResource(ts));
     }
 
     /**
