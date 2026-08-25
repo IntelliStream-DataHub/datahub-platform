@@ -24,6 +24,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * because it is a deliberate requirement rather than a side effect of dataset nodes having no
  * {@code data_set_id}. If someone revisits orphan handling, this test should fail rather than the
  * requirement quietly disappearing.
+ *
+ * <p>The generic {@code /resources} pipeline enforces the same rule explicitly on dataset and
+ * policy nodes, whatever their {@code data_set_id} — see {@code ResourceServiceNodeTypeAclTest}
+ * for the endpoint-side coverage; this class pins the grant semantics themselves.
  */
 class DatasetManagementAccessTest {
 

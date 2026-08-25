@@ -186,6 +186,15 @@ public class ResourceService {
                 // requires the write-all grant).
                 dataSecurity.assertCanWriteDataSet(resource.getDataSetId());
 
+                // Creating a dataset or policy node is dataset management, whichever endpoint the
+                // request arrives through — the same gate /datasets and /policies apply. Checked on
+                // the requested type-labels before dispatch, because a per-dataset writer could
+                // otherwise mint a managed node here; worse, one carrying a data_set_id (which no
+                // /datasets-created node has), leaving it mutable under the same per-dataset grant.
+                if (managementTypeRequested(resource.getLabels())) {
+                    dataSecurity.assertCanManageDataSets();
+                }
+
                 // Do not set a random id, this is because you will not get the
                 // performance benefit from temporal locality
                 // See: https://www.cybertec-postgresql.com/en/unexpected-downsides-of-uuid-keys-in-postgresql/
@@ -443,6 +452,13 @@ public class ResourceService {
                 if(resource != null){
                     // Must be able to write the resource's current dataset before mutating it.
                     dataSecurity.assertCanWrite(resource);
+                    // Mutating a dataset or policy node additionally needs the manage grant. Stated
+                    // explicitly rather than inherited from those nodes being orphans (see
+                    // DataSecurity#canManageDataSets on that coincidence) — an orphan-based rule
+                    // would miss a dataset/policy node that was minted carrying a data_set_id.
+                    if (isManagedNodeType(resource)) {
+                        dataSecurity.assertCanManageDataSets();
+                    }
                     // Functions are plain datastore nodes now — editable like any resource.
                     targets.add(Map.entry(form, resource));
                 } else {
@@ -925,14 +941,36 @@ public class ResourceService {
      * a dataset they have no write access to at all.
      *
      * <p>Nodes with no dataset are orphans and, per the usual rule, writable only by a caller
-     * holding an all-datasets write grant. Dataset nodes themselves have no {@code data_set_id},
-     * so building a dataset hierarchy needs that same grant — which is already true of creating a
-     * dataset at all, so this adds no new restriction there.
+     * holding an all-datasets write grant. An edge onto a dataset or policy node additionally
+     * requires the manage grant explicitly — building or re-wiring the dataset hierarchy is
+     * dataset management — rather than relying on those nodes being orphans, which stops holding
+     * the moment one is minted carrying a {@code data_set_id}.
      */
     private void assertCanWriteNodes(Collection<Long> nodeIds) {
         Set<Long> ids = nodeIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
         if (ids.isEmpty()) return;
-        nodeRepository.findAllByIdIn(ids, NodeEntity.class).forEach(dataSecurity::assertCanWrite);
+        nodeRepository.findAllByIdIn(ids, NodeEntity.class).forEach(node -> {
+            dataSecurity.assertCanWrite(node);
+            if (isManagedNodeType(node)) {
+                dataSecurity.assertCanManageDataSets();
+            }
+        });
+    }
+
+    /**
+     * True if this node's lifecycle is dataset management — a dataset or a policy — so mutating it
+     * requires {@link DataSecurity#assertCanManageDataSets()} no matter which endpoint the
+     * mutation arrived through, mirroring the explicit gates on {@code /datasets}
+     * ({@code DataSetController}) and {@code /policies} ({@code PolicyService}).
+     */
+    private static boolean isManagedNodeType(NodeEntity node) {
+        return node instanceof DatasetEntity || node instanceof PolicyEntity;
+    }
+
+    /** True if these requested labels would mint a node {@link #isManagedNodeType managed} as a dataset or policy. */
+    private static boolean managementTypeRequested(List<String> labelNames) {
+        Set<String> types = TypeLabels.typeLabelsIn(labelNames);
+        return types.contains(TypeLabels.DATASET) || types.contains(TypeLabels.POLICY);
     }
 
     @Transactional(readOnly = true)
@@ -1089,7 +1127,13 @@ public class ResourceService {
         if(!resourceIdList.isEmpty()){
             // Deny the whole batch unless the caller can write every targeted node's dataset.
             List<NodeEntity> deletedEntities = nodeRepository.findAllById(resourceIdList);
-            deletedEntities.forEach(dataSecurity::assertCanWrite);
+            deletedEntities.forEach(entity -> {
+                dataSecurity.assertCanWrite(entity);
+                // Deleting a dataset or policy node is dataset management — same gate as update.
+                if (isManagedNodeType(entity)) {
+                    dataSecurity.assertCanManageDataSets();
+                }
+            });
 
             // Block deletion while any targeted node is still referenced by a subscription, so no
             // subscriber silently loses its feed. Only timeseries are ever referenced, so this is a
