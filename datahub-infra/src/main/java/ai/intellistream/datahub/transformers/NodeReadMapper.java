@@ -22,6 +22,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The one entity→DTO path for typed node reads: any {@link NodeEntity} maps to the DTO its
@@ -81,6 +82,78 @@ public class NodeReadMapper {
             out.add(from(node, edges));
         }
         return out;
+    }
+
+    /**
+     * Map a Neo4j graph node to its typed DTO, dispatching on the node's labels (the graph
+     * carries the same type-labels the rows do). The graph stores only a subset of each node's
+     * columns, so a {@code Timeseries} from this path arrives <em>typed but sparsely populated</em>
+     * (no unit, no securityCategories) — still strictly better than arriving mistyped as a
+     * {@code Resource} carrying an {@code isRoot} that means nothing for it. Geometry comes back
+     * as the graph's native WGS-84 point reconstructed as a GeoJSON Point (lossy for non-point
+     * geometries, which Postgres holds in full), and only on assets.
+     */
+    public NodeModel fromGraphNode(org.neo4j.driver.types.Node node) {
+        List<String> labels = new ArrayList<>();
+        node.labels().forEach(labels::add);
+        Set<String> types = ai.intellistream.datahub.jpa.domains.TypeLabels.typeLabelsIn(labels);
+        String type = types.isEmpty() ? null : types.iterator().next();
+
+        NodeModel dto;
+        if (type == null) {
+            Resource resource = new Resource();
+            resource.setIsRoot(asBoolean(node, "isRoot"));
+            dto = resource;
+        } else {
+            dto = switch (type) {
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.ASSET -> {
+                    Asset asset = new Asset();
+                    asset.setIsRoot(asBoolean(node, "isRoot"));
+                    var geoValue = node.get("geoLocation");
+                    if (geoValue != null && !geoValue.isNull()) {
+                        var point = geoValue.asPoint();
+                        asset.setGeoLocation(new GeoLocation(
+                                "{\"type\":\"Point\",\"coordinates\":[" + point.x() + "," + point.y() + "]}"));
+                    }
+                    yield asset;
+                }
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES ->
+                        new ai.intellistream.datahub.timeseries.Timeseries();
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.POLICY ->
+                        new ai.intellistream.datahub.models.Policy();
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.FUNCTION -> new Function();
+                default -> new Resource();
+            };
+        }
+
+        var map = node.asMap();
+        dto.setId((Long) map.get("id"));
+        dto.setExternalId((String) map.get("externalId"));
+        dto.setName((String) map.get("name"));
+        dto.setDescription((String) map.get("description"));
+        dto.setSource((String) map.get("source"));
+        dto.setDataSetId((Long) map.get("dataSetId"));
+        dto.setCreatedTime(graphTime(map.get("createdTime")));
+        dto.setLastUpdatedTime(graphTime(map.get("lastUpdatedTime")));
+        dto.setLabels(labels);
+        return dto;
+    }
+
+    private static Boolean asBoolean(org.neo4j.driver.types.Node node, String key) {
+        var value = node.get(key);
+        return (value == null || value.isNull()) ? null : value.asBoolean();
+    }
+
+    /** The graph stores epoch millis; older nodes may carry a temporal value instead. */
+    private static java.time.ZonedDateTime graphTime(Object value) {
+        if (value instanceof Long epoch) {
+            return ai.intellistream.datahub.helpers.datetime.DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(epoch);
+        }
+        if (value instanceof java.time.ZonedDateTime zdt) {
+            return zdt;
+        }
+        return null;
     }
 
     private NodeModel switchOnType(NodeEntity node) {

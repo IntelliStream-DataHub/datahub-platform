@@ -70,7 +70,7 @@ class ResourceFetchRelatedTest {
 
             // ids came back as JSON strings and were coerced to Long
             Set<String> externalIds = result.nodes().stream()
-                    .map(Resource::getExternalId).collect(Collectors.toSet());
+                    .map(ai.intellistream.datahub.models.NodeModel::getExternalId).collect(Collectors.toSet());
             assertTrue(externalIds.contains("cooling_system"));
             assertTrue(externalIds.contains("sensor_a"));
             assertTrue(externalIds.contains("sensor_b"));
