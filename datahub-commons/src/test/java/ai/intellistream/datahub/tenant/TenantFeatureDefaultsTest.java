@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.tenant;
 
+import ai.intellistream.datahub.config.VaultProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -10,13 +11,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TenantFeatureDefaultsTest {
 
+    private static final VaultProperties VAULT =
+            VaultProperties.of("http://vault.invalid:8200", "test", "test");
+
     private final JsonMapper jsonMapper = JsonMapper.builder().build();
 
     private TenantConfigService service;
 
     @BeforeEach
     void setUp() {
-        service = new TenantConfigService(jsonMapper, null);
+        service = new TenantConfigService(jsonMapper, null, VAULT);
         ReflectionTestUtils.setField(service, "policyFeatureDefault", true);
         ReflectionTestUtils.setField(service, "streamingFeatureDefault", true);
     }

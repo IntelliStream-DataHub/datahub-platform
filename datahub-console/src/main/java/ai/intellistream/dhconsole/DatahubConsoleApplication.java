@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole;
 
-import ai.intellistream.dhconsole.config.VaultConfigurationLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
@@ -26,9 +25,9 @@ import org.springframework.web.client.RestTemplate;
 public class DatahubConsoleApplication {
 
 	public static void main(String[] args) {
-		SpringApplication app = new SpringApplication(DatahubConsoleApplication.class);
-		app.addListeners(new VaultConfigurationLoader());
-		app.run(args);
+		// The Vault loader is registered through META-INF/spring.factories (see
+		// dhconsole.config.VaultConfigurationLoader for why), so it is not added here as well.
+		SpringApplication.run(DatahubConsoleApplication.class, args);
 	}
 
 	@Bean

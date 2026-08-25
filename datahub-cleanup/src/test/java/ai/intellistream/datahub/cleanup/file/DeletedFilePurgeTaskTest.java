@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.cleanup.file;
 
+import ai.intellistream.datahub.config.VaultProperties;
 import ai.intellistream.datahub.cleanup.file.TrashPurger.TrashedNode;
 import ai.intellistream.datahub.tenant.FileStorage;
 import ai.intellistream.datahub.tenant.Tenant;
@@ -26,6 +27,9 @@ import static org.mockito.Mockito.when;
 
 class DeletedFilePurgeTaskTest {
 
+    private static final VaultProperties VAULT =
+            VaultProperties.of("http://vault.invalid:8200", "test", "test");
+
     private static final long OLD = Instant.now().minus(40, ChronoUnit.DAYS).toEpochMilli();   // > 30d grace
     private static final long RECENT = Instant.now().toEpochMilli();
 
@@ -40,7 +44,7 @@ class DeletedFilePurgeTaskTest {
     }
 
     private static TenantConfigService serviceWith(Tenant t) {
-        TenantConfigService svc = new TenantConfigService(null, null);
+        TenantConfigService svc = new TenantConfigService(null, null, VAULT);
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }

@@ -180,7 +180,11 @@ docker compose down -v    # also wipe volumes — next 'up' re-creates the foo/b
 ## 4. Point the apps at the local stack
 
 The apps authenticate to Vault with `vault.address` / `vault.role-id` /
-`vault.secret-id` (read by `VaultConfigurationLoader`). The Vault-derived
+`vault.secret-id` (read by `VaultConfigurationLoader`). The local Vault is plaintext;
+against one that requires a client certificate, add `vault.keystore` /
+`vault.keystore-password` (a PKCS12 with the client certificate) and, for a private CA,
+`vault.truststore`. Every `vault.*` key is also an environment variable (`VAULT_KEYSTORE`
+and so on). The Vault-derived
 Pulsar URLs assume TLS ports (`pulsar+ssl://…:6651`), so for the plaintext local
 broker you also override the Pulsar service URLs and disable TLS.
 

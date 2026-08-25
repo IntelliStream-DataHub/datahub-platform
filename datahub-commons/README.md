@@ -26,6 +26,10 @@ _(Formerly `datahub-lib-nodep`.)_
   mirror types in `api/responses/swaggerdto/`.
 - **Pulsar & subscription payloads** — `pulsar/` message types and the `subscription/`
   models used by the streaming/WebSocket paths.
+- **Vault client** — `config/`: `VaultProperties` (the `vault.*` settings, including the
+  mTLS keystore/truststore), `VaultClientFactory` (the one place a Vault connection is
+  opened) and `VaultConfigurationLoader`, the startup listener every application registers
+  with its own `VaultSecretContributor`s.
 - **Tenant infrastructure** — `tenant/`: `TenantContext`, `TenantConfigService` (Vault),
   and the per-backend tenant config records.
 - **Utilities** — `helpers/`: `IdGenerator` (UUID v7 + xxHash/Blake3 keys), checksums,

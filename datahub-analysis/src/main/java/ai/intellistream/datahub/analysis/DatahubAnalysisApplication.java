@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.analysis;
 
-import ai.intellistream.datahub.analysis.config.VaultConfigurationLoader;
+import ai.intellistream.datahub.analysis.config.AnalysisVaultSecrets;
+import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
@@ -19,7 +20,7 @@ public class DatahubAnalysisApplication {
 	public static void main(String[] args) {
 		SpringApplication app = new SpringApplication(DatahubAnalysisApplication.class);
 		// Registered here (not in spring.factories) so it runs on real startup but not in tests.
-		app.addListeners(new VaultConfigurationLoader());
+		app.addListeners(new VaultConfigurationLoader(new AnalysisVaultSecrets()));
 		app.run(args);
 	}
 }

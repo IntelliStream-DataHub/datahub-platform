@@ -10,6 +10,11 @@ set -euo pipefail
 VAULT_ADDR="${VAULT_ADDR:-http://vault:8200}"
 VAULT_ROLE_ID="${VAULT_ROLE_ID:-}"
 VAULT_SECRET_ID="${VAULT_SECRET_ID:-}"
+# Mirrors the app's vault.keystore: when Vault requires a client certificate, curl presents the
+# same PKCS12. The CA for Vault's own certificate is curl's business (CURL_CA_BUNDLE, or the
+# image trust store); VAULT_TRUSTSTORE is a Java keystore curl cannot read.
+VAULT_KEYSTORE="${VAULT_KEYSTORE:-}"
+VAULT_KEYSTORE_PASSWORD="${VAULT_KEYSTORE_PASSWORD:-}"
 SECRET_NAME="${VAULT_SECRET_NAME:-intellistream-datahub}"
 PG_WAIT_HOST="${PG_WAIT_HOST:-postgres}"
 PG_WAIT_PORT="${PG_WAIT_PORT:-5432}"
@@ -22,12 +27,16 @@ PULSAR_WAIT_NS="${PULSAR_WAIT_NS:-datahub-internal/http}"
 # seeded — by doing the exact AppRole login the app itself will do (no root token needed;
 # Vault here is persistent, so a static root token wouldn't be valid anyway). This also
 # means we wait through manual unseal + the vault-seed one-shot in one check.
+vault_curl_opts=()
+if [ -n "$VAULT_KEYSTORE" ]; then
+  vault_curl_opts=(--cert "${VAULT_KEYSTORE}:${VAULT_KEYSTORE_PASSWORD}" --cert-type P12)
+fi
 echo "[entrypoint] waiting for Vault (AppRole login + ${SECRET_NAME}/tenant-resources) at ${VAULT_ADDR} ..."
-until token=$(curl -sf --data "{\"role_id\":\"${VAULT_ROLE_ID}\",\"secret_id\":\"${VAULT_SECRET_ID}\"}" \
+until token=$(curl -sf "${vault_curl_opts[@]}" --data "{\"role_id\":\"${VAULT_ROLE_ID}\",\"secret_id\":\"${VAULT_SECRET_ID}\"}" \
           "${VAULT_ADDR}/v1/auth/approle/login" 2>/dev/null \
           | sed -n 's/.*"client_token":"\([^"]*\)".*/\1/p') \
         && [ -n "$token" ] \
-        && curl -sf -H "X-Vault-Token: ${token}" \
+        && curl -sf "${vault_curl_opts[@]}" -H "X-Vault-Token: ${token}" \
           "${VAULT_ADDR}/v1/${SECRET_NAME}/data/tenant-resources" >/dev/null 2>&1; do
   sleep 2
 done

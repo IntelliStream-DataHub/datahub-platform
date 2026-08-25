@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.tenant;
 
+import ai.intellistream.datahub.config.VaultClientFactory;
+import ai.intellistream.datahub.config.VaultProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,17 +27,7 @@ public class TenantConfigService {
 
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher eventPublisher;
-    @Value("${vault.address}")
-    private String vaultUri;
-
-    @Value("${vault.role-id}")
-    private String appRoleId;
-
-    @Value("${vault.secret-id}")
-    private String appRoleSecretId;
-
-    @Value("${vault.secret-name:intellistream-datahub}")
-    private String secretName;
+    private final VaultProperties vault;
 
     // Application-wide defaults for feature flags a tenant's Vault `tenant-config` block
     // doesn't set explicitly. Vault wins per tenant; these fill the gaps.
@@ -50,16 +42,23 @@ public class TenantConfigService {
     @Value("${datahub.features.chat:false}")
     private boolean chatFeatureDefault;
 
-    private final HttpClient httpClient = HttpClient.newHttpClient();
+    // Shares the keystore/truststore the startup loader used, so a Vault listener that requires
+    // mutual TLS keeps accepting the five-minute refresh after boot.
+    private final HttpClient httpClient;
 
     // Fast in-memory cache. volatile (not final) so refreshCache() can publish a new
     // fully-built map with a single atomic reference swap — readers never see a
     // half-populated map mid-refresh.
     public volatile Map<String, Tenant> cachedTenants = new ConcurrentHashMap<>();
 
-    public TenantConfigService(JsonMapper jsonMapper, ApplicationEventPublisher eventPublisher) {
+    public TenantConfigService(JsonMapper jsonMapper, ApplicationEventPublisher eventPublisher,
+                               VaultProperties vault) {
         this.jsonMapper = jsonMapper;
         this.eventPublisher = eventPublisher;
+        this.vault = vault;
+        HttpClient.Builder builder = HttpClient.newBuilder();
+        VaultClientFactory.sslContext(vault).ifPresent(builder::sslContext);
+        this.httpClient = builder.build();
     }
 
     @PostConstruct
@@ -81,11 +80,11 @@ public class TenantConfigService {
     private String getVaultToken() throws Exception {
         // Authenticate with AppRole to get a token
         Map<String, String> loginRequest = new HashMap<>();
-        loginRequest.put("role_id", appRoleId);
-        loginRequest.put("secret_id", appRoleSecretId);
+        loginRequest.put("role_id", vault.roleId());
+        loginRequest.put("secret_id", vault.secretId());
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(vaultUri + "/v1/auth/approle/login"))
+                .uri(URI.create(vault.address() + "/v1/auth/approle/login"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(loginRequest)))
                 .build();
@@ -101,7 +100,7 @@ public class TenantConfigService {
     public void refreshCache() {
         try {
             String vaultToken = getVaultToken();
-            String url = vaultUri + "/v1/"+ secretName+ "/data/tenant-resources";
+            String url = vault.address() + "/v1/" + vault.secretName() + "/data/tenant-resources";
 
             Map<String, Tenant> tenantData = fetchDataFromVault(url, vaultToken);
             if (tenantData != null) {

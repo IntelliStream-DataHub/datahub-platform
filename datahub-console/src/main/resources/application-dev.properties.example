@@ -36,3 +36,11 @@ feign.client.config.default.readTimeout=600000
 # If you run separate dev and test Vault clusters, this is where you switch between them.
 vault.address=< vault url here >
 vault.role-id=<your-vault-approle-role-id>
+# Client certificate for a Vault listener that requires mutual TLS (PKCS12, or JKS by the .jks
+# extension), and optionally the CA that signed Vault's server certificate. Leave unset for a
+# Vault that does not require a client certificate. Also settable as VAULT_KEYSTORE,
+# VAULT_KEYSTORE_PASSWORD, VAULT_TRUSTSTORE and VAULT_TRUSTSTORE_PASSWORD.
+#vault.keystore=< path to client .p12 here >
+#vault.keystore-password=< keystore password here >
+#vault.truststore=< path to CA .p12 here >
+#vault.truststore-password=< truststore password here >

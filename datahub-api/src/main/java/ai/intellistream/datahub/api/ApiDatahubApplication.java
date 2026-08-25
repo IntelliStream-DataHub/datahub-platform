@@ -2,6 +2,8 @@
 package ai.intellistream.datahub.api;
 
 
+import ai.intellistream.datahub.config.KeycloakVaultSecrets;
+import ai.intellistream.datahub.config.PulsarVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import io.swagger.v3.oas.annotations.OpenAPIDefinition;
 import io.swagger.v3.oas.annotations.enums.SecuritySchemeType;
@@ -135,7 +137,9 @@ public class ApiDatahubApplication {
 
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(ApiDatahubApplication.class);
-        app.addListeners(new VaultConfigurationLoader());
+        // Registered here, not in spring.factories, so @SpringBootTest contexts never reach Vault.
+        app.addListeners(new VaultConfigurationLoader(
+                new PulsarVaultSecrets(), new KeycloakVaultSecrets()));
         app.run(args);
     }
 
