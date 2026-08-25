@@ -11,7 +11,7 @@ systemd/
   datahub@.service                     one template for all six services
   datahub@<name>.service.d/placement.conf   per-instance NUMA node, memory ceiling, extra mounts
   env/common.env                       profile, Vault AppRole, Pulsar, shared env
-  env/<name>.env                       JAVA_OPTS per service (heap, GC, logging)
+  env/<name>.env                       JAVA_OPTS per service
   config/<name>/application.yml        Spring Boot / Tomcat tuning (api, console, analysis)
   sysctl.d/90-datahub-app.conf         kernel settings for the app hosts
 ```
@@ -107,9 +107,9 @@ addresses on the app hosts; a server's source address must stay put.
 
 **Heap 16-20 GB, fixed size.** `-Xms` = `-Xmx` plus `AlwaysPreTouch`: the whole heap is
 faulted in at start, under the unit's `NUMAPolicy=bind`, so it is node-local and never
-grows or pages in the request path. Startup takes a few seconds longer. G1 at a 200 ms
-pause target is the safe default; generational ZGC (`-XX:+UseZGC`) trades
-some throughput for sub-millisecond pauses if the api's latency tail matters more.
+grows or pages in the request path. Startup takes a few seconds longer. G1 with its defaults is the safe choice;
+generational ZGC (`-XX:+UseZGC`) trades some throughput for sub-millisecond pauses if the
+api's latency tail matters more.
 
 **Transparent huge pages** (`-XX:+UseTransparentHugePages` with THP in `madvise` mode)
 cut TLB misses on a 20 GB heap. Combined with pre-touch the huge pages are assembled at
@@ -120,10 +120,9 @@ the tmpfiles line above.
 Java 25): 8-byte instead of 12-byte headers, 5-10 % less heap churn on object-heavy
 JSON workloads.
 
-**Off-heap.** `MaxDirectMemorySize` is sized per service for Netty, the Pulsar client and
-the ClickHouse client; the memory ceiling in each `placement.conf` (`MemoryMax`) leaves
-heap + direct + metaspace + code cache + stacks comfortably inside it. It is a guard
-against a leak, not a target. `MALLOC_ARENA_MAX=4` keeps glibc from holding on to one
+**Off-heap.** Direct buffers (Netty, the Pulsar and ClickHouse clients), metaspace and the
+code cache are left at the JVM defaults; the memory ceiling in each `placement.conf`
+(`MemoryMax`) is the guard against a leak, not a target. `MALLOC_ARENA_MAX=4` keeps glibc from holding on to one
 arena per thread.
 
 **Never `-XX:TieredStopAtLevel=1` in production.** It disables the C2 compiler and with
@@ -163,6 +162,49 @@ set. Two things are deliberately *not* there: `MemoryDenyWriteExecute` (the JIT 
 W+X pages) and `SystemCallFilter` (the JVM's syscall surface is wide and a missing call
 fails in odd places).
 
+## Diagnostics
+
+No heap dump on OOM (the JVM default) and no core dump (`LimitCORE=0`): both are a copy of
+process memory, credentials and tenant data included. An OOM ends the process
+(`ExitOnOutOfMemoryError`) and systemd restarts it. Nothing else is logged by default;
+everything below is switched on when needed:
+
+```sh
+PID=$(systemctl show -p MainPID --value datahub@api)
+
+# Heap occupancy now, and a GC log from now on (one line per collection, before->after)
+jcmd $PID GC.heap_info
+jcmd $PID VM.log output=file=/var/log/datahub/api/gc.log what=gc decorators=time
+
+# Heap growing: start a recording (about 1 % overhead, bounded to 24 h / 1 GB). The
+# environment event is off so the recording does not hold the Vault secret-id.
+jcmd $PID JFR.start name=datahub disk=true maxage=24h maxsize=1g memory-leaks=stack-traces jdk.InitialEnvironmentVariable#enabled=false
+
+# Later, pull it with leak candidates and their reference chains (a safepoint while the
+# live heap is walked; pick a quiet moment)
+jcmd $PID JFR.dump name=datahub path-to-gc-roots=true filename=/var/log/datahub/api/api-%t.jfr
+jfr view memory-leaks-by-site /var/log/datahub/api/api-*.jfr        # or JDK Mission Control
+jfr view allocation-by-site /var/log/datahub/api/api-*.jfr
+jfr view gc-pauses /var/log/datahub/api/api-*.jfr
+jcmd $PID JFR.stop name=datahub
+```
+
+A recording holds exception messages and stack traces: treat a `.jfr` like a log file.
+
+RSS growing while the heap stays flat is off-heap. Native memory tracking cannot be enabled
+at runtime: add `-XX:NativeMemoryTracking=summary` to the env file, restart that instance,
+then `jcmd $PID VM.native_memory baseline` and, after a while, `summary.diff`.
+
+When a heap dump is genuinely needed, take it deliberately:
+
+```sh
+jcmd $PID GC.heap_dump -gz=1 /var/lib/datahub/api/api-$(date +%F).hprof.gz
+```
+
+The JVM pauses while it writes (take the instance out of the load balancer first). Analyse
+it on the host or on an encrypted volume, delete it when done, and rotate every secret that
+was in the process if the file ever left the host.
+
 ## Checking a running service
 
 ```sh
@@ -172,7 +214,6 @@ grep AnonHugePages /proc/$(systemctl show -p MainPID --value datahub@api)/smaps_
 jcmd $(systemctl show -p MainPID --value datahub@api) VM.flags       # effective JVM flags
 jcmd $(systemctl show -p MainPID --value datahub@api) GC.heap_info
 ss -tn state established '( sport = :8081 )' | wc -l                 # open connections
-tail -f /var/log/datahub/api/gc.log
 ```
 
 `numastat -p` should show all but a few MB under the bound node. If the `Huge` column

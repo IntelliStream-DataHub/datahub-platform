@@ -52,8 +52,8 @@ TimeoutStopSec=90s
 KillMode=mixed
 KillSignal=SIGTERM
 
-# /var/lib/datahub/<name> (heap dumps, SDK spool) and /var/log/datahub/<name> (GC log),
-# created and owned by the service user, and writable even under ProtectSystem=strict.
+# /var/lib/datahub/<name> (SDK spool) and /var/log/datahub/<name> (diagnostics you ask
+# for), created and owned by the service user, writable under ProtectSystem=strict.
 StateDirectory=datahub/%i
 LogsDirectory=datahub/%i
 StateDirectoryMode=0750
@@ -66,6 +66,8 @@ LimitNOFILE=524288
 TasksMax=16384
 # A memory hog elsewhere should die before the service does.
 OOMScoreAdjust=-500
+# No core dumps, same reason as no heap dumps (systemd-coredump honours this too).
+LimitCORE=0
 
 # Hardening. MemoryDenyWriteExecute must stay OFF: the JIT needs writable, executable
 # pages. No SystemCallFilter either, the JVM's syscall surface is wide and a missing
