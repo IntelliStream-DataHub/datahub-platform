@@ -48,7 +48,7 @@ class DataSetLabelProjectionTest {
         var graph = DataSetTransformer.toGraphForm(List.of(ds), List.of(), List.of());
 
         assertEquals(1, graph.getNodes().size());
-        Resource node = graph.getNodes().iterator().next();
+        ai.intellistream.datahub.models.NodeModel node = graph.getNodes().iterator().next();
         assertTrue(node.getLabels().containsAll(List.of("PLANT_A", "DATASET")), "got " + node.getLabels());
     }
 

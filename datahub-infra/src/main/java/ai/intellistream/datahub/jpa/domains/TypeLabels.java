@@ -15,7 +15,9 @@ import java.util.Set;
  * removed, or swapped on an existing node.
  *
  * <p>{@link #ALL} is every type-label; {@link #CREATABLE} is the subset a caller may choose when
- * creating a node ({@code TIMESERIES} is created through its own API, not the resource API).
+ * creating a node through the resource API — today that is every type: a {@code TIMESERIES}
+ * create is a plain node insert like the rest (datapoint ingestion stays on {@code /timeseries}).
+ * The set remains the single authority should a future type need its own create path.
  * {@link #forEntity(NodeEntity)} returns the type-label a persisted node must carry.
  */
 public final class TypeLabels {
@@ -29,7 +31,7 @@ public final class TypeLabels {
     public static final Set<String> ALL = Set.of(ASSET, DATASET, POLICY, TIMESERIES, FUNCTION);
 
     /** The type-labels a client may pick when creating a node via the resource API. */
-    public static final Set<String> CREATABLE = Set.of(ASSET, DATASET, POLICY, FUNCTION);
+    public static final Set<String> CREATABLE = Set.of(ASSET, DATASET, POLICY, FUNCTION, TIMESERIES);
 
     private TypeLabels() {}
 

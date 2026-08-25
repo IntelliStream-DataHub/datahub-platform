@@ -38,11 +38,11 @@ public class DataSetTransformer {
         return r;
     }
 
-    public static Collection<DataSetModel> toDataSetModel(Collection<Resource> results) {
+    public static Collection<DataSetModel> toDataSetModel(Collection<? extends NodeModel> results) {
         return results.stream().map(DataSetTransformer::toDataSetModel).toList();
     }
 
-    public static DataSetModel toDataSetModel(Resource item) {
+    public static DataSetModel toDataSetModel(NodeModel item) {
         DataSetModel dataSet = new DataSetModel();
         dataSet.setId( item.getId() );
         dataSet.setExternalId( item.getExternalId() );
@@ -56,12 +56,12 @@ public class DataSetTransformer {
         return dataSet;
     }
 
-    public static GraphDataWrapper<Resource, RelForm> toGraphForm(
+    public static GraphDataWrapper<NodeModel, RelForm> toGraphForm(
             Collection<DataSetModel> dataSets,
             List<PolicyEntity> existingPolicies,
             List<IdCollection> connectedDataSets
     ) {
-        GraphDataWrapper<Resource, RelForm> graphForm = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> graphForm = new GraphDataWrapper<>();
         dataSets.forEach(dataSetModel -> {
             Resource resource = toResource(dataSetModel);
             graphForm.getNodes().add(resource);
@@ -89,7 +89,7 @@ public class DataSetTransformer {
     }
 
     private static void attachPolicy(
-            GraphDataWrapper<Resource, RelForm> graphForm,
+            GraphDataWrapper<NodeModel, RelForm> graphForm,
             DataSetModel dataSetModel,
             String policyExternalId,
             List<PolicyEntity> existingPolicies

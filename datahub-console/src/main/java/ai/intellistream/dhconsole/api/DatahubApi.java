@@ -38,7 +38,7 @@ import org.springframework.http.ResponseEntity;
 public interface DatahubApi {
 
     @RequestLine("POST /resources/create")
-    GraphDataWrapper<Resource, EdgeProxy> createResourcesAndRelations(GraphDataWrapper<ResourceForm, RelForm> apiReqData);
+    GraphDataWrapper<NodeModel, EdgeProxy> createResourcesAndRelations(GraphDataWrapper<ResourceForm, RelForm> apiReqData);
 
     @RequestLine("GET /resources/{id}")
     DataWrapper<NodeModel> getResourceById(@Param("id") Long id);

@@ -64,7 +64,7 @@ public class ResourceMcpTools {
                     creates.
                     """
     )
-    public GraphDataWrapper<Resource, EdgeProxy> createResource(
+    public GraphDataWrapper<NodeModel, EdgeProxy> createResource(
             @ToolParam(description = "Stable snake_case id. 3–256 chars.")
             String externalId,
             @ToolParam(description = "Human-readable display name.")
@@ -89,7 +89,7 @@ public class ResourceMcpTools {
         }
         r.setLabels(new ArrayList<>(labelList));
 
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getNodes().add(r);
         return resourceService.create(req);
     }

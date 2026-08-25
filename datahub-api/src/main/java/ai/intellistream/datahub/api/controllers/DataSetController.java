@@ -369,7 +369,7 @@ public class DataSetController {
                     .collect(Collectors.toSet());
             List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
 
-            GraphDataWrapper<Resource, RelForm> newDataSets =
+            GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> newDataSets =
                     DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
             var results = resourceService.create(newDataSets);
 

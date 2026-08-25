@@ -112,8 +112,8 @@ public class ResourceApiController {
      * the warnings are merged in as one more property instead of changing that shape. Absent when
      * empty, exactly as on the API's own responses, so a clean write is byte-identical to before.
      */
-    private ResponseEntity<?> respond(GraphDataWrapper<Resource, EdgeProxy> result, HttpStatus status){
-        Resource node = result.getNodes().stream().findFirst().orElse(null);
+    private ResponseEntity<?> respond(GraphDataWrapper<? extends ai.intellistream.datahub.models.NodeModel, EdgeProxy> result, HttpStatus status){
+        ai.intellistream.datahub.models.NodeModel node = result.getNodes().stream().findFirst().orElse(null);
         if(node == null){
             return new ResponseEntity<>("", HttpStatus.BAD_REQUEST);
         }

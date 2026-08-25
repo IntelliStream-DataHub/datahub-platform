@@ -163,13 +163,13 @@ public class ResourceService {
      * @throws RuntimeException
      */
     @Transactional(rollbackFor = Exception.class)
-    public GraphDataWrapper<Resource, EdgeProxy> create(GraphDataWrapper<Resource, RelForm> apiReqData)
+    public GraphDataWrapper<NodeModel, EdgeProxy> create(GraphDataWrapper<NodeModel, RelForm> apiReqData)
             throws PulsarClientException, RuntimeException {
 
         // Validate here too, not only at the controller: the resource_create / dataset_create
         // MCP tools call this method directly and would otherwise bypass the Resource/RelForm
         // bean constraints (e.g. a blank externalId or name).
-        Set<ConstraintViolation<GraphDataWrapper<Resource, RelForm>>> violations = validator.validate(apiReqData);
+        Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> violations = validator.validate(apiReqData);
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
         }
@@ -184,12 +184,12 @@ public class ResourceService {
         List<PolicyFinding> policyWarnings = policyEnforcement.check(namingCandidatesForCreate(apiReqData.getNodes()));
 
         try{
-            GraphDataWrapper<Resource, EdgeProxy> collection = new GraphDataWrapper<>();
+            GraphDataWrapper<NodeModel, EdgeProxy> collection = new GraphDataWrapper<>();
             List<NodeEntity> nodes = new ArrayList<>();
             List<EdgeEntity> edges = new ArrayList<>();
 
             // Loop asset submitted for creations and create AssetNode objects
-            for(Resource resource : apiReqData.getNodes()){
+            for(NodeModel resource : apiReqData.getNodes()){
 
                 // Deny creating a resource in a dataset the caller can't write (null dataset →
                 // requires the write-all grant).
@@ -238,21 +238,24 @@ public class ResourceService {
                 // Save all new edges so they get id and verify all is good
                 Iterable<EdgeEntity> savedEdges = edgeRepository.saveAll(edges);
 
-                // Convert saved objects into proxy objects and send to pulsar
+                // The Pulsar payload stays the flat Resource (Avro reflection cannot carry a
+                // polymorphic union; the Neo4j consumer reads isRoot/geoLocation off it), while
+                // the REST echo comes back typed through the read mapper.
                 List<Resource> resourceList = new ArrayList<>();
                 List<EdgeProxy> edgesList = new ArrayList<>();
+                List<NodeEntity> savedList = new ArrayList<>();
 
                 savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
                 savedResources.forEach( it -> {
-                    var a = ResourceTransformer.from(it, edgesList);
-                    resourceList.add( a );
+                    savedList.add(it);
+                    resourceList.add( ResourceTransformer.from(it, edgesList) );
                 });
 
                 invalidateDatasetAclIfNeeded(nodes, edges, false);
 
                 var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
                 msg.setResources(resourceList);
-                collection.setNodes(resourceList);
+                collection.setNodes(nodeReadMapper.from(savedList, edgesList));
                 collection.setRelations(edgesList);
                 msg.setEdges(edgesList);
 
@@ -312,10 +315,10 @@ public class ResourceService {
      * <p>Index is the item's position in the submitted batch, so a rejection can name which of 500
      * items was wrong rather than only that something was.
      */
-    private static List<PolicyCandidate> namingCandidatesForCreate(Collection<Resource> resources) {
+    private static List<PolicyCandidate> namingCandidatesForCreate(Collection<? extends NodeModel> resources) {
         List<PolicyCandidate> candidates = new ArrayList<>(resources.size());
         int index = 0;
-        for (Resource resource : resources) {
+        for (NodeModel resource : resources) {
             candidates.add(PolicyCandidate.forCreate(
                     index++, resource.getExternalId(), resource.getName(), resource.getDataSetId()));
         }

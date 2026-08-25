@@ -102,7 +102,7 @@ public class DatasetMcpTools {
         if (description != null) ds.setDescription(description);
 
         List<PolicyEntity> policies = policyRepository.findAll();
-        GraphDataWrapper<Resource, RelForm> graph =
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> graph =
                 DataSetTransformer.toGraphForm(List.of(ds), policies, List.of());
         var results = resourceService.create(graph);
 

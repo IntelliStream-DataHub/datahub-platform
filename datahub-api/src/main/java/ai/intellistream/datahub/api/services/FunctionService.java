@@ -60,15 +60,15 @@ public class FunctionService {
      */
     @Transactional
     public DataWrapper<Function> create(DataWrapper<Function> apiReqData) throws PulsarClientException {
-        var graph = new GraphDataWrapper<Resource, RelForm>();
+        var graph = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm>();
         graph.setNodes(apiReqData.getItems().stream().map(FunctionService::asResource)
                 .collect(Collectors.toCollection(ArrayList::new)));
         graph.setRelations(new ArrayList<>());
 
-        GraphDataWrapper<Resource, EdgeProxy> created = resourceService.create(graph);
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> created = resourceService.create(graph);
 
         List<Long> ids = created.getNodes().stream()
-                .map(Resource::getId)
+                .map(ai.intellistream.datahub.models.NodeModel::getId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 

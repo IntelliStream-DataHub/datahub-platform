@@ -59,7 +59,7 @@ public class EdgeMcpTools {
                     and edge_create_type).
                     """
     )
-    public GraphDataWrapper<Resource, EdgeProxy> createEdge(
+    public GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> createEdge(
             @ToolParam(required = false, description = "Source node externalId.")
             String fromExternalId,
             @ToolParam(required = false, description = "Source node id.")
@@ -87,7 +87,7 @@ public class EdgeMcpTools {
         rel.setRelationshipType(relationshipType);
         if (description != null) rel.setDescription(description);
 
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return resourceService.create(req);
     }

@@ -115,8 +115,8 @@ class ResourceServiceAclInvalidationTest {
                 .thenReturn(Optional.of(new NameAndExternalIdDTO(id, "n" + id, "ext" + id, id)));
     }
 
-    private static GraphDataWrapper<Resource, RelForm> createWithNode() {
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> createWithNode() {
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
         Resource r = new Resource();
         r.setExternalId("some_resource");
         r.setName("Some Resource");
@@ -124,7 +124,7 @@ class ResourceServiceAclInvalidationTest {
         return req;
     }
 
-    private GraphDataWrapper<Resource, RelForm> createWithEdge(String relationshipType) {
+    private GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> createWithEdge(String relationshipType) {
         resolvableNode(1L);
         resolvableNode(2L);
         RelationshipType type = new RelationshipType();
@@ -135,7 +135,7 @@ class ResourceServiceAclInvalidationTest {
         rel.setFromId(1L);
         rel.setToId(2L);
         rel.setRelationshipType(relationshipType);
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return req;
     }

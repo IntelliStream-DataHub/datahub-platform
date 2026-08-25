@@ -59,7 +59,7 @@ class FunctionServiceTest {
         fn.setName("My Function");
 
         // resourceService.create returns one created node with a server-assigned id.
-        var created = new GraphDataWrapper<Resource, EdgeProxy>();
+        var created = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy>();
         var node = new Resource();
         node.setId(1L);
         created.getNodes().add(node);
@@ -77,10 +77,10 @@ class FunctionServiceTest {
         assertEquals("my_fn", result.getItems().iterator().next().getExternalId());
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<GraphDataWrapper<Resource, RelForm>> captor =
+        ArgumentCaptor<GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm>> captor =
                 ArgumentCaptor.forClass(GraphDataWrapper.class);
         verify(resourceService).create(captor.capture());
-        Resource passed = captor.getValue().getNodes().iterator().next();
+        ai.intellistream.datahub.models.NodeModel passed = captor.getValue().getNodes().iterator().next();
         assertTrue(passed.getLabels().contains("FUNCTION"),
                 "the FUNCTION type-label must reach the resource pipeline so a FunctionEntity is built");
     }

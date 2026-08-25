@@ -34,7 +34,7 @@ public class ResourceApiService {
      * would drop them before the browser ever saw them, and a warning nobody is shown is the same
      * as no warning at all.
      */
-    public GraphDataWrapper<Resource, EdgeProxy> save(ResourceWebForm resource){
+    public GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> save(ResourceWebForm resource){
         GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
         dataWrapper.getNodes().add(resource);
 
@@ -54,7 +54,7 @@ public class ResourceApiService {
     public EdgeProxy saveEdge(RelForm form){
         GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
         dataWrapper.getRelations().add(form);
-        GraphDataWrapper<Resource, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
+        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
         if( !results.getRelations().isEmpty() ){
             return results.getRelations().iterator().next();
         }
