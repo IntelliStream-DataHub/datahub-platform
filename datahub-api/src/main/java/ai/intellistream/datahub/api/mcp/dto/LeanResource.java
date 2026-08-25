@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.mcp.dto;
 
-import ai.intellistream.datahub.models.Resource;
+import ai.intellistream.datahub.models.NodeModel;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import ai.intellistream.datahub.json.ToStringSerializer;
 import tools.jackson.databind.annotation.JsonSerialize;
@@ -9,7 +9,7 @@ import tools.jackson.databind.annotation.JsonSerialize;
 import java.util.List;
 
 /**
- * Browse-sized projection of {@link Resource} for the list/search and graph MCP tools. Drops
+ * Browse-sized projection of any {@link NodeModel} for the list/search and graph MCP tools. Drops
  * the {@code isRoot=false} noise, the embedded {@code relations} edge list, empty
  * {@code metadata}, {@code geoLocation}, and both audit timestamps. Use {@code resource_get}
  * for the full record, or {@code resource_fetch_related} for the edges.
@@ -24,7 +24,7 @@ public record LeanResource(
         String source,
         List<String> labels
 ) {
-    public static LeanResource from(Resource r) {
+    public static LeanResource from(NodeModel r) {
         return new LeanResource(
                 r.getId(), r.getExternalId(), r.getName(), r.getDataSetId(),
                 r.getDescription(), r.getSource(), r.getLabels());

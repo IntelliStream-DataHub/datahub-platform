@@ -4,6 +4,7 @@ package ai.intellistream.datahub.models;
 import ai.intellistream.datahub.json.ToStringSerializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import tools.jackson.databind.annotation.JsonSerialize;
@@ -41,8 +42,13 @@ public class Resource extends NodeModel {
     private Boolean isRoot = false;
 
     /**
-     * Geographic data.
+     * Geographic data. WRITE_ONLY: still accepted as legacy create/update input (assets are
+     * created through /resources with an ASSET label), and still a field for the Pulsar Avro
+     * payload (the Neo4j consumer reads it off ResourceCudMessage) — but never serialized on
+     * REST reads. Typed reads return assets as {@link Asset}, the only DTO whose geoLocation
+     * appears on the wire.
      */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     @Valid
     private GeoLocation geoLocation;
 

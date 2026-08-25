@@ -145,7 +145,8 @@ class SearchFilterNarrowingTest {
                 mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
                 mock(DataSetRepository.class), dataSecurity,
                 mock(SubscriptionRepository.class), mock(Validator.class),
-                mock(PolicyEnforcement.class), closure);
+                mock(PolicyEnforcement.class), closure,
+                new ai.intellistream.datahub.transformers.NodeReadMapper());
 
         private SearchBody<ResourceFilter> searchFor(String query, ResourceFilter filter) {
             SearchBody<ResourceFilter> form = new SearchBody<>();

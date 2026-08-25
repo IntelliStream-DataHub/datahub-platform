@@ -57,7 +57,8 @@ class ResourceServiceEdgeRulesTest {
             mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
             mock(DataSetRepository.class), mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
-            mock(PolicyEnforcement.class), mock(DatasetClosureService.class));
+            mock(PolicyEnforcement.class), mock(DatasetClosureService.class),
+                new ai.intellistream.datahub.transformers.NodeReadMapper());
 
     /** Stub {@code mapEdge}'s resolution of an endpoint id, plus its rule-check projection. */
     private void node(long id, long nodeType, Long dataSetId) {

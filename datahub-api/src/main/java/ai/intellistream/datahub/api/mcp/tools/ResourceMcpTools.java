@@ -13,6 +13,7 @@ import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.SearchForm;
 import ai.intellistream.datahub.models.UpdateRelForm;
@@ -101,7 +102,7 @@ public class ResourceMcpTools {
                     of the two collections (as comma-separated strings).
                     """
     )
-    public DataWrapper<Resource> getResource(
+    public DataWrapper<NodeModel> getResource(
             @ToolParam(required = false, description = "Comma-separated numeric ids.")
             String ids,
             @ToolParam(required = false, description = "Comma-separated externalIds.")
@@ -284,7 +285,7 @@ public class ResourceMcpTools {
     private Long resolveId(String externalId) {
         return resourceService.findAllByIdAndExternalId(Set.of(), Set.of(externalId))
                 .getItems().stream()
-                .map(Resource::getId)
+                .map(NodeModel::getId)
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException(
                         "No resource with externalId '" + externalId + "'"));
