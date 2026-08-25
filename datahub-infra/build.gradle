@@ -63,7 +63,7 @@ dependencies {
     // jar-in-jar 'bouncy-castle-bc:pkg' artifact, whose nested classes a flat classloader (IDE run
     // configs) cannot load. See https://pulsar.apache.org/docs/4.0.x/security-bouncy-castle/
     runtimeOnly 'org.bouncycastle:bcprov-jdk18on:1.85.2'
-    runtimeOnly 'org.bouncycastle:bcpkix-jdk18on:1.85.2'
+    runtimeOnly 'org.bouncycastle:bcpkix-jdk18on:1.85'
 
     implementation 'org.apache.tika:tika-core:3.3.2'
     // Apache Commons Hashing
