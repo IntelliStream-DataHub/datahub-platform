@@ -8,6 +8,7 @@ import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.FetchNearestResourcesForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.UpdateRelForm;
@@ -29,27 +30,31 @@ import java.util.List;
 public final class ResourceService {
 
     private final ApiHttp http;
-    private final JavaType resources;        // DataWrapper<Resource>
-    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy>
+    private final JavaType nodes;            // DataWrapper<NodeModel> — typed reads
+    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat write echoes
     private final JavaType resourceNetwork;  // ResourceNetwork
 
     public ResourceService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
-        this.resources = tf.constructParametricType(DataWrapper.class, Resource.class);
+        this.nodes = tf.constructParametricType(DataWrapper.class, NodeModel.class);
         this.resourceGraph = tf.constructParametricType(GraphDataWrapper.class, Resource.class, EdgeProxy.class);
         this.resourceNetwork = tf.constructType(ResourceNetwork.class);
     }
 
-    /** GET /resources/{id} */
-    public DataWrapper<Resource> getById(long id) {
-        return http.get("/resources/" + id, resources);
+    /**
+     * GET /resources/{id}. The node comes back typed by its type-label: a TIMESERIES-labelled
+     * node is a {@code Timeseries}, a DATASET a {@code DataSetModel}, and so on; a node with no
+     * type-label is a plain {@code Resource}.
+     */
+    public DataWrapper<NodeModel> getById(long id) {
+        return http.get("/resources/" + id, nodes);
     }
 
-    /** POST /resources/byids — fetch resources by numeric id or external id. */
-    public DataWrapper<Resource> byIds(List<IdCollection> ids) {
+    /** POST /resources/byids — fetch nodes by numeric id or external id, typed by type-label. */
+    public DataWrapper<NodeModel> byIds(List<IdCollection> ids) {
         DataWrapper<IdCollection> request = new DataWrapper<IdCollection>().setItems(ids);
-        return http.post("/resources/byids", request, resources);
+        return http.post("/resources/byids", request, nodes);
     }
 
     /**
@@ -82,20 +87,20 @@ public final class ResourceService {
      * its {@code limit} (default 1000, max 10000). Past that cap, page with the retriever's
      * {@code cursor} and the response's {@code nextCursor}.
      */
-    public DataWrapper<Resource> filter(ResourceRetreiver retriever) {
-        return http.post("/resources/filter", retriever, resources);
+    public DataWrapper<NodeModel> filter(ResourceRetreiver retriever) {
+        return http.post("/resources/filter", retriever, nodes);
     }
 
     /** {@link #filter(ResourceRetreiver)} with just the criteria and the default limit. */
-    public DataWrapper<Resource> filter(ResourceFilter criteria) {
+    public DataWrapper<NodeModel> filter(ResourceFilter criteria) {
         ResourceRetreiver request = new ResourceRetreiver();
         request.setFilter(criteria);
         return filter(request);
     }
 
     /** POST /resources/search */
-    public DataWrapper<Resource> search(SearchBody<ResourceFilter> search) {
-        return http.post("/resources/search", search, resources);
+    public DataWrapper<NodeModel> search(SearchBody<ResourceFilter> search) {
+        return http.post("/resources/search", search, nodes);
     }
 
     /**

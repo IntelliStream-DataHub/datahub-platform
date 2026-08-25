@@ -98,7 +98,7 @@ public class ResourceApiService {
         return this.datahubApi.updateResourcesAndRelations(updateForm);
     }
 
-    public GraphDataWrapper<Resource, EdgeProxy> updateEdge(RelFormWithId form){
+    public GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> updateEdge(RelFormWithId form){
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateForm = new GraphDataWrapper<>();
         UpdateRelForm updateRelForm = new UpdateRelForm( form.getId() );
         updateForm.getRelations().add(updateRelForm);
@@ -139,16 +139,21 @@ public class ResourceApiService {
 
         var responseData = datahubApi.updateResourcesAndRelations(updateForm);
         var edge = responseData.getRelations().stream().findFirst();
+        // Repackage over NodeModel: the update echo is still flat Resources, but the byids
+        // refresh below returns label-typed nodes.
+        var enriched = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy>();
+        enriched.setNodes(new java.util.ArrayList<>(responseData.getNodes()));
+        enriched.setRelations(responseData.getRelations());
         if(edge.isPresent()){
             var edgeProxy = edge.get();
             var dataForm = new DataWrapper<IdCollection>();
             dataForm.getItems().add(IdCollection.createFromId(edgeProxy.getStart()));
             dataForm.getItems().add(IdCollection.createFromId(edgeProxy.getEnd()));
             var nodes = datahubApi.byIds(dataForm);
-            responseData.setNodes(nodes.getItems());
+            enriched.setNodes(nodes.getItems());
         }
 
-        return responseData;
+        return enriched;
     }
 
     public void deleteEdge(long id) {

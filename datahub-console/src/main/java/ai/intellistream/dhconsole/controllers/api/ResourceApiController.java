@@ -69,7 +69,7 @@ public class ResourceApiController {
             consumes = {MediaType.APPLICATION_JSON_VALUE}
     )
     public ResponseEntity<?> byIds(@RequestBody DataWrapper<IdCollection> apiReqData){
-        DataWrapper<Resource> resources = this.datahubApi.byIds(apiReqData);
+        DataWrapper<ai.intellistream.datahub.models.NodeModel> resources = this.datahubApi.byIds(apiReqData);
         return new ResponseEntity<>(resources, HttpStatus.OK);
     }
 
@@ -158,7 +158,7 @@ public class ResourceApiController {
             ResourceFilter pickable = new ResourceFilter();
             pickable.setNodeType(List.of("asset", "timeseries", "function", "resource", "dataset"));
             rs.setFilter(pickable);
-            DataWrapper<Resource> resources = this.datahubApi.searchResource(rs);
+            DataWrapper<ai.intellistream.datahub.models.NodeModel> resources = this.datahubApi.searchResource(rs);
             return new ResponseEntity<>(resources, HttpStatus.OK);
         } catch (Exception e){
             log.error(e.getMessage());
