@@ -34,7 +34,7 @@ public class ResourceController {
         ResourceRetreiver retreiver = new ResourceRetreiver();
         retreiver.getFilter().setIsRoot(true);
         try {
-            DataWrapper<Resource> rootResources = datahubApi.filter(retreiver);
+            DataWrapper<ai.intellistream.datahub.models.NodeModel> rootResources = datahubApi.filter(retreiver);
             if(rootResources.getItems().isEmpty()){
                 model.addAttribute("flashError",
                         messageSource.getMessage("no.root.resources.found", null, locale));
