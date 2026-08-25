@@ -20,6 +20,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -96,6 +98,30 @@ class NodeServiceTest {
     void timeseriesLabelIsRejectedOnResourceApi() {
         assertThrows(InvalidResourceException.class,
                 () -> nodeService.createFromResource(resource("TIMESERIES")));
+    }
+
+    /**
+     * Dataset and policy entities must stay orphans: their access rule is the manage grant, and
+     * the ACL's write-everything fallback keys on data_set_id being null (see
+     * POLICY_DATASETID_BUG.md). A create that names one must not populate it — for every other
+     * type it maps normally.
+     */
+    @Test
+    void datasetAndPolicyCreatesNeverTakeADataSetId() {
+        DataSetRepository repo = mock(DataSetRepository.class);
+        when(repo.getReferenceById(7L)).thenReturn(new DatasetEntity());
+        NodeService service = new NodeService(labelService, repo);
+
+        Resource dataset = resource("DATASET");
+        dataset.setDataSetId(7L);
+        Resource policy = resource("POLICY");
+        policy.setDataSetId(7L);
+        Resource asset = resource("ASSET");
+        asset.setDataSetId(7L);
+
+        assertNull(service.createFromResource(dataset).getDataSet());
+        assertNull(service.createFromResource(policy).getDataSet());
+        assertNotNull(service.createFromResource(asset).getDataSet());
     }
 
     @Test
