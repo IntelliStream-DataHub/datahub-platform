@@ -57,7 +57,8 @@ class ResourceFilterDatasetExpansionTest {
             mock(DataSetRepository.class), mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), closure,
-            new ai.intellistream.datahub.transformers.NodeReadMapper());
+            new ai.intellistream.datahub.transformers.NodeReadMapper(),
+            new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)));
 
     /** Enough of the Criteria chain to reach the dataSetIds branch; nothing beyond it runs. */
     @SuppressWarnings("unchecked")
