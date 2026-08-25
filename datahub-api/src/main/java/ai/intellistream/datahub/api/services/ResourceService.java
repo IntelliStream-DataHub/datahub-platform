@@ -1205,7 +1205,7 @@ public class ResourceService {
                 // Resolve external ids from the loaded component so the error is meaningful to the
                 // caller (who works in external ids); fall back to the internal id if a node has none.
                 Map<Long, String> externalIdById = new HashMap<>();
-                for (Resource r : component.nodes()) {
+                for (NodeModel r : component.nodes()) {
                     if (r.getId() != null && r.getExternalId() != null) {
                         externalIdById.put(r.getId(), r.getExternalId());
                     }

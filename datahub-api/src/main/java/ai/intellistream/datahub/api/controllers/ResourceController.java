@@ -113,6 +113,12 @@ public class ResourceController {
                     `externalId`. `depth` controls how many relationship hops to follow; keep it
                     small (1–3) unless you know the graph is sparse, because the result set grows
                     quickly.
+
+                    Nodes come back typed by their type-label (a time series as a Timeseries, a
+                    data set as a data set, and so on). The graph stores only a subset of each
+                    node's columns, so graph-sourced nodes are typed but sparsely populated —
+                    a Timeseries here carries no `unit` or `securityCategories`; fetch it by id
+                    for the full record.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Returns the starting resource plus every resource and relationship reached within `depth` hops.",
@@ -149,6 +155,12 @@ public class ResourceController {
                     count — so "the 10 nearest time series" is exact however many intermediate nodes
                     lie between them. `excludedLabels` (e.g. `["POLICY"]`) are never traversed or
                     returned; `relationshipTypes` restricts which edges may be followed.
+
+                    Nodes come back typed by their type-label (a time series as a Timeseries, a
+                    data set as a data set, and so on). The graph stores only a subset of each
+                    node's columns, so graph-sourced nodes are typed but sparsely populated —
+                    a Timeseries here carries no `unit` or `securityCategories`; fetch it by id
+                    for the full record.
                     """
     )
     @ApiResponse(responseCode = "200", description = "The nearest matching nodes plus every node and relationship on the paths to them.",

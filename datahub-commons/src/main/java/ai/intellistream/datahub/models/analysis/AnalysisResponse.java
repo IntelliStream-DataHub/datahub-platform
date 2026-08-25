@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.models.analysis;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
@@ -13,8 +14,8 @@ import java.util.List;
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class AnalysisResponse {
 
-    /** The focus timeseries node (as a graph resource). */
-    private Resource focus;
+    /** The focus timeseries node, typed by its label (a Timeseries in practice). */
+    private NodeModel focus;
 
     private String granularity;
 

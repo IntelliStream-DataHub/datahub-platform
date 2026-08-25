@@ -2,7 +2,14 @@
 package ai.intellistream.datahub.api.responses.swaggerdto;
 
 import ai.intellistream.datahub.models.EdgeProxy;
+import ai.intellistream.datahub.function.Function;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.DataSetModel;
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.Resource;
+import ai.intellistream.datahub.timeseries.Timeseries;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
@@ -14,13 +21,16 @@ import java.util.Collection;
 public class ResourceGraphDataWrapper {
 
     @Size(max = 1000)
-    private Collection<Resource> nodes = new ArrayList<>();
+    @ArraySchema(schema = @Schema(anyOf = {
+            Asset.class, Resource.class, Timeseries.class,
+            DataSetModel.class, Policy.class, Function.class}))
+    private Collection<NodeModel> nodes = new ArrayList<>();
 
     @Size(max = 1000)
     private Collection<EdgeProxy> relations = new ArrayList<>();
 
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    public Collection<Resource> getNodes() {
+    public Collection<NodeModel> getNodes() {
         return nodes;
     }
 
