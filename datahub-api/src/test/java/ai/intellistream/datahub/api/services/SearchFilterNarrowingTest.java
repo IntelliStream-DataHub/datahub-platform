@@ -146,7 +146,8 @@ class SearchFilterNarrowingTest {
                 mock(DataSetRepository.class), dataSecurity,
                 mock(SubscriptionRepository.class), mock(Validator.class),
                 mock(PolicyEnforcement.class), closure,
-                new ai.intellistream.datahub.transformers.NodeReadMapper());
+                new ai.intellistream.datahub.transformers.NodeReadMapper(),
+            new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)));
 
         private SearchBody<ResourceFilter> searchFor(String query, ResourceFilter filter) {
             SearchBody<ResourceFilter> form = new SearchBody<>();

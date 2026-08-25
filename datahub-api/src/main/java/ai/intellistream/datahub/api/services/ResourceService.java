@@ -9,6 +9,7 @@ import ai.intellistream.datahub.models.policy.PolicyWarning;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.edge.EdgeMapper;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatasetAclInvalidationEvent;
 import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
@@ -112,6 +113,9 @@ public class ResourceService {
     /** The one entity→DTO path for typed reads; see {@link NodeReadMapper}. */
     private final NodeReadMapper nodeReadMapper;
 
+    /** Builds edges and enforces the edge endpoint rules; see {@link EdgeMapper}. */
+    private final EdgeMapper edgeMapper;
+
     public ResourceService(
             EntityManager entityManager,
             NodeRepository nodeRepository,
@@ -128,7 +132,8 @@ public class ResourceService {
             Validator validator,
             PolicyEnforcement policyEnforcement,
             DatasetClosureService datasetClosureService,
-            NodeReadMapper nodeReadMapper){
+            NodeReadMapper nodeReadMapper,
+            EdgeMapper edgeMapper){
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
@@ -145,6 +150,7 @@ public class ResourceService {
         this.policyEnforcement = policyEnforcement;
         this.datasetClosureService = datasetClosureService;
         this.nodeReadMapper = nodeReadMapper;
+        this.edgeMapper = edgeMapper;
     }
 
     /**
@@ -651,7 +657,7 @@ public class ResourceService {
         }
 
         // Same endpoint rules as create — an update can retarget the edge or change its type.
-        assertEdgeEndpointsAllowed(edge);
+        edgeMapper.assertEdgeEndpointsAllowed(edge);
         return edge;
     }
 
@@ -755,139 +761,10 @@ public class ResourceService {
     }
 
 
+    /** Delegates to {@link EdgeMapper}; kept so existing callers (policy, timeseries, edges) keep their entry point. */
     @Transactional
     public EdgeEntity mapEdge(EdgeEntity edge, @Valid RelForm form) {
-
-        NameAndExternalIdDTO fromNode = null;
-        try{
-            if(form.getFromId() != null){
-                fromNode = nodeRepository.findById(form.getFromId(), NameAndExternalIdDTO.class)
-                        .orElseThrow(() -> new ObjectNotFoundException("Source node not found with id: " + form.getFromId()));
-            } else if(form.getFromExternalId() != null){
-                long id = ExternalIds.hash(form.getFromExternalId());
-                fromNode = nodeRepository.findByExternalIdHash(id, NameAndExternalIdDTO.class);
-            }
-        } catch (EmptyResultDataAccessException e){
-            throw endpointNotFound("fromNode", form.getFromExternalId(), form.getFromId());
-        }
-        // A lookup by external id answers with null rather than throwing, and a form naming
-        // neither an id nor an external id never looks anything up at all. Both left the edge
-        // with a null endpoint, which surfaced as a bare "must not be null" from the entity's
-        // @NotNull at flush time — so say plainly which endpoint could not be resolved.
-        if (fromNode == null) {
-            throw endpointNotFound("fromNode", form.getFromExternalId(), form.getFromId());
-        }
-
-        NameAndExternalIdDTO toNode = null;
-        try{
-            if(form.getToId() != null){
-                toNode = nodeRepository.findById(form.getToId(), NameAndExternalIdDTO.class)
-                        .orElseThrow(() -> new ObjectNotFoundException("Target node not found with id: " + form.getToId()));
-            } else if(form.getToExternalId() != null){
-                long id = ExternalIds.hash(form.getToExternalId());
-                toNode = nodeRepository.findByExternalIdHash(id, NameAndExternalIdDTO.class);
-            }
-        } catch (EmptyResultDataAccessException e){
-            throw endpointNotFound("toNode", form.getToExternalId(), form.getToId());
-        }
-        if (toNode == null) {
-            throw endpointNotFound("toNode", form.getToExternalId(), form.getToId());
-        }
-
-        edge.setStart(fromNode.getId());
-        edge.setEnd(toNode.getId());
-        edge.setDescription(form.getDescription());
-
-        RelationshipType relType = null;
-        if(form.getRelationshipTypeId() != null){
-            relType = relationshipTypeRepository.getReferenceById(form.getRelationshipTypeId());
-        }
-        // Fall through to find-or-create when the caller supplied a name — delegating to
-        // RelationshipTypeService so concurrent edge creates naming the same new
-        // relationship can't collide on relationship_hash_key.
-        if(relType == null && form.getRelationshipType() != null){
-            relType = relationshipTypeService.findOrCreateByName(form.getRelationshipType());
-        }
-        edge.setRelationshipType(relType);
-
-        edge.setMetadata(form.getMetadata());
-
-        if(form.getDataSetId() != null){
-            edge.setDataSet(nodeRepository.getReferenceById(form.getDataSetId()));
-        }
-
-        assertEdgeEndpointsAllowed(edge);
-        return edge;
-    }
-
-    /**
-     * A 400 naming the endpoint that could not be resolved, and what was submitted for it.
-     *
-     * <p>{@code String.valueOf} rather than the raw values because the fields map is
-     * {@code Map<String, String>}, which rejects nulls — and a null is exactly what a caller who
-     * supplied neither identifier needs to see reported back.
-     */
-    private static BadRequestException endpointNotFound(String endpoint, String externalId, Long id) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        BadRequestError error = new BadRequestError();
-        error.setMessage("Could not find " + endpoint);
-        error.getFields().add(Map.of(
-                "externalId", String.valueOf(externalId),
-                "id", String.valueOf(id)));
-        errors.setError(error);
-        return new BadRequestException(errors);
-    }
-
-    /**
-     * What may connect to what. Mirrors the console's edge-form guard, but here it is the
-     * enforcement point — a direct API call must obey the same rules:
-     * <ul>
-     *   <li>A relation TO a dataset is how something becomes part of it, and membership is
-     *       {@code BELONGS_TO} — any other type would read as structure yet mean nothing to the
-     *       hierarchy (ACL closure, dataset timeseries listing), so it is rejected.</li>
-     *   <li>A timeseries has one dataset. A dataset may connect to a timeseries only when the
-     *       series has no dataset yet or already belongs to <em>that</em> dataset — the equal case
-     *       must stay legal because creating a timeseries inside a dataset creates exactly that
-     *       membership edge in the same request.</li>
-     * </ul>
-     * Runs against the edge's final endpoints and type, so {@link #mapEdge} and
-     * {@link #updateEdge} (which can retarget an edge) share it.
-     */
-    private void assertEdgeEndpointsAllowed(EdgeEntity edge) {
-        if (edge.getStart() == null || edge.getEnd() == null) {
-            return;
-        }
-        EdgeEndpoint to = nodeRepository.findById(edge.getEnd(), EdgeEndpoint.class).orElse(null);
-        if (to == null) {
-            return;
-        }
-        String relName = edge.getRelationshipType() == null ? null : edge.getRelationshipType().getName();
-        long toType = nodeTypeOf(to);
-        if (toType == NodeType.DATASET && !DatasetClosureService.BELONGS_TO.equalsIgnoreCase(relName)) {
-            throw edgeRuleViolation("A relation to a data set must use the BELONGS_TO relationship");
-        }
-        if (toType == NodeType.TIMESERIES) {
-            EdgeEndpoint from = nodeRepository.findById(edge.getStart(), EdgeEndpoint.class).orElse(null);
-            Long tsDataSet = (to.getDataSet() == null) ? null : to.getDataSet().getId();
-            if (from != null && nodeTypeOf(from) == NodeType.DATASET
-                    && tsDataSet != null && !tsDataSet.equals(edge.getStart())) {
-                throw edgeRuleViolation(
-                        "The time series already belongs to a data set and cannot be connected to another one");
-            }
-        }
-    }
-
-    private static long nodeTypeOf(EdgeEndpoint endpoint) {
-        return (endpoint.getNodeType() == null || endpoint.getNodeType().getId() == null)
-                ? -1 : endpoint.getNodeType().getId();
-    }
-
-    private static BadRequestException edgeRuleViolation(String message) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        BadRequestError error = new BadRequestError();
-        error.setMessage(message);
-        errors.setError(error);
-        return new BadRequestException(errors);
+        return edgeMapper.mapEdge(edge, form);
     }
 
 
