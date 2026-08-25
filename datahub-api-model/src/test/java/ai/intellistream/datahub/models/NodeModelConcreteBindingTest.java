@@ -22,7 +22,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class NodeModelConcreteBindingTest {
 
-    private final JsonMapper mapper = JsonMapper.builder().build();
+    // The polymorphic module is deliberately registered: these bindings must behave identically
+    // with and without it, because it hooks only the abstract base.
+    private final JsonMapper mapper = JsonMapper.builder()
+            .addModule(new NodeModelSubtypes())
+            .build();
 
     @Test
     void resourceBindsAsConcreteTarget() {

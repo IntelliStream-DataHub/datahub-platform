@@ -40,9 +40,6 @@ public class Policy extends NodeModel {
     @Schema(description = "If the policy is deactivated, it will not be enforced.", example = "false")
     private boolean isDeactivated = false;
 
-    @Schema(description = "Node type (always POLICY when node)")
-    private String nodeType;
-
     @Schema(description = "Template ID applied to this policy node", example = "3")
     @JsonSerialize(using = ToStringSerializer.class)
     private Long templateId;
