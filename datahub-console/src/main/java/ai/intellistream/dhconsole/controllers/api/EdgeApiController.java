@@ -63,7 +63,7 @@ public class EdgeApiController {
     )
     public ResponseEntity<?> update(@Valid @RequestBody RelFormWithId form){
         try {
-            GraphDataWrapper<Resource, EdgeProxy> data = this.resourceApiService.updateEdge(form);
+            GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> data = this.resourceApiService.updateEdge(form);
             return new ResponseEntity<>(data, HttpStatus.CREATED);
         } catch (Exception e){
             log.error(e.getMessage());
