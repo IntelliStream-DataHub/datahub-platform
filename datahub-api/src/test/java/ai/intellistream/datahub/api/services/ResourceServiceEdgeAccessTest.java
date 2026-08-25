@@ -100,7 +100,8 @@ class ResourceServiceEdgeAccessTest {
             entityManager, nodeRepository, nodeService, labelService, edgeRepository,
             relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
             dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
-            datasetClosureService);
+            datasetClosureService,
+                new ai.intellistream.datahub.transformers.NodeReadMapper());
 
     @AfterEach
     void clear() {

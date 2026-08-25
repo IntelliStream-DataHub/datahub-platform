@@ -43,6 +43,7 @@ import ai.intellistream.datahub.services.NodeService;
 import ai.intellistream.datahub.services.RelationshipTypeService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
+import ai.intellistream.datahub.transformers.NodeReadMapper;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -109,6 +110,9 @@ public class ResourceService {
     /** The one authority for "which data sets are beneath this one" — shared with the ACL. */
     private final DatasetClosureService datasetClosureService;
 
+    /** The one entity→DTO path for typed reads; see {@link NodeReadMapper}. */
+    private final NodeReadMapper nodeReadMapper;
+
     public ResourceService(
             EntityManager entityManager,
             NodeRepository nodeRepository,
@@ -125,7 +129,8 @@ public class ResourceService {
             SubscriptionRepository subscriptionRepository,
             Validator validator,
             PolicyEnforcement policyEnforcement,
-            DatasetClosureService datasetClosureService){
+            DatasetClosureService datasetClosureService,
+            NodeReadMapper nodeReadMapper){
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
@@ -142,6 +147,7 @@ public class ResourceService {
         this.validator = validator;
         this.policyEnforcement = policyEnforcement;
         this.datasetClosureService = datasetClosureService;
+        this.nodeReadMapper = nodeReadMapper;
     }
 
     /**
@@ -974,7 +980,7 @@ public class ResourceService {
     }
 
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> get(Long id) {
+    public DataWrapper<NodeModel> get(Long id) {
         NodeEntity node = nodeRepository.findById(id).orElseThrow(() ->
                 new ObjectNotFoundException("Node with id: " + id + " Not found!"));
 
@@ -984,14 +990,14 @@ public class ResourceService {
             throw new ObjectNotFoundException("Node with id: " + id + " Not found!");
         }
 
-        DataWrapper<Resource> data = new DataWrapper<>();
-        data.getItems().add(ResourceTransformer.from(node));
+        DataWrapper<NodeModel> data = new DataWrapper<>();
+        data.getItems().add(nodeReadMapper.from(node));
         return data;
     }
 
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> filter(ResourceRetreiver apiReqData) {
-        DataWrapper<Resource> data = new DataWrapper<>();
+    public DataWrapper<NodeModel> filter(ResourceRetreiver apiReqData) {
+        DataWrapper<NodeModel> data = new DataWrapper<>();
         if (apiReqData.getFilter() == null) {
             return data;
         }
@@ -1073,7 +1079,7 @@ public class ResourceService {
         TypedQuery<NodeEntity> query = entityManager.createQuery(q);
         query.setMaxResults(apiReqData.getLimit());
         List<NodeEntity> nodes = query.getResultList();
-        data.setItems(ResourceTransformer.from(nodes));
+        data.setItems(nodeReadMapper.from(nodes));
         data.setNextCursor(NodePaging.nextCursor(nodes, apiReqData.getLimit(), sort));
 
         return data;
@@ -1282,7 +1288,7 @@ public class ResourceService {
     }
 
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> findAllByIdAndExternalId(Set<Long> idList, Set<String> externalIdList) {
+    public DataWrapper<NodeModel> findAllByIdAndExternalId(Set<Long> idList, Set<String> externalIdList) {
         // Narrow to the caller's readable datasets in SQL; unreadable nodes are simply omitted.
         List<NodeEntity> assetNodes;
         if (dataSecurity.hasReadAccessToEverything()) {
@@ -1293,8 +1299,8 @@ public class ResourceService {
                     ? new ArrayList<>()
                     : nodeRepository.findAllByIdOrExternalIdAndDataSetIdIn(idList, externalIdList, allowed);
         }
-        DataWrapper<Resource> data = new DataWrapper<>();
-        data.setItems(ResourceTransformer.from(assetNodes));
+        DataWrapper<NodeModel> data = new DataWrapper<>();
+        data.setItems(nodeReadMapper.from(assetNodes));
         return data;
     }
 
@@ -1313,8 +1319,8 @@ public class ResourceService {
      * cost a second round trip and, past the ceiling, silently dropped rows that matched both.
      */
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> search(SearchBody<ResourceFilter> searchForm) {
-        var data = new DataWrapper<Resource>();
+    public DataWrapper<NodeModel> search(SearchBody<ResourceFilter> searchForm) {
+        var data = new DataWrapper<NodeModel>();
         ResourceFilter filter = searchForm.getFilter();
 
         // A list of only unknown type names resolves to empty. They asked to be narrowed to those
@@ -1368,7 +1374,7 @@ public class ResourceService {
 
         TypedQuery<NodeEntity> query = entityManager.createQuery(q);
         query.setMaxResults(searchForm.getLimit());
-        data.setItems(ResourceTransformer.from(query.getResultList()));
+        data.setItems(nodeReadMapper.from(query.getResultList()));
         return data;
     }
 

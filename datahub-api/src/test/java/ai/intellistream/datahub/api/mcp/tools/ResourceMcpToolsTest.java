@@ -44,7 +44,7 @@ class ResourceMcpToolsTest {
     void resolvesExternalIdToTheNumericIdTheServiceNeeds() {
         Resource resolved = new Resource();
         resolved.setId(42L);
-        DataWrapper<Resource> found = new DataWrapper<>();
+        DataWrapper<ai.intellistream.datahub.models.NodeModel> found = new DataWrapper<>();
         found.getItems().add(resolved);
         when(resourceService.findAllByIdAndExternalId(Set.of(), Set.of("pump_p101"))).thenReturn(found);
         when(resourceService.fetchNearestRelatedResources(any(), anyList(), anyInt(), anyList(), anyList()))
