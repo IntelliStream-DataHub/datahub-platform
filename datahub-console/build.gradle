@@ -7,6 +7,14 @@ plugins {
 group = 'ai.intellistream.datahub'
 version = '0.0.1-SNAPSHOT'
 
+// Generates META-INF/build-info.properties, which Spring Boot turns into a BuildProperties bean.
+// The About dialog reports the version and build time from it (see AboutInfo). The Boot plugin
+// wires the task into `classes`, so `bootRun` and `bootJar` both get a current file; AboutInfo
+// treats it as optional so a run without it still starts.
+springBoot {
+	buildInfo()
+}
+
 
 configurations {
 	compileOnly {

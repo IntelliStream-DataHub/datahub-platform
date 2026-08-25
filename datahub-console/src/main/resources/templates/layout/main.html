@@ -53,7 +53,11 @@
         </a>
     </nav>
 
-    <div class="user-menu right-content">
+    <!-- The right-hand header cluster. Ask AI is a sibling of the user menu, not part of it:
+         while the button sat inside .user-menu, hovering it opened the dropdown, which is why
+         the dropdown was moved to click. .user-menu now wraps the name/avatar and the dropdown
+         and nothing else, so :hover on it means what it says. -->
+    <div class="right-content">
         <button type="button" class="ask-ai-btn" data-type="open-chat" aria-expanded="false"
                 th:if="${@chatAccess.available()}">
             <span class="ask-ai-label" th:text="#{chat.ask.ai}">Ask AI</span>
@@ -62,7 +66,7 @@
                 <svg class="ask-ai-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 1 L14 10 L23 12 L14 14 L12 23 L10 14 L1 12 L10 10 Z"/></svg>
             </span>
         </button>
-        <div>
+        <div class="user-menu">
             <div class="right-content" th:if="${#authorization.expression('isAuthenticated()')}" data-type="user-menu">
                 <a th:href="@{/#}">
                     <div><span th:text="${@userSession.getName()}"></span></div>
@@ -87,6 +91,10 @@
                     <i class="fa-regular fa-sun theme-when-dark"></i>
                     <i class="fa-regular fa-moon theme-when-light"></i>
                 </li>
+                <li data-type="about">
+                    <span th:text="#{about.menu}"></span>
+                    <i class="fa-regular fa-circle-info"></i>
+                </li>
                 <li>
                     <a th:href="@{/datahub-logout}" th:text="#{logout}"></a>
                 </li>
@@ -106,14 +114,108 @@
 
 <div class="chat-panel" th:if="${@chatAccess.available()}"></div>
 
-<!-- AGPL section 13: the console is served over a network, so users interacting with it
-     remotely must be offered its Corresponding Source. This link is that offer; do not
-     remove it without replacing it with an equivalent one. -->
-<footer class="site-footer">
-    <span th:text="#{footer.license}">DataHub is free software under the GNU AGPL v3.</span>
-    <a href="https://github.com/IntelliStream-DataHub/datahub-platform"
-       rel="noopener" target="_blank" th:text="#{footer.source}">Source code</a>
-</footer>
+<!-- About DataHub. Opened from the user menu, and the console's AGPL section 13 source offer:
+     the console is served over a network, so users interacting with it remotely must be offered
+     its Corresponding Source. The "Source code" link below is that offer; do not remove it
+     without replacing it with an equivalent one.
+
+     A native <dialog> opened with showModal(): the browser's top layer puts it above the
+     right-form, the chat panel and the tutorial overlays without another z-index to maintain,
+     and gives Escape-to-close and focus trapping for free. Server-rendered rather than built in
+     JS so every string comes from the message bundle. -->
+<dialog id="about-dialog" class="about-dialog" aria-labelledby="aboutTitle">
+    <div class="about-head">
+        <button type="button" class="about-close" data-type="about-close" th:attr="aria-label=#{close}">
+            <i class="fa fa-fw fa-close"></i>
+        </button>
+        <div class="about-logo" role="img" aria-label="IntelliStream"></div>
+        <h3 id="aboutTitle" th:text="#{about.title}">About DataHub</h3>
+        <p class="about-tagline" th:text="#{about.tagline}"></p>
+        <div class="about-badges">
+            <span class="about-badge" th:text="'v' + ${@aboutInfo.version}">v0.0.1</span>
+            <span class="about-badge" th:if="${@aboutInfo.buildTime != null}"
+                  th:text="${@aboutInfo.buildTime}"></span>
+        </div>
+    </div>
+
+    <div class="about-body">
+        <section>
+            <h4 th:text="#{about.license.title}">License</h4>
+            <p th:text="#{about.license.body}"></p>
+            <p th:text="#{about.license.network}"></p>
+            <p th:text="#{about.license.apache}"></p>
+            <div class="about-links">
+                <a href="https://github.com/IntelliStream-DataHub/datahub-platform"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-link"></i><span th:text="#{about.link.source}">Source code</span>
+                </a>
+                <a href="https://www.gnu.org/licenses/agpl-3.0.html" rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-file-lines"></i><span th:text="#{about.link.license}">License text</span>
+                </a>
+                <a href="https://github.com/IntelliStream-DataHub/datahub-platform/blob/main/NOTICE"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-clipboard-check"></i><span th:text="#{about.link.notice}">Third-party notices</span>
+                </a>
+            </div>
+        </section>
+
+        <section>
+            <h4 th:text="#{about.docs.title}">Documentation</h4>
+            <div class="about-links">
+                <a href="https://github.com/IntelliStream-DataHub/datahub-docs"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-graduation-cap"></i><span th:text="#{about.link.docs}">Operator documentation</span>
+                </a>
+                <a href="https://github.com/IntelliStream-DataHub/datahub-sdk-docs"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-cube"></i><span th:text="#{about.link.sdk}">SDK documentation</span>
+                </a>
+                <!-- th:with, rather than the bean reference straight in th:href: Thymeleaf
+                     evaluates href and src in SpEL restricted mode, where @bean access is
+                     forbidden, and the failure aborts the render mid-page. th:with is not
+                     restricted, so the bean is read there and th:href sees a plain variable. -->
+                <a th:with="swaggerUrl=${@aboutInfo.swaggerUrl}" th:href="${swaggerUrl}"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-diagram-project"></i><span th:text="#{about.link.api}">API reference</span>
+                </a>
+                <a href="https://github.com/IntelliStream-DataHub/datahub-platform/issues"
+                   rel="noopener" target="_blank">
+                    <i class="fa fa-fw fa-comment"></i><span th:text="#{about.link.issues}">Report an issue</span>
+                </a>
+            </div>
+        </section>
+
+        <section>
+            <h4 th:text="#{about.deployment.title}">This deployment</h4>
+            <p class="about-caption" th:text="#{about.deployment.caption}"></p>
+            <dl class="about-facts">
+                <div th:if="${@userSession.getName()}">
+                    <dt th:text="#{about.fact.user}">Signed in as</dt>
+                    <dd th:text="${@userSession.getName()}"></dd>
+                </div>
+                <div th:if="${@userSession.getOrganizationName()}">
+                    <dt th:text="#{about.fact.organization}">Organization</dt>
+                    <dd th:text="${@userSession.getOrganizationName()}"></dd>
+                </div>
+                <div>
+                    <dt th:text="#{about.fact.api}">API endpoint</dt>
+                    <dd th:text="${@aboutInfo.apiUrl}"></dd>
+                </div>
+                <div>
+                    <dt th:text="#{about.fact.analysis}">Analysis service</dt>
+                    <dd th:text="${@aboutInfo.analysisUrl}"></dd>
+                </div>
+            </dl>
+        </section>
+    </div>
+
+    <footer class="about-foot">
+        <span class="about-copyright" th:text="#{about.copyright}">Copyright (C) 2023-2026 IntelliStream AS</span>
+        <button type="button" class="dh-btn primary" data-type="about-close">
+            <span th:text="#{close}">Close</span>
+        </button>
+    </footer>
+</dialog>
 
 <!-- Tutorial UI shell (passive) -->
 <div id="tutorial-start-modal" class="tutorial-modal hidden" aria-hidden="true">
@@ -169,36 +271,6 @@
         $L('ok', [[#{ok}]]);
     });
 
-    // The user dropdown opens on click, not hover: hovering it (or the neighbouring Ask AI button)
-    // used to reveal it unbidden. Clicking the name/avatar toggles it; an outside click or Escape
-    // closes it.
-    (function(){
-        const menu = document.querySelector('.user-menu');
-        if (!menu) return;
-        const trigger = menu.querySelector('[data-type="user-menu"]');
-        if (!trigger) return;
-        trigger.setAttribute('aria-haspopup', 'true');
-        trigger.setAttribute('aria-expanded', 'false');
-
-        const setOpen = (open) => {
-            menu.classList.toggle('open', open);
-            trigger.setAttribute('aria-expanded', open ? 'true' : 'false');
-        };
-
-        trigger.addEventListener('click', (e) => {
-            // The name/avatar are anchors to "/#"; don't navigate, just toggle.
-            e.preventDefault();
-            e.stopPropagation();
-            setOpen(!menu.classList.contains('open'));
-        });
-        document.addEventListener('click', (e) => {
-            if (!menu.contains(e.target)) setOpen(false);
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') setOpen(false);
-        });
-    }());
-
     (function(){
         const copyTokenEl = document.querySelector('[data-type="copy-token"]');
         if (!copyTokenEl) return;
@@ -233,6 +305,26 @@
             const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
             root.setAttribute('data-theme', next);
             try { localStorage.setItem('dh-theme', next); } catch (e) { /* private mode: theme just won't persist */ }
+        });
+    }());
+
+    // About dialog. showModal() puts it in the browser's top layer, so it floats above the
+    // right-form, the chat panel and the tutorial overlays; Escape and focus trapping come with
+    // the element. The dropdown it was opened from needs no closing: it shows only while hovered
+    // or focused, and the modal takes the pointer and the focus.
+    (function(){
+        const dialog = document.getElementById('about-dialog');
+        const opener = document.querySelector('[data-type="about"]');
+        if (!dialog || !opener) return;
+
+        opener.addEventListener('click', () => dialog.showModal());
+
+        const close = () => dialog.close();
+        dialog.querySelectorAll('[data-type="about-close"]').forEach(el => el.addEventListener('click', close));
+        // A click that lands on the dialog element itself is a backdrop click: head, body and
+        // foot fill it edge to edge, so nothing else can be the target.
+        dialog.addEventListener('click', e => {
+            if (e.target === dialog) close();
         });
     }());
 </script>

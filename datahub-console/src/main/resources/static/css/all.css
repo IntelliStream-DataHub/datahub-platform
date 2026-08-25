@@ -1027,7 +1027,10 @@ header .user-menu .user-sub-menu{
 	box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
 	padding: 6px;
 }
-header .user-menu.open .user-sub-menu{ display: block; }
+/* :focus-within alongside :hover so the dropdown is reachable without a pointer: the only
+   focusable thing inside it is the Logout link, and it was otherwise unreachable by keyboard. */
+header .user-menu:hover .user-sub-menu,
+header .user-menu:focus-within .user-sub-menu{ display: block; }
 header .user-menu .user-sub-menu li{
 	padding: 11px 14px;
 	border-radius: 8px;
@@ -1040,6 +1043,22 @@ header .user-menu .user-sub-menu li{
 	white-space: nowrap;
 }
 header .user-menu .user-sub-menu li:hover{ background: rgba(108, 177, 255, 0.10); }
+/* Logout is the one row whose action is a link rather than a click handler on the row itself, so
+   the anchor has to cover the row: otherwise the padding around the word highlights on hover and
+   then swallows the click. The padding moves from the row to the anchor to include it.
+   `display: block` is what puts the label where every other row's label sits: the header rule
+   `header div.right-content a` makes anchors centred column flexboxes for the name-over-org stack
+   beside the avatar, and it reaches in here as a descendant, which centred the word. Opting this
+   one anchor out is enough; dropping flex-direction from that rule would unstack the header. */
+header .user-menu .user-sub-menu li:has(> a){ padding: 0; }
+header .user-menu .user-sub-menu li > a{
+	display: block;
+	width: 100%;
+	padding: 11px 14px;
+	color: inherit;
+}
+/* The row highlight is the hover cue here, as it is for the rows that are not links. */
+header .user-menu .user-sub-menu li > a:hover{ text-decoration: none; }
 header .user-menu .user-sub-menu li i{
 	min-width: 20px;
 	text-align: right;
@@ -2981,6 +3000,207 @@ a.inode:visited{ color: var(--link-alt); }
 	white-space: nowrap;
 }
 
+/* === About DataHub: the dialog behind the user menu's About entry (layout/main.html). It is
+   also the console's AGPL section 13 source offer, which is why it hangs off the menu rather
+   than off one page. A native <dialog>, so showModal() draws it in the browser's top layer,
+   above the right-form (10000) and the chat panel without another z-index to keep in step.
+   Token-driven like the naming-help dialog, so the light theme only swaps the logo file. === */
+.about-dialog{
+	width: min(760px, calc(100vw - 40px));
+	/* 1000px is the full content height with room to spare, so the dialog only scrolls on a
+	   viewport short enough that 88vh governs. */
+	max-height: min(88vh, 1000px);
+	padding: 0;
+	overflow: hidden;         /* the body scrolls, not the dialog, so head + foot stay put */
+	border: 1px solid var(--border);
+	border-radius: 14px;
+	background: var(--menu-bg);
+	color: var(--text);
+	box-shadow: var(--big-box-shadow);
+	font-family: 'Manrope', Arial, sans-serif;
+	font-size: 15px;
+	line-height: 1.5;
+}
+/* Only when open: a bare `display: flex` would override the closed dialog's display: none. */
+.about-dialog[open]{
+	display: flex;
+	flex-direction: column;
+}
+.about-dialog::backdrop{ background: rgba(0, 12, 20, 0.62); }
+
+/* Hero band. The dialog opens on the product mark rather than on a wall of licence text, and
+   the radial wash picks up the dot network inside the mark. */
+.about-head{
+	position: relative;
+	padding: 28px 32px 24px;
+	text-align: center;
+	/* --chrome-bg/--chrome-text, the header bar's pair, rather than a content-surface token: the
+	   logo mark is navy ink in both files, so it only reads against the same ground the header
+	   gives it (near-black navy in dark, white in light). */
+	background:
+		radial-gradient(120% 140% at 50% -20%, rgba(108, 177, 255, 0.18), transparent 62%),
+		var(--chrome-bg);
+	color: var(--chrome-text);
+	border-bottom: 1px solid var(--border);
+}
+/* The header's mark is inlined (fragments/logo.html) to avoid a flash on navigation; here it is
+   a background image instead, because a second copy of that SVG would duplicate its clipPath id
+   on the page. The dot colour is baked into each file, so the light theme takes the navy-dot
+   variant rather than recolouring (compare .dh-logo .h, which can, being inline). */
+.about-logo{
+	height: 42px;
+	margin: 0 auto 16px;
+	background: url('/static/img/intstream-logo.svg') center / contain no-repeat;
+}
+html[data-theme="light"] .about-logo{
+	background-image: url('/static/img/intstream-logo-lightbg.svg');
+}
+/* The global h1-h6 rule sets weight 300 and no size; the product name is the one place in the
+   dialog that should carry weight, so both are set here. */
+.about-head h3{
+	margin: 0;
+	font-size: 22px;
+	font-weight: 700;
+	letter-spacing: -0.01em;
+}
+.about-tagline{
+	margin: 8px auto 0;
+	max-width: 54ch;
+	color: var(--text-muted);
+	font-size: 14px;
+	text-wrap: balance;
+}
+.about-badges{
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: 8px;
+	margin-top: 16px;
+}
+/* Version and build stamp: the two facts someone opens an About box for, so they sit in the
+   hero where they can be read without scrolling. Tabular figures keep the digits aligned. */
+.about-badge{
+	padding: 4px 11px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	/* Not --menu-bg: that is white in the light theme, which would vanish into the white hero. */
+	background: var(--header-bg2);
+	color: var(--text-muted);
+	font-size: 12px;
+	font-variant-numeric: tabular-nums;
+}
+.about-close{
+	position: absolute;
+	top: 12px;
+	right: 12px;
+	padding: 6px;
+	border: 0;
+	background: none;
+	color: var(--icon-primary);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+.about-close:hover{ color: var(--accent); }
+.about-close:focus-visible{
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+	border-radius: 50%;
+}
+
+.about-body{
+	padding: 24px 32px 26px;
+	overflow-y: auto;
+}
+.about-body section + section{ margin-top: 28px; }
+/* Section captions borrow the uppercase field-label treatment the naming-help dialog uses, and
+   full-contrast --text for the same reason: muted grey goes too dim on the dark navy surface. */
+.about-dialog h4{
+	margin: 0 0 12px;
+	font-size: 13px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: var(--text);
+}
+.about-dialog p{ margin: 0 0 10px; }
+.about-dialog p:last-of-type{ margin-bottom: 0; }
+.about-caption{
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+/* Link rows: two columns while there is room, one once the dialog narrows to a phone. */
+.about-links{
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+	gap: 2px 16px;
+	margin-top: 14px;
+}
+.about-links a{
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 10px;
+	border-radius: 8px;
+	color: var(--text);
+}
+.about-links a:hover{
+	background: var(--header-bg-selected);
+	color: var(--accent);
+	text-decoration: none;   /* the row highlight is the hover cue; an underline as well is noise */
+}
+.about-links a i{
+	color: var(--icon-primary);
+	font-size: 14px;
+}
+.about-links a:hover i{ color: var(--accent); }
+
+/* Label/value pairs a support conversation can be read straight off. Endpoints wrap rather than
+   truncate: half a URL is worse than two lines of one. */
+.about-facts{ margin: 12px 0 0; }
+.about-facts > div{
+	display: grid;
+	grid-template-columns: 160px minmax(0, 1fr);
+	gap: 12px;
+	padding: 8px 0;
+	border-bottom: 1px solid var(--border);
+}
+.about-facts > div:last-child{ border-bottom: 0; }
+.about-facts dt{
+	color: var(--text-muted);
+	font-size: 13px;
+}
+.about-facts dd{
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+
+.about-foot{
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 14px 32px;
+	background: var(--header-bg2);
+	border-top: 1px solid var(--border);
+}
+.about-copyright{
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+/* Phone width: the dialog is nearly full-bleed, so trim the padding and stack the fact rows. */
+@media (max-width: 560px){
+	.about-head{ padding: 24px 20px 20px; }
+	.about-body{ padding: 20px; }
+	.about-foot{ padding: 12px 20px; }
+	.about-facts > div{
+		grid-template-columns: 1fr;
+		gap: 2px;
+	}
+}
+
 /* =====================================================================================
    LIGHT THEME — fully light, inspired by intellistream.ai: a white header with a blue
    underline over an off-white content area, brand-blue accents. Activated by
@@ -3580,18 +3800,3 @@ body.chat-resizing{
 	background: var(--accent);
 	color: #fff;
 }
-
-/* AGPL section 13 source offer. Quiet, but always present: it is a licence obligation,
-   not decoration. */
-.site-footer{
-	padding: 1rem 1.5rem;
-	border-top: 1px solid var(--border);
-	color: var(--text-muted);
-	font-size: .8125rem;
-	text-align: center;
-}
-.site-footer a{
-	color: var(--text-muted);
-	text-decoration: underline;
-}
-.site-footer a:hover{ color: var(--accent); }
