@@ -9,6 +9,7 @@
 
 ## Checklist
 
+- [ ] Pull requests this one depends on are named above and merged first, or there are none
 - [ ] Commits are signed off (`git commit -s`), per [CONTRIBUTING.md](../CONTRIBUTING.md)
 - [ ] `./gradlew build` passes
 - [ ] Behaviour visible outside this repo is reflected in the documentation, or does not need to be
