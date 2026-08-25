@@ -17,8 +17,12 @@ datahub.assets.unbundled=true
 # Templates and static assets load from src via file: paths (relative to the datahub-console
 # working directory) with caching off, so edits show on a browser refresh. i18n messages load the
 # same way (configured in I18nDevConfig).
+# Safe without a source tree too: ThymeleafDevConfig puts the packaged templates behind this prefix.
 spring.thymeleaf.prefix=file:src/main/resources/templates/
 spring.thymeleaf.cache=false
+# Without a source tree the prefix above does not exist, and Boot warns about it at every startup
+# even though the fallback serves the pages. The warning is the misleading part, not the setup.
+spring.thymeleaf.check-template-location=false
 
 spring.web.resources.static-locations=file:src/main/resources/static/,classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/,classpath:/public/
 spring.web.resources.cache.period=0
