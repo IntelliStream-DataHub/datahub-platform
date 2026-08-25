@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.jpa.domains;
 
+import ai.intellistream.datahub.helpers.text.TextValidator;
+
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -32,6 +36,28 @@ public final class TypeLabels {
     /** True if {@code name} is a privileged type-label (case-insensitive). */
     public static boolean isTypeLabel(String name) {
         return name != null && ALL.contains(name.toUpperCase());
+    }
+
+    /**
+     * The canonical type-labels present among these requested label names — the set that decides
+     * what kind of node a create request would mint. Names are canonicalised with the same rule
+     * the label store applies on persist ({@link TextValidator#toSnakeUpperCased}), so this
+     * matches the create dispatch in {@code NodeService.createFromResource} exactly rather than
+     * approximating it with a plain case-fold. Empty means no type-label (a plain resource);
+     * more than one entry is an ambiguous request the create path rejects.
+     */
+    public static Set<String> typeLabelsIn(Collection<String> labelNames) {
+        if (labelNames == null) {
+            return Set.of();
+        }
+        Set<String> present = new LinkedHashSet<>();
+        for (String name : labelNames) {
+            String canonical = name == null ? null : TextValidator.toSnakeUpperCased(name);
+            if (canonical != null && ALL.contains(canonical)) {
+                present.add(canonical);
+            }
+        }
+        return present;
     }
 
     /**
