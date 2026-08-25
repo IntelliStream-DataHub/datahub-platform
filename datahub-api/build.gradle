@@ -50,7 +50,7 @@ dependencies {
 	annotationProcessor 'org.projectlombok:lombok'
 
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
-	implementation 'com.jayway.jsonpath:json-path:2.9.0'
+	implementation 'com.jayway.jsonpath:json-path:3.0.0'
 	implementation "tools.jackson.dataformat:jackson-dataformat-xml:${jacksonVersion}"
 	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
 

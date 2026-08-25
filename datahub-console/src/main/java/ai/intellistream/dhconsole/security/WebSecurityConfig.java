@@ -280,8 +280,11 @@ public class WebSecurityConfig {
             return mappedAuthorities;
         };
 
+        // Package-private rather than private so WebSecurityConfigAuthoritiesMappingTest can pin
+        // the claim shapes Keycloak sends; the json-path expressions come from Vault, and a
+        // silent change in how they resolve would cost every user their roles.
         @SuppressWarnings({ "rawtypes", "unchecked" })
-        private static
+        static
         Collection<GrantedAuthority>
         extractAuthorities(Map<String, Object> claims, AuthoritiesMappingProperties.IssuerAuthoritiesMappingProperties properties) {
             return Stream.of(properties.claims).flatMap(claimProperties -> {
