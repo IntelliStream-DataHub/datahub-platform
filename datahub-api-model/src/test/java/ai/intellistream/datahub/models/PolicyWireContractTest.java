@@ -34,7 +34,6 @@ class PolicyWireContractTest {
         p.setValue("TRUE");
         p.setDeactivated(false);
         p.setExternalId("policy_x");
-        p.setNodeType("POLICY");
         p.setMetadata(Map.of("templateId", "3"));
         p.setTemplateId(3L);
         p.setDataSetId(12L);
@@ -51,7 +50,6 @@ class PolicyWireContractTest {
         assertEquals("TRUE", m.get("value"));
         assertEquals(false, m.get("deactivated"));       // boolean isDeactivated -> "deactivated"
         assertEquals("policy_x", m.get("externalId"));
-        assertEquals("POLICY", m.get("nodeType"));
         assertEquals(Map.of("templateId", "3"), m.get("metadata"));
         assertEquals("3", m.get("templateId"));          // ToStringSerializer
         assertEquals("12", m.get("dataSetId"));          // ToStringSerializer
@@ -63,7 +61,7 @@ class PolicyWireContractTest {
         assertEquals("2024-06-18T00:00:00Z", m.get("lastUpdatedTime"));
 
         assertEquals(Set.of("id", "name", "description", "type", "value", "deactivated", "externalId",
-                "nodeType", "metadata", "templateId", "dataSetId", "source", "relatedResources", "labels",
+                "metadata", "templateId", "dataSetId", "source", "relatedResources", "labels",
                 "createdTime", "lastUpdatedTime"),
                 m.keySet());
     }
