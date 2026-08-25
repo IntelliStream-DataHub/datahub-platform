@@ -69,47 +69,26 @@ class ResourceWireContractTest {
     }
 
     /**
-     * A present geolocation serializes as a nested GeoJSON object (not a quoted string) and
-     * round-trips back to the same raw geometry. Covers the Avro-safe String carrier being bridged
-     * to a REST object by the custom serializer/deserializer.
+     * geoLocation is WRITE_ONLY on Resource: still accepted as legacy create input (a nested
+     * GeoJSON object, not a quoted string), never emitted on reads — a typed read returns an
+     * {@link Asset}, the only DTO whose geoLocation serializes.
      */
     @Test
     @SuppressWarnings("unchecked")
-    void geoLocationRoundTripsAsNestedObject() {
-        Resource r = new Resource();
-        r.setExternalId("sensor_a");
-        r.setName("Sensor A");
-        r.setGeoLocation(new GeoLocation("{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}"));
+    void geoLocationIsAcceptedAsInputButNeverSerialized() {
+        Resource in = mapper.readValue(
+                "{\"externalId\":\"sensor_a\",\"name\":\"Sensor A\"," +
+                "\"geoLocation\":{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}}",
+                Resource.class);
 
-        String json = mapper.writeValueAsString(r);
-        Map<String, Object> m = mapper.readValue(json, Map.class);
+        // The input path still binds the geometry verbatim (the flat create needs it until the
+        // typed create ships).
+        Map<String, Object> boundGeo = mapper.readValue(in.getGeoLocation().getJson(), Map.class);
+        assertEquals("Point", boundGeo.get("type"));
 
-        // Nested object on the wire, never an escaped string.
-        assertInstanceOf(Map.class, m.get("geoLocation"));
-        Map<String, Object> geo = (Map<String, Object>) m.get("geoLocation");
-        assertEquals("Point", geo.get("type"));
-        assertEquals(List.of(10.75, 59.91), geo.get("coordinates"));
-
-        // Deserialize back and confirm the geometry survives verbatim.
-        Resource back = mapper.readValue(json, Resource.class);
-        Map<String, Object> backGeo = mapper.readValue(back.getGeoLocation().getJson(), Map.class);
-        assertEquals("Point", backGeo.get("type"));
-        assertEquals(List.of(10.75, 59.91), backGeo.get("coordinates"));
+        // But it never comes back out of a Resource.
+        Map<String, Object> m = mapper.readValue(mapper.writeValueAsString(in), Map.class);
+        assertFalse(m.containsKey("geoLocation"));
     }
 
-    /** A polygon (general geometry, not just Point) survives the same round-trip. */
-    @Test
-    @SuppressWarnings("unchecked")
-    void geoLocationAcceptsGeneralGeometry() {
-        Resource r = new Resource();
-        r.setExternalId("area_a");
-        r.setName("Area A");
-        r.setGeoLocation(new GeoLocation(
-                "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}"));
-
-        Map<String, Object> m = mapper.readValue(mapper.writeValueAsString(r), Map.class);
-        Map<String, Object> geo = (Map<String, Object>) m.get("geoLocation");
-        assertEquals("Polygon", geo.get("type"));
-        assertInstanceOf(List.class, geo.get("coordinates"));
-    }
 }

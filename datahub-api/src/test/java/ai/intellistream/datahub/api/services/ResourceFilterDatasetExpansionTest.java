@@ -55,7 +55,8 @@ class ResourceFilterDatasetExpansionTest {
             mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
             mock(DataSetRepository.class), mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
-            mock(PolicyEnforcement.class), closure);
+            mock(PolicyEnforcement.class), closure,
+            new ai.intellistream.datahub.transformers.NodeReadMapper());
 
     /** Enough of the Criteria chain to reach the dataSetIds branch; nothing beyond it runs. */
     @SuppressWarnings("unchecked")

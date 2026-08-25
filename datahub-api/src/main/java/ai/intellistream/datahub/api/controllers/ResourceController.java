@@ -12,6 +12,7 @@ import ai.intellistream.datahub.api.responses.swaggerdto.ResourceGraphDataWrappe
 import ai.intellistream.datahub.api.services.ResourceService;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.ResponseError;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
@@ -215,7 +216,7 @@ public class ResourceController {
         try{
             var idList = apiReqData.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
             var externalIdList = apiReqData.getItems().stream().map(IdCollection::getExternalId).filter(Objects::nonNull).collect(Collectors.toSet());
-            DataWrapper<Resource> resources = resourceService.findAllByIdAndExternalId(idList, externalIdList);
+            DataWrapper<NodeModel> resources = resourceService.findAllByIdAndExternalId(idList, externalIdList);
             return new ResponseEntity<>(resources, HttpStatus.OK);
         } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
             // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
@@ -317,7 +318,7 @@ public class ResourceController {
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
             }
-            DataWrapper<Resource> items = resourceService.filter(apiReqData);
+            DataWrapper<NodeModel> items = resourceService.filter(apiReqData);
             return new ResponseEntity<>(items, HttpStatus.OK);
         } catch (ConstraintViolationException e){
             log.error(e.getMessage());
@@ -393,7 +394,7 @@ public class ResourceController {
         // before this method ran, so the hand-rolled pass could only ever re-check what had
         // already passed — and its bare-string 400 disagreed with the shape @Valid produces.
         try{
-            DataWrapper<Resource> items = resourceService.search(form);
+            DataWrapper<NodeModel> items = resourceService.search(form);
             return new ResponseEntity<>(items, HttpStatus.OK);
         }
         catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){

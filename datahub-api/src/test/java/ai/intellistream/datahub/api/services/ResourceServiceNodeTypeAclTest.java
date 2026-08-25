@@ -84,7 +84,8 @@ class ResourceServiceNodeTypeAclTest {
             entityManager, nodeRepository, nodeService, labelService, edgeRepository,
             relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService,
             dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
-            datasetClosureService);
+            datasetClosureService,
+                new ai.intellistream.datahub.transformers.NodeReadMapper());
 
     /** The caller may write these datasets, and nothing else — no manage grant. */
     private void canWrite(Long... datasetIds) {
