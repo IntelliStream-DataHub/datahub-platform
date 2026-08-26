@@ -29,4 +29,21 @@ public interface NodeUpdateStrategy {
      * write; there is nothing to return.
      */
     void apply(NodeEntity node, ResourceFields fields);
+
+    /**
+     * For a node type whose fields are entirely the shared ones. A registered {@code NONE} says
+     * "this type was considered and needs nothing", which is the distinction that lets an
+     * unregistered type be treated as the error it is.
+     */
+    NodeUpdateStrategy NONE = new NodeUpdateStrategy() {
+        @Override
+        public Class<? extends NodeEntity> handles() {
+            return NodeEntity.class;
+        }
+
+        @Override
+        public void apply(NodeEntity node, ResourceFields fields) {
+            // Nothing beyond the shared stages.
+        }
+    };
 }

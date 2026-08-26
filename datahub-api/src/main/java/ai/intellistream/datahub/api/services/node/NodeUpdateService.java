@@ -10,6 +10,11 @@ import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
+import java.util.Set;
+import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
+import ai.intellistream.datahub.jpa.domains.ResourceEntity;
+import ai.intellistream.datahub.jpa.domains.FunctionEntity;
+import ai.intellistream.datahub.jpa.domains.AssetEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
@@ -64,27 +69,39 @@ public class NodeUpdateService {
     private final PolicyEnforcement policyEnforcement;
 
     /**
-     * Per-type field mapping, keyed by exact entity class. A type with nothing of its own simply
-     * has no entry and gets the shared pipeline unchanged, which is why most types need no
-     * strategy at all.
+     * Every node type this pipeline knows how to update, and what each adds to the shared stages.
+     *
+     * <p><b>Fixed, and exhaustive on purpose.</b> Discovering strategies from the container would
+     * make "no strategy" and "type nobody has thought about" indistinguishable — both would sail
+     * through the shared stages and silently drop whatever that type actually needed. Listing all
+     * six here means a seventh entity type fails loudly on its first update (see
+     * {@link #strategyFor}) rather than being quietly half-applied, and
+     * {@code NodeUpdateStrategyRegistryTest} fails the moment the entity family and this map
+     * disagree.
+     *
+     * <p>{@link NodeUpdateStrategy#NONE} is a real answer, not a gap: those types genuinely have
+     * no field beyond the shared set, and saying so is what distinguishes them from an omission.
      */
-    private final Map<Class<? extends NodeEntity>, NodeUpdateStrategy> strategies;
+    private static final Map<Class<? extends NodeEntity>, NodeUpdateStrategy> STRATEGIES = Map.of(
+            AssetEntity.class, new AssetUpdateStrategy(),
+            ResourceEntity.class, NodeUpdateStrategy.NONE,
+            DatasetEntity.class, NodeUpdateStrategy.NONE,
+            PolicyEntity.class, NodeUpdateStrategy.NONE,
+            FunctionEntity.class, NodeUpdateStrategy.NONE,
+            TimeseriesEntity.class, NodeUpdateStrategy.NONE);
 
     public NodeUpdateService(NodeRepository nodeRepository,
                              DataSetRepository dataSetRepository,
                              DataSecurity dataSecurity,
                              LabelService labelService,
                              NodeService nodeService,
-                             PolicyEnforcement policyEnforcement,
-                             List<NodeUpdateStrategy> strategies) {
+                             PolicyEnforcement policyEnforcement) {
         this.nodeRepository = nodeRepository;
         this.dataSetRepository = dataSetRepository;
         this.dataSecurity = dataSecurity;
         this.labelService = labelService;
         this.nodeService = nodeService;
         this.policyEnforcement = policyEnforcement;
-        this.strategies = strategies.stream().collect(java.util.stream.Collectors.toMap(
-                NodeUpdateStrategy::handles, s -> s));
     }
 
     /** A resolved update: the caller's requested changes, paired with the managed entity. */
@@ -137,25 +154,34 @@ public class NodeUpdateService {
     }
 
     /**
-     * The strategy for this node, or null if its type has nothing of its own to apply.
+     * The strategy for this node. Never null: an unregistered type is a programming error, not a
+     * node with nothing to do, and it throws rather than updating a row half-way.
      *
-     * <p>Looks up the nearest registered ancestor rather than the exact class, because the runtime
-     * class is often not the mapped one: {@code Hibernate.getClass} unwraps a lazy proxy, but any
-     * other subclass — a test double, a future refinement of a type — would otherwise miss its
-     * strategy and silently drop that type's fields with no error anywhere. Walking stops at
-     * {@code NodeEntity}, so an unregistered type resolves to null rather than to something
-     * else's mapping.
+     * <p>Resolves to the nearest registered ancestor rather than the exact class, because the
+     * runtime class is often not the mapped one — {@code Hibernate.getClass} unwraps a lazy proxy,
+     * but a test double or a future refinement of a type would otherwise miss its strategy and
+     * silently drop that type's fields. Walking stops at {@code NodeEntity}, so an unknown type
+     * cannot inherit some other type's mapping by accident.
      */
     private NodeUpdateStrategy strategyFor(NodeEntity node) {
         Class<?> type = Hibernate.getClass(node);
         while (type != null && NodeEntity.class.isAssignableFrom(type)) {
-            NodeUpdateStrategy strategy = strategies.get(type);
+            NodeUpdateStrategy strategy = STRATEGIES.get(type);
             if (strategy != null) {
                 return strategy;
             }
             type = type.getSuperclass();
         }
-        return null;
+        throw new IllegalStateException(
+                "No update strategy registered for node type " + Hibernate.getClass(node).getName()
+                        + ". Add it to NodeUpdateService.STRATEGIES — use NodeUpdateStrategy.NONE if "
+                        + "it has no fields beyond the shared ones. Refusing to update it "
+                        + "half-applied.");
+    }
+
+    /** The node types this pipeline can update. Exposed so a test can hold it to the entity family. */
+    public static Set<Class<? extends NodeEntity>> registeredTypes() {
+        return STRATEGIES.keySet();
     }
 
     /**
@@ -234,10 +260,7 @@ public class NodeUpdateService {
             resource.setSource(null);
         }
         // The only per-type step.
-        NodeUpdateStrategy strategy = strategyFor(resource);
-        if (strategy != null) {
-            strategy.apply(resource, fields);
-        }
+        strategyFor(resource).apply(resource, fields);
 
 
         // Update labels. A node's type-label (ASSET/DATASET/POLICY/TIMESERIES/FUNCTION) is intrinsic

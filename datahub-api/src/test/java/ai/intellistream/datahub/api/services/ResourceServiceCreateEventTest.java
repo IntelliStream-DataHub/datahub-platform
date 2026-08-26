@@ -77,8 +77,7 @@ class ResourceServiceCreateEventTest {
             new NodeReadMapper(),
             new EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement,
-                    java.util.List.of(new ai.intellistream.datahub.api.services.node.AssetUpdateStrategy())));
+                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));
 
     @AfterEach
     void clearTenant() {
