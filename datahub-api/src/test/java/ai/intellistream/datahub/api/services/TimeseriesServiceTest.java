@@ -87,6 +87,7 @@ class TimeseriesServiceTest {
     @Mock private Producer<DataWrapperBin> allDatapointProducer;
     @Mock private ai.intellistream.datahub.services.NodeService nodeService;
     @Mock private ai.intellistream.datahub.api.policy.PolicyEnforcement policyEnforcement;
+    @Mock private ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
     @InjectMocks private TimeseriesService timeseriesService;
 

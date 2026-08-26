@@ -78,7 +78,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ResourceService {
 
-    private final DataSetRepository dataSetRepository;
     // No per-type repositories here any more. They existed only for the search fan-out that ran one
     // full-text query per node type; the search is a single generic node query now, so the four
     // typed repositories it needed are no longer dependencies of this service.
@@ -88,7 +87,6 @@ public class ResourceService {
     private final NodeRepository nodeRepository;
 
     private final NodeService nodeService;
-    private final LabelService labelService;
     private final EdgeRepository edgeRepository;
     private final RelationshipTypeRepository relationshipTypeRepository;
     private final RelationshipTypeService relationshipTypeService;
@@ -120,14 +118,12 @@ public class ResourceService {
             EntityManager entityManager,
             NodeRepository nodeRepository,
             NodeService nodeService,
-            LabelService labelService,
             EdgeRepository edgeRepository,
             RelationshipTypeRepository relationshipTypeRepository,
             RelationshipTypeService relationshipTypeService,
             ApplicationEventPublisher applicationEventPublisher,
             GraphOutbox graphOutbox,
             Neo4JService neo4JService,
-            DataSetRepository dataSetRepository,
             DataSecurity dataSecurity,
             SubscriptionRepository subscriptionRepository,
             Validator validator,
@@ -138,14 +134,12 @@ public class ResourceService {
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
-        this.labelService = labelService;
         this.edgeRepository = edgeRepository;
         this.relationshipTypeRepository = relationshipTypeRepository;
         this.relationshipTypeService = relationshipTypeService;
         this.applicationEventPublisher = applicationEventPublisher;
         this.graphOutbox = graphOutbox;
         this.neo4JService = neo4JService;
-        this.dataSetRepository = dataSetRepository;
         this.dataSecurity = dataSecurity;
         this.subscriptionRepository = subscriptionRepository;
         this.validator = validator;
@@ -325,15 +319,6 @@ public class ResourceService {
         return candidates;
     }
 
-    /**
-     * Reduce an update batch to naming-policy candidates, keeping only the items whose external id
-     * actually changes.
-     *
-     * <p>Carrying the previous value is what makes that possible, and the rule it enables is not a
-     * nicety: without it, tightening a policy makes every pre-existing resource unupdatable, and
-     * editing an unrelated field on a legacy resource fails on a naming rule the caller never
-     * touched. {@link PolicyCandidate#requiresEvaluation()} does the comparison.
-     */
 
 
     /**

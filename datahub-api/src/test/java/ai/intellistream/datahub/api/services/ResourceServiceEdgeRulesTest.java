@@ -52,17 +52,16 @@ class ResourceServiceEdgeRulesTest {
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
 
     private final ResourceService service = new ResourceService(
-            mock(EntityManager.class), nodeRepository, mock(NodeService.class),
-            mock(LabelService.class), mock(EdgeRepository.class),
+            mock(EntityManager.class), nodeRepository, mock(NodeService.class), mock(EdgeRepository.class),
             mock(RelationshipTypeRepository.class), relationshipTypeService,
             mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class),
-            mock(DataSetRepository.class), mock(DataSecurity.class),
+            mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), mock(DatasetClosureService.class),
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, mock(RelationshipTypeRepository.class), relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
-                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)));
+                    mock(NodeRepository.class), mock(DataSecurity.class),
+                    mock(NodeService.class), mock(PolicyEnforcement.class)));
 
     /** Stub {@code mapEdge}'s resolution of an endpoint id, plus its rule-check projection. */
     private void node(long id, long nodeType, Long dataSetId) {

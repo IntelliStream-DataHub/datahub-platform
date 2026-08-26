@@ -18,12 +18,6 @@ import ai.intellistream.datahub.models.validation.ResourceFields;
 public interface NodeUpdateStrategy {
 
     /**
-     * The entity class this strategy serves. A node is matched to the nearest registered
-     * ancestor, so a proxied or otherwise subclassed instance still finds it.
-     */
-    Class<? extends NodeEntity> handles();
-
-    /**
      * Apply this type's own fields. Called after the shared fields are set and before labels and
      * dataset membership, which the engine owns. The entity is managed, so mutating it is the
      * write; there is nothing to return.
@@ -35,15 +29,7 @@ public interface NodeUpdateStrategy {
      * "this type was considered and needs nothing", which is the distinction that lets an
      * unregistered type be treated as the error it is.
      */
-    NodeUpdateStrategy NONE = new NodeUpdateStrategy() {
-        @Override
-        public Class<? extends NodeEntity> handles() {
-            return NodeEntity.class;
-        }
-
-        @Override
-        public void apply(NodeEntity node, ResourceFields fields) {
-            // Nothing beyond the shared stages.
-        }
+    NodeUpdateStrategy NONE = (node, fields) -> {
+        // Nothing beyond the shared stages.
     };
 }

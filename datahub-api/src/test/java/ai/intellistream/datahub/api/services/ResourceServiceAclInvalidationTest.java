@@ -89,13 +89,13 @@ class ResourceServiceAclInvalidationTest {
     private final DataSecurity dataSecurity = TestDataSecurity.readingAndWritingEverything();
 
     private final ResourceService service = new ResourceService(
-            entityManager, nodeRepository, nodeService, labelService, edgeRepository,
+            entityManager, nodeRepository, nodeService, edgeRepository,
             relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
-            dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
+            dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));
+                    nodeRepository, dataSecurity, nodeService, policyEnforcement));
 
     @BeforeEach
     void setUp() {

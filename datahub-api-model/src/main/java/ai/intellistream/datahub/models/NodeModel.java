@@ -163,10 +163,16 @@ public abstract class NodeModel extends AbstractResource {
      * An {@code isRoot} that arrived on a node type which cannot be a root — captured by
      * {@link #setIsRoot} so the create path can refuse a {@code true} instead of silently
      * dropping it. Always null on {@code Resource} and {@code Asset}, whose own setter overrides
-     * that hook and applies the value for real. Never on the wire, in either direction.
+     * that hook and applies the value for real.
+     *
+     * <p>{@code transient}, and that matters: {@code Resource} descends from this base and is the
+     * Avro-reflected payload of {@code ResourceCudMessage}. Avro reflection walks inherited
+     * fields and ignores Jackson annotations, so without {@code transient} this request-scoped
+     * scratch value would become a field of the published Pulsar schema — a coordinated-deploy
+     * change, to carry something no consumer wants.
      */
     @JsonIgnore
-    private Boolean unsupportedIsRoot;
+    private transient Boolean unsupportedIsRoot;
 
     /**
      * Set the labels, always keeping {@link #typeLabel()} present.

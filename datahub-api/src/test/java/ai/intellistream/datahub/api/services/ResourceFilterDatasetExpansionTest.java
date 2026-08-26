@@ -50,17 +50,16 @@ class ResourceFilterDatasetExpansionTest {
     private final EntityManager entityManager = mock(EntityManager.class);
     private final DatasetClosureService closure = mock(DatasetClosureService.class);
     private final ResourceService service = new ResourceService(
-            entityManager, mock(NodeRepository.class), mock(NodeService.class),
-            mock(LabelService.class), mock(EdgeRepository.class),
+            entityManager, mock(NodeRepository.class), mock(NodeService.class), mock(EdgeRepository.class),
             mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class),
             mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class),
-            mock(DataSetRepository.class), mock(DataSecurity.class),
+            mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), closure,
             new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
-                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)));
+                    mock(NodeRepository.class), mock(DataSecurity.class),
+                    mock(NodeService.class), mock(PolicyEnforcement.class)));
 
     /** Enough of the Criteria chain to reach the dataSetIds branch; nothing beyond it runs. */
     @SuppressWarnings("unchecked")

@@ -135,7 +135,17 @@ public class NodeService {
                     // the type-specific fields.
                     throw invalidResource("A TIMESERIES create must use the Timeseries shape.");
                 }
-                return mapNewNodeFromTimeseries(ts);
+                // relatedResources is how the /timeseries endpoint asks for PUBLISH_DATA_TO
+                // edges, and that edge-building lives in TimeseriesService, which this path does
+                // not go through. Silently creating the series with no publisher edges would be
+                // data loss the caller never hears about, so say so: the same request can express
+                // it as a relation in relations[], which this path does handle.
+                if (!ts.getRelatedResources().isEmpty()) {
+                    throw invalidResource("A time series created through the resource api cannot "
+                            + "carry relatedResources; express the link in relations[] instead, or "
+                            + "create it through /timeseries.");
+                }
+                return mapNewNodeFromTimeseries(ts, labels);
             }
 
             NodeEntity node;
@@ -224,13 +234,23 @@ public class NodeService {
 
     @Transactional
     public TimeseriesEntity mapNewNodeFromTimeseries(Timeseries ts){
+        return mapNewNodeFromTimeseries(ts, labelService.findAllAndCreateFromNames(new ArrayList<>(ts.getLabels())));
+    }
+
+    /**
+     * With the labels already resolved. The resource path has them in hand by the time it
+     * dispatches here, and resolving is a find-or-create round trip per name — repeating it cost a
+     * second one for every item in a create batch.
+     */
+    @Transactional
+    public TimeseriesEntity mapNewNodeFromTimeseries(Timeseries ts, List<Label> labels){
         TimeseriesEntity node = new TimeseriesEntity();
         // Resolve whatever labels the caller sent, not just the type-label. This used to build a
         // single hardcoded TIMESERIES LabelForm, so a create that carried extra domain labels
         // had them silently dropped — the one node type that could not be labelled on create.
         // Timeseries.setLabels (via NodeModel) already guarantees TIMESERIES is in the list, so
         // the type-label cannot be lost by going through the caller's set.
-        applyLabels(node, labelService.findAllAndCreateFromNames(new ArrayList<>(ts.getLabels())));
+        applyLabels(node, labels);
 
         node.setValueType(ts.getValueType());
         node.setUnit(ts.getUnit());

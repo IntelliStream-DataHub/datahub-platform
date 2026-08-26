@@ -15,6 +15,7 @@ import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.validation.ResourceFields;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatapointCudPublishEvent;
@@ -126,7 +127,7 @@ public class TimeseriesService {
     private final DataSecurity dataSecurity;
 
     /** The one node-update pipeline; see {@link NodeUpdateService}. */
-    private final ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
+    private final NodeUpdateService nodeUpdateService;
 
     private final ValkeyService valkeyService;
 
@@ -1308,43 +1309,83 @@ public class TimeseriesService {
         // of the guard's own query and persist a value the policy was about to reject.
         List<PolicyFinding> policyWarnings = policyEnforcement.check(namingCandidatesForUpdate(dbTimeseries, timeseries));
 
-        dbTimeseries.forEach( dbTs -> {
+        // Pass 1: pair every target with its update and authorize it, mutating nothing. The
+        // batch has to be judged as a batch — two renames onto the same external id each pass a
+        // per-item check, because neither is in the table yet — and nothing may be written before
+        // that judgement, or a rejected batch has already half-applied.
+        record Pending(TimeseriesEntity entity, TimeseriesFields fields, NodeUpdateService.Target target) {}
+        List<Pending> pending = new ArrayList<>();
+        for (TimeseriesEntity dbTs : dbTimeseries) {
             UpdateTimeseries updateData = matchUpdateFor(dbTs, timeseries);
-            if(updateData != null){
-                TimeseriesFields fields = updateData.getUpdate();
-                dbTs.setLastUpdated(ZonedDateTime.now());
+            if (updateData == null) {
+                continue;
+            }
+            TimeseriesFields fields = updateData.getUpdate();
+            pending.add(new Pending(dbTs, fields,
+                    nodeUpdateService.authorize(asNodeCommand(updateData, fields), dbTs)));
+        }
 
-                // 1. THE SHARED HALF, through the one pipeline: the ACL, the rename-collision
-                // guard (whole node table, a clean 409), name, externalId, metadata, description,
-                // source, dataset membership, and the type-label guard. Only what a time series
-                // has that other nodes do not is applied below.
-                var target = nodeUpdateService.authorize(asNodeCommand(updateData, fields), dbTs);
-                nodeUpdateService.guardRenames(List.of(target));
-                nodeUpdateService.apply(List.of(target));
+        // Pass 2: the shared half, over the whole batch — the rename-collision guard (whole node
+        // table, a clean 409), then name, externalId, metadata, description, source, dataset
+        // membership and the type-label guard.
+        List<NodeUpdateService.Target> targets = pending.stream().map(Pending::target).toList();
+        nodeUpdateService.guardRenames(targets);
+        nodeUpdateService.apply(targets);
 
-                // 2. THE TIME SERIES' OWN.
-                // Update unit field
-                if(fields.getUnit().getSet() != null){
-                    dbTs.setUnit(fields.getUnit().getSet());
-                }
-                if(fields.getUnit().getSetNull()){
-                    dbTs.setUnit(null);
-                }
-
-                // Update unit external id
-                if(fields.getUnitExternalId().getSet() != null){
-                    dbTs.setUnitExternalId(fields.getUnitExternalId().getSet());
-                }
-                if(fields.getUnitExternalId().getSetNull()){
-                    dbTs.setUnitExternalId(null);
-                }
-
-
-                var updatedTimeseries = nodeRepository.save(dbTs);
-                log.debug("Updated timeseries: {}", updatedTimeseries);
+        // Pass 3: what a time series has that other nodes do not.
+        for (Pending item : pending) {
+            TimeseriesEntity dbTs = item.entity();
+            TimeseriesFields fields = item.fields();
+            dbTs.setLastUpdated(ZonedDateTime.now());
+            // 2. THE TIME SERIES' OWN.
+            // Update unit field
+            if(fields.getUnit().getSet() != null){
+                dbTs.setUnit(fields.getUnit().getSet());
+            }
+            if(fields.getUnit().getSetNull()){
+                dbTs.setUnit(null);
             }
 
-        });
+            // Update unit external id
+            if(fields.getUnitExternalId().getSet() != null){
+                dbTs.setUnitExternalId(fields.getUnitExternalId().getSet());
+            }
+            if(fields.getUnitExternalId().getSetNull()){
+                dbTs.setUnitExternalId(null);
+            }
+
+            // Update securityCategories field
+            if(fields.getSecurityCategories().getSet() != null){
+
+                Set<Integer> scIdList = fields.getSecurityCategories().getSet()
+                        .stream()
+                        .mapToInt(Long::intValue)
+                        .boxed()
+                        .collect(Collectors.toCollection(TreeSet::new));
+                dbTs.setSecurityCategories(scIdList);
+            }
+
+            if(fields.getSecurityCategories().getAdd() != null){
+                Collection<Integer> addList = fields.getSecurityCategories().getAdd()
+                        .stream()
+                        .mapToInt(Long::intValue)
+                        .boxed()
+                        .collect(Collectors.toCollection(TreeSet::new));
+                dbTs.getSecurityCategories().addAll(addList);
+            }
+
+            if(fields.getSecurityCategories().getRemove() != null){
+                Collection<Integer> removeList = fields.getSecurityCategories().getRemove()
+                        .stream()
+                        .mapToInt(Long::intValue)
+                        .boxed()
+                        .collect(Collectors.toCollection(TreeSet::new));
+                dbTs.getSecurityCategories().removeAll(removeList);
+            }
+
+            var updatedTimeseries = nodeRepository.save(dbTs);
+            log.debug("Updated timeseries: {}", updatedTimeseries);
+        }
 
         recordPolicyWarnings(policyWarnings, dbTimeseries);
 
