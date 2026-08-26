@@ -78,8 +78,12 @@ public class GraphEventNeo4jListener {
         try (Session session = neo4j.getSession(message.getTenantId());
              Transaction tx = session.beginTransaction()) {
             try{
+                // The labels Postgres actually ended up with, keyed by node id. The api sends the
+                // post-update resources alongside the forms, so the authority travels with the
+                // message and the consumer no longer has to work them out for itself.
+                Map<Long, List<String>> resolvedLabels = resolvedLabelsFrom(message);
                 for(UpdateResourceForm a : message.getUpdateResourceForms()){
-                    updateResource(a, tx, message.getTenantId());
+                    updateResource(a, tx, message.getTenantId(), resolvedLabels.get(a.getId()));
                 }
                 for(UpdateTimeseries a : message.getUpdateTimeseries()){
                     updateResource(a, tx);
@@ -183,7 +187,27 @@ public class GraphEventNeo4jListener {
         log.debug("result: {}", results);
     }
 
-    private void updateResource(UpdateResourceForm resource, Transaction tx, String tenantId){
+    /**
+     * The resolved label set per node id, from the post-update resources the api sends alongside
+     * the update forms. Empty when the message carries none — see
+     * {@link #updateResource(UpdateResourceForm, Transaction, String, List)} on why that is
+     * tolerated rather than treated as an error.
+     */
+    static Map<Long, List<String>> resolvedLabelsFrom(ResourceCudMessage message) {
+        if (message.getResources() == null || message.getResources().isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<String>> byId = new HashMap<>();
+        for (Resource resource : message.getResources()) {
+            if (resource.getId() != null && resource.getLabels() != null) {
+                byId.put(resource.getId(), resource.getLabels());
+            }
+        }
+        return byId;
+    }
+
+    private void updateResource(UpdateResourceForm resource, Transaction tx, String tenantId,
+                                List<String> resolvedLabels){
         org.neo4j.driver.types.Node node = get(resource.getId(), tenantId);
         if (node == null) {
             // The node was deleted between commit and this listener running (or the CREATE
@@ -192,11 +216,23 @@ public class GraphEventNeo4jListener {
             log.warn("Skipping Neo4j update for resource id={} — node not found.", resource.getId());
             return;
         }
-        var labels = resource.getUpdate().getLabels();
-        List<String> currentLabels = new ArrayList<>();
-        node.labels().forEach(currentLabels::add);
-        List<String> newLabelList = computeNewLabels(
-                currentLabels, labels.getSet(), labels.getAdd(), labels.getRemove());
+        List<String> newLabelList;
+        if (resolvedLabels != null) {
+            // Apply what Postgres resolved rather than re-deriving it. Re-deriving was a fourth
+            // implementation of the label rules and the only one that did not enforce the
+            // type-label: a `set` that omitted ASSET stripped it from the graph while Postgres
+            // kept it, leaving the two stores disagreeing about what kind of node this is.
+            newLabelList = new ArrayList<>(resolvedLabels);
+        } else {
+            // No resolved labels in the message: an api from before they were sent. Kept so a
+            // rolling deploy can put the consumers out first, and removable once no such producer
+            // is left.
+            var labels = resource.getUpdate().getLabels();
+            List<String> currentLabels = new ArrayList<>();
+            node.labels().forEach(currentLabels::add);
+            newLabelList = computeNewLabels(
+                    currentLabels, labels.getSet(), labels.getAdd(), labels.getRemove());
+        }
         var updatingResource = Cypher.anyNode()
                 .named("n")
                 .withProperties("id", literalOf(resource.getId()));
