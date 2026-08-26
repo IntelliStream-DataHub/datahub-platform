@@ -34,8 +34,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class NodeReadMapperTest {
 
-    private final NodeReadMapper mapper = new NodeReadMapper();
-
     private static <T extends NodeEntity> T base(T e, String externalId, String labels) {
         e.setExternalId(externalId);
         e.setName(externalId);
@@ -47,7 +45,7 @@ class NodeReadMapperTest {
     @Test
     @DisplayName("each discriminator maps to its own DTO")
     void eachEntityTypeMapsToItsOwnDto() {
-        List<NodeModel> out = mapper.from(List.of(
+        List<NodeModel> out = NodeReadMapper.from(List.of(
                 base(new AssetEntity(), "plant_a", "ASSET"),
                 base(new ResourceEntity(), "pump_1", "PIPE"),
                 base(new TimeseriesEntity(), "engine_temp", "TIMESERIES"),
@@ -70,7 +68,7 @@ class NodeReadMapperTest {
         assetEntity.setIsRoot(true);
         assetEntity.setGeoLocation("{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}");
 
-        Asset asset = (Asset) mapper.from(assetEntity);
+        Asset asset = (Asset) NodeReadMapper.from(assetEntity);
 
         assertEquals(true, asset.getIsRoot());
         assertTrue(asset.getGeoLocation().getJson().contains("Point"));
@@ -83,7 +81,7 @@ class NodeReadMapperTest {
     @Test
     @DisplayName("timeseries carry their full label set from the row")
     void timeseriesLabelsComeFromTheRow() {
-        Timeseries ts = (Timeseries) mapper.from(
+        Timeseries ts = (Timeseries) NodeReadMapper.from(
                 base(new TimeseriesEntity(), "engine_temp", "TIMESERIES,FLOW,ENGINE"));
 
         assertEquals(List.of("TIMESERIES", "FLOW", "ENGINE"), ts.getLabels());
@@ -93,7 +91,7 @@ class NodeReadMapperTest {
     @Test
     @DisplayName("a missing type-label on the row is re-inserted by the DTO")
     void aMissingTypeLabelSelfHeals() {
-        Timeseries ts = (Timeseries) mapper.from(base(new TimeseriesEntity(), "engine_temp", ""));
+        Timeseries ts = (Timeseries) NodeReadMapper.from(base(new TimeseriesEntity(), "engine_temp", ""));
 
         assertEquals(List.of("TIMESERIES"), ts.getLabels());
     }
@@ -103,7 +101,7 @@ class NodeReadMapperTest {
     void metadataIsCopiedNotAliased() {
         DatasetEntity entity = base(new DatasetEntity(), "plant_data", "DATASET");
 
-        NodeModel dto = mapper.from(entity);
+        NodeModel dto = NodeReadMapper.from(entity);
         dto.getMetadata().put("added", "later");
 
         assertEquals(Map.of("k", "v"), entity.getMetadata());
@@ -113,7 +111,7 @@ class NodeReadMapperTest {
     @Test
     @DisplayName("a policy read carries no dataSetId")
     void policyReadsCarryNoDataSetId() {
-        Policy policy = (Policy) mapper.from(base(new PolicyEntity(), "IS_WRITE_PROTECTED", "POLICY"));
+        Policy policy = (Policy) NodeReadMapper.from(base(new PolicyEntity(), "IS_WRITE_PROTECTED", "POLICY"));
 
         assertNull(policy.getDataSetId());
         assertEquals(List.of("POLICY"), policy.getLabels());

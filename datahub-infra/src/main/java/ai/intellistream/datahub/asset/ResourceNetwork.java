@@ -26,13 +26,13 @@ public record ResourceNetwork(Set<NodeModel> nodes, Set<EdgeProxy> edges, Set<La
      * (every relationship between those nodes). Both are already de-duplicated by APOC, but we
      * still collect into {@link Set}s to be defensive.
      */
-    public static ResourceNetwork from(List<Record> records, Set<Label> labels, NodeReadMapper mapper){
+    public static ResourceNetwork from(List<Record> records, Set<Label> labels){
         var resourceNetwork = new ResourceNetwork(new HashSet<>(), new HashSet<>(), labels);
         for(Record record : records){
             Value nodes = record.get("nodes");
             if(!nodes.isNull()){
                 for(Value node : nodes.values()){
-                    resourceNetwork.nodes.add(mapper.fromGraphNode(node.asNode()));
+                    resourceNetwork.nodes.add(NodeReadMapper.fromGraphNode(node.asNode()));
                 }
             }
 

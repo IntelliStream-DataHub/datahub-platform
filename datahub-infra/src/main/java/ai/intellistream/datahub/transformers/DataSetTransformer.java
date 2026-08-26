@@ -3,6 +3,7 @@ package ai.intellistream.datahub.transformers;
 
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.jpa.domains.TypeLabels;
 import ai.intellistream.datahub.models.*;
@@ -36,6 +37,17 @@ public class DataSetTransformer {
         }
         r.setLabels(labels);
         return r;
+    }
+
+    /**
+     * {@code DatasetEntity} to {@link DataSetModel} — the read path's entry point.
+     *
+     * <p>{@code policies} and {@code connectedDataSets} stay empty: they are how a create request
+     * asks for edges, not state stored on the row, so a read has nothing to put in them. The
+     * hierarchy a client wants is in {@code relatedResources}, from the graph.
+     */
+    public static DataSetModel from(DatasetEntity entity) {
+        return NodeBaseFields.apply(new DataSetModel(), entity);
     }
 
     public static Collection<DataSetModel> toDataSetModel(Collection<? extends NodeModel> results) {

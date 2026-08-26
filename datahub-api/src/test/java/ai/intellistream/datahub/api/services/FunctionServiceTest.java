@@ -50,7 +50,7 @@ class FunctionServiceTest {
 
     @BeforeEach
     void setUp() {
-        functionService = new FunctionService(functionRepository, new FunctionTransformer(), resourceService, dataSecurity);
+        functionService = new FunctionService(functionRepository, resourceService, dataSecurity);
     }
 
     @Test

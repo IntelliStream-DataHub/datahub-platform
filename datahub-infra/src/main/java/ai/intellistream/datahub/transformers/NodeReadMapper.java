@@ -14,7 +14,6 @@ import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.GeoLocation;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -49,11 +48,13 @@ import java.util.Set;
  * <p>{@link ResourceTransformer} deliberately stays untouched beside this: it feeds the Pulsar
  * {@code ResourceCudMessage}, whose Avro reflection schema cannot carry a polymorphic union.
  */
-@Component
-public class NodeReadMapper {
+public final class NodeReadMapper {
+
+    private NodeReadMapper() {
+    }
 
     /** Map one node to its typed DTO, without relations. */
-    public NodeModel from(NodeEntity node) {
+    public static NodeModel from(NodeEntity node) {
         NodeModel dto = switchOnType(node);
         // Uniform label source, applied last so delegated tails can't diverge. setLabels keeps
         // the type-label present even for a row whose labels string never carried it.
@@ -68,13 +69,13 @@ public class NodeReadMapper {
     }
 
     /** Map one node and attach its relations from the edges in hand (no extra queries). */
-    public NodeModel from(NodeEntity node, Collection<EdgeProxy> edges) {
+    public static NodeModel from(NodeEntity node, Collection<EdgeProxy> edges) {
         NodeModel dto = from(node);
         dto.setRelatedResources(RelatedNodeResolver.forNode(dto.getId(), edges));
         return dto;
     }
 
-    public List<NodeModel> from(Collection<? extends NodeEntity> nodes) {
+    public static List<NodeModel> from(Collection<? extends NodeEntity> nodes) {
         List<NodeModel> out = new ArrayList<>(nodes.size());
         for (NodeEntity node : nodes) {
             out.add(from(node));
@@ -82,7 +83,7 @@ public class NodeReadMapper {
         return out;
     }
 
-    public List<NodeModel> from(Collection<? extends NodeEntity> nodes, Collection<EdgeProxy> edges) {
+    public static List<NodeModel> from(Collection<? extends NodeEntity> nodes, Collection<EdgeProxy> edges) {
         List<NodeModel> out = new ArrayList<>(nodes.size());
         for (NodeEntity node : nodes) {
             out.add(from(node, edges));
@@ -107,7 +108,7 @@ public class NodeReadMapper {
      * as the graph's native WGS-84 point reconstructed as a GeoJSON Point (lossy for non-point
      * geometries, which Postgres holds in full), and only on assets.
      */
-    public NodeModel fromGraphNode(org.neo4j.driver.types.Node node) {
+    public static NodeModel fromGraphNode(org.neo4j.driver.types.Node node) {
         List<String> labels = new ArrayList<>();
         node.labels().forEach(labels::add);
         Set<String> types = ai.intellistream.datahub.jpa.domains.TypeLabels.typeLabelsIn(labels);
@@ -170,7 +171,12 @@ public class NodeReadMapper {
         return null;
     }
 
-    private NodeModel switchOnType(NodeEntity node) {
+    /**
+     * Pick the transformer for this node's type. Nothing is mapped here: each type's conversion
+     * lives with that type, so there is one place to look when a field is wrong and one place to
+     * change when a field is added.
+     */
+    private static NodeModel switchOnType(NodeEntity node) {
         if (node instanceof TimeseriesEntity ts) {
             return TimeseriesTransformer.from(ts);
         }
@@ -180,40 +186,18 @@ public class NodeReadMapper {
             return PolicyTransformer.toPolicy(policy);
         }
         if (node instanceof AssetEntity asset) {
-            Asset dto = mapBase(new Asset(), asset);
-            dto.setIsRoot(asset.getIsRoot());
-            if (asset.getGeoLocation() != null) {
-                dto.setGeoLocation(new GeoLocation(asset.getGeoLocation()));
-            }
-            return dto;
+            return AssetTransformer.from(asset);
         }
         if (node instanceof DatasetEntity dataset) {
-            // DataSetModel's extras (policies, connectedDataSets) are input-only; empty on reads.
-            return mapBase(new DataSetModel(), dataset);
+            return DataSetTransformer.from(dataset);
         }
         if (node instanceof FunctionEntity function) {
-            // Not FunctionTransformer.toFunction: it reads the LAZY labelEntities M2M.
-            return mapBase(new Function(), function);
+            return FunctionTransformer.from(function);
         }
-        Resource dto = mapBase(new Resource(), node);
-        dto.setIsRoot(node.getIsRoot());
-        return dto;
-    }
-
-    private <T extends NodeModel> T mapBase(T dto, NodeEntity node) {
-        dto.setId(node.getId());
-        dto.setExternalId(node.getExternalId());
-        dto.setName(node.getName());
-        dto.setDescription(node.getDescription());
-        dto.setSource(node.getSource());
-        if (node.getDataSet() != null) {
-            dto.setDataSetId(node.getDataSet().getId());
-        }
-        Map<String, String> meta = node.getMetadata();
-        dto.setMetadata(meta == null ? new HashMap<>() : new HashMap<>(meta));
-        dto.setCreatedTime(node.getDateCreated());
-        dto.setLastUpdatedTime(node.getLastUpdated());
-        return dto;
+        // A plain resource: ResourceTransformer already produces exactly this shape. Its
+        // geoLocation and valueType are write-only and @JsonIgnore respectively, so neither
+        // reaches a read response even though it sets them for the Pulsar payload.
+        return ResourceTransformer.from(node);
     }
 
     private static List<String> labelsOf(NodeEntity node) {
