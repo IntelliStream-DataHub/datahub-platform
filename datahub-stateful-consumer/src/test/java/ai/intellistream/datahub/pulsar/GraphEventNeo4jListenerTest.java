@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.pulsar;
 
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.Map;
+import ai.intellistream.datahub.pulsar.EventObject;
+import ai.intellistream.datahub.pulsar.EventAction;
+import ai.intellistream.datahub.models.Resource;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -58,4 +63,34 @@ class GraphEventNeo4jListenerTest {
                         List.of("Critical"),
                         List.of("Valve")));
     }
+    /**
+     * The point of Phase 6: the api now sends the labels Postgres actually resolved, and the
+     * consumer applies those instead of re-deriving them. Re-deriving was a fourth implementation
+     * of the label rules and the only one that did not enforce the type-label, so a `set` that
+     * omitted it stripped it from the graph while Postgres kept it — the two stores then disagreed
+     * about what kind of node it was.
+     */
+    @Test
+    void resolvedLabelsAreTakenFromTheMessageWhenPresent() {
+        var message = new ResourceCudMessage(
+                EventAction.UPDATE, EventObject.RESOURCE_AND_RELATION, "tenant-1");
+        Resource resolved = new Resource();
+        resolved.setId(5L);
+        resolved.setLabels(List.of("ASSET", "PUMP"));
+        message.setResources(List.of(resolved));
+
+        Map<Long, List<String>> byId = GraphEventNeo4jListener.resolvedLabelsFrom(message);
+
+        assertEquals(List.of("ASSET", "PUMP"), byId.get(5L));
+    }
+
+    /** No resources on the message: an api from before Phase 6, so the walk falls back. */
+    @Test
+    void aMessageWithoutResourcesResolvesToNothing() {
+        var message = new ResourceCudMessage(
+                EventAction.UPDATE, EventObject.RESOURCE_AND_RELATION, "tenant-1");
+
+        assertTrue(GraphEventNeo4jListener.resolvedLabelsFrom(message).isEmpty());
+    }
+
 }
