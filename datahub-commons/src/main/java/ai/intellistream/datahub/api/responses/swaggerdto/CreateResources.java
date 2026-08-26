@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.responses.swaggerdto;
 
+import ai.intellistream.datahub.function.Function;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.DataSetModel;
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.RelForm;
-import ai.intellistream.datahub.resource.ResourceForm;
+import ai.intellistream.datahub.models.Resource;
+import ai.intellistream.datahub.timeseries.Timeseries;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
 
@@ -19,13 +26,16 @@ import java.util.Collection;
 public class CreateResources {
 
     @Size(max = 1000)
-    private Collection<ResourceForm> nodes = new ArrayList<>();
+    @ArraySchema(schema = @Schema(anyOf = {
+            Asset.class, Resource.class, Timeseries.class,
+            DataSetModel.class, Policy.class, Function.class}))
+    private Collection<NodeModel> nodes = new ArrayList<>();
 
     @Size(max = 1000)
     private Collection<RelForm> relations = new ArrayList<>();
 
     @JsonInclude(JsonInclude.Include.ALWAYS)
-    public Collection<ResourceForm> getNodes() {
+    public Collection<NodeModel> getNodes() {
         return nodes;
     }
 

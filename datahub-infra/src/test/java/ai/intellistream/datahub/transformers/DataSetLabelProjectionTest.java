@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.transformers;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.Resource;
 import org.junit.jupiter.api.Test;
@@ -48,7 +49,7 @@ class DataSetLabelProjectionTest {
         var graph = DataSetTransformer.toGraphForm(List.of(ds), List.of(), List.of());
 
         assertEquals(1, graph.getNodes().size());
-        ai.intellistream.datahub.models.NodeModel node = graph.getNodes().iterator().next();
+        NodeModel node = graph.getNodes().iterator().next();
         assertTrue(node.getLabels().containsAll(List.of("PLANT_A", "DATASET")), "got " + node.getLabels());
     }
 

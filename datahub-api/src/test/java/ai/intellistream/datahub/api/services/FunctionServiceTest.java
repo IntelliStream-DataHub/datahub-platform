@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.function.Function;
@@ -59,7 +60,7 @@ class FunctionServiceTest {
         fn.setName("My Function");
 
         // resourceService.create returns one created node with a server-assigned id.
-        var created = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy>();
+        var created = new GraphDataWrapper<NodeModel, EdgeProxy>();
         var node = new Resource();
         node.setId(1L);
         created.getNodes().add(node);
@@ -77,10 +78,10 @@ class FunctionServiceTest {
         assertEquals("my_fn", result.getItems().iterator().next().getExternalId());
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm>> captor =
+        ArgumentCaptor<GraphDataWrapper<NodeModel, RelForm>> captor =
                 ArgumentCaptor.forClass(GraphDataWrapper.class);
         verify(resourceService).create(captor.capture());
-        ai.intellistream.datahub.models.NodeModel passed = captor.getValue().getNodes().iterator().next();
+        NodeModel passed = captor.getValue().getNodes().iterator().next();
         assertTrue(passed.getLabels().contains("FUNCTION"),
                 "the FUNCTION type-label must reach the resource pipeline so a FunctionEntity is built");
     }

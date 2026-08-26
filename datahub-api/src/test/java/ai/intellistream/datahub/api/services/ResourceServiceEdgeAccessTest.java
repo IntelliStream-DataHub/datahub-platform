@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -147,12 +148,12 @@ class ResourceServiceEdgeAccessTest {
                 .thenReturn(Optional.of(new NameAndExternalIdDTO(id, "node-" + id, "ext-" + id, id)));
     }
 
-    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> linkRequest(long fromId, long toId) {
+    private static GraphDataWrapper<NodeModel, RelForm> linkRequest(long fromId, long toId) {
         RelForm rel = new RelForm();
         rel.setFromId(fromId);
         rel.setToId(toId);
         rel.setRelationshipType("BELONGS_TO");
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return req;
     }

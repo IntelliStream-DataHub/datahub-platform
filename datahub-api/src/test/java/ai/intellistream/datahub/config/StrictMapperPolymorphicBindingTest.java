@@ -9,7 +9,9 @@ import ai.intellistream.datahub.timeseries.Timeseries;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The strict request-body converter does not use the shared mapper directly: it
@@ -28,6 +30,47 @@ class StrictMapperPolymorphicBindingTest {
             .rebuild()
             .addHandler(new UnknownFieldCollector())
             .build();
+
+    /**
+     * The regression this guards: {@code ResourceForm} declares {@code isRoot = false} and
+     * serializes under {@code NON_NULL}, so every legacy create body carries {@code isRoot} — even
+     * when its label sends it to a DTO that has no such field. Under the strict mapper an unknown
+     * field is a 400, so before {@code NodeModel.setIsRoot} existed, creating a function, data
+     * set, policy or time series through {@code /resources/create} answered 400 instead of 201.
+     * A lenient mapper cannot catch this; only the strict one the api actually binds with can.
+     */
+    @Test
+    void legacyBodiesCarryingIsRootStillBindForEveryType() {
+        for (String label : new String[]{"FUNCTION", "DATASET", "POLICY", "TIMESERIES"}) {
+            UnknownFieldCollector.begin();
+            try {
+                NodeModel bound = strictMapper.readValue(
+                        "{\"externalId\":\"n1\",\"name\":\"N1\",\"labels\":[\"" + label + "\"],"
+                                + "\"isRoot\":false,\"metadata\":{}}", NodeModel.class);
+                assertTrue(UnknownFieldCollector.drain().isEmpty(),
+                        label + " body must not report isRoot as an unknown field (the api 400s on those)");
+                assertEquals(label, bound.getLabels().get(0));
+            } finally {
+                UnknownFieldCollector.drain();
+            }
+        }
+    }
+
+    /** Root-ness still applies where it is legal, and is discarded where it is not. */
+    @Test
+    void isRootIsAppliedOnResourcesAndDiscardedElsewhere() {
+        Resource resource = (Resource) strictMapper.readValue(
+                """
+                {"externalId":"pump_1","name":"Pump 1","labels":["PIPE"],"isRoot":true}
+                """, NodeModel.class);
+        assertEquals(Boolean.TRUE, resource.getIsRoot());
+
+        // A data set is never a navigation root; the value is accepted and dropped.
+        assertInstanceOf(DataSetModel.class, strictMapper.readValue(
+                """
+                {"externalId":"plant_data","name":"Plant data","labels":["DATASET"],"isRoot":true}
+                """, NodeModel.class));
+    }
 
     @Test
     void theRebuiltStrictMapperStillDispatchesOnTheTypeLabel() {

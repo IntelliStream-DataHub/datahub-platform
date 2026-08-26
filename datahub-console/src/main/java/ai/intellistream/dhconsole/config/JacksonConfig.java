@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.config;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.NodeModelSubtypes;
 import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
 import org.springframework.context.annotation.Bean;

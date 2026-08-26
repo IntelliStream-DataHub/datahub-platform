@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -115,8 +116,8 @@ class ResourceServiceAclInvalidationTest {
                 .thenReturn(Optional.of(new NameAndExternalIdDTO(id, "n" + id, "ext" + id, id)));
     }
 
-    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> createWithNode() {
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
+    private static GraphDataWrapper<NodeModel, RelForm> createWithNode() {
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         Resource r = new Resource();
         r.setExternalId("some_resource");
         r.setName("Some Resource");
@@ -124,7 +125,7 @@ class ResourceServiceAclInvalidationTest {
         return req;
     }
 
-    private GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> createWithEdge(String relationshipType) {
+    private GraphDataWrapper<NodeModel, RelForm> createWithEdge(String relationshipType) {
         resolvableNode(1L);
         resolvableNode(2L);
         RelationshipType type = new RelationshipType();
@@ -135,7 +136,7 @@ class ResourceServiceAclInvalidationTest {
         rel.setFromId(1L);
         rel.setToId(2L);
         rel.setRelationshipType(relationshipType);
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return req;
     }

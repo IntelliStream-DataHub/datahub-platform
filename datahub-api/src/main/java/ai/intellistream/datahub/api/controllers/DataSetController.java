@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
@@ -369,7 +370,7 @@ public class DataSetController {
                     .collect(Collectors.toSet());
             List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
 
-            GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> newDataSets =
+            GraphDataWrapper<NodeModel, RelForm> newDataSets =
                     DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
             var results = resourceService.create(newDataSets);
 
