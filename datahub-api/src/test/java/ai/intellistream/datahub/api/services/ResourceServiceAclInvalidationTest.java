@@ -94,7 +94,8 @@ class ResourceServiceAclInvalidationTest {
                 new ai.intellistream.datahub.transformers.NodeReadMapper(),
             new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));
+                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement,
+                    java.util.List.of(new ai.intellistream.datahub.api.services.node.AssetUpdateStrategy())));
 
     @BeforeEach
     void setUp() {
