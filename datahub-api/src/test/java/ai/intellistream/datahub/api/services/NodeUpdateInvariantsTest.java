@@ -11,6 +11,12 @@ import ai.intellistream.datahub.jpa.domains.TimeseriesValueType;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventObject;
+import ai.intellistream.datahub.api.responses.GraphDataWrapper;
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
+import ai.intellistream.datahub.models.forms.DataSetForm;
+import ai.intellistream.datahub.models.UpdateRelForm;
+import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
 import ai.intellistream.datahub.repositories.node.PolicyRepository;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
@@ -61,6 +67,54 @@ import static org.mockito.Mockito.when;
  * without consulting it. See the class javadoc note in that service.
  */
 class NodeUpdateInvariantsTest {
+
+    /**
+     * The dataset path converged when the pipeline was extracted: {@code DataSetService} adapts
+     * its typed form into the shared command and delegates, so it inherits the ACL, the naming
+     * judgement, the type-label guard and the single event rather than restating them. This pins
+     * the delegation itself — the failure it guards against is someone giving datasets their own
+     * update path again, which would silently reacquire all four problems.
+     */
+    @Nested
+    @ExtendWith(MockitoExtension.class)
+    @MockitoSettings(strictness = Strictness.LENIENT)
+    class Datasets {
+
+        @Mock private NodeRepository nodeRepository;
+        @Mock private ResourceService resourceService;
+        @Mock private DataSetRepository dataSetRepository;
+        @Mock private ApplicationEventPublisher applicationEventPublisher;
+
+        @InjectMocks private DataSetService dataSetService;
+
+        @Test
+        @DisplayName("a dataset update delegates to the shared pipeline rather than writing its own")
+        void aDatasetUpdateDelegates() throws Exception {
+            DatasetEntity entity = new DatasetEntity();
+            entity.setId(9L);
+            entity.setExternalId("plant_data");
+            entity.setLabels("DATASET");
+
+            DataSetForm form = new DataSetForm();
+            form.setId(9L);
+            form.setUpdate(new ai.intellistream.datahub.models.forms.DataSetFields());
+            form.getUpdate().getName().set("Plant data (renamed)");
+
+            dataSetService.validateAndUpdate(entity, form);
+
+            // The rename reaches the shared pipeline as the canonical command...
+            ArgumentCaptor<GraphDataWrapper<UpdateResourceForm, UpdateRelForm>> captor =
+                    ArgumentCaptor.forClass(GraphDataWrapper.class);
+            verify(resourceService).update(captor.capture());
+            UpdateResourceForm command = captor.getValue().getNodes().iterator().next();
+            assertThat(command.getUpdate().getName().getSet()).isEqualTo("Plant data (renamed)");
+
+            // ...and nothing is persisted or published here, which is what makes the pipeline the
+            // single owner of those steps for datasets too.
+            verify(dataSetRepository, never()).save(any());
+            verify(applicationEventPublisher, never()).publishEvent(any());
+        }
+    }
 
     /** The policy path: gated by the manage grant, and upserted to the graph exactly once. */
     @Nested
