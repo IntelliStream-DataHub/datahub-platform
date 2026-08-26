@@ -160,7 +160,7 @@ public class ResourceMcpTools {
                     aren't exposed here — use the REST API for those.
                     """
     )
-    public GraphDataWrapper<Resource, EdgeProxy> updateResource(
+    public GraphDataWrapper<NodeModel, EdgeProxy> updateResource(
             @ToolParam(description = "Id of the resource to update.")
             Long id,
             @ToolParam(required = false, description = "New display name.")

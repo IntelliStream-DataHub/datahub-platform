@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.controllers.errors.*;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -131,7 +132,7 @@ public class FunctionController {
     public ResponseEntity<?> updateFunction(
             @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) {
         try {
-            GraphDataWrapper<Resource, EdgeProxy> results = functionService.update(apiReqData);
+            GraphDataWrapper<NodeModel, EdgeProxy> results = functionService.update(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.OK);
         } catch (ConstraintViolationException cve) {
             var e = BuildErrorResponse.createConstraintViolationError(cve);

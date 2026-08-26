@@ -89,7 +89,7 @@ class FunctionServiceTest {
     @Test
     void update_delegatesToResourcePipeline() throws Exception {
         var req = new GraphDataWrapper<UpdateResourceForm, UpdateRelForm>();
-        var expected = new GraphDataWrapper<Resource, EdgeProxy>();
+        var expected = new GraphDataWrapper<NodeModel, EdgeProxy>();
         when(resourceService.update(req)).thenReturn(expected);
 
         assertSame(expected, functionService.update(req));
