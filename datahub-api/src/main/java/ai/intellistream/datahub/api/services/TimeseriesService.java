@@ -1300,11 +1300,6 @@ public class TimeseriesService {
 
         Collection<TimeseriesEntity> dbTimeseries = timeseriesRepository.findAllByIdOrExternalId(tsIdList, tsExternalIdList);
 
-        // Judge the whole batch BEFORE the loop below mutates anything. The loop writes the new
-        // external id straight onto the managed entity, after which Hibernate may auto-flush ahead
-        // of the guard's own query and persist a value the policy was about to reject.
-        List<PolicyFinding> policyWarnings = policyEnforcement.check(namingCandidatesForUpdate(dbTimeseries, timeseries));
-
         // Pass 1: pair every target with its update and authorize it, mutating nothing. The
         // batch has to be judged as a batch — two renames onto the same external id each pass a
         // per-item check, because neither is in the table yet — and nothing may be written before
@@ -1326,6 +1321,12 @@ public class TimeseriesService {
         // membership and the type-label guard.
         List<NodeUpdateService.Target> targets = pending.stream().map(Pending::target).toList();
         nodeUpdateService.guardRenames(targets);
+        // The pipeline's judgement, not a second copy of it. This path used to run its own
+        // policyEnforcement.check with its own candidate-builder, which is the drift the shared
+        // stages exist to stop — and it judges before anything is applied, for the same reason:
+        // apply writes the new external id onto the managed entity, after which Hibernate may
+        // auto-flush ahead of the policy's own query and persist a value it was about to reject.
+        List<PolicyFinding> policyWarnings = nodeUpdateService.judgeNaming(targets);
         nodeUpdateService.apply(targets);
 
         // Pass 3: what a time series has that other nodes do not.
@@ -1415,28 +1416,6 @@ public class TimeseriesService {
      * tightening a policy would make every pre-existing timeseries unupdatable, and editing a
      * description on a legacy series would fail on a naming rule the caller never touched.
      */
-    private static List<PolicyCandidate> namingCandidatesForUpdate(Collection<TimeseriesEntity> dbTimeseries,
-                                                                   Collection<UpdateTimeseries> timeseries) {
-        List<PolicyCandidate> candidates = new ArrayList<>();
-        int index = 0;
-        for (TimeseriesEntity dbTs : dbTimeseries) {
-            UpdateTimeseries updateData = matchUpdateFor(dbTs, timeseries);
-            String newExternalId = (updateData == null || updateData.getUpdate() == null)
-                    ? null
-                    : updateData.getUpdate().getExternalId().getSet();
-            if (newExternalId != null) {
-                // The incoming name if this request renames it, else the stored one.
-                String newName = updateData.getUpdate().getName().getSet();
-                candidates.add(PolicyCandidate.forUpdate(
-                        index, newExternalId,
-                        newName != null ? newName : dbTs.getName(),
-                        dbTs.getDataSet() == null ? null : dbTs.getDataSet().getId(),
-                        dbTs.getId(), dbTs.getExternalId()));
-            }
-            index++;
-        }
-        return candidates;
-    }
     /**
      * Resolve timeseries by id/externalId, narrowed in SQL to the datasets the caller may read.
      * Admins / read-all callers skip the filter entirely; a caller with no readable datasets gets
