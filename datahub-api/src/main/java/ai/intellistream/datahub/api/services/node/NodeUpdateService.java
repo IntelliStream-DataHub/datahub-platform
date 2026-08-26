@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services.node;
 
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
+import java.util.Objects;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
@@ -199,6 +202,47 @@ public class NodeUpdateService {
             dataSecurity.assertCanManageDataSets();
         }
         return new Target(form, entity);
+    }
+
+    /**
+     * Stage 3. Refuse a rename that would collide with an external id already in use.
+     *
+     * <p>Not a type-specific rule, though only the timeseries path used to apply it: the unique
+     * index spans the whole {@code node} table, so a resource renamed onto a dataset's external id
+     * collides just as surely. Without this the clash reaches the database and surfaces as a
+     * constraint violation — a 500 for what is plainly a caller mistake — whereas the timeseries
+     * endpoint answered a clean 409. Now every node type gets the 409.
+     *
+     * <p>Checked over the whole batch before anything is applied, because two renames onto the
+     * same id within one request would each pass a per-item check (neither is in the table yet)
+     * and only die on the constraint.
+     */
+    public void guardRenames(List<Target> targets) {
+        Map<Long, String> withinBatch = new java.util.HashMap<>();
+        List<Map<String, String>> collisions = new ArrayList<>();
+        for (Target target : targets) {
+            ResourceFields fields = target.form().getUpdate();
+            String renamed = fields == null ? null : fields.getExternalId().getSet();
+            if (renamed == null || renamed.equals(target.entity().getExternalId())) {
+                continue;   // no rename, or a rename to what it already is
+            }
+            long hash = ExternalIds.hash(renamed);
+            if (withinBatch.put(hash, renamed) != null) {
+                collisions.add(Map.of("externalId", renamed));
+                continue;
+            }
+            NodeEntity clash = nodeRepository.findByExternalIdHash(hash);
+            if (clash != null && !Objects.equals(clash.getId(), target.entity().getId())) {
+                collisions.add(Map.of("externalId", renamed));
+            }
+        }
+        if (!collisions.isEmpty()) {
+            var error = new DuplicateError();
+            error.setCode(409);
+            error.setMessage("A node with that externalId already exists.");
+            error.setDuplicated(collisions);
+            throw new DuplicateDataException(new ResponseError<DuplicateError>().setError(error));
+        }
     }
 
     /**

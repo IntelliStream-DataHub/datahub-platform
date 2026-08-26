@@ -231,8 +231,16 @@ class NodeUpdateInvariantsTest {
         @Mock private DataSecurity dataSecurity;
         @Mock private PolicyEnforcement policyEnforcement;
         @Mock private ApplicationEventPublisher applicationEventPublisher;
+        @Mock private ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
         @InjectMocks private TimeseriesService timeseriesService;
+
+        /** The pipeline hands a target back; the engine's own ACL is exercised by its own tests. */
+        private void pipelineAuthorizes() {
+            when(nodeUpdateService.authorize(any(), any())).thenAnswer(inv ->
+                    new ai.intellistream.datahub.api.services.node.NodeUpdateService.Target(
+                            inv.getArgument(0), inv.getArgument(1)));
+        }
 
         @AfterEach
         void clearTenant() {
@@ -264,7 +272,10 @@ class NodeUpdateInvariantsTest {
             TenantContext.setTenantId("tenant-1");
             when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(entity()));
             when(policyEnforcement.check(anyList())).thenReturn(List.of());
-            doThrow(new AccessDeniedException("denied")).when(dataSecurity).assertCanWrite(any());
+            // Authorization moved into the pipeline in Phase 5, so what this path must guarantee
+            // is that it routes through it and propagates the denial. That the pipeline actually
+            // enforces the grant is pinned against a real engine by ResourceServiceNodeTypeAclTest.
+            doThrow(new AccessDeniedException("denied")).when(nodeUpdateService).authorize(any(), any());
 
             assertThatThrownBy(() -> timeseriesService.updateTimeseries(renaming()))
                     .isInstanceOf(AccessDeniedException.class);
@@ -278,6 +289,7 @@ class NodeUpdateInvariantsTest {
             TenantContext.setTenantId("tenant-1");
             when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(entity()));
             when(policyEnforcement.check(anyList())).thenReturn(List.of());
+            pipelineAuthorizes();
 
             timeseriesService.updateTimeseries(renaming());
 
