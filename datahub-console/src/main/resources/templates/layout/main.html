@@ -27,6 +27,14 @@
 
 <body th:fragment="htmlbody (content, pageSelected)" th:classappend="${pageSelected == null ? 'page-home' : ''}">
 
+<!-- The site-wide bundles go first, ahead of ${content}: deferred scripts run in document order,
+     and every page bundle builds on the globals the app bundle defines ($L, Flash, DhContextMenu,
+     ...). Emitted after the page's own bundles, those globals are undefined when a page bundle
+     runs. defer keeps them off the parse path, so first paint is unaffected. -->
+<th:block th:replace="~{fragments/assets :: js('app')}"></th:block>
+<th:block th:if="${@chatAccess.available()}"
+          th:replace="~{fragments/assets :: js('chat')}"></th:block>
+
 <header>
     <a th:href="@{/}">
         <th:block th:replace="~{fragments/logo :: mark}"></th:block>
@@ -260,10 +268,6 @@
         </div>
     </div>
 </div>
-
-<th:block th:replace="~{fragments/assets :: js('app')}"></th:block>
-<th:block th:if="${@chatAccess.available()}"
-          th:replace="~{fragments/assets :: js('chat')}"></th:block>
 
 <script th:inline="javascript" defer>
     document.addEventListener("DOMContentLoaded", () => {
