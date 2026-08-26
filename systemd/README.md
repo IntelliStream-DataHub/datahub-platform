@@ -136,21 +136,21 @@ in `/etc/datahub/<name>/application.yml`.
 | `datahub@cleanup` | none | 9085 |
 
 Open the metrics ports to the Prometheus host only, and prefer a certificate over trusting that
-rule. `management.server.ssl.*` (or `server.ssl.*` for the three without an application port) takes
-its own keystore and truststore, and `client-auth: need` means only a Prometheus holding a
-certificate you issued can scrape, whatever else reaches the port:
+rule. Put the stores and their passwords in the shared `datahub-platform` Vault secret, the same one
+that holds the Keycloak issuer:
 
-```yaml
-management:
-  server:
-    ssl:
-      enabled: true
-      client-auth: need
-      key-store: /etc/datahub/metrics-server.p12
-      key-store-password: ${METRICS_KEYSTORE_PASSWORD}
-      trust-store: /etc/datahub/metrics-ca.p12
-      trust-store-password: ${METRICS_TRUSTSTORE_PASSWORD}
-```
+| Vault key | What it is |
+|---|---|
+| `metrics.keystore` | PKCS12 (or `.jks`) holding this host's server certificate and key |
+| `metrics.keystore-password` | its password |
+| `metrics.truststore` | the CA that signed the Prometheus client certificate |
+| `metrics.truststore-password` | its password |
+| `metrics.client-auth` | optional; `need` unless set |
+
+Each service reads those at startup and configures `management.server.ssl.*` (or `server.ssl.*` for
+the three without an application port) from them, so the passwords never sit in a file on the
+application hosts. Set no `metrics.keystore` and the port stays plain HTTP, which is what an
+installation that has not set this up gets.
 
 Prometheus then scrapes with `scheme: https` and a `tls_config` naming its client certificate and
 the same CA. The ports bind the wildcard address like the application ports;

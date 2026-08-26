@@ -80,9 +80,10 @@ server:
 #
 # OFF by default. The scrape is unauthenticated, so whatever can reach the port reads request
 # rates, error rates, the endpoint inventory and JVM internals. Turn it on only once the port is
-# reachable from the Prometheus host alone. Prefer mutual TLS over trusting the firewall:
-# `management.server.ssl.*` takes its own keystore, truststore and `client-auth: need`, so only a
-# Prometheus holding a certificate you issued can scrape. Unset, the port is plain HTTP.
+# reachable from the Prometheus host alone. Prefer mutual TLS over trusting the firewall: set
+# `metrics.keystore` and `metrics.truststore` (with their passwords) in the shared Vault secret and
+# `management.server.ssl.*` is configured from them at startup, so only a Prometheus holding a certificate you
+# issued can scrape. With no keystore in Vault the port stays plain HTTP.
 # Read the security guidance first:
 # https://intellistream.ai/data-platform-documentation/administration/monitoring#securing-the-endpoint
 management:
