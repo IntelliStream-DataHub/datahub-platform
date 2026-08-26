@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.databind.annotation.JsonSerialize;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
@@ -16,6 +17,7 @@ import java.util.List;
 @Setter
 @Schema(description = "Add policies to the data set.")
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Policy extends NodeModel {
 
     public Policy() {

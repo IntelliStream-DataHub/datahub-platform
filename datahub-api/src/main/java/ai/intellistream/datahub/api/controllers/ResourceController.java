@@ -750,6 +750,12 @@ public class ResourceController {
         catch (org.springframework.security.access.AccessDeniedException e){
             throw e;
         }
+        catch (DuplicateDataException e){
+            // A rename onto an external id already in use: the shared guard's 409, with the
+            // offending ids, rather than the generic 500 the catch below would give.
+            ResponseError<DuplicateError> dupError = e.getError();
+            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
+        }
         catch (PulsarClientException | RuntimeException e){
             log.error(e.getMessage(), e);
             return ResponseEntity.internalServerError().build();

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.timeseries;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.databind.annotation.JsonSerialize;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
@@ -50,6 +51,7 @@ import java.util.*;
 @Setter
 @JsonIgnoreProperties(value = { "createdTimeHR", "lastUpdatedTimeHR", "elementId" })
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Timeseries extends NodeModel {
 
     @NotBlank(message = "timeseries.unit.not.blank")
