@@ -13,6 +13,7 @@ import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
+import ai.intellistream.datahub.jpa.dto.NameAndExternalId;
 import java.util.Set;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.ResourceEntity;
@@ -230,7 +231,9 @@ public class NodeUpdateService {
                 collisions.add(Map.of("externalId", renamed));
                 continue;
             }
-            NodeEntity clash = nodeRepository.findByExternalIdHash(hash);
+            // A two-column projection: this needs one id, and the entity load it replaced pulled
+            // a polymorphic row plus the timeseries EAGER associations for every item in a batch.
+            NameAndExternalId clash = nodeRepository.findByExternalIdHash(hash, NameAndExternalId.class);
             if (clash != null && !Objects.equals(clash.getId(), target.entity().getId())) {
                 collisions.add(Map.of("externalId", renamed));
             }
