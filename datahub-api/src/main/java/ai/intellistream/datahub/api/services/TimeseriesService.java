@@ -1293,19 +1293,10 @@ public class TimeseriesService {
         Set<Long> tsIdList = timeseries.stream().map(UpdateTimeseries::getId).collect(Collectors.toSet());
         Set<String> tsExternalIdList = timeseries.stream().map(UpdateTimeseries::getExternalId).collect(Collectors.toSet());
 
-        // Two renames to the same externalId in ONE batch would each pass the per-item collision
-        // check (neither is in the DB yet) and only die on the unique constraint — catch it here.
-        Set<String> renameTargets = new HashSet<>();
-        List<Map<String, String>> duplicatedRenames = new ArrayList<>();
-        for (UpdateTimeseries ut : timeseries) {
-            String target = ut.getUpdate() != null ? ut.getUpdate().getExternalId().getSet() : null;
-            if (target != null && !renameTargets.add(target)) {
-                duplicatedRenames.add(Map.of("externalId", target));
-            }
-        }
-        if (!duplicatedRenames.isEmpty()) {
-            throw duplicateExternalIdException(duplicatedRenames);
-        }
+        // The within-batch duplicate-rename check lives in NodeUpdateService.guardRenames now,
+        // which also does the whole-table one. The copy that used to be here compared raw strings
+        // while the pipeline compares the case-insensitive hash, so ["Temp", "TEMP"] slipped past
+        // it — two implementations of one rule, already drifting.
 
         Collection<TimeseriesEntity> dbTimeseries = timeseriesRepository.findAllByIdOrExternalId(tsIdList, tsExternalIdList);
 
@@ -1341,7 +1332,7 @@ public class TimeseriesService {
         for (Pending item : pending) {
             TimeseriesEntity dbTs = item.entity();
             TimeseriesFields fields = item.fields();
-            dbTs.setLastUpdated(ZonedDateTime.now());
+            // lastUpdated is a shared-stage concern; the pipeline has already stamped it.
             // 2. THE TIME SERIES' OWN.
             // Update unit field
             if(fields.getUnit().getSet() != null){

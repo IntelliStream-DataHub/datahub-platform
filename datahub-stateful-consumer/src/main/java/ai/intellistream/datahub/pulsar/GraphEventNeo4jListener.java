@@ -217,7 +217,13 @@ public class GraphEventNeo4jListener {
             return;
         }
         List<String> newLabelList;
-        if (resolvedLabels != null) {
+        // An empty resolved set is "we were told nothing", not "remove every label". The payload
+        // cannot tell the two apart — Resource.labels defaults to an empty list, so a row whose
+        // labels column is blank arrives looking the same as one whose labels were cleared — and
+        // acting on it would emit `SET n` with no labels, which is not valid Cypher. Because this
+        // listener rethrows and the subscription is ordered, one such node would wedge the whole
+        // tenant's graph consumer rather than failing a single update.
+        if (resolvedLabels != null && !resolvedLabels.isEmpty()) {
             // Apply what Postgres resolved rather than re-deriving it. Re-deriving was a fourth
             // implementation of the label rules and the only one that did not enforce the
             // type-label: a `set` that omitted ASSET stripped it from the graph while Postgres

@@ -132,16 +132,17 @@ public final class NodeReadMapper {
                     }
                     yield asset;
                 }
-                // KNOWN LIMITATION, not an oversight. The graph stores neither the value type
-                // nor the table engine, but Timeseries seeds both (float32 / MERGETREE) and
-                // cannot express "not known": valueType is @NotBlank @AllowedValueType, an input
-                // contract, and its setter turns null back into the default. So a BIGINT series
-                // read from the graph reports float32 here. Nothing in-tree acts on it —
-                // datahub-analysis re-fetches through /timeseries/byids precisely because graph
-                // nodes are sparse — but it is a wrong value on a public response, and the fix is
-                // to give the DTO a way to say "unsupplied" rather than to paper over it here.
-                case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES ->
-                        new ai.intellistream.datahub.timeseries.Timeseries();
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES -> {
+                    // The graph stores none of a series' numeric metadata, and the DTO's
+                    // constructor defaults would otherwise be published as though it did — a
+                    // BIGINT series reporting float32, an empty securityCategories reading as
+                    // "unrestricted". Cleared, so they are absent rather than wrong.
+                    var ts = new ai.intellistream.datahub.timeseries.Timeseries();
+                    ts.setValueType(null);
+                    ts.setTableEngine(null);
+                    ts.setSecurityCategories(null);
+                    yield ts;
+                }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.POLICY ->
                         new ai.intellistream.datahub.models.Policy();
