@@ -424,6 +424,7 @@ public class ResourceService {
             // authorize every target without touching it, judge the whole batch against the
             // naming policy, then apply. The order matters — see NodeUpdateService.
             var targets = nodeUpdateService.resolveAndAuthorize(apiReqData.getNodes());
+            nodeUpdateService.guardRenames(targets);
             policyWarnings = nodeUpdateService.judgeNaming(targets);
             nodes.addAll(nodeUpdateService.apply(targets));
 
