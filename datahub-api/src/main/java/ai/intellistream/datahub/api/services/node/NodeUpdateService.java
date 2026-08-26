@@ -185,6 +185,23 @@ public class NodeUpdateService {
     }
 
     /**
+     * Stage 2 alone, for a caller that resolved its own target.
+     *
+     * <p>A typed endpoint scopes its lookup to its own type — {@code /policies} asks the policy
+     * repository, so an id naming some other kind of node is "no such policy", a 404, rather than
+     * the generic "resource cannot be found". Re-resolving it here would flatten that distinction,
+     * so the caller keeps its lookup and hands the entity over for the parts it should not be
+     * deciding for itself.
+     */
+    public Target authorize(UpdateResourceForm form, NodeEntity entity) {
+        dataSecurity.assertCanWrite(entity);
+        if (entity instanceof DatasetEntity || entity instanceof PolicyEntity) {
+            dataSecurity.assertCanManageDataSets();
+        }
+        return new Target(form, entity);
+    }
+
+    /**
      * Stage 3. Judge the whole batch against the naming policy before a single entity is touched.
      * Only ids that actually change are judged — see {@link #namingCandidatesForUpdate}.
      */
