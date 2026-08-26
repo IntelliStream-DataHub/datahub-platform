@@ -6,6 +6,7 @@ import ai.intellistream.datahub.json.ToStringSerializer;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -124,6 +125,34 @@ public abstract class NodeModel extends AbstractResource {
      */
     protected String typeLabel() {
         return null;
+    }
+
+    /**
+     * Accept — and ignore — {@code isRoot} on the node types that cannot be roots.
+     *
+     * <p>Root-ness is a property of resources and assets only, so it lives on those two DTOs and
+     * not on this base (see NODE_READ_REFACTOR.md: illegal fields are unrepresentable rather than
+     * policed). But the legacy flat create shape, {@code ResourceForm}, declares
+     * {@code isRoot = false} and serializes under {@code NON_NULL}, so <em>every</em> body it
+     * produces carries {@code "isRoot": false} — including one labelled DATASET, POLICY, FUNCTION
+     * or TIMESERIES, which the label-keyed deserializer now binds to a DTO without the field.
+     * The api reads request bodies with a strict mapper that rejects unknown fields
+     * ({@code StrictRequestBodyConfig}), so without this hook every such create would answer 400
+     * where it used to answer 201.
+     *
+     * <p>Declaring a setter here and <em>no</em> getter is what keeps those bodies binding without
+     * putting the field on the wire: serialization needs something to read, and this base has
+     * neither field nor accessor, so {@code isRoot} never appears in a response for these types.
+     * {@code Resource} and {@code Asset} carry a real {@code isRoot} field whose generated
+     * accessors override this setter and supply the getter, so root-ness is still bound, applied
+     * and serialized wherever it means something. (Do not reach for
+     * {@code @JsonProperty(access = WRITE_ONLY)} here: the annotation is inherited by those two
+     * subclasses and hides their real field from every response — their wire-contract tests fail
+     * the moment it is added.) The value is discarded for the rest because it never meant anything
+     * there: a data set, policy, function or time series is not a navigation root.
+     */
+    public void setIsRoot(Boolean isRoot) {
+        // Deliberately empty; see the javadoc. Overridden where root-ness is legal.
     }
 
     /**

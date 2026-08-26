@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -60,43 +61,23 @@ public class FunctionService {
      */
     @Transactional
     public DataWrapper<Function> create(DataWrapper<Function> apiReqData) throws PulsarClientException {
-        var graph = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm>();
-        graph.setNodes(apiReqData.getItems().stream().map(FunctionService::asResource)
-                .collect(Collectors.toCollection(ArrayList::new)));
+        var graph = new GraphDataWrapper<NodeModel, RelForm>();
+        // Straight through: the pipeline takes NodeModel and Function is one, so its FUNCTION
+        // type-label drives the dispatch with nothing copied by hand — a field added to Function
+        // later cannot be silently dropped on the way in.
+        graph.setNodes(new ArrayList<>(apiReqData.getItems()));
         graph.setRelations(new ArrayList<>());
 
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> created = resourceService.create(graph);
+        GraphDataWrapper<NodeModel, EdgeProxy> created = resourceService.create(graph);
 
         List<Long> ids = created.getNodes().stream()
-                .map(ai.intellistream.datahub.models.NodeModel::getId)
+                .map(NodeModel::getId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         var result = new DataWrapper<Function>();
         result.setItems(new ArrayList<>(functionTransformer.toFunction(functionRepository.findAllById(ids))));
         return result;
-    }
-
-    /**
-     * Carry a {@link Function} into the resource pipeline.
-     *
-     * <p>{@code Function} extends {@code NodeModel}, not {@code Resource}, so that it cannot carry
-     * {@code isRoot}/{@code geoLocation}/{@code valueType} — fields a function has no meaning for.
-     * The pipeline takes {@code Resource}, so the shared node fields are copied across explicitly.
-     * The label list already carries {@code FUNCTION} (see {@code Function.typeLabel()}), which is
-     * what makes {@code NodeService.createFromResource} build a {@code FunctionEntity}.
-     */
-    private static Resource asResource(Function fn) {
-        var r = new Resource();
-        r.setId(fn.getId());
-        r.setExternalId(fn.getExternalId());
-        r.setName(fn.getName());
-        r.setDescription(fn.getDescription());
-        r.setSource(fn.getSource());
-        r.setDataSetId(fn.getDataSetId());
-        r.setMetadata(fn.getMetadata());
-        r.setLabels(fn.getLabels());
-        return r;
     }
 
     /**

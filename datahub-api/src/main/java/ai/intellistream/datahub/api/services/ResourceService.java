@@ -26,7 +26,6 @@ import ai.intellistream.datahub.jpa.domains.*;
 // also on this file's wildcard imports: here RelationshipType is the JPA entity.
 import ai.intellistream.datahub.jpa.domains.RelationshipType;
 import ai.intellistream.datahub.jpa.dto.EdgeDTO;
-import ai.intellistream.datahub.jpa.dto.EdgeEndpoint;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalId;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalIdDTO;
 import ai.intellistream.datahub.models.*;
@@ -63,7 +62,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
