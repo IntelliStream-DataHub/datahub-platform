@@ -49,11 +49,9 @@ class ResourceFilterDatasetExpansionTest {
     private final EntityManager entityManager = mock(EntityManager.class);
     private final DatasetClosureService closure = mock(DatasetClosureService.class);
     private final ResourceService service = new ResourceService(
-            entityManager, mock(NodeRepository.class), mock(NodeService.class),
-            mock(LabelService.class), mock(EdgeRepository.class),
+            entityManager, mock(NodeRepository.class), mock(NodeService.class), mock(EdgeRepository.class),
             mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class),
-            mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
-            mock(DataSetRepository.class), mock(DataSecurity.class),
+            mock(ApplicationEventPublisher.class), mock(Neo4JService.class), mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), closure,
             new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),

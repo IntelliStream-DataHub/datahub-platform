@@ -51,11 +51,9 @@ class ResourceServiceEdgeRulesTest {
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
 
     private final ResourceService service = new ResourceService(
-            mock(EntityManager.class), nodeRepository, mock(NodeService.class),
-            mock(LabelService.class), mock(EdgeRepository.class),
+            mock(EntityManager.class), nodeRepository, mock(NodeService.class), mock(EdgeRepository.class),
             mock(RelationshipTypeRepository.class), relationshipTypeService,
-            mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
-            mock(DataSetRepository.class), mock(DataSecurity.class),
+            mock(ApplicationEventPublisher.class), mock(Neo4JService.class), mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), mock(DatasetClosureService.class),
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, mock(RelationshipTypeRepository.class), relationshipTypeService),

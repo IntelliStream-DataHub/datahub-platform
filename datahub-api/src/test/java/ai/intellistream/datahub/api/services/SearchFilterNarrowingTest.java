@@ -139,11 +139,9 @@ class SearchFilterNarrowingTest {
         private final DataSecurity dataSecurity = mock(DataSecurity.class);
         private final DatasetClosureService closure = mock(DatasetClosureService.class);
         private final ResourceService service = new ResourceService(
-                entityManager, mock(NodeRepository.class), mock(NodeService.class),
-                mock(LabelService.class), mock(EdgeRepository.class),
+                entityManager, mock(NodeRepository.class), mock(NodeService.class), mock(EdgeRepository.class),
                 mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class),
-                mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
-                mock(DataSetRepository.class), dataSecurity,
+                mock(ApplicationEventPublisher.class), mock(Neo4JService.class), dataSecurity,
                 mock(SubscriptionRepository.class), mock(Validator.class),
                 mock(PolicyEnforcement.class), closure,
                 new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
