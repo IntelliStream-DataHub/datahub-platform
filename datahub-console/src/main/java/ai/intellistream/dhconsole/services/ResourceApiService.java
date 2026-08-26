@@ -71,7 +71,8 @@ public class ResourceApiService {
         node.setMetadata(form.getMetadata());
         node.setLabels(form.getLabels());
         node.setIsRoot(form.getIsRoot());
-        node.setGeoLocation(form.getGeoLocation());
+        // No geoLocation: it is write-only on Resource, so Feign would drop it, and the api only
+        // reads one on the ASSET branch anyway. A geolocated node is an asset — handled above.
         return node;
     }
 

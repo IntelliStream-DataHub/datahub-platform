@@ -123,6 +123,21 @@ class NodeServiceTest {
         assertTrue(entity.getLabels().contains("TIMESERIES"));
     }
 
+    /**
+     * The resource path does not build PUBLISH_DATA_TO edges — that lives in TimeseriesService —
+     * so a body asking for them must be refused rather than created without them.
+     */
+    @Test
+    void aTimeseriesCreateCarryingRelatedResourcesIsRefused() {
+        Timeseries ts = new Timeseries();
+        ts.setExternalId("engine_temp");
+        ts.setName("Engine Temp");
+        ts.getRelatedResources().add(
+                ai.intellistream.datahub.models.RelatedNode.createFromId(5L));
+
+        assertThrows(InvalidResourceException.class, () -> nodeService.createFromResource(ts));
+    }
+
     /** The DTO class and the type-label are two spellings of one fact; a disagreement is a 400. */
     @Test
     void aBodyWhoseTypeAndLabelDisagreeIsRejected() {

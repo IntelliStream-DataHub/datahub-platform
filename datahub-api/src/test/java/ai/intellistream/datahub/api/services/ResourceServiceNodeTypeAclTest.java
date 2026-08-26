@@ -82,9 +82,8 @@ class ResourceServiceNodeTypeAclTest {
     private final DataSecurity dataSecurity = TestDataSecurity.backedBy(() -> permissions);
 
     private final ResourceService service = new ResourceService(
-            entityManager, nodeRepository, nodeService, labelService, edgeRepository,
-            relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService,
-            dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
+            entityManager, nodeRepository, nodeService, edgeRepository,
+            relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(

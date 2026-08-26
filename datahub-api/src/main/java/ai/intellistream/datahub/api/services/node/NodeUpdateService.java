@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -138,20 +139,8 @@ public class NodeUpdateService {
                 errors.setError(de);
                 throw new BadRequestException(errors);
             }
-            // Must be able to write the resource's current dataset before mutating it.
-            dataSecurity.assertCanWrite(resource);
-            // Mutating a dataset or policy node additionally needs the manage grant. Stated
-            // explicitly rather than inherited from those nodes being orphans (see
-            // DataSecurity#canManageDataSets on that coincidence) — an orphan-based rule would
-            // miss a dataset/policy node that was minted carrying a data_set_id.
-            if (resource instanceof DatasetEntity || resource instanceof PolicyEntity) {
-                dataSecurity.assertCanManageDataSets();
-            }
             // Functions are plain datastore nodes now — editable like any resource.
-            targets.add(new Target(form, resource));
-        }
-        if (errors.getError() != null && !errors.getError().getFields().isEmpty()) {
-            throw new BadRequestException(errors);
+            targets.add(authorize(form, resource));
         }
         return targets;
     }
@@ -197,10 +186,20 @@ public class NodeUpdateService {
      * deciding for itself.
      */
     public Target authorize(UpdateResourceForm form, NodeEntity entity) {
+        // Must be able to write the node's current dataset before mutating it.
         dataSecurity.assertCanWrite(entity);
+        // Mutating a dataset or policy node additionally needs the manage grant. Stated
+        // explicitly rather than inherited from those nodes being orphans (see
+        // DataSecurity#canManageDataSets on that coincidence) — an orphan-based rule would miss a
+        // dataset/policy node that was minted carrying a data_set_id.
         if (entity instanceof DatasetEntity || entity instanceof PolicyEntity) {
             dataSecurity.assertCanManageDataSets();
         }
+        // Stamp the resolved id onto the command. A caller may name a node by external id alone,
+        // and everything downstream identifies it by id: the CUD message carries this form, and
+        // the Neo4j consumer both looks the node up by id and keys the resolved labels on it. An
+        // unstamped form meant the graph update silently matched nothing.
+        form.setId(entity.getId());
         return new Target(form, entity);
     }
 
@@ -296,7 +295,10 @@ public class NodeUpdateService {
          * If remove, delete metadata entry
          */
         if(fields.getMetadata().getSet() != null){
-            resource.setMetadata(fields.getMetadata().getSet());
+            // A copy, not the request's own map: the entity's metadata is an @ElementCollection,
+            // and a caller that keeps mutating the DTO afterwards (PolicyService merges its
+            // template into it) would otherwise be writing through to the row.
+            resource.setMetadata(new HashMap<>(fields.getMetadata().getSet()));
         }
 
         if(fields.getMetadata().getAdd() != null){

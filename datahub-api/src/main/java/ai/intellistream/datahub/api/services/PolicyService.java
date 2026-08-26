@@ -221,6 +221,7 @@ public class PolicyService {
         // system no naming convention was allowed to judge.
         UpdateResourceForm command = asNodeCommand(form, fields);
         List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
+        nodeUpdateService.guardRenames(targets);
         nodeUpdateService.judgeNaming(targets);
         nodeUpdateService.apply(targets);
 

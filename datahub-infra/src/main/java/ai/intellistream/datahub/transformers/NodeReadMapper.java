@@ -132,6 +132,14 @@ public final class NodeReadMapper {
                     }
                     yield asset;
                 }
+                // KNOWN LIMITATION, not an oversight. The graph stores neither the value type
+                // nor the table engine, but Timeseries seeds both (float32 / MERGETREE) and
+                // cannot express "not known": valueType is @NotBlank @AllowedValueType, an input
+                // contract, and its setter turns null back into the default. So a BIGINT series
+                // read from the graph reports float32 here. Nothing in-tree acts on it —
+                // datahub-analysis re-fetches through /timeseries/byids precisely because graph
+                // nodes are sparse — but it is a wrong value on a public response, and the fix is
+                // to give the DTO a way to say "unsupplied" rather than to paper over it here.
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES ->
                         new ai.intellistream.datahub.timeseries.Timeseries();
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();
@@ -151,7 +159,14 @@ public final class NodeReadMapper {
         dto.setDataSetId((Long) map.get("dataSetId"));
         dto.setCreatedTime(graphTime(map.get("createdTime")));
         dto.setLastUpdatedTime(graphTime(map.get("lastUpdatedTime")));
-        dto.setLabels(labels);
+        // Canonicalised, not raw: a legacy graph node labelled `Asset` would otherwise be typed
+        // as an ASSET and then have ASSET appended alongside its own `Asset`, so one node comes
+        // back carrying the same type-label twice.
+        dto.setLabels(labels.stream()
+                .map(ai.intellistream.datahub.helpers.text.TextValidator::toSnakeUpperCased)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList());
         return dto;
     }
 
