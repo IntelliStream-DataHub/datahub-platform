@@ -58,7 +58,7 @@ public class GeoLocation {
     /**
      * Bean-validation gate: a present value must be a structurally valid GeoJSON geometry
      * (a known {@code type} plus {@code coordinates}, or {@code geometries} for a
-     * {@code GeometryCollection}). Cascaded from {@code Resource}/{@code ResourceForm} via
+     * {@code GeometryCollection}). Cascaded from {@code Resource}/{@code Asset} via
      * {@code @Valid}. A null value is valid — the field is optional.
      */
     @JsonIgnore
