@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import lombok.*;
@@ -61,6 +62,14 @@ public class SearchBody<F> {
 
     @Max(1000)
     private int limit = 100;
+
+    /**
+     * Where to continue a previous page, as handed back in {@code nextCursor}. Omit it to start a
+     * new walk. A search is relevance-ordered, so the cursor names a position in that order rather
+     * than a row count — the same contract the filter endpoints use.
+     */
+    @Schema(description = "Continue from a previous page's nextCursor. Omit to start a new walk.")
+    private String cursor;
 
     /**
      * Guard against {@code limit <= 0}, which SQL turns into "return nothing" (LIMIT 0); fall back

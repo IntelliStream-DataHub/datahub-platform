@@ -86,4 +86,52 @@ final class NodePaging {
         return new PageCursor(sort.property(), sort.descending(),
                 NodePredicateBuilder.cursorValue(last, sort), String.valueOf(last.getId())).encode();
     }
+
+    /**
+     * The cursor a relevance-ordered search continues from, or null when none was supplied.
+     *
+     * <p>A search cursor names a position in {@code (rank desc, id asc)} rather than in a column
+     * sort, so it is validated against that instead of a {@link NodeSort}: a cursor from a filter
+     * walk describes a position in an order the search is not in, and continuing it would return a
+     * page that looks fine and is not.
+     */
+    static PageCursor validatedSearch(String rawCursor) {
+        PageCursor cursor = PageCursor.decode(rawCursor);
+        if (cursor == null) {
+            return null;
+        }
+        if (!cursor.matches(NodePredicateBuilder.RELEVANCE, true)) {
+            throw new MalformedCursorException(
+                    "This cursor was produced by a different ordering (%s %s) than a search uses "
+                            .formatted(cursor.property(), cursor.descending() ? "desc" : "asc")
+                            + "(relevance desc). Send a search's own nextCursor, or omit it to start again.");
+        }
+        try {
+            Float.parseFloat(cursor.value());
+            Long.parseLong(cursor.id());
+        } catch (NullPointerException | NumberFormatException e) {
+            // Well-formed encoding, unusable contents — forged or truncated. Rejected rather than
+            // parsed downstream, where it would surface as a caller-triggered 500. The value is
+            // not quoted back: see validated() on why.
+            throw new MalformedCursorException(
+                    "The cursor's position cannot be read as a relevance score and id. "
+                            + "Send back a nextCursor exactly as it was returned, or omit it to start again.");
+        }
+        return cursor;
+    }
+
+    /**
+     * The cursor for the page after this relevance-ordered one, or null when there is not one.
+     * Same short-page rule as {@link #nextCursor}: a partial page is the end of the results.
+     */
+    static String nextSearchCursor(List<jakarta.persistence.Tuple> page, int limit) {
+        if (page.isEmpty() || page.size() < limit) {
+            return null;
+        }
+        jakarta.persistence.Tuple last = page.get(page.size() - 1);
+        NodeEntity node = last.get("node", NodeEntity.class);
+        Float rank = last.get("rank", Float.class);
+        return new PageCursor(NodePredicateBuilder.RELEVANCE, true,
+                String.valueOf(rank), String.valueOf(node.getId())).encode();
+    }
 }
