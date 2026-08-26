@@ -87,7 +87,8 @@ class ResourceServiceNodeTypeAclTest {
             datasetClosureService,
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));
+                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),
+            mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
 
     /** The caller may write these datasets, and nothing else — no manage grant. */
     private void canWrite(Long... datasetIds) {

@@ -2,12 +2,16 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.policy.PolicyCandidate;
+import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
+import ai.intellistream.datahub.api.policy.NamingPolicyResolver;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.models.policy.PolicyWarning;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.edge.EdgeMapper;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -113,6 +117,9 @@ public class ResourceService {
     /** The shared node-update pipeline; see {@link NodeUpdateService}. */
     private final NodeUpdateService nodeUpdateService;
 
+    /** Caches the naming rules; a policy write through this path must not leave it stale. */
+    private final NamingPolicyResolver namingPolicyResolver;
+
     public ResourceService(
             EntityManager entityManager,
             NodeRepository nodeRepository,
@@ -128,7 +135,8 @@ public class ResourceService {
             PolicyEnforcement policyEnforcement,
             DatasetClosureService datasetClosureService,
             EdgeMapper edgeMapper,
-            NodeUpdateService nodeUpdateService){
+            NodeUpdateService nodeUpdateService,
+            NamingPolicyResolver namingPolicyResolver){
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
@@ -144,6 +152,7 @@ public class ResourceService {
         this.datasetClosureService = datasetClosureService;
         this.edgeMapper = edgeMapper;
         this.nodeUpdateService = nodeUpdateService;
+        this.namingPolicyResolver = namingPolicyResolver;
     }
 
     /**
@@ -245,6 +254,7 @@ public class ResourceService {
                 });
 
                 invalidateDatasetAclIfNeeded(nodes, edges, false);
+                invalidateNamingPolicyIfNeeded(nodes);
 
                 var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
                 msg.setResources(resourceList);
@@ -447,6 +457,7 @@ public class ResourceService {
             savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
 
             invalidateDatasetAclIfNeeded(nodes, edges, belongsToTouched.get());
+            invalidateNamingPolicyIfNeeded(nodes);
 
             var msg = new ResourceCudMessage(EventAction.UPDATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
             msg.setResources(resourceList);
@@ -469,6 +480,19 @@ public class ResourceService {
             collection.setWarnings(policyWarnings.stream().map(PolicyWarning::from).toList());
 
             return collection;
+        } catch (NamingPolicyViolationException e) {
+            // Before the BadRequestException catch, which it extends: flattening it here loses the
+            // per-item `violations` list that NamingPolicyExceptionHandler exists to render, and
+            // the controller's own re-throw would never see it. create() already does this.
+            throw e;
+        } catch (DuplicateDataException e) {
+            // The 409 guardRenames promises. It is a RuntimeException, so the blanket catch below
+            // was turning every colliding rename into an empty 500 — on /resources/update and, via
+            // the adapter, on /datasets/update too.
+            throw e;
+        } catch (OptimisticLockingFailureException e) {
+            // Same shape: the controller has a handler for this, which the re-wrap below hid.
+            throw e;
         } catch (BadRequestException e){
             throw new BadRequestException(e.getError());
         } catch (InvalidResourceException e){
@@ -590,6 +614,24 @@ public class ResourceService {
         return edgeMapper.mapEdge(edge, form);
     }
 
+
+    /**
+     * Drop the cached naming rules if this write touched a policy.
+     *
+     * <p>{@code PolicyService} invalidates on every one of its five mutations, because a
+     * NAMING_CONVENTION policy that changed and did not take effect is the failure the cache's own
+     * javadoc warns about. Polymorphic create/update/delete made this path able to write policy
+     * nodes too — with the manage grant — and it was not invalidating, so a convention created
+     * here was ignored until the TTL expired.
+     *
+     * <p>Coarse on purpose, like {@link #invalidateDatasetAclIfNeeded}: any policy node touched
+     * drops the cache. Policies change rarely, and recomputing costs one query.
+     */
+    private void invalidateNamingPolicyIfNeeded(Collection<? extends NodeEntity> nodes) {
+        if (nodes != null && nodes.stream().anyMatch(n -> n instanceof PolicyEntity)) {
+            namingPolicyResolver.invalidate();
+        }
+    }
 
     // ---- dataset ACL cache invalidation -------------------------------------------------------
 
@@ -836,9 +878,12 @@ public class ResourceService {
         // the timeseries delete. Nodes resolve regardless of subtype (a timeseries is a node row),
         // so a timeseries deleted via /resources/delete still gets the same checks the timeseries
         // endpoint applies.
+        // Snapshotted before the delete below, because both invalidations need to know what kinds
+        // of node were removed and a lookup afterwards finds nothing.
+        List<NodeEntity> deletedEntities = List.of();
         if(!resourceIdList.isEmpty()){
             // Deny the whole batch unless the caller can write every targeted node's dataset.
-            List<NodeEntity> deletedEntities = nodeRepository.findAllById(resourceIdList);
+            deletedEntities = nodeRepository.findAllById(resourceIdList);
             deletedEntities.forEach(entity -> {
                 dataSecurity.assertCanWrite(entity);
                 // Deleting a dataset or policy node is dataset management — same gate as update.
@@ -948,9 +993,10 @@ public class ResourceService {
             deletedCollection.getRelations().add(ep);
         });
 
-        invalidateDatasetAclIfNeeded(
-                resourceIdList.isEmpty() ? List.of() : nodeRepository.findAllById(resourceIdList),
-                edgesBeingDeleted, false);
+        // From the pre-delete snapshot: the rows are gone by now, so re-reading them would answer
+        // "nothing was touched" and quietly skip both invalidations.
+        invalidateDatasetAclIfNeeded(deletedEntities, edgesBeingDeleted, false);
+        invalidateNamingPolicyIfNeeded(deletedEntities);
 
         var msg = new ResourceCudMessage(EventAction.DELETE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
         msg.setResources(apiReqData.getNodes().stream().toList());

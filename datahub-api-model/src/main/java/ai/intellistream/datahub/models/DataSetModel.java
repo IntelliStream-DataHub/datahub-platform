@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import ai.intellistream.datahub.json.ToStringSerializer;
@@ -15,6 +16,7 @@ import java.util.List;
 @Getter @Setter
 @Schema(name = "Data Set", description = "Data Set object")
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataSetModel extends NodeModel {
 
     public DataSetModel() {

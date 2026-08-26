@@ -75,7 +75,8 @@ class ResourceServiceCreateEventTest {
             datasetClosureService,
             new EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));
+                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),
+            mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
 
     @AfterEach
     void clearTenant() {
