@@ -124,7 +124,8 @@ public final class ResourceService {
     public GraphDataWrapper<NodeModel, EdgeProxy> createNodes(List<NodeModel> nodes, List<RelForm> relations) {
         GraphDataWrapper<NodeModel, RelForm> request = new GraphDataWrapper<>();
         request.setNodes(new java.util.ArrayList<>(nodes));
-        request.setRelations(new java.util.ArrayList<>(relations));
+        // Null relations is the common case for a node-only create; match create(..)'s tolerance.
+        request.setRelations(relations == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(relations));
         return http.post("/resources/create", request, nodeGraph);
     }
 

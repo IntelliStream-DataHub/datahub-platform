@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.config;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.NodeModelSubtypes;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;

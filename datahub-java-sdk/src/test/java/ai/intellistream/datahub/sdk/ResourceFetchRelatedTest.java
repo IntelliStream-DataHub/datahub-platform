@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.ResourceNetwork;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
@@ -70,7 +71,7 @@ class ResourceFetchRelatedTest {
 
             // ids came back as JSON strings and were coerced to Long
             Set<String> externalIds = result.nodes().stream()
-                    .map(ai.intellistream.datahub.models.NodeModel::getExternalId).collect(Collectors.toSet());
+                    .map(NodeModel::getExternalId).collect(Collectors.toSet());
             assertTrue(externalIds.contains("cooling_system"));
             assertTrue(externalIds.contains("sensor_a"));
             assertTrue(externalIds.contains("sensor_b"));

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.mcp.tools;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.mcp.McpResultConverter;
 import ai.intellistream.datahub.api.mcp.dto.LeanRelationshipType;
 import ai.intellistream.datahub.api.mcp.dto.McpList;
@@ -59,7 +60,7 @@ public class EdgeMcpTools {
                     and edge_create_type).
                     """
     )
-    public GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> createEdge(
+    public GraphDataWrapper<NodeModel, EdgeProxy> createEdge(
             @ToolParam(required = false, description = "Source node externalId.")
             String fromExternalId,
             @ToolParam(required = false, description = "Source node id.")
@@ -87,7 +88,7 @@ public class EdgeMcpTools {
         rel.setRelationshipType(relationshipType);
         if (description != null) rel.setDescription(description);
 
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return resourceService.create(req);
     }

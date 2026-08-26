@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.datasecurity.DatasetPermissions;
@@ -81,13 +82,13 @@ class ResourceServiceCreateEventTest {
         TenantContext.clear();
     }
 
-    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> request(Long dataSetId) {
+    private static GraphDataWrapper<NodeModel, RelForm> request(Long dataSetId) {
         Resource r = new Resource();
         r.setExternalId("pipe_1");
         r.setName("Pipe 1");
         r.setDataSetId(dataSetId);
         r.setLabels(List.of("PIPE"));
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> w = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> w = new GraphDataWrapper<>();
         w.getNodes().add(r);
         return w;
     }

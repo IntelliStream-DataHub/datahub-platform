@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.mcp.tools;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.ResourceService;
 import ai.intellistream.datahub.asset.ResourceNetwork;
@@ -44,7 +45,7 @@ class ResourceMcpToolsTest {
     void resolvesExternalIdToTheNumericIdTheServiceNeeds() {
         Resource resolved = new Resource();
         resolved.setId(42L);
-        DataWrapper<ai.intellistream.datahub.models.NodeModel> found = new DataWrapper<>();
+        DataWrapper<NodeModel> found = new DataWrapper<>();
         found.getItems().add(resolved);
         when(resourceService.findAllByIdAndExternalId(Set.of(), Set.of("pump_p101"))).thenReturn(found);
         when(resourceService.fetchNearestRelatedResources(any(), anyList(), anyInt(), anyList(), anyList()))

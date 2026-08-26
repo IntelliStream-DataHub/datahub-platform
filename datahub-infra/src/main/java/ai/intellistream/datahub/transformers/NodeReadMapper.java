@@ -58,6 +58,12 @@ public class NodeReadMapper {
         // Uniform label source, applied last so delegated tails can't diverge. setLabels keeps
         // the type-label present even for a row whose labels string never carried it.
         dto.setLabels(labelsOf(node));
+        // The delegated tails each decide their own metadata handling — PolicyTransformer passes a
+        // null through, where mapBase always produces a map. Normalise here so one node type does
+        // not answer `"metadata": null` while the rest answer `{}`.
+        if (dto.getMetadata() == null) {
+            dto.setMetadata(new HashMap<>());
+        }
         return dto;
     }
 
@@ -89,7 +95,15 @@ public class NodeReadMapper {
      * carries the same type-labels the rows do). The graph stores only a subset of each node's
      * columns, so a {@code Timeseries} from this path arrives <em>typed but sparsely populated</em>
      * (no unit, no securityCategories) — still strictly better than arriving mistyped as a
-     * {@code Resource} carrying an {@code isRoot} that means nothing for it. Geometry comes back
+     * {@code Resource} carrying an {@code isRoot} that means nothing for it.
+     *
+     * <p><strong>Constructor defaults are not facts here.</strong> The graph does not store a
+     * series' value type or table engine, and {@code Timeseries} seeds both
+     * ({@code valueType = float32}, {@code tableEngine = MERGETREE}) with no way to express
+     * "unknown" — {@code setValueType(null)} restores the default rather than clearing it. So a
+     * BIGINT series read from this path still reports {@code float32}. Treat both fields as
+     * unpopulated from a graph read and fetch the node by id for its real values; do not gate
+     * numeric behaviour on them. Geometry comes back
      * as the graph's native WGS-84 point reconstructed as a GeoJSON Point (lossy for non-point
      * geometries, which Postgres holds in full), and only on assets.
      */

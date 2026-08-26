@@ -5,7 +5,6 @@ import ai.intellistream.datahub.errors.FieldError;
 import ai.intellistream.datahub.errors.InvalidResourceException;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.*;
-import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 
@@ -24,7 +23,6 @@ import org.w3c.dom.Node;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
@@ -106,6 +104,16 @@ public class NodeService {
             // TypeLabels.CREATABLE is the single authority for which types this API may mint.
             if (type != null && !TypeLabels.CREATABLE.contains(type)) {
                 throw invalidResource("Not allowed to create " + type + " using the resource api!");
+            }
+            // Say so rather than dropping it. A data set or policy node is an orphan by
+            // construction — that is what the ACL's write-everything rule keys on, and populating
+            // the column would leave a managed node mutable under a per-dataset grant
+            // (POLICY_DATASETID_BUG.md). The caller has already been authorized against the id
+            // they sent, so answering 201 while ignoring it would report work never done.
+            if ((TypeLabels.DATASET.equals(type) || TypeLabels.POLICY.equals(type))
+                    && form.getDataSetId() != null) {
+                throw invalidResource("A " + type + " node cannot belong to a data set; "
+                        + "remove dataSetId. Hierarchy is expressed with BELONGS_TO edges.");
             }
 
             if (TypeLabels.TIMESERIES.equals(type)) {

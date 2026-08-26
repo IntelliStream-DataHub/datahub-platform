@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.config.Neo4j;
 import ai.intellistream.datahub.models.Resource;
@@ -82,7 +83,7 @@ class Neo4jNearestTimeseriesIT {
     }
 
     private Set<Long> nodeIds(ResourceNetwork net) {
-        return net.nodes().stream().map(ai.intellistream.datahub.models.NodeModel::getId).collect(Collectors.toSet());
+        return net.nodes().stream().map(NodeModel::getId).collect(Collectors.toSet());
     }
 
     @Test

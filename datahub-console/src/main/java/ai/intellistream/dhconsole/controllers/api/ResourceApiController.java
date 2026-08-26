@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.controllers.api;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.models.*;
@@ -69,7 +70,7 @@ public class ResourceApiController {
             consumes = {MediaType.APPLICATION_JSON_VALUE}
     )
     public ResponseEntity<?> byIds(@RequestBody DataWrapper<IdCollection> apiReqData){
-        DataWrapper<ai.intellistream.datahub.models.NodeModel> resources = this.datahubApi.byIds(apiReqData);
+        DataWrapper<NodeModel> resources = this.datahubApi.byIds(apiReqData);
         return new ResponseEntity<>(resources, HttpStatus.OK);
     }
 
@@ -112,8 +113,8 @@ public class ResourceApiController {
      * the warnings are merged in as one more property instead of changing that shape. Absent when
      * empty, exactly as on the API's own responses, so a clean write is byte-identical to before.
      */
-    private ResponseEntity<?> respond(GraphDataWrapper<? extends ai.intellistream.datahub.models.NodeModel, EdgeProxy> result, HttpStatus status){
-        ai.intellistream.datahub.models.NodeModel node = result.getNodes().stream().findFirst().orElse(null);
+    private ResponseEntity<?> respond(GraphDataWrapper<? extends NodeModel, EdgeProxy> result, HttpStatus status){
+        NodeModel node = result.getNodes().stream().findFirst().orElse(null);
         if(node == null){
             return new ResponseEntity<>("", HttpStatus.BAD_REQUEST);
         }
@@ -158,7 +159,7 @@ public class ResourceApiController {
             ResourceFilter pickable = new ResourceFilter();
             pickable.setNodeType(List.of("asset", "timeseries", "function", "resource", "dataset"));
             rs.setFilter(pickable);
-            DataWrapper<ai.intellistream.datahub.models.NodeModel> resources = this.datahubApi.searchResource(rs);
+            DataWrapper<NodeModel> resources = this.datahubApi.searchResource(rs);
             return new ResponseEntity<>(resources, HttpStatus.OK);
         } catch (Exception e){
             log.error(e.getMessage());

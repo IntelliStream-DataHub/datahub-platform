@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.NodeModelSubtypes;
+import ai.intellistream.datahub.jpa.domains.TypeLabels;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -57,8 +60,8 @@ class NodeFamilyParityTest {
     @Test
     @DisplayName("F0: the label-keyed deserializer registry matches TypeLabels")
     void subtypeRegistryMatchesTypeLabels() {
-        assertThat(ai.intellistream.datahub.models.NodeModelSubtypes.BY_TYPE_LABEL.keySet())
-                .isEqualTo(ai.intellistream.datahub.jpa.domains.TypeLabels.ALL);
+        assertThat(NodeModelSubtypes.BY_TYPE_LABEL.keySet())
+                .isEqualTo(TypeLabels.ALL);
     }
 
     // ---- Endpoint surface ----------------------------------------------------------------------

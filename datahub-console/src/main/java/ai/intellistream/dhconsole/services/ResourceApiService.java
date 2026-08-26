@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.helpers.updates.UpdateListField;
@@ -34,7 +35,7 @@ public class ResourceApiService {
      * would drop them before the browser ever saw them, and a warning nobody is shown is the same
      * as no warning at all.
      */
-    public GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> save(ResourceWebForm resource){
+    public GraphDataWrapper<NodeModel, EdgeProxy> save(ResourceWebForm resource){
         GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
         dataWrapper.getNodes().add(resource);
 
@@ -54,7 +55,7 @@ public class ResourceApiService {
     public EdgeProxy saveEdge(RelForm form){
         GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
         dataWrapper.getRelations().add(form);
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
+        GraphDataWrapper<NodeModel, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
         if( !results.getRelations().isEmpty() ){
             return results.getRelations().iterator().next();
         }
@@ -98,7 +99,7 @@ public class ResourceApiService {
         return this.datahubApi.updateResourcesAndRelations(updateForm);
     }
 
-    public GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy> updateEdge(RelFormWithId form){
+    public GraphDataWrapper<NodeModel, EdgeProxy> updateEdge(RelFormWithId form){
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateForm = new GraphDataWrapper<>();
         UpdateRelForm updateRelForm = new UpdateRelForm( form.getId() );
         updateForm.getRelations().add(updateRelForm);
@@ -141,9 +142,12 @@ public class ResourceApiService {
         var edge = responseData.getRelations().stream().findFirst();
         // Repackage over NodeModel: the update echo is still flat Resources, but the byids
         // refresh below returns label-typed nodes.
-        var enriched = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy>();
+        var enriched = new GraphDataWrapper<NodeModel, EdgeProxy>();
         enriched.setNodes(new java.util.ArrayList<>(responseData.getNodes()));
         enriched.setRelations(responseData.getRelations());
+        // Carry the envelope's warnings across: a policy warning nobody is shown is the same as
+        // no warning at all.
+        enriched.setWarnings(responseData.getWarnings());
         if(edge.isPresent()){
             var edgeProxy = edge.get();
             var dataForm = new DataWrapper<IdCollection>();

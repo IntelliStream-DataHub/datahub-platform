@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetAccessDeniedException;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -112,13 +113,13 @@ class ResourceServiceNodeTypeAclTest {
         return node;
     }
 
-    private static GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> createRequest(Long dataSetId, String... labels) {
+    private static GraphDataWrapper<NodeModel, RelForm> createRequest(Long dataSetId, String... labels) {
         Resource resource = new Resource();
         resource.setExternalId("new_node");
         resource.setName("new node");
         resource.setDataSetId(dataSetId);
         resource.setLabels(List.of(labels));
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getNodes().add(resource);
         return req;
     }
@@ -308,7 +309,7 @@ class ResourceServiceNodeTypeAclTest {
         rel.setFromId(1L);
         rel.setToId(2L);
         rel.setRelationshipType("BELONGS_TO");
-        GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
 
         assertThatThrownBy(() -> service.create(req))

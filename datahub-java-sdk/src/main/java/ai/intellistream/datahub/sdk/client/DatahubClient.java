@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.sdk.auth.TokenProvider;
 import ai.intellistream.datahub.sdk.http.ApiHttp;

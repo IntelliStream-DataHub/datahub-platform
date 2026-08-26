@@ -137,11 +137,12 @@ class NodeServiceTest {
     /**
      * Dataset and policy entities must stay orphans: their access rule is the manage grant, and
      * the ACL's write-everything fallback keys on data_set_id being null (see
-     * POLICY_DATASETID_BUG.md). A create that names one must not populate it — for every other
-     * type it maps normally.
+     * POLICY_DATASETID_BUG.md). A create naming one is refused rather than quietly stripped —
+     * the caller was already authorized against that id, so a 201 with the field dropped would
+     * report work that never happened. Every other type maps it normally.
      */
     @Test
-    void datasetAndPolicyCreatesNeverTakeADataSetId() {
+    void datasetAndPolicyCreatesRejectADataSetId() {
         DataSetRepository repo = mock(DataSetRepository.class);
         when(repo.getReferenceById(7L)).thenReturn(new DatasetEntity());
         NodeService service = new NodeService(labelService, repo);
@@ -153,9 +154,16 @@ class NodeServiceTest {
         Resource asset = resource("ASSET");
         asset.setDataSetId(7L);
 
-        assertNull(service.createFromResource(dataset).getDataSet());
-        assertNull(service.createFromResource(policy).getDataSet());
+        assertThrows(InvalidResourceException.class, () -> service.createFromResource(dataset));
+        assertThrows(InvalidResourceException.class, () -> service.createFromResource(policy));
         assertNotNull(service.createFromResource(asset).getDataSet());
+    }
+
+    /** Without a dataSetId the same creates succeed and stay orphans. */
+    @Test
+    void datasetAndPolicyCreatesStayOrphans() {
+        assertNull(nodeService.createFromResource(resource("DATASET")).getDataSet());
+        assertNull(nodeService.createFromResource(resource("POLICY")).getDataSet());
     }
 
     @Test
