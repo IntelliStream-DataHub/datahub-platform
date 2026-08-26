@@ -37,7 +37,6 @@ class McpDtoTest {
         assertThat(json).doesNotContain("tableEngine");
         assertThat(json).doesNotContain("valueType");
         assertThat(json).doesNotContain("createdTime");
-        assertThat(json).doesNotContain("securityCategories");
         assertThat(json).doesNotContain("metadata");
         assertThat(json).doesNotContain("description");
         assertThat(json).doesNotContain("dataSetId");

@@ -45,7 +45,6 @@ public class NodeRepoImpl implements NodeRepo {
     }
 
     public static final String METADATA_REF = "metadata";
-    private static final String SEC_CAT_REF = "securityCategories";
     private static final String VAL_TYPE_REF = "valueType";
 
     private static final String DP_UNIQUE_CONSTRAINT_NAME = "timeseries_datapoints_bigint_key";
@@ -93,7 +92,6 @@ public class NodeRepoImpl implements NodeRepo {
         Fetch<NodeEntity, AssetEntity> asset = root.fetch("asset", JoinType.LEFT);
         Fetch<NodeEntity, TimeseriesEntity> ts = root.fetch("timeseries", JoinType.LEFT);
         Fetch<NodeEntity, FunctionEntity> f = root.fetch("functionEntity", JoinType.LEFT);
-        ts.fetch(SEC_CAT_REF, JoinType.LEFT);
         ts.fetch(VAL_TYPE_REF, JoinType.LEFT);
     }
 
