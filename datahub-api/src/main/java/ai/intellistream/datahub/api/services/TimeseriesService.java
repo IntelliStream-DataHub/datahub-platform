@@ -13,6 +13,8 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
+import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatapointCudPublishEvent;
@@ -122,6 +124,9 @@ public class TimeseriesService {
     private final ClickHouseDatapointService clickHouseDatapointService;
 
     private final DataSecurity dataSecurity;
+
+    /** The one node-update pipeline; see {@link NodeUpdateService}. */
+    private final ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
     private final ValkeyService valkeyService;
 
@@ -638,6 +643,52 @@ public class TimeseriesService {
                 .map(e -> Map.of("externalId", e.getExternalId()))
                 .collect(Collectors.toList());
         throw duplicateExternalIdException(duplicated);
+    }
+
+    /**
+     * A time series' shared field changes as the canonical node-update command.
+     *
+     * <p>{@code TimeseriesFields} says the same thing about name, externalId, metadata,
+     * description, source and dataset membership that {@code ResourceFields} does; only
+     * {@code unit}, {@code unitExternalId} and {@code securityCategories} are its own. Adapting
+     * rather than widening the shared command keeps type-specific fields out of it — the same
+     * shape the dataset and policy paths use.
+     */
+    private static UpdateResourceForm asNodeCommand(UpdateTimeseries form, TimeseriesFields fields) {
+        UpdateResourceForm command = new UpdateResourceForm(form.getId());
+        command.setExternalId(form.getExternalId());
+        ResourceFields target = command.getUpdate();
+        if (fields.getName().getSet() != null) {
+            target.getName().set(fields.getName().getSet());
+        }
+        if (fields.getExternalId().getSet() != null) {
+            target.getExternalId().set(fields.getExternalId().getSet());
+        }
+        if (fields.getDescription().getSet() != null) {
+            target.getDescription().set(fields.getDescription().getSet());
+        } else if (fields.getDescription().getSetNull()) {
+            target.getDescription().setNull(true);
+        }
+        if (fields.getSource().getSet() != null) {
+            target.getSource().set(fields.getSource().getSet());
+        } else if (fields.getSource().getSetNull()) {
+            target.getSource().setNull(true);
+        }
+        if (fields.getMetadata().getSet() != null) {
+            target.getMetadata().setSet(fields.getMetadata().getSet());
+        }
+        if (fields.getMetadata().getAdd() != null) {
+            target.getMetadata().add(fields.getMetadata().getAdd());
+        }
+        if (fields.getMetadata().getRemove() != null) {
+            target.getMetadata().remove(fields.getMetadata().getRemove());
+        }
+        if (fields.getDataSetId().getSet() != null) {
+            target.getDataSetId().set(fields.getDataSetId().getSet());
+        } else if (fields.getDataSetId().getSetNull()) {
+            target.getDataSetId().setNull(true);
+        }
+        return command;
     }
 
     private DuplicateDataException duplicateExternalIdException(Collection<Map<String, String>> duplicated) {
@@ -1260,55 +1311,18 @@ public class TimeseriesService {
         dbTimeseries.forEach( dbTs -> {
             UpdateTimeseries updateData = matchUpdateFor(dbTs, timeseries);
             if(updateData != null){
-                // Must be able to write the timeseries' current dataset before mutating it.
-                dataSecurity.assertCanWrite(dbTs);
                 TimeseriesFields fields = updateData.getUpdate();
                 dbTs.setLastUpdated(ZonedDateTime.now());
 
-                // Update name field
-                if(fields.getName().getSet() != null){
-                    dbTs.setName(fields.getName().getSet());
-                }
+                // 1. THE SHARED HALF, through the one pipeline: the ACL, the rename-collision
+                // guard (whole node table, a clean 409), name, externalId, metadata, description,
+                // source, dataset membership, and the type-label guard. Only what a time series
+                // has that other nodes do not is applied below.
+                var target = nodeUpdateService.authorize(asNodeCommand(updateData, fields), dbTs);
+                nodeUpdateService.guardRenames(List.of(target));
+                nodeUpdateService.apply(List.of(target));
 
-                // Update externalId
-                if(fields.getExternalId().getSet() != null){
-                    String newExternalId = fields.getExternalId().getSet();
-                    // A rename must not collide with another timeseries' (unique) externalId — reject
-                    // with a 409 instead of letting the DB unique constraint surface as a 500 on save.
-                    if(!newExternalId.equals(dbTs.getExternalId())){
-                        // The unique constraint spans the whole node table, so the collision check
-                        // must too — a rename clashing with a resource/dataset externalId would
-                        // otherwise pass here and die on the constraint as a 500.
-                        NameAndExternalId clash = nodeRepository.findByExternalIdHash(
-                                ExternalIds.hash(newExternalId), NameAndExternalId.class);
-                        if(clash != null && !Objects.equals(clash.getId(), dbTs.getId())){
-                            throw duplicateExternalIdException(List.of(Map.of("externalId", newExternalId)));
-                        }
-                    }
-                    dbTs.setExternalId(newExternalId);
-                }
-
-                /*
-                 * Update metadata
-                 * If key found, update metadata value in existing entry,
-                 * If key not found, add entry
-                 * If remove, delete metadata entry
-                 */
-                if(fields.getMetadata().getSet() != null){
-                    dbTs.setMetadata( fields.getMetadata().getSet()  );
-
-                }
-                if(fields.getMetadata().getAdd() != null){
-                    Map<String, String> meta = new HashMap<>(dbTs.getMetadata());
-                    meta.putAll(fields.getMetadata().getAdd());
-                    dbTs.setMetadata(meta);
-                }
-                if(fields.getMetadata().getRemove() != null){
-                    Map<String, String> meta = new HashMap<>(dbTs.getMetadata());
-                    meta.keySet().removeAll(fields.getMetadata().getRemove());
-                    dbTs.setMetadata(meta);
-                }
-
+                // 2. THE TIME SERIES' OWN.
                 // Update unit field
                 if(fields.getUnit().getSet() != null){
                     dbTs.setUnit(fields.getUnit().getSet());
@@ -1325,33 +1339,6 @@ public class TimeseriesService {
                     dbTs.setUnitExternalId(null);
                 }
 
-                // Update description field
-                if(fields.getDescription().getSet() != null){
-                    dbTs.setDescription(fields.getDescription().getSet());
-                }
-                if(fields.getDescription().getSetNull()){
-                    dbTs.setDescription(null);
-                }
-
-                // Update source field (common to all node types; graph side already handles it)
-                if(fields.getSource().getSet() != null){
-                    dbTs.setSource(fields.getSource().getSet());
-                }
-                if(fields.getSource().getSetNull()){
-                    dbTs.setSource(null);
-                }
-
-                // Update dataset id field
-                if(fields.getDataSetId().getSet() != null){
-                    long datasetId = fields.getDataSetId().getSet();
-                    // Moving a timeseries into a dataset also requires write access to the target.
-                    dataSecurity.assertCanWriteDataSet(datasetId);
-                    DatasetEntity ds = datasetEntityRepository.getReferenceById(datasetId);
-                    dbTs.setDataSet(ds);
-                }
-                if(fields.getDataSetId().getSetNull()){
-                    dbTs.setDataSet(null);
-                }
 
                 var updatedTimeseries = nodeRepository.save(dbTs);
                 log.debug("Updated timeseries: {}", updatedTimeseries);
