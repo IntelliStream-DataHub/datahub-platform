@@ -12,7 +12,6 @@ import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.resource.RelTypeForm;
-import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
@@ -38,7 +37,7 @@ import org.springframework.http.ResponseEntity;
 public interface DatahubApi {
 
     @RequestLine("POST /resources/create")
-    GraphDataWrapper<NodeModel, EdgeProxy> createResourcesAndRelations(GraphDataWrapper<ResourceForm, RelForm> apiReqData);
+    GraphDataWrapper<NodeModel, EdgeProxy> createResourcesAndRelations(GraphDataWrapper<NodeModel, RelForm> apiReqData);
 
     @RequestLine("GET /resources/{id}")
     DataWrapper<NodeModel> getResourceById(@Param("id") Long id);
@@ -50,7 +49,7 @@ public interface DatahubApi {
     ResourceNetwork fetchRelatedResources(RelatedResourcesForm apiReqData);
 
     @RequestLine("POST /resources/update")
-    GraphDataWrapper<Resource, EdgeProxy> updateResourcesAndRelations(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> form);
+    GraphDataWrapper<NodeModel, EdgeProxy> updateResourcesAndRelations(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> form);
 
     @RequestLine("POST /resources/filter")
     DataWrapper<NodeModel> filter(ResourceRetreiver apiReqData);

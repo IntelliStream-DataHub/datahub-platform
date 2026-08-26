@@ -728,7 +728,7 @@ public class ResourceController {
             )
             @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData){
         try{
-            GraphDataWrapper<Resource, EdgeProxy> results = resourceService.update(apiReqData);
+            GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.update(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.OK);
         } catch (ConstraintViolationException cve){
             var e = BuildErrorResponse.createConstraintViolationError(cve);

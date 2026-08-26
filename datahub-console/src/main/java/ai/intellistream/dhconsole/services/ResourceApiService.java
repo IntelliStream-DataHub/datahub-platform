@@ -10,6 +10,8 @@ import ai.intellistream.datahub.helpers.updates.UpdateNumberField;
 import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.forms.RelFormWithId;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.resource.ResourceWebForm;
 import ai.intellistream.dhconsole.api.DatahubApi;
@@ -35,9 +37,48 @@ public class ResourceApiService {
      * would drop them before the browser ever saw them, and a warning nobody is shown is the same
      * as no warning at all.
      */
+    /**
+     * Carry the browser's form into the node family the api speaks.
+     *
+     * <p>{@code ResourceWebForm} descends from {@code ResourceForm}/{@code NodeForm}, a hierarchy
+     * separate from {@code NodeModel} that declares {@code isRoot} for every node type. Posting one
+     * straight through put fields on the wire that the api's target type may not have — the api
+     * tolerates it, but the honest shape is the one the endpoint actually models. Only assets and
+     * plain resources are created from this form, so the mapping is the ASSET label and nothing
+     * else; every other type is created through its own console flow.
+     */
+    private static NodeModel toNode(ResourceWebForm form) {
+        boolean isAsset = form.getLabels() != null
+                && form.getLabels().stream().anyMatch(l -> "ASSET".equalsIgnoreCase(l));
+        if (isAsset) {
+            var asset = new Asset();
+            asset.setExternalId(form.getExternalId());
+            asset.setName(form.getName());
+            asset.setDescription(form.getDescription());
+            asset.setSource(form.getSource());
+            asset.setDataSetId(form.getDataSetId());
+            asset.setMetadata(form.getMetadata());
+            asset.setLabels(form.getLabels());
+            asset.setIsRoot(form.getIsRoot());
+            asset.setGeoLocation(form.getGeoLocation());
+            return asset;
+        }
+        var node = new Resource();
+        node.setExternalId(form.getExternalId());
+        node.setName(form.getName());
+        node.setDescription(form.getDescription());
+        node.setSource(form.getSource());
+        node.setDataSetId(form.getDataSetId());
+        node.setMetadata(form.getMetadata());
+        node.setLabels(form.getLabels());
+        node.setIsRoot(form.getIsRoot());
+        node.setGeoLocation(form.getGeoLocation());
+        return node;
+    }
+
     public GraphDataWrapper<NodeModel, EdgeProxy> save(ResourceWebForm resource){
-        GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
-        dataWrapper.getNodes().add(resource);
+        GraphDataWrapper<NodeModel, RelForm> dataWrapper = new GraphDataWrapper<>();
+        dataWrapper.getNodes().add(toNode(resource));
 
         if(resource.getRelationFrom() != null && !resource.getRelationTypes().isEmpty()){
             for(var relType : resource.getRelationTypes()){
@@ -53,7 +94,7 @@ public class ResourceApiService {
     }
 
     public EdgeProxy saveEdge(RelForm form){
-        GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> dataWrapper = new GraphDataWrapper<>();
         dataWrapper.getRelations().add(form);
         GraphDataWrapper<NodeModel, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
         if( !results.getRelations().isEmpty() ){
@@ -62,7 +103,7 @@ public class ResourceApiService {
         return null;
     }
 
-    public GraphDataWrapper<Resource, EdgeProxy> update(ResourceForm resource){
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(ResourceForm resource){
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateForm = new GraphDataWrapper<>();
         UpdateResourceForm updateResourceForm = new UpdateResourceForm( resource.getId() );
         updateForm.getNodes().add(updateResourceForm);

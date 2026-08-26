@@ -8,13 +8,13 @@ import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.FetchNearestResourcesForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
+import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.models.SearchBody;
@@ -32,7 +32,7 @@ public final class ResourceService {
     private final ApiHttp http;
     private final JavaType nodes;            // DataWrapper<NodeModel> — typed reads
     private final JavaType nodeGraph;        // GraphDataWrapper<NodeModel, EdgeProxy> — typed create echo
-    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat update/delete echoes
+    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat delete echo
     private final JavaType resourceNetwork;  // ResourceNetwork
 
     public ResourceService(ApiHttp http) {
@@ -109,22 +109,15 @@ public final class ResourceService {
      * POST /resources/create — create resources, optionally with relations between them.
      * Returns the created graph (nodes as {@link Resource}, relations as {@link EdgeProxy}).
      */
-    public GraphDataWrapper<NodeModel, EdgeProxy> create(List<ResourceForm> nodes, List<RelForm> relations) {
-        GraphDataWrapper<ResourceForm, RelForm> request = new GraphDataWrapper<>();
-        request.setNodes(nodes);
-        request.setRelations(relations);
-        return http.post("/resources/create", request, nodeGraph);
-    }
-
     /**
-     * POST /resources/create with typed node bodies. Any creatable node kind rides one call —
-     * an {@code Asset} with a geoLocation, a {@code DataSetModel}, a {@code Timeseries} next to
-     * the assets it measures — each dispatched by its type-label. The echo comes back typed.
+     * POST /resources/create. Any creatable node kind rides one call — an {@link Asset} with a
+     * geoLocation, a {@code DataSetModel}, a {@code Timeseries} next to the assets it measures —
+     * each dispatched by the type-label its DTO carries. The echo comes back typed.
      */
-    public GraphDataWrapper<NodeModel, EdgeProxy> createNodes(List<NodeModel> nodes, List<RelForm> relations) {
+    public GraphDataWrapper<NodeModel, EdgeProxy> create(List<? extends NodeModel> nodes, List<RelForm> relations) {
         GraphDataWrapper<NodeModel, RelForm> request = new GraphDataWrapper<>();
         request.setNodes(new java.util.ArrayList<>(nodes));
-        // Null relations is the common case for a node-only create; match create(..)'s tolerance.
+        // Null relations is the common case for a node-only create.
         request.setRelations(relations == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(relations));
         return http.post("/resources/create", request, nodeGraph);
     }
@@ -183,16 +176,16 @@ public final class ResourceService {
      * {@code add} over {@code set} on collections, since two writers adding entries both survive a
      * retry where two writers setting them clobber each other.
      */
-    public GraphDataWrapper<Resource, EdgeProxy> update(List<UpdateResourceForm> nodes,
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes,
                                                         List<UpdateRelForm> relations) {
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> request = new GraphDataWrapper<>();
         request.setNodes(nodes);
         request.setRelations(relations);
-        return http.post("/resources/update", request, resourceGraph);
+        return http.post("/resources/update", request, nodeGraph);
     }
 
     /** Convenience over {@link #update(List, List)} for the common node-only update. */
-    public GraphDataWrapper<Resource, EdgeProxy> update(List<UpdateResourceForm> nodes) {
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes) {
         return update(nodes, List.of());
     }
 }

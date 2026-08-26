@@ -105,6 +105,18 @@ public class NodeService {
             if (type != null && !TypeLabels.CREATABLE.contains(type)) {
                 throw invalidResource("Not allowed to create " + type + " using the resource api!");
             }
+            // Only an asset or a plain resource can be a navigation root. A root request has two
+            // spellings — the typed DTOs have no isRoot at all, so the base captures it, while the
+            // legacy flat body sets Resource's own field whatever label it carries — and both must
+            // be judged. `false` means nothing (the flat shape sends it on every body) and passes;
+            // `true` on a type that cannot be a root is refused rather than quietly dropped.
+            Boolean requestedIsRoot = form instanceof Asset asset ? asset.getIsRoot()
+                    : form instanceof Resource res ? res.getIsRoot()
+                    : form.getUnsupportedIsRoot();
+            boolean canBeRoot = type == null || TypeLabels.ASSET.equals(type);
+            if (!canBeRoot && Boolean.TRUE.equals(requestedIsRoot)) {
+                throw invalidResource("A " + type + " cannot be a navigation root; remove isRoot.");
+            }
             // Say so rather than dropping it. A data set or policy node is an orphan by
             // construction — that is what the ACL's write-everything rule keys on, and populating
             // the column would leave a managed node mutable under a per-dataset grant
@@ -144,11 +156,10 @@ public class NodeService {
             }
             applyLabels(node, labels);
             mapCommonNodeFields(node, form);
-            // isRoot is not a NodeModel primitive; it exists on the Resource/Asset shapes only.
-            if (form instanceof Asset a) {
-                node.setIsRoot(a.getIsRoot());
-            } else if (form instanceof Resource r) {
-                node.setIsRoot(r.getIsRoot());
+            // isRoot is not a NodeModel primitive; it is applied only where it is legal, and the
+            // guard above has already refused a true anywhere else. The entity defaults to false.
+            if (canBeRoot && requestedIsRoot != null) {
+                node.setIsRoot(requestedIsRoot);
             }
             return node;
         } catch(InvalidResourceException e) {
