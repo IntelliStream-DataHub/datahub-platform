@@ -40,16 +40,13 @@ import java.util.stream.Collectors;
 public class FunctionService {
 
     private final FunctionRepository functionRepository;
-    private final FunctionTransformer functionTransformer;
     private final ResourceService resourceService;
     private final DataSecurity dataSecurity;
 
     public FunctionService(FunctionRepository functionRepository,
-                           FunctionTransformer functionTransformer,
                            ResourceService resourceService,
                            DataSecurity dataSecurity) {
         this.functionRepository = functionRepository;
-        this.functionTransformer = functionTransformer;
         this.resourceService = resourceService;
         this.dataSecurity = dataSecurity;
     }
@@ -76,7 +73,7 @@ public class FunctionService {
                 .collect(Collectors.toList());
 
         var result = new DataWrapper<Function>();
-        result.setItems(new ArrayList<>(functionTransformer.toFunction(functionRepository.findAllById(ids))));
+        result.setItems(new ArrayList<>(FunctionTransformer.toFunction(functionRepository.findAllById(ids))));
         return result;
     }
 
@@ -101,7 +98,7 @@ public class FunctionService {
         }
 
         var results = new DataWrapper<Function>();
-        results.setItems(new ArrayList<>(functionTransformer.toFunction(entities)));
+        results.setItems(new ArrayList<>(FunctionTransformer.toFunction(entities)));
         return results;
     }
 
