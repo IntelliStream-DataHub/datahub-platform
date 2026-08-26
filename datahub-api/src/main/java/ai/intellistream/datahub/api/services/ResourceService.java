@@ -110,9 +110,6 @@ public class ResourceService {
     /** The one authority for "which data sets are beneath this one" — shared with the ACL. */
     private final DatasetClosureService datasetClosureService;
 
-    /** The one entity→DTO path for typed reads; see {@link NodeReadMapper}. */
-    private final NodeReadMapper nodeReadMapper;
-
     /** Builds edges and enforces the edge endpoint rules; see {@link EdgeMapper}. */
     private final EdgeMapper edgeMapper;
 
@@ -136,7 +133,6 @@ public class ResourceService {
             Validator validator,
             PolicyEnforcement policyEnforcement,
             DatasetClosureService datasetClosureService,
-            NodeReadMapper nodeReadMapper,
             EdgeMapper edgeMapper,
             NodeUpdateService nodeUpdateService){
         this.entityManager = entityManager;
@@ -155,7 +151,6 @@ public class ResourceService {
         this.validator = validator;
         this.policyEnforcement = policyEnforcement;
         this.datasetClosureService = datasetClosureService;
-        this.nodeReadMapper = nodeReadMapper;
         this.edgeMapper = edgeMapper;
         this.nodeUpdateService = nodeUpdateService;
     }
@@ -260,7 +255,7 @@ public class ResourceService {
 
                 invalidateDatasetAclIfNeeded(nodes, edges, false);
 
-                collection.setNodes(nodeReadMapper.from(savedList, edgesList));
+                collection.setNodes(NodeReadMapper.from(savedList, edgesList));
                 collection.setRelations(edgesList);
 
                 // Flush first: the outbox row records ids, and edge ids are assigned by the insert.
@@ -469,7 +464,7 @@ public class ResourceService {
 
             invalidateDatasetAclIfNeeded(nodes, edges, belongsToTouched.get());
 
-            collection.setNodes(nodeReadMapper.from(savedList, edgesList));
+            collection.setNodes(NodeReadMapper.from(savedList, edgesList));
             collection.setRelations(edgesList);
 
             nodeRepository.flush();
@@ -707,7 +702,7 @@ public class ResourceService {
         }
 
         DataWrapper<NodeModel> data = new DataWrapper<>();
-        data.getItems().add(nodeReadMapper.from(node));
+        data.getItems().add(NodeReadMapper.from(node));
         return data;
     }
 
@@ -795,7 +790,7 @@ public class ResourceService {
         TypedQuery<NodeEntity> query = entityManager.createQuery(q);
         query.setMaxResults(apiReqData.getLimit());
         List<NodeEntity> nodes = query.getResultList();
-        data.setItems(nodeReadMapper.from(nodes));
+        data.setItems(NodeReadMapper.from(nodes));
         data.setNextCursor(NodePaging.nextCursor(nodes, apiReqData.getLimit(), sort));
 
         return data;
@@ -1016,7 +1011,7 @@ public class ResourceService {
                     : nodeRepository.findAllByIdOrExternalIdAndDataSetIdIn(idList, externalIdList, allowed);
         }
         DataWrapper<NodeModel> data = new DataWrapper<>();
-        data.setItems(nodeReadMapper.from(assetNodes));
+        data.setItems(NodeReadMapper.from(assetNodes));
         return data;
     }
 
@@ -1090,7 +1085,7 @@ public class ResourceService {
 
         TypedQuery<NodeEntity> query = entityManager.createQuery(q);
         query.setMaxResults(searchForm.getLimit());
-        data.setItems(nodeReadMapper.from(query.getResultList()));
+        data.setItems(NodeReadMapper.from(query.getResultList()));
         return data;
     }
 

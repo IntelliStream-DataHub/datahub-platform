@@ -74,7 +74,6 @@ class ResourceServiceCreateEventTest {
             relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService,
             dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
-            new NodeReadMapper(),
             new EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));

@@ -3,7 +3,6 @@ package ai.intellistream.datahub.services;
 
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.config.Neo4j;
-import ai.intellistream.datahub.transformers.NodeReadMapper;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.neo4j.driver.Session;
@@ -24,7 +23,6 @@ public class Neo4JService {
 
     private final Neo4j neo4j;
     private final LabelService labelService;
-    private final NodeReadMapper nodeReadMapper;
 
     /**
      * Loads the connected resource sub-graph around {@code id} — every reachable node plus every
@@ -83,7 +81,7 @@ public class Neo4JService {
                         "labelFilter", labelFilter,
                         "limit", nodeLimit));
                 var records = result.list();
-                var rn = ResourceNetwork.from(records, new HashSet<>(labelService.list()), nodeReadMapper);
+                var rn = ResourceNetwork.from(records, new HashSet<>(labelService.list()));
                 log.debug("{}, {}", result.consume().query().text(), result.consume().query().parameters() );
                 return rn;
             });
@@ -140,7 +138,7 @@ public class Neo4JService {
                         "relationshipFilter", relationshipFilter,
                         "labelFilter", labelFilter,
                         "limit", nodeLimit));
-                var rn = ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()), nodeReadMapper);
+                var rn = ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()));
                 log.debug("{}, {}", result.consume().query().text(), result.consume().query().parameters());
                 return rn;
             });
@@ -189,7 +187,7 @@ public class Neo4JService {
             """;
             return session.executeRead( tx -> {
                 var result = tx.run(query, parameters("ids", new ArrayList<>(anchorIds)));
-                return ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()), nodeReadMapper);
+                return ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()));
             });
 
         }

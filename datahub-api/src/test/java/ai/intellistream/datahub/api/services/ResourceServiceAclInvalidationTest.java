@@ -93,8 +93,7 @@ class ResourceServiceAclInvalidationTest {
             relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
             dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
-                new ai.intellistream.datahub.transformers.NodeReadMapper(),
-            new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
+                new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement));
 

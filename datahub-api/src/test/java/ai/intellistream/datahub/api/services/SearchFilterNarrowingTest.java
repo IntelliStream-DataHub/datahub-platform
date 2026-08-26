@@ -147,8 +147,7 @@ class SearchFilterNarrowingTest {
                 mock(DataSetRepository.class), dataSecurity,
                 mock(SubscriptionRepository.class), mock(Validator.class),
                 mock(PolicyEnforcement.class), closure,
-                new ai.intellistream.datahub.transformers.NodeReadMapper(),
-            new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
+                new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
                     mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)));
