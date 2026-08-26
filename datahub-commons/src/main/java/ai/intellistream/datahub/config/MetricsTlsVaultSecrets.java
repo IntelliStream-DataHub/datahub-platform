@@ -55,7 +55,7 @@ public final class MetricsTlsVaultSecrets implements VaultSecretContributor {
 
         String keystore = blankToNull(data.get("metrics.keystore"));
         if (keystore == null) {
-            log.debug("No metrics.keystore in Vault; the scrape port stays plain HTTP.");
+            log.warn("No metrics.keystore in Vault; the scrape port stays plain HTTP.");
             return;
         }
         String truststore = blankToNull(data.get("metrics.truststore"));
@@ -73,8 +73,8 @@ public final class MetricsTlsVaultSecrets implements VaultSecretContributor {
             putIfPresent(out, prefix + ".trust-store-password", data.get("metrics.truststore-password"));
             out.put(prefix + ".client-auth", clientAuth(data.get("metrics.client-auth")));
         } else {
-            log.warn("metrics.keystore is set but metrics.truststore is not: the scrape port will "
-                    + "serve HTTPS without asking the caller for a certificate.");
+            log.warn("No metrics.truststore in Vault; the scrape port uses HTTPS but accepts any caller. "
+                    + "Prometheus needs the issuing CA in its tls_config.ca_file, or the scrape fails.");
         }
     }
 
