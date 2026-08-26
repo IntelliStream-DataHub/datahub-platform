@@ -60,7 +60,8 @@ class ResourceFilterDatasetExpansionTest {
             new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
-                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)));
+                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class),
+                    java.util.List.of(new ai.intellistream.datahub.api.services.node.AssetUpdateStrategy())));
 
     /** Enough of the Criteria chain to reach the dataSetIds branch; nothing beyond it runs. */
     @SuppressWarnings("unchecked")
