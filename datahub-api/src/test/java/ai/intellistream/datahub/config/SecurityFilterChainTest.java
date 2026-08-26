@@ -63,9 +63,13 @@ import static org.mockito.Mockito.when;
  */
 // The application class sits in a sibling package (…datahub.api), so it is named explicitly
 // rather than found by the upward package scan from this test's package.
+// The scrape is exposed here on purpose. It ships off, so without this every actuator path would
+// answer 404 whatever the filter chain said, and the denial assertions below would prove nothing.
+// MetricsDisabledByDefaultTest covers the shipped default.
 @SpringBootTest(
         classes = ApiDatahubApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "management.endpoints.web.exposure.include=prometheus")
 @ActiveProfiles("ctxtest")
 class SecurityFilterChainTest {
 

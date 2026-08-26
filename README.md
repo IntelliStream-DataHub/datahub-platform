@@ -299,7 +299,7 @@ It is also the only persistent retrier of the per-tenant Flyway migration: `data
 
 ### Metrics
 
-Every service serves Prometheus metrics at `/actuator/prometheus`, with no token, on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, stateful consumer 9084, cleanup 9085. For the api, console and analysis that is a second port next to the application port, so a load balancer never reaches it. Open the metrics ports to the Prometheus host only. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, stateful consumer 9084, cleanup 9085. For the api, console and analysis that is a second port next to the application port, so a load balancer never reaches it. It ships switched off, because the scrape carries no token: turn it on per service with `management.endpoints.web.exposure.include=prometheus`, open the port to the Prometheus host only, and prefer mutual TLS (`management.server.ssl.*` with `client-auth: need`) over trusting that rule. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
 
 ### Flyway
 

@@ -108,10 +108,23 @@ addresses on the app hosts; a server's source address must stay put.
 
 ## Metrics
 
-Every service exposes Prometheus metrics at `/actuator/prometheus` on a port of its own, with
-no token: JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint.
-The api, console and analysis serve it on a second port next to the application port, so the
-load balancer never reaches it; the consumers and cleanup listen on nothing else.
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: JVM
+memory and GC, threads, CPU, Tomcat connections and request latency per endpoint. The api, console
+and analysis serve it on a second port next to the application port, so the load balancer never
+reaches it; the consumers and cleanup listen on nothing else.
+
+**It ships switched off.** The scrape carries no token, so whatever reaches the port reads your
+request rates, error rates, endpoint inventory and JVM internals. Turn it on per service with
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+```
+
+in `/etc/datahub/<name>/application.yml`.
 
 | Instance | Application port | Metrics port |
 |---|---|---|
@@ -122,10 +135,27 @@ load balancer never reaches it; the consumers and cleanup listen on nothing else
 | `datahub@stateful-consumer` | none | 9084 |
 | `datahub@cleanup` | none | 9085 |
 
-Open the metrics ports to the Prometheus host only. They bind the wildcard address like the
-application ports; `management.server.address` (or `server.address` for the three without an
-application port) in `/etc/datahub/<name>/application.yml` narrows that if the host has an
-internal interface. A scrape job per host:
+Open the metrics ports to the Prometheus host only, and prefer a certificate over trusting that
+rule. `management.server.ssl.*` (or `server.ssl.*` for the three without an application port) takes
+its own keystore and truststore, and `client-auth: need` means only a Prometheus holding a
+certificate you issued can scrape, whatever else reaches the port:
+
+```yaml
+management:
+  server:
+    ssl:
+      enabled: true
+      client-auth: need
+      key-store: /etc/datahub/metrics-server.p12
+      key-store-password: ${METRICS_KEYSTORE_PASSWORD}
+      trust-store: /etc/datahub/metrics-ca.p12
+      trust-store-password: ${METRICS_TRUSTSTORE_PASSWORD}
+```
+
+Prometheus then scrapes with `scheme: https` and a `tls_config` naming its client certificate and
+the same CA. The ports bind the wildcard address like the application ports;
+`management.server.address` (or `server.address`) narrows that as well, if the host has an internal
+interface. A scrape job per host:
 
 ```yaml
 scrape_configs:

@@ -1,12 +1,22 @@
-# The only thing listening: the Prometheus scrape endpoint, /actuator/prometheus. Open the
-# port to the Prometheus host only.
+# This service is headless. The port below exists for the Prometheus scrape and serves nothing
+# else.
+#
+# OFF by default. The scrape is unauthenticated, so whatever can reach the port reads request
+# rates, error rates, the endpoint inventory and JVM internals. Turn it on only once the port is
+# reachable from the Prometheus host alone. Prefer mutual TLS over trusting the firewall:
+# `server.ssl.*` takes its own keystore, truststore and `client-auth: need`, so only a Prometheus
+# holding a certificate you issued can scrape. Unset, the port is plain HTTP.
+# Read the security guidance first:
+# https://intellistream.ai/data-platform-documentation/administration/monitoring#securing-the-endpoint
 server:
   port: 9083
+  # address: 10.0.0.5    # optional: bind one interface as well as requiring a certificate
 management:
   endpoints:
     web:
       exposure:
-        include: prometheus
+        # Add `prometheus` here to serve /actuator/prometheus.
+        include: ""
   health:
     defaults:
       enabled: false
