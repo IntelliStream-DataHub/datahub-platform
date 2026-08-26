@@ -126,6 +126,7 @@ class NodeUpdateInvariantsTest {
         @Mock private DataSecurity dataSecurity;
         @Mock private ApplicationEventPublisher applicationEventPublisher;
         @Mock private NamingPolicyResolver namingPolicyResolver;
+        @Mock private ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
         @InjectMocks private PolicyService policyService;
 
@@ -163,6 +164,37 @@ class NodeUpdateInvariantsTest {
             verify(applicationEventPublisher, never()).publishEvent(any());
         }
 
+        /**
+         * The divergence Phase 0 recorded, now closed. A policy rename used to be the one rename
+         * in the system no naming convention was allowed to judge: the resource and timeseries
+         * paths both ran {@code policyEnforcement.check}, and the policy path did not. Folding the
+         * shared half onto the pipeline is what fixes it, because judging is one of the stages.
+         */
+        @Test
+        @DisplayName("a policy rename is judged by the naming policy")
+        void aPolicyRenameIsJudged() {
+            TenantContext.setTenantId("tenant-1");
+            PolicyEntity node = policy();
+            when(policyRepository.findByIdOrExternalId(5L, null)).thenReturn(java.util.Optional.of(node));
+            when(policyRepository.save(any())).thenReturn(node);
+            when(nodeUpdateService.authorize(any(), any())).thenAnswer(inv ->
+                    new ai.intellistream.datahub.api.services.node.NodeUpdateService.Target(
+                            inv.getArgument(0), inv.getArgument(1)));
+
+            UpdatePolicyForm renamingExternalId = new UpdatePolicyForm();
+            renamingExternalId.setId(5L);
+            renamingExternalId.getUpdate().getExternalId().set("is_read_protected");
+
+            policyService.updatePolicyNode(renamingExternalId);
+
+            // The rename reaches the naming judgement, carrying the new external id.
+            ArgumentCaptor<java.util.List<ai.intellistream.datahub.api.services.node.NodeUpdateService.Target>> captor =
+                    ArgumentCaptor.forClass(java.util.List.class);
+            verify(nodeUpdateService).judgeNaming(captor.capture());
+            var judged = captor.getValue().get(0);
+            assertThat(judged.form().getUpdate().getExternalId().getSet()).isEqualTo("is_read_protected");
+        }
+
         @Test
         @DisplayName("a policy update publishes exactly one CUD event")
         void aPolicyUpdatePublishesExactlyOneEvent() {
@@ -170,6 +202,10 @@ class NodeUpdateInvariantsTest {
             PolicyEntity node = policy();
             when(policyRepository.findByIdOrExternalId(5L, null)).thenReturn(java.util.Optional.of(node));
             when(policyRepository.save(any())).thenReturn(node);
+            // The shared half runs through the pipeline; here it only has to hand a target back.
+            when(nodeUpdateService.authorize(any(), any())).thenAnswer(inv ->
+                    new ai.intellistream.datahub.api.services.node.NodeUpdateService.Target(
+                            inv.getArgument(0), inv.getArgument(1)));
 
             policyService.updatePolicyNode(renaming());
 

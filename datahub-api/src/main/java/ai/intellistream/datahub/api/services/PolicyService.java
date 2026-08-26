@@ -11,6 +11,9 @@ import ai.intellistream.datahub.api.policy.PolicyScopeValidator;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.forms.PolicyFields;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
+import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.*;
@@ -78,6 +81,9 @@ public class PolicyService {
      * until the TTL expires — a rule someone changed and that did not take effect.
      */
     private final NamingPolicyResolver namingPolicyResolver;
+
+    /** The one node-update pipeline; see {@link NodeUpdateService}. */
+    private final NodeUpdateService nodeUpdateService;
 
     // 1. CREATE NEW EMPTY POLICY NODE
     @Transactional
@@ -175,6 +181,11 @@ public class PolicyService {
     @Transactional
     public PolicyEntity updatePolicyNode(UpdatePolicyForm form) {
 
+        // Ahead of the lookup, deliberately, and again inside the pipeline. The pipeline's gate is
+        // the one that guarantees this for every path into a policy; this one guarantees the
+        // caller learns nothing by asking. Resolving first would answer "no such policy" (404) for
+        // an id that does not exist and "forbidden" (403) for one that does, which is an
+        // enumeration oracle for someone who may not touch policies at all.
         dataSecurity.assertCanManageDataSets();
 
         boolean hasExternalId = form.getExternalId() != null && !form.getExternalId().isBlank();
@@ -182,8 +193,11 @@ public class PolicyService {
             throw new IllegalArgumentException("Policy id or externalId is required for update");
         }
 
-        // Identify by either, like every other update endpoint. A null id simply never matches, so
-        // the OR resolves to whichever the caller supplied.
+        // Resolved here, not by the pipeline: this lookup is scoped to policies, so an id naming
+        // some other kind of node is "no such policy" (404) rather than the pipeline's generic
+        // "resource cannot be found" (400). Identify by either id or externalId, like every other
+        // update endpoint — a null id simply never matches, so the OR resolves to whichever the
+        // caller supplied.
         PolicyEntity node = policyRepository
                 .findByIdOrExternalId(form.getId(), hasExternalId ? form.getExternalId() : null)
                 .orElseThrow(() -> new ObjectNotFoundException("Policy node not found: "
@@ -192,44 +206,25 @@ public class PolicyService {
         // An item naming a policy but carrying no changes is a no-op, not a null dereference.
         PolicyFields fields = form.getUpdate() != null ? form.getUpdate() : new PolicyFields();
 
-        // 1. BASIC FIELDS. Throughout: `set` wins over `setNull`, so a value the caller supplied is
-        // never discarded by a stray clear on the same field.
+        // Judged on the input, before anything is applied, so a rejected update costs no writes.
         if (fields.getName().getSet() != null) {
-            node.setName(requireNonBlank(fields.getName().getSet(), "name"));
+            requireNonBlank(fields.getName().getSet(), "name");
         }
-
         if (fields.getExternalId().getSet() != null) {
-            // setExternalId normalizes and re-derives externalIdHash; setting the hash from the
-            // raw string here would desync it from the stored (normalized) external_id.
-            node.setExternalId(requireNonBlank(fields.getExternalId().getSet(), "externalId"));
+            requireNonBlank(fields.getExternalId().getSet(), "externalId");
         }
 
-        if (fields.getDescription().getSet() != null) {
-            node.setDescription(fields.getDescription().getSet());
-        } else if (fields.getDescription().getSetNull()) {
-            node.setDescription(null);
-        }
+        // 1. THE SHARED HALF, through the one pipeline. name / externalId / description / source /
+        // metadata are ordinary node fields, so the engine applies them — and with them come the
+        // ACL (the manage grant, since this is a PolicyEntity), the type-label guard, and the
+        // naming policy. That last one is new: a policy rename used to be the one rename in the
+        // system no naming convention was allowed to judge.
+        UpdateResourceForm command = asNodeCommand(form, fields);
+        List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
+        nodeUpdateService.judgeNaming(targets);
+        nodeUpdateService.apply(targets);
 
-        if (fields.getSource().getSet() != null) {
-            node.setSource(fields.getSource().getSet());
-        } else if (fields.getSource().getSetNull()) {
-            node.setSource(null);
-        }
-
-        // 2. METADATA (activePolicies, availablePolicies, etc.). set/add/remove, like every other
-        // metadata map — the old putAll-only form could add and overwrite keys but never drop one,
-        // so shrinking activePolicies was impossible and stale keys stayed forever.
-        if (fields.getMetadata().getSet() != null) {
-            node.setMetadata(new HashMap<>(fields.getMetadata().getSet()));
-        }
-        if (fields.getMetadata().getAdd() != null) {
-            node.getMetadata().putAll(fields.getMetadata().getAdd());
-        }
-        if (fields.getMetadata().getRemove() != null) {
-            node.getMetadata().keySet().removeAll(fields.getMetadata().getRemove());
-        }
-
-        // Deactivation is a column on the node, so it is set here rather than smuggled through the
+        // 2. THE POLICY'S OWN. Deactivation is a column on the node, so it is set here rather than smuggled through the
         // metadata map the caller supplied. Only when the caller actually asked: this assignment
         // used to be unconditional, and since the old DTO's flag was a primitive defaulting to
         // false, renaming a deactivated policy silently switched it back on.
@@ -268,6 +263,46 @@ public class PolicyService {
         namingPolicyResolver.invalidate();
 
         return saved;
+    }
+
+    /**
+     * The policy's shared field changes as the canonical node-update command.
+     *
+     * <p>{@code PolicyFields} and {@code ResourceFields} say the same thing about the five fields
+     * every node has; only {@code deactivated} and {@code templateId} are the policy's own, and
+     * those stay here. Adapting rather than widening the shared command is what keeps type-specific
+     * fields out of it — the same shape {@code DataSetService} uses.
+     */
+    private static UpdateResourceForm asNodeCommand(UpdatePolicyForm form, PolicyFields fields) {
+        UpdateResourceForm command = new UpdateResourceForm(form.getId());
+        command.setExternalId(form.getExternalId());
+        ResourceFields target = command.getUpdate();
+        if (fields.getName().getSet() != null) {
+            target.getName().set(fields.getName().getSet());
+        }
+        if (fields.getExternalId().getSet() != null) {
+            target.getExternalId().set(fields.getExternalId().getSet());
+        }
+        if (fields.getDescription().getSet() != null) {
+            target.getDescription().set(fields.getDescription().getSet());
+        } else if (fields.getDescription().getSetNull()) {
+            target.getDescription().setNull(true);
+        }
+        if (fields.getSource().getSet() != null) {
+            target.getSource().set(fields.getSource().getSet());
+        } else if (fields.getSource().getSetNull()) {
+            target.getSource().setNull(true);
+        }
+        if (fields.getMetadata().getSet() != null) {
+            target.getMetadata().setSet(fields.getMetadata().getSet());
+        }
+        if (fields.getMetadata().getAdd() != null) {
+            target.getMetadata().add(fields.getMetadata().getAdd());
+        }
+        if (fields.getMetadata().getRemove() != null) {
+            target.getMetadata().remove(fields.getMetadata().getRemove());
+        }
+        return command;
     }
 
     /** Replacing a required field with blank is a caller mistake, not a way to clear it. */
