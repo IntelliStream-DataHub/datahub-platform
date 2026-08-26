@@ -175,29 +175,37 @@ public final class NodeReadMapper {
      * Pick the transformer for this node's type. Nothing is mapped here: each type's conversion
      * lives with that type, so there is one place to look when a field is wrong and one place to
      * change when a field is added.
+     *
+     * <p>A switch rather than a chain of {@code instanceof}: it reads as the single decision it
+     * is, it is an expression so every branch must produce a value, and the compiler rejects a
+     * case that a preceding one already covers — an ordering mistake an if-chain would accept
+     * and then quietly act on.
+     *
+     * <p><b>The {@code default} is load-bearing, not defensive.</b> Exhaustiveness checking would
+     * need {@code NodeEntity} to be {@code sealed}, and it cannot be: Hibernate subclasses
+     * entities at runtime to build lazy proxies. So a seventh node type added tomorrow compiles
+     * fine and silently arrives here as a plain {@code Resource}, losing whatever is its own.
+     * Nothing in the language will catch that; the parity test in {@code NodeFamilyParityTest} is
+     * what does.
+     *
+     * <p>Type patterns match a Hibernate proxy of an asset as an asset, which is why dispatch
+     * belongs here rather than in a map keyed on the exact class — that mistake silently skipped
+     * proxies in the update-strategy registry.
      */
     private static NodeModel switchOnType(NodeEntity node) {
-        if (node instanceof TimeseriesEntity ts) {
-            return TimeseriesTransformer.from(ts);
-        }
-        if (node instanceof PolicyEntity policy) {
+        return switch (node) {
+            case TimeseriesEntity ts -> TimeseriesTransformer.from(ts);
             // PolicyTransformer sets no dataSetId, deliberately: Policy.dataSetId is input-only
             // (see POLICY_DATASETID_BUG.md) and a policy row carries no data_set_id anyway.
-            return PolicyTransformer.toPolicy(policy);
-        }
-        if (node instanceof AssetEntity asset) {
-            return AssetTransformer.from(asset);
-        }
-        if (node instanceof DatasetEntity dataset) {
-            return DataSetTransformer.from(dataset);
-        }
-        if (node instanceof FunctionEntity function) {
-            return FunctionTransformer.from(function);
-        }
-        // A plain resource: ResourceTransformer already produces exactly this shape. Its
-        // geoLocation and valueType are write-only and @JsonIgnore respectively, so neither
-        // reaches a read response even though it sets them for the Pulsar payload.
-        return ResourceTransformer.from(node);
+            case PolicyEntity policy -> PolicyTransformer.toPolicy(policy);
+            case AssetEntity asset -> AssetTransformer.from(asset);
+            case DatasetEntity dataset -> DataSetTransformer.from(dataset);
+            case FunctionEntity function -> FunctionTransformer.from(function);
+            // A plain resource: ResourceTransformer already produces exactly this shape. Its
+            // geoLocation and valueType are write-only and @JsonIgnore respectively, so neither
+            // reaches a read response even though it sets them for the Pulsar payload.
+            default -> ResourceTransformer.from(node);
+        };
     }
 
     private static List<String> labelsOf(NodeEntity node) {

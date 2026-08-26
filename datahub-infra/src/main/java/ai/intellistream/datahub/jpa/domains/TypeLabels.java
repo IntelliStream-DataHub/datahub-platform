@@ -68,11 +68,17 @@ public final class TypeLabels {
      * {@link ResourceEntity}, which has no type-label.
      */
     public static Optional<String> forEntity(NodeEntity node) {
-        if (node instanceof AssetEntity) return Optional.of(ASSET);
-        if (node instanceof DatasetEntity) return Optional.of(DATASET);
-        if (node instanceof PolicyEntity) return Optional.of(POLICY);
-        if (node instanceof TimeseriesEntity) return Optional.of(TIMESERIES);
-        if (node instanceof FunctionEntity) return Optional.of(FUNCTION);
-        return Optional.empty();
+        return switch (node) {
+            case AssetEntity _ -> Optional.of(ASSET);
+            case DatasetEntity _ -> Optional.of(DATASET);
+            case PolicyEntity _ -> Optional.of(POLICY);
+            case TimeseriesEntity _ -> Optional.of(TIMESERIES);
+            case FunctionEntity _ -> Optional.of(FUNCTION);
+            // A plain ResourceEntity has no type-label — and so does a node type nobody has
+            // added a case for. The hierarchy cannot be sealed (Hibernate proxies subclass
+            // entities at runtime), so the compiler will not tell you which of the two you are
+            // looking at; NodeFamilyParityTest is what holds this to the entity family.
+            default -> Optional.empty();
+        };
     }
 }
