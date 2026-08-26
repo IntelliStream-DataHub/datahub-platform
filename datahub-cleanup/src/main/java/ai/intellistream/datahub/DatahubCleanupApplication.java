@@ -5,6 +5,7 @@ import ai.intellistream.datahub.cleanup.file.FileCleanupProperties;
 import ai.intellistream.datahub.cleanup.migration.MigrationSweepProperties;
 import ai.intellistream.datahub.cleanup.subscription.SubscriptionCleanupProperties;
 import ai.intellistream.datahub.config.PulsarVaultSecrets;
+import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -44,7 +45,8 @@ public class DatahubCleanupApplication {
 
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(DatahubCleanupApplication.class);
-        app.addListeners(new VaultConfigurationLoader(new PulsarVaultSecrets()));
+        app.addListeners(new VaultConfigurationLoader(new PulsarVaultSecrets(),
+                new MetricsTlsVaultSecrets(MetricsTlsVaultSecrets.SERVER_SSL)));
         app.run(args);
     }
 }

@@ -7,8 +7,6 @@ logging:
       hibernate:
         type: info
 spring:
-  main:
-    web-application-type: none
   jpa:
     show-sql: false
     properties:

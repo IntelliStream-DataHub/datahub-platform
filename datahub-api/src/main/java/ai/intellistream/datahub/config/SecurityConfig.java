@@ -7,9 +7,11 @@ import ai.intellistream.datahub.tenant.TenantContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.boot.web.server.autoconfigure.ServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -48,6 +50,19 @@ public class SecurityConfig {
 
     @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
     private String issuerUri;
+
+    /** The actuator chain on the management port: the scrape is open, everything else denied. */
+    @Bean
+    @Order(1)
+    SecurityFilterChain actuatorFilterChain(HttpSecurity http) {
+        http
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .authorizeHttpRequests(authorize -> authorize
+                        .requestMatchers(EndpointRequest.to("prometheus")).permitAll()
+                        .anyRequest().denyAll())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        return http.build();
+    }
 
     @Bean
     SecurityFilterChain filterChain(

@@ -2,8 +2,10 @@
 package ai.intellistream.datahub.analysis.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -36,6 +38,19 @@ import java.util.stream.Collectors;
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
+
+    /** The actuator chain on the management port: the scrape is open, everything else denied. */
+    @Bean
+    @Order(1)
+    SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(EndpointRequest.to("prometheus")).permitAll()
+                        .anyRequest().denyAll())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        return http.build();
+    }
 
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http,
