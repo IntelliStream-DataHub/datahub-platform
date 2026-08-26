@@ -132,13 +132,13 @@ public abstract class NodeModel extends AbstractResource {
      *
      * <p>Root-ness is a property of resources and assets only, so it lives on those two DTOs and
      * not on this base (see NODE_READ_REFACTOR.md: illegal fields are unrepresentable rather than
-     * policed). But the legacy flat create shape, {@code ResourceForm}, declares
-     * {@code isRoot = false} and serializes under {@code NON_NULL}, so <em>every</em> body it
-     * produces carries {@code "isRoot": false} — including one labelled DATASET, POLICY, FUNCTION
-     * or TIMESERIES, which the label-keyed deserializer now binds to a DTO without the field.
-     * The api reads request bodies with a strict mapper that rejects unknown fields
-     * ({@code StrictRequestBodyConfig}), so without this hook every such create would answer 400
-     * where it used to answer 201.
+     * policed). But the flat create shape this api has always accepted carries {@code isRoot} on
+     * every body — it was one field on one form class, shared by every node type — so a body
+     * labelled DATASET, POLICY, FUNCTION or TIMESERIES arrives with a field the label-keyed
+     * deserializer's target DTO does not declare. The api reads request bodies with a strict
+     * mapper that rejects unknown fields ({@code StrictRequestBodyConfig}), so without this hook
+     * such a create answers 400 where it used to answer 201. In-tree callers now send the node
+     * shapes directly; this keeps faith with clients built against the older contract.
      *
      * <p>Declaring a setter here and <em>no</em> getter is what keeps those bodies binding without
      * putting the field on the wire: serialization needs something to read, and this base has

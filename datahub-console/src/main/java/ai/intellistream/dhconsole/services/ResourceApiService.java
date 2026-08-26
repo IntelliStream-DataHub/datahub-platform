@@ -12,7 +12,6 @@ import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.forms.RelFormWithId;
 import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.models.Resource;
-import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.resource.ResourceWebForm;
 import ai.intellistream.dhconsole.api.DatahubApi;
 import org.springframework.stereotype.Service;
@@ -40,12 +39,12 @@ public class ResourceApiService {
     /**
      * Carry the browser's form into the node family the api speaks.
      *
-     * <p>{@code ResourceWebForm} descends from {@code ResourceForm}/{@code NodeForm}, a hierarchy
-     * separate from {@code NodeModel} that declares {@code isRoot} for every node type. Posting one
-     * straight through put fields on the wire that the api's target type may not have — the api
-     * tolerates it, but the honest shape is the one the endpoint actually models. Only assets and
-     * plain resources are created from this form, so the mapping is the ASSET label and nothing
-     * else; every other type is created through its own console flow.
+     * <p>{@code ResourceWebForm} is a {@code Resource} plus two console-only fields
+     * ({@code relationFrom}, {@code relationTypes}) that describe the UI's intent, not a node. The
+     * api reads request bodies strictly and rejects fields it has no place for, so the form is
+     * copied into the node shape rather than posted through. Only assets and plain resources are
+     * created from this form, so the mapping turns on the ASSET label and nothing else; every
+     * other type is created through its own console flow.
      */
     private static NodeModel toNode(ResourceWebForm form) {
         boolean isAsset = form.getLabels() != null
@@ -103,7 +102,7 @@ public class ResourceApiService {
         return null;
     }
 
-    public GraphDataWrapper<NodeModel, EdgeProxy> update(ResourceForm resource){
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(Resource resource){
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateForm = new GraphDataWrapper<>();
         UpdateResourceForm updateResourceForm = new UpdateResourceForm( resource.getId() );
         updateForm.getNodes().add(updateResourceForm);
