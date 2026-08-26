@@ -14,6 +14,9 @@ import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.dto.NameAndEId;
+import ai.intellistream.datahub.models.policy.PolicyWarning;
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.DataSetRetreiver;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
@@ -53,6 +56,7 @@ public class DataSetService {
         // Create error list that can return missing datasets to user
         ResponseError<BadRequestError> errors = new ResponseError<>();
         List<DataSetModel> dataSets = new ArrayList<>();
+        List<PolicyWarning> warnings = new ArrayList<>();
 
         // Validate if new external ids already exists
         validateUniqueExternalId(items);
@@ -71,18 +75,25 @@ public class DataSetService {
             });
 
 
-            // Map resource form into NodeEntity object
-            dataSets.add( DataSetTransformer.toDataSetModel( ResourceTransformer.from( validateAndUpdate(dataSet, updateData) )));
+            // Map resource form into NodeEntity object. The pipeline mutates `dataSet` in place,
+            // so the DTO still comes from it; what the wrapper adds is the naming-policy warnings,
+            // which this adapter used to discard — a warning nobody is shown is the same as none.
+            var updated = validateAndUpdate(dataSet, updateData);
+            dataSets.add( DataSetTransformer.toDataSetModel( ResourceTransformer.from( dataSet )));
+            if (updated.getWarnings() != null) {
+                warnings.addAll(updated.getWarnings());
+            }
 
         }
 
         DataWrapper<DataSetModel> out = new DataWrapper<>();
         out.setItems(dataSets);
+        out.setWarnings(warnings);
         return out;
     }
 
     @Transactional
-    public DatasetEntity validateAndUpdate(DatasetEntity dataSet, DataSetForm form) throws PulsarClientException {
+    public GraphDataWrapper<NodeModel, EdgeProxy> validateAndUpdate(DatasetEntity dataSet, DataSetForm form) throws PulsarClientException {
         ResponseError<BadRequestError> errors = new ResponseError<>();
         if(form.getUpdate() != null && !form.getUpdate().validateUpdateFields()){
             errors.setError(new BadRequestError());
@@ -134,9 +145,9 @@ public class DataSetService {
         }
 
         updateGraphData.getNodes().add(urf);
-        this.resourceService.update(updateGraphData);
-
-        return dataSet;
+        // Returned rather than discarded: the caller needs the warnings, and the entity it passed
+        // in is mutated in place by the pipeline, so it still has that.
+        return this.resourceService.update(updateGraphData);
     }
 
     private void validateUniqueExternalId(Collection<DataSetForm> items) throws DuplicateDataException{

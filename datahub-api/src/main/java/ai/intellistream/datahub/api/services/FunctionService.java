@@ -74,6 +74,9 @@ public class FunctionService {
 
         var result = new DataWrapper<Function>();
         result.setItems(new ArrayList<>(FunctionTransformer.toFunction(functionRepository.findAllById(ids))));
+        // Same reason as the data set adapter: the shared path judged the name, and re-wrapping
+        // the response would otherwise swallow what it found.
+        result.setWarnings(created.getWarnings());
         return result;
     }
 
