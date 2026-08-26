@@ -10,6 +10,7 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.edge.EdgeMapper;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatasetAclInvalidationEvent;
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
@@ -115,6 +116,9 @@ public class ResourceService {
     /** Builds edges and enforces the edge endpoint rules; see {@link EdgeMapper}. */
     private final EdgeMapper edgeMapper;
 
+    /** The shared node-update pipeline; see {@link NodeUpdateService}. */
+    private final NodeUpdateService nodeUpdateService;
+
     public ResourceService(
             EntityManager entityManager,
             NodeRepository nodeRepository,
@@ -133,7 +137,8 @@ public class ResourceService {
             PolicyEnforcement policyEnforcement,
             DatasetClosureService datasetClosureService,
             NodeReadMapper nodeReadMapper,
-            EdgeMapper edgeMapper){
+            EdgeMapper edgeMapper,
+            NodeUpdateService nodeUpdateService){
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
@@ -152,6 +157,7 @@ public class ResourceService {
         this.datasetClosureService = datasetClosureService;
         this.nodeReadMapper = nodeReadMapper;
         this.edgeMapper = edgeMapper;
+        this.nodeUpdateService = nodeUpdateService;
     }
 
     /**
@@ -333,28 +339,7 @@ public class ResourceService {
      * editing an unrelated field on a legacy resource fails on a naming rule the caller never
      * touched. {@link PolicyCandidate#requiresEvaluation()} does the comparison.
      */
-    private static List<PolicyCandidate> namingCandidatesForUpdate(
-            List<Map.Entry<UpdateResourceForm, NodeEntity>> targets) {
-        List<PolicyCandidate> candidates = new ArrayList<>();
-        int index = 0;
-        for (Map.Entry<UpdateResourceForm, NodeEntity> target : targets) {
-            UpdateResourceForm form = target.getKey();
-            NodeEntity entity = target.getValue();
-            String newExternalId = form.getUpdate() == null ? null : form.getUpdate().getExternalId().getSet();
-            if (newExternalId != null) {
-                // The incoming name if the same request renames it, else the stored one — a
-                // suggestion should be derived from the name the entity will actually have.
-                String newName = form.getUpdate().getName().getSet();
-                candidates.add(PolicyCandidate.forUpdate(
-                        index, newExternalId,
-                        newName != null ? newName : entity.getName(),
-                        entity.getDataSet() == null ? null : entity.getDataSet().getId(),
-                        entity.getId(), entity.getExternalId()));
-            }
-            index++;
-        }
-        return candidates;
-    }
+
 
     /**
      * Persist warnings once the entities exist, mapping each finding's external id to its node id.
@@ -436,67 +421,12 @@ public class ResourceService {
             List<EdgeEntity> edges = new ArrayList<>();
             List<PolicyFinding> policyWarnings;
 
-            // Create error list that can return missing nodes to user
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-
-            // Resolve every target first, WITHOUT mutating any of them. The naming policy has to
-            // see the whole batch before anything is written, and updateNode() below writes the new
-            // external id straight onto the managed entity — after which Hibernate may auto-flush
-            // ahead of the guard's own query and persist a value the policy was about to reject.
-            // So: resolve, then judge, then apply.
-            List<Map.Entry<UpdateResourceForm, NodeEntity>> targets = new ArrayList<>();
-            for(UpdateResourceForm form : apiReqData.getNodes()){
-                NodeEntity resource = null;
-                Long id = form.getId();
-                String externalId = form.getExternalId();
-                if(id == null && externalId == null){
-                    var de = new BadRequestError();
-                    de.setMessage("Missing both id and externalId, asset cannot be found.");
-                    de.getFields().add(Map.of("externalId", "null", "id", "null"));
-                    errors.setError(de);
-                    throw new BadRequestException(errors);
-                } else if(id != null){
-                    resource = nodeRepository.findById(id).orElse(null);
-                } else {
-                    Long externalHashId = ExternalIds.hash(externalId);
-                    resource = nodeRepository.findByExternalIdHash(externalHashId);
-                }
-
-                if(resource != null){
-                    // Must be able to write the resource's current dataset before mutating it.
-                    dataSecurity.assertCanWrite(resource);
-                    // Mutating a dataset or policy node additionally needs the manage grant. Stated
-                    // explicitly rather than inherited from those nodes being orphans (see
-                    // DataSecurity#canManageDataSets on that coincidence) — an orphan-based rule
-                    // would miss a dataset/policy node that was minted carrying a data_set_id.
-                    if (isManagedNodeType(resource)) {
-                        dataSecurity.assertCanManageDataSets();
-                    }
-                    // Functions are plain datastore nodes now — editable like any resource.
-                    targets.add(Map.entry(form, resource));
-                } else {
-                    var de = new BadRequestError();
-                    de.setMessage("Resource cannot be found.");
-                    de.getFields().add(Map.of("externalId", String.valueOf(externalId), "id", String.valueOf(id)));
-                    errors.setError(de);
-                    throw new BadRequestException(errors);
-                }
-            }
-
-            // If missing nodes found, throw error to user
-            if(errors.getError() != null && !errors.getError().getFields().isEmpty()){
-                throw new BadRequestException(errors);
-            }
-
-            // Only ids that actually change are judged — see namingCandidatesForUpdate. Otherwise
-            // tightening a policy would make every pre-existing resource unupdatable, and a steward
-            // fixing a description would get a naming error on a field they did not touch.
-            policyWarnings = policyEnforcement.check(namingCandidatesForUpdate(targets));
-
-            // Now apply. Nothing above this line has mutated an entity.
-            for (Map.Entry<UpdateResourceForm, NodeEntity> target : targets) {
-                nodes.add( updateNode(target.getValue(), target.getKey()) );
-            }
+            // The node half of the update runs through the shared pipeline: resolve and
+            // authorize every target without touching it, judge the whole batch against the
+            // naming policy, then apply. The order matters — see NodeUpdateService.
+            var targets = nodeUpdateService.resolveAndAuthorize(apiReqData.getNodes());
+            policyWarnings = nodeUpdateService.judgeNaming(targets);
+            nodes.addAll(nodeUpdateService.apply(targets));
 
             // Update all new assets so they get id and verify all is good
             Iterable<NodeEntity> savedResources = nodeRepository.saveAll(nodes);
@@ -660,104 +590,7 @@ public class ResourceService {
         return edge;
     }
 
-    @Transactional
-    public NodeEntity updateNode(NodeEntity resource, UpdateResourceForm form) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        if(!form.getUpdate().validateFields()){
-            errors.setError(new BadRequestError());
-            form.getUpdate().getErrors().forEach( error -> {
-                errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-            });
-            throw new BadRequestException(errors);
-        }
 
-        ResourceFields fields = form.getUpdate();
-        resource.setLastUpdated(ZonedDateTime.now());
-
-        // Update externalId
-        if(fields.getExternalId().getSet() != null){
-            String newExternalId = fields.getExternalId().getSet();
-            if(form.getExternalId() == null){
-                form.setExternalId(resource.getExternalId());
-            }
-            resource.setExternalId(newExternalId);
-        }
-
-        // Update name field
-        if(fields.getName().getSet() != null){
-            resource.setName(fields.getName().getSet());
-        }
-
-        /**
-         * Update metadata
-         * If key found, update metadata value in existing entry,
-         * If key not found, add entry
-         * If remove, delete metadata entry
-         */
-        Map<String, String> metadata = resource.getMetadata();
-        if(fields.getMetadata().getSet() != null){
-            resource.setMetadata(fields.getMetadata().getSet());
-        }
-
-        if(fields.getMetadata().getAdd() != null){
-            resource.getMetadata().putAll(fields.getMetadata().getAdd());
-        }
-        if(fields.getMetadata().getRemove() != null ){
-            resource.getMetadata().keySet().removeAll(fields.getMetadata().getRemove());
-        }
-
-        // Update description field
-        if(fields.getDescription().getSet() != null){
-            resource.setDescription(fields.getDescription().getSet());
-        }
-        if(fields.getDescription().getSetNull()){
-            resource.setDescription(null);
-        }
-        // Update source field (common to all node types)
-        if(fields.getSource().getSet() != null){
-            resource.setSource(fields.getSource().getSet());
-        }
-        if(fields.getSource().getSetNull() ){
-            resource.setSource(null);
-        }
-        if (resource instanceof AssetEntity asset){
-            if(fields.getGeoLocation().getSet() != null){
-                asset.setGeoLocation(fields.getGeoLocation().getSet().getJson());
-            }
-            if(fields.getGeoLocation().getSetNull()){
-                asset.setGeoLocation(null);
-            }
-        }
-
-
-        // Update labels. A node's type-label (ASSET/DATASET/POLICY/TIMESERIES/FUNCTION) is intrinsic
-        // and immutable — resolveLabelUpdate returns the new label names with this node's type-label
-        // enforced (empty when no label change was requested; see LabelService#resolveLabelUpdate).
-        // Apply the same names to both Postgres representations so they can't drift: the labels string
-        // and the M2M labelEntities (the latter is what the label-in-use check reads via Label.nodes).
-        labelService.resolveLabelUpdate(resource, fields.getLabels())
-                .ifPresent(labelNames -> nodeService.applyLabelNames(resource, labelNames));
-
-        // Update dataset id field
-        if(fields.getDataSetId().getSet() != null){
-            Long dataSetId = fields.getDataSetId().getSet();
-            // Moving a resource into a dataset also requires write access to the target.
-            dataSecurity.assertCanWriteDataSet(dataSetId);
-            DatasetEntity dataSet = dataSetRepository.findById(dataSetId).orElseThrow(()->{
-                var de = new BadRequestError();
-                de.setMessage("DataSet cannot be found.");
-                de.getFields().add(Map.of("DataSet.Id", String.valueOf(dataSetId)));
-                errors.setError(de);
-                return new BadRequestException(errors);
-            });
-            resource.setDataSet(dataSet);
-        }
-        if(fields.getDataSetId().getSetNull()){
-            resource.setDataSet(null);
-        }
-
-        return resource;
-    }
 
 
     /** Delegates to {@link EdgeMapper}; kept so existing callers (policy, timeseries, edges) keep their entry point. */
