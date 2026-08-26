@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -38,8 +39,7 @@ class NodeUpdateStrategyRegistryTest {
         when(labelService.resolveLabelUpdate(any(), any())).thenReturn(Optional.empty());
         return new NodeUpdateService(
                 mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
-                labelService, mock(NodeService.class), mock(PolicyEnforcement.class),
-                List.of(new AssetUpdateStrategy()));
+                labelService, mock(NodeService.class), mock(PolicyEnforcement.class));
     }
 
     private static UpdateResourceForm settingGeoLocation() {
@@ -76,8 +76,8 @@ class NodeUpdateStrategyRegistryTest {
     }
 
     @Test
-    @DisplayName("a type with no strategy updates through the shared pipeline alone")
-    void aTypeWithoutAStrategyStillUpdates() {
+    @DisplayName("a type registered as NONE updates through the shared pipeline alone")
+    void aTypeRegisteredAsNoneStillUpdates() {
         for (NodeEntity node : List.of(new ResourceEntity(), new DatasetEntity())) {
             UpdateResourceForm form = new UpdateResourceForm(1L);
             form.getUpdate().getName().set("Renamed");
@@ -86,5 +86,37 @@ class NodeUpdateStrategyRegistryTest {
 
             assertThat(node.getName()).isEqualTo("Renamed");
         }
+    }
+
+    /**
+     * The registry is fixed and exhaustive so that a node type nobody has considered fails loudly
+     * instead of being quietly half-updated. This is the check that notices: add a seventh entity
+     * and it fails here, at the point where the omission is cheap to fix.
+     */
+    @Test
+    @DisplayName("every concrete node entity is registered")
+    void theRegistryCoversTheWholeEntityFamily() {
+        assertThat(NodeUpdateService.registeredTypes())
+                .containsExactlyInAnyOrder(
+                        ai.intellistream.datahub.jpa.domains.AssetEntity.class,
+                        ai.intellistream.datahub.jpa.domains.ResourceEntity.class,
+                        ai.intellistream.datahub.jpa.domains.DatasetEntity.class,
+                        ai.intellistream.datahub.jpa.domains.PolicyEntity.class,
+                        ai.intellistream.datahub.jpa.domains.FunctionEntity.class,
+                        ai.intellistream.datahub.jpa.domains.TimeseriesEntity.class);
+    }
+
+    @Test
+    @DisplayName("an unregistered node type is refused, not half-applied")
+    void anUnregisteredTypeIsRefused() {
+        // A NodeEntity that is not one of the six — what a newly added entity looks like before
+        // anyone registers it.
+        NodeEntity unknown = new NodeEntity() { };
+        UpdateResourceForm form = new UpdateResourceForm(1L);
+        form.getUpdate().getName().set("Renamed");
+
+        assertThatThrownBy(() -> engine().updateNode(unknown, form))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No update strategy registered");
     }
 }
