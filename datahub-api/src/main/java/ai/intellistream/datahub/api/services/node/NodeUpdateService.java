@@ -8,7 +8,6 @@ import ai.intellistream.datahub.api.policy.PolicyCandidate;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
-import ai.intellistream.datahub.jpa.domains.AssetEntity;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
@@ -19,7 +18,7 @@ import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
 import ai.intellistream.datahub.services.LabelService;
 import ai.intellistream.datahub.services.NodeService;
-import lombok.RequiredArgsConstructor;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Component;
 
 import java.time.ZonedDateTime;
@@ -55,7 +54,6 @@ import java.util.Map;
  * them over in later phases, when the other two services fold in.
  */
 @Component
-@RequiredArgsConstructor
 public class NodeUpdateService {
 
     private final NodeRepository nodeRepository;
@@ -64,6 +62,30 @@ public class NodeUpdateService {
     private final LabelService labelService;
     private final NodeService nodeService;
     private final PolicyEnforcement policyEnforcement;
+
+    /**
+     * Per-type field mapping, keyed by exact entity class. A type with nothing of its own simply
+     * has no entry and gets the shared pipeline unchanged, which is why most types need no
+     * strategy at all.
+     */
+    private final Map<Class<? extends NodeEntity>, NodeUpdateStrategy> strategies;
+
+    public NodeUpdateService(NodeRepository nodeRepository,
+                             DataSetRepository dataSetRepository,
+                             DataSecurity dataSecurity,
+                             LabelService labelService,
+                             NodeService nodeService,
+                             PolicyEnforcement policyEnforcement,
+                             List<NodeUpdateStrategy> strategies) {
+        this.nodeRepository = nodeRepository;
+        this.dataSetRepository = dataSetRepository;
+        this.dataSecurity = dataSecurity;
+        this.labelService = labelService;
+        this.nodeService = nodeService;
+        this.policyEnforcement = policyEnforcement;
+        this.strategies = strategies.stream().collect(java.util.stream.Collectors.toMap(
+                NodeUpdateStrategy::handles, s -> s));
+    }
 
     /** A resolved update: the caller's requested changes, paired with the managed entity. */
     public record Target(UpdateResourceForm form, NodeEntity entity) {}
@@ -112,6 +134,28 @@ public class NodeUpdateService {
             throw new BadRequestException(errors);
         }
         return targets;
+    }
+
+    /**
+     * The strategy for this node, or null if its type has nothing of its own to apply.
+     *
+     * <p>Looks up the nearest registered ancestor rather than the exact class, because the runtime
+     * class is often not the mapped one: {@code Hibernate.getClass} unwraps a lazy proxy, but any
+     * other subclass — a test double, a future refinement of a type — would otherwise miss its
+     * strategy and silently drop that type's fields with no error anywhere. Walking stops at
+     * {@code NodeEntity}, so an unregistered type resolves to null rather than to something
+     * else's mapping.
+     */
+    private NodeUpdateStrategy strategyFor(NodeEntity node) {
+        Class<?> type = Hibernate.getClass(node);
+        while (type != null && NodeEntity.class.isAssignableFrom(type)) {
+            NodeUpdateStrategy strategy = strategies.get(type);
+            if (strategy != null) {
+                return strategy;
+            }
+            type = type.getSuperclass();
+        }
+        return null;
     }
 
     /**
@@ -164,7 +208,6 @@ public class NodeUpdateService {
          * If key not found, add entry
          * If remove, delete metadata entry
          */
-        Map<String, String> metadata = resource.getMetadata();
         if(fields.getMetadata().getSet() != null){
             resource.setMetadata(fields.getMetadata().getSet());
         }
@@ -190,13 +233,10 @@ public class NodeUpdateService {
         if(fields.getSource().getSetNull() ){
             resource.setSource(null);
         }
-        if (resource instanceof AssetEntity asset){
-            if(fields.getGeoLocation().getSet() != null){
-                asset.setGeoLocation(fields.getGeoLocation().getSet().getJson());
-            }
-            if(fields.getGeoLocation().getSetNull()){
-                asset.setGeoLocation(null);
-            }
+        // The only per-type step.
+        NodeUpdateStrategy strategy = strategyFor(resource);
+        if (strategy != null) {
+            strategy.apply(resource, fields);
         }
 
 
