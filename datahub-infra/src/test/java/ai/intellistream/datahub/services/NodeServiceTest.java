@@ -159,6 +159,41 @@ class NodeServiceTest {
         assertNotNull(service.createFromResource(asset).getDataSet());
     }
 
+    /**
+     * A function, data set, policy or time series is not a navigation root. The legacy flat body
+     * always carries {@code isRoot:false}, which means nothing and must keep working; an explicit
+     * {@code true} is a request this type cannot honour and is refused rather than dropped.
+     */
+    @Test
+    void aTypeThatCannotBeRootRefusesIsRootTrue() {
+        for (String type : new String[]{"FUNCTION", "DATASET", "POLICY"}) {
+            Resource body = resource(type);
+            body.setIsRoot(true);
+            assertThrows(InvalidResourceException.class, () -> nodeService.createFromResource(body),
+                    type + " must refuse isRoot=true");
+        }
+    }
+
+    @Test
+    void isRootFalseIsAcceptedOnTypesThatCannotBeRoot() {
+        Resource body = resource("FUNCTION");
+        body.setIsRoot(false);
+
+        NodeEntity node = nodeService.createFromResource(body);
+
+        assertInstanceOf(FunctionEntity.class, node);
+        assertEquals(Boolean.FALSE, node.getIsRoot());
+    }
+
+    /** Root-ness still applies where it is legal. */
+    @Test
+    void anAssetCanStillBeARoot() {
+        Resource body = resource("ASSET");
+        body.setIsRoot(true);
+
+        assertEquals(Boolean.TRUE, nodeService.createFromResource(body).getIsRoot());
+    }
+
     /** Without a dataSetId the same creates succeed and stay orphans. */
     @Test
     void datasetAndPolicyCreatesStayOrphans() {

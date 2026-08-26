@@ -7,7 +7,6 @@ import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.validation.AllowedValueType;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
-import ai.intellistream.datahub.resource.NodeForm;
 import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import com.fasterxml.jackson.annotation.*;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -96,16 +95,4 @@ public class Timeseries extends NodeModel {
         this.valueType = (valueType == null) ? DEFAULT_VALUE_TYPE : valueType.toLowerCase();
     }
 
-    @JsonIgnore
-    public NodeForm getNodeForm(){
-        var f = new NodeForm();
-        f.setName(getName());
-        f.setDescription(getDescription());
-        f.setExternalId(getExternalId());
-        f.setDataSetId(getDataSetId());
-        f.setCreatedTime(getCreatedTime());
-        f.setLastUpdatedTime(getLastUpdatedTime());
-        f.setMetadata(getMetadata());
-        return f;
-    }
 }

@@ -142,18 +142,31 @@ public abstract class NodeModel extends AbstractResource {
      *
      * <p>Declaring a setter here and <em>no</em> getter is what keeps those bodies binding without
      * putting the field on the wire: serialization needs something to read, and this base has
-     * neither field nor accessor, so {@code isRoot} never appears in a response for these types.
-     * {@code Resource} and {@code Asset} carry a real {@code isRoot} field whose generated
+     * neither field nor accessor for it, so {@code isRoot} never appears in a response for these
+     * types. {@code Resource} and {@code Asset} carry a real {@code isRoot} field whose generated
      * accessors override this setter and supply the getter, so root-ness is still bound, applied
      * and serialized wherever it means something. (Do not reach for
      * {@code @JsonProperty(access = WRITE_ONLY)} here: the annotation is inherited by those two
      * subclasses and hides their real field from every response — their wire-contract tests fail
-     * the moment it is added.) The value is discarded for the rest because it never meant anything
-     * there: a data set, policy, function or time series is not a navigation root.
+     * the moment it is added.)
+     *
+     * <p>The value is <em>captured, not applied</em>. {@code false} is what the legacy shape sends
+     * for everything and means nothing, so it passes; {@code true} is a caller genuinely asking
+     * for a root, which these types cannot be, and the create path refuses it rather than
+     * pretending. See {@code getUnsupportedIsRoot()}.
      */
     public void setIsRoot(Boolean isRoot) {
-        // Deliberately empty; see the javadoc. Overridden where root-ness is legal.
+        this.unsupportedIsRoot = isRoot;
     }
+
+    /**
+     * An {@code isRoot} that arrived on a node type which cannot be a root — captured by
+     * {@link #setIsRoot} so the create path can refuse a {@code true} instead of silently
+     * dropping it. Always null on {@code Resource} and {@code Asset}, whose own setter overrides
+     * that hook and applies the value for real. Never on the wire, in either direction.
+     */
+    @JsonIgnore
+    private Boolean unsupportedIsRoot;
 
     /**
      * Set the labels, always keeping {@link #typeLabel()} present.

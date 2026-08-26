@@ -111,7 +111,7 @@ public class FunctionService {
      * via the label-resolution rules in {@link ResourceService}.
      */
     @Transactional
-    public GraphDataWrapper<Resource, EdgeProxy> update(
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(
             GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
         return resourceService.update(apiReqData);
     }

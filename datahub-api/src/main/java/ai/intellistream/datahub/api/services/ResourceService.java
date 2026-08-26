@@ -427,11 +427,11 @@ public class ResourceService {
      * @throws RuntimeException
      */
     @Transactional(rollbackFor = Exception.class)
-    public GraphDataWrapper<Resource, EdgeProxy> update(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData)
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData)
             throws PulsarClientException, RuntimeException {
 
         try{
-            GraphDataWrapper<Resource, EdgeProxy> collection = new GraphDataWrapper<>();
+            GraphDataWrapper<NodeModel, EdgeProxy> collection = new GraphDataWrapper<>();
             List<NodeEntity> nodes = new ArrayList<>();
             List<EdgeEntity> edges = new ArrayList<>();
             List<PolicyFinding> policyWarnings;
@@ -524,17 +524,21 @@ public class ResourceService {
             // Save all new edges so they get id and verify all is good
             Iterable<EdgeEntity> savedEdges = edgeRepository.saveAll(edges);
 
-            // Convert saved objects into proxy objects and send to pulsar
+            // Two shapes, deliberately: the flat Resource feeds Pulsar (Avro reflection cannot
+            // carry a polymorphic union), while the REST echo is typed, so updating an asset's
+            // geoLocation or a timeseries' unit returns that field back.
             List<Resource> resourceList = new ArrayList<>();
             List<EdgeProxy> edgesList = new ArrayList<>();
+            List<NodeEntity> savedList = new ArrayList<>();
             savedResources.forEach( it -> {
+                savedList.add(it);
                 resourceList.add( ResourceTransformer.from(it) );
             });
             savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
 
             invalidateDatasetAclIfNeeded(nodes, edges, belongsToTouched.get());
 
-            collection.setNodes(resourceList);
+            collection.setNodes(nodeReadMapper.from(savedList, edgesList));
             collection.setRelations(edgesList);
 
             nodeRepository.flush();
