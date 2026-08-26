@@ -8,6 +8,9 @@ import ai.intellistream.datahub.jpa.domains.*;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 
+import ai.intellistream.datahub.function.Function;
+import ai.intellistream.datahub.models.DataSetModel;
+import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.NodeModel;
 import java.util.Set;
 import ai.intellistream.datahub.models.NodeModelSubtypes;
@@ -182,12 +185,19 @@ public class NodeService {
 
     /** The type-label this DTO's runtime class stands for; null for the base/plain-resource shapes. */
     private static String dtoTypeOf(NodeModel form) {
-        for (var entry : NodeModelSubtypes.BY_TYPE_LABEL.entrySet()) {
-            if (entry.getValue().isInstance(form)) {
-                return entry.getKey();
-            }
-        }
-        return null;
+        // A switch on the runtime type, not a scan of the registry. BY_TYPE_LABEL is a Map.of,
+        // whose iteration order is randomised per JVM run, so "first entry that isInstance"
+        // silently becomes non-deterministic the moment one node DTO extends another — the same
+        // body would build different entity types on different boots. Ordering by specificity is
+        // the compiler's job here.
+        return switch (form) {
+            case Asset _ -> TypeLabels.ASSET;
+            case Timeseries _ -> TypeLabels.TIMESERIES;
+            case DataSetModel _ -> TypeLabels.DATASET;
+            case Policy _ -> TypeLabels.POLICY;
+            case Function _ -> TypeLabels.FUNCTION;
+            default -> null;   // Resource, and the base shape the adapters build
+        };
     }
 
     private static InvalidResourceException invalidResource(String message) {

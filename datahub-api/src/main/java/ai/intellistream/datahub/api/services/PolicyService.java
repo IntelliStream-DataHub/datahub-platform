@@ -14,6 +14,8 @@ import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.validation.ResourceFields;
+import ai.intellistream.datahub.api.policy.PolicyEnforcement;
+import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.*;
@@ -84,6 +86,9 @@ public class PolicyService {
 
     /** The one node-update pipeline; see {@link NodeUpdateService}. */
     private final NodeUpdateService nodeUpdateService;
+
+    /** Records naming-policy warnings, the same way the resource and timeseries paths do. */
+    private final PolicyEnforcement policyEnforcement;
 
     // 1. CREATE NEW EMPTY POLICY NODE
     @Transactional
@@ -222,7 +227,9 @@ public class PolicyService {
         UpdateResourceForm command = asNodeCommand(form, fields);
         List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
         nodeUpdateService.guardRenames(targets);
-        nodeUpdateService.judgeNaming(targets);
+        // A NOT_OK verdict throws; a WARN verdict comes back as findings, and dropping them would
+        // close only half the divergence — the resource and timeseries paths both record theirs.
+        List<PolicyFinding> policyWarnings = nodeUpdateService.judgeNaming(targets);
         nodeUpdateService.apply(targets);
 
         // 2. THE POLICY'S OWN. Deactivation is a column on the node, so it is set here rather than smuggled through the
@@ -258,6 +265,11 @@ public class PolicyService {
         PolicyScopeValidator.validateNamingConfig(node.getMetadata());
 
         PolicyEntity saved = policyRepository.save(node);
+        // Findings reference node_id, so they are recorded after the save that guarantees one.
+        if (!policyWarnings.isEmpty()) {
+            policyEnforcement.recordWarnings(policyWarnings, Map.of(saved.getExternalId(),
+                    new PolicyEnforcement.WrittenEntity(saved.getId(), null)));
+        }
 
         publishPolicyUpsert(saved);
 

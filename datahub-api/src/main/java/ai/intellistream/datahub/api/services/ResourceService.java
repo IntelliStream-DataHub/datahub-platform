@@ -455,7 +455,11 @@ public class ResourceService {
             msg.setEdges(edgesList);
             msg.setUpdateEdges(apiReqData.getRelations().stream().toList());
 
-            collection.setNodes(NodeReadMapper.from(savedList, edgesList));
+            // Mapped WITHOUT edges on purpose, unlike create. On create the edges in hand ARE
+            // every edge those brand-new nodes have; on update edgesList holds only the relations
+            // this request touched, so attaching them would make a node with twelve edges answer
+            // with the one that changed — a partial set indistinguishable from a complete one.
+            collection.setNodes(NodeReadMapper.from(savedList));
             collection.setRelations(edgesList);
 
             nodeRepository.flush();
