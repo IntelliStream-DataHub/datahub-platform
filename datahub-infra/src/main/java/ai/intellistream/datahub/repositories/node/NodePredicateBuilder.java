@@ -237,12 +237,35 @@ public final class NodePredicateBuilder {
      */
     public static List<Order> searchOrderBy(CriteriaBuilder cb, Root<? extends NodeEntity> root, String phrase) {
         return List.of(
-                cb.desc(fullTextRank(cb, root, phrase)),
+                cb.desc(searchRank(cb, root, phrase)),
                 cb.asc(root.get("id")));
     }
 
+    /** The cursor property name a relevance-ordered search pages by. */
+    public static final String RELEVANCE = "relevance";
+
+    /**
+     * "Everything strictly after this cursor, in relevance order" — the keyset predicate that lets
+     * a search be paged instead of truncated at {@code limit}.
+     *
+     * <p>Search orders by {@code (rank desc, id asc)}, which is already a total order, so a
+     * position in it is fully described by the last row's rank and id. The rank is not a column:
+     * it is recomputed per row for this phrase, which is why the query has to select it in order
+     * to hand one back.
+     */
+    public static Predicate searchKeyset(CriteriaBuilder cb, Root<? extends NodeEntity> root,
+                                         String phrase, PageCursor cursor) {
+        Expression<Float> rank = searchRank(cb, root, phrase);
+        float lastRank = Float.parseFloat(cursor.value());
+        Path<Long> id = root.get("id");
+        long lastId = Long.parseLong(cursor.id());
+        return cb.or(
+                cb.lessThan(rank, lastRank),
+                cb.and(cb.equal(rank, lastRank), cb.greaterThan(id, lastId)));
+    }
+
     /** The relevance score of {@code phrase} against this node, for {@link #searchOrderBy}. */
-    private static Expression<Float> fullTextRank(CriteriaBuilder cb, Root<? extends NodeEntity> root, String phrase) {
+    public static Expression<Float> searchRank(CriteriaBuilder cb, Root<? extends NodeEntity> root, String phrase) {
         return cb.function(
                 FtsMatchFunctionContributor.RANK_FUNCTION_NAME, Float.class,
                 root.get("name"), root.get("externalId"), root.get("description"),

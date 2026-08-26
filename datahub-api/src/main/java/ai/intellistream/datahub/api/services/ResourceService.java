@@ -1102,32 +1102,49 @@ public class ResourceService {
             }
         }
 
+        String phrase = searchForm.getSearch().getQuery();
+        PageCursor cursor = NodePaging.validatedSearch(searchForm.getCursor());
+
         CriteriaBuilder cb = entityManager.getCriteriaBuilder();
-        CriteriaQuery<NodeEntity> q = cb.createQuery(NodeEntity.class);
+        // A tuple query, because the caller is handed a cursor and the position in a relevance
+        // order is the rank — which is computed per row for this phrase, not stored, so it has to
+        // be selected to be reported.
+        CriteriaQuery<jakarta.persistence.Tuple> q = cb.createTupleQuery();
         Root<NodeEntity> root = q.from(NodeEntity.class);
 
         List<Predicate> predicates = NodePredicateBuilder.build(cb, q, root, filter, nodeTypes);
-        predicates.add(NodePredicateBuilder.fullTextMatch(cb, root, searchForm.getSearch().getQuery()));
+        predicates.add(NodePredicateBuilder.fullTextMatch(cb, root, phrase));
         if (filter != null && filter.getIsRoot() != null) {
             predicates.add(cb.equal(root.get("isRoot"), filter.getIsRoot()));
         }
         if (allowed != null) {
             predicates.add(NodePredicateBuilder.dataSetScope(root, allowed));
         }
+        if (cursor != null) {
+            predicates.add(NodePredicateBuilder.searchKeyset(cb, root, phrase, cursor));
+        }
 
-        q.select(root)
+        q.multiselect(root.alias(SEARCH_NODE), NodePredicateBuilder.searchRank(cb, root, phrase).alias(SEARCH_RANK))
                 // No DISTINCT: the metadata criterion is an EXISTS subquery rather than a join,
                 // so nothing here multiplies rows any more. It also could not stay — Postgres
                 // rejects an ORDER BY expression that is not in the select list of a SELECT
                 // DISTINCT, which is every relevance-ordered search.
                 .where(predicates.toArray(new Predicate[0]))
-                .orderBy(NodePredicateBuilder.searchOrderBy(cb, root, searchForm.getSearch().getQuery()));
+                .orderBy(NodePredicateBuilder.searchOrderBy(cb, root, phrase));
 
-        TypedQuery<NodeEntity> query = entityManager.createQuery(q);
+        TypedQuery<jakarta.persistence.Tuple> query = entityManager.createQuery(q);
         query.setMaxResults(searchForm.getLimit());
-        data.setItems(NodeReadMapper.from(query.getResultList()));
+        List<jakarta.persistence.Tuple> rows = query.getResultList();
+
+        List<NodeEntity> nodes = rows.stream().map(t -> t.get(SEARCH_NODE, NodeEntity.class)).toList();
+        data.setItems(NodeReadMapper.from(nodes));
+        data.setNextCursor(NodePaging.nextSearchCursor(rows, searchForm.getLimit()));
         return data;
     }
+
+    /** Tuple aliases for the relevance-ordered search: the node, and the rank it matched at. */
+    private static final String SEARCH_NODE = "node";
+    private static final String SEARCH_RANK = "rank";
 
     @Transactional(readOnly = true)
     public ResourceNetwork fetchRelatedResources(@Valid RelatedResourcesForm form) {
