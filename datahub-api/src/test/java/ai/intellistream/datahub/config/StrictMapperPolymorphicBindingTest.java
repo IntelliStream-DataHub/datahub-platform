@@ -32,9 +32,10 @@ class StrictMapperPolymorphicBindingTest {
             .build();
 
     /**
-     * The regression this guards: {@code ResourceForm} declares {@code isRoot = false} and
-     * serializes under {@code NON_NULL}, so every legacy create body carries {@code isRoot} — even
-     * when its label sends it to a DTO that has no such field. Under the strict mapper an unknown
+     * The regression this guards: the flat create shape this api has always accepted carries
+     * {@code isRoot} on every body, even when its label sends it to a DTO that has no such field.
+     * In-tree callers now send the node shapes directly, but clients built against the older
+     * contract still post the flat one. Under the strict mapper an unknown
      * field is a 400, so before {@code NodeModel.setIsRoot} existed, creating a function, data
      * set, policy or time series through {@code /resources/create} answered 400 instead of 201.
      * A lenient mapper cannot catch this; only the strict one the api actually binds with can.

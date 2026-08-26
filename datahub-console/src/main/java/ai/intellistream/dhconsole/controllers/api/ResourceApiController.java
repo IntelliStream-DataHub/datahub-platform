@@ -6,7 +6,6 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.resource.ResourceWebForm;
 import ai.intellistream.dhconsole.api.DatahubApi;
 import ai.intellistream.datahub.api.responses.ResourceNetwork;
@@ -95,7 +94,7 @@ public class ResourceApiController {
             produces = {MediaType.APPLICATION_JSON_VALUE},
             consumes = {MediaType.APPLICATION_JSON_VALUE}
     )
-    public ResponseEntity<?> update(@Valid @RequestBody ResourceForm form){
+    public ResponseEntity<?> update(@Valid @RequestBody ResourceWebForm form){
         try {
             return respond(this.resourceApiService.update(form), HttpStatus.OK);
         } catch (ConflictException e){
