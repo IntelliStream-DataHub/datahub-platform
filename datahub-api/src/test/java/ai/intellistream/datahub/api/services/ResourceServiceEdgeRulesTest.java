@@ -59,7 +59,10 @@ class ResourceServiceEdgeRulesTest {
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), mock(DatasetClosureService.class),
                 new ai.intellistream.datahub.transformers.NodeReadMapper(),
-            new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, mock(RelationshipTypeRepository.class), relationshipTypeService));
+            new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, mock(RelationshipTypeRepository.class), relationshipTypeService),
+            new ai.intellistream.datahub.api.services.node.NodeUpdateService(
+                    mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
+                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)));
 
     /** Stub {@code mapEdge}'s resolution of an endpoint id, plus its rule-check projection. */
     private void node(long id, long nodeType, Long dataSetId) {
