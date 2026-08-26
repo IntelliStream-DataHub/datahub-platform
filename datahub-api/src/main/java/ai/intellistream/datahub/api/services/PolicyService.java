@@ -219,6 +219,9 @@ public class PolicyService {
         // ACL (the manage grant, since this is a PolicyEntity), the type-label guard, and the
         // naming policy. That last one is new: a policy rename used to be the one rename in the
         // system no naming convention was allowed to judge.
+        // The caller's form carries the id too: authorize() stamps the adapter command, which is
+        // discarded, but a policy identified by externalId alone must still publish a usable id.
+        form.setId(node.getId());
         UpdateResourceForm command = asNodeCommand(form, fields);
         List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
         nodeUpdateService.guardRenames(targets);

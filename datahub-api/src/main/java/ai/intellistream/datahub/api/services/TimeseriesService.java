@@ -1267,14 +1267,9 @@ public class TimeseriesService {
 
         DataWrapper<Timeseries> updatedTimeseries = updateTimeseries(apiReqData.getItems());
 
-        // When updating in neo4j in the consumer, we need the id
-        for(var ts : updatedTimeseries.getItems()){
-            for(var updateTs : apiReqData.getItems()){
-                if( ts.getExternalId().equals(updateTs.getExternalId())){
-                    updateTs.setId(ts.getId());
-                }
-            }
-        }
+        // The ids were stamped at resolution time, before any rename was applied. This used to be
+        // done here by matching external ids afterwards, which silently failed for the one case it
+        // mattered: a rename leaves the entity holding the new id and the form the old one.
 
         graphOutbox.queueUpsertIds(
                 apiReqData.getItems().stream().map(UpdateTimeseries::getId).toList(), List.of());
@@ -1307,6 +1302,11 @@ public class TimeseriesService {
                 continue;
             }
             TimeseriesFields fields = updateData.getUpdate();
+            // The id goes on the caller's own form too. authorize() stamps the adapter command,
+            // which is discarded here — but it is updateData that rides the CUD message, and the
+            // graph consumer looks the node up by that id. A caller who named the series by
+            // externalId would otherwise publish a null id and the graph would match nothing.
+            updateData.setId(dbTs.getId());
             pending.add(new Pending(dbTs, fields,
                     nodeUpdateService.authorize(asNodeCommand(updateData, fields), dbTs)));
         }
