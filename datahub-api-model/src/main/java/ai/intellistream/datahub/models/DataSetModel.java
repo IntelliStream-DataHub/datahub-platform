@@ -16,7 +16,6 @@ import java.util.List;
 @Getter @Setter
 @Schema(name = "Data Set", description = "Data Set object")
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class DataSetModel extends NodeModel {
 
     public DataSetModel() {

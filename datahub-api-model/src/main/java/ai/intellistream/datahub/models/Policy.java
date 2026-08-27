@@ -17,7 +17,6 @@ import java.util.List;
 @Setter
 @Schema(description = "Add policies to the data set.")
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Policy extends NodeModel {
 
     public Policy() {

@@ -48,7 +48,6 @@ import java.util.*;
 @Setter
 @JsonIgnoreProperties(value = { "createdTimeHR", "lastUpdatedTimeHR", "elementId" })
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Timeseries extends NodeModel {
 
     @NotBlank(message = "timeseries.unit.not.blank")
@@ -61,7 +60,6 @@ public class Timeseries extends NodeModel {
     @Schema(description = "The external id of the unit that the time series use.", example = "mass_flow_rate_kghr")
     private String unitExternalId;
 
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String tableEngine = TableEngine.MERGETREE.name();
 
     /** Value type used when the caller doesn't specify one (or sends null). */
@@ -70,8 +68,7 @@ public class Timeseries extends NodeModel {
     @NotBlank
     @AllowedValueType
     @Schema(description = "The value type of the time series. Can be one of BIGINT, FLOAT, FLOAT32 (default), NUMERIC, DECIMAL32, TEXT and MIXED. Choosing the right one can optimize processing speed and reduce costs.", example = "FLOAT")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String valueType = DEFAULT_VALUE_TYPE;
+        private String valueType = DEFAULT_VALUE_TYPE;
 
     @JsonCreator
     public Timeseries(){
