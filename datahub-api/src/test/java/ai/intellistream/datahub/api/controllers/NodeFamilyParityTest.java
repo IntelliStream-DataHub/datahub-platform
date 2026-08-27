@@ -41,6 +41,7 @@ class NodeFamilyParityTest {
     private static Stream<Class<?>> nodeFamilyControllers() {
         return Stream.of(
                 ResourceController.class,
+                AssetController.class,
                 TimeseriesController.class,
                 DataSetController.class,
                 EventController.class,
