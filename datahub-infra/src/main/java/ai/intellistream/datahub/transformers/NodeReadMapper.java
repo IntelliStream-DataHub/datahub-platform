@@ -98,13 +98,12 @@ public final class NodeReadMapper {
      * (no unit, no securityCategories) — still strictly better than arriving mistyped as a
      * {@code Resource} carrying an {@code isRoot} that means nothing for it.
      *
-     * <p><strong>Constructor defaults are not facts here.</strong> The graph does not store a
-     * series' value type or table engine, and {@code Timeseries} seeds both
-     * ({@code valueType = float32}, {@code tableEngine = MERGETREE}) with no way to express
-     * "unknown" — {@code setValueType(null)} restores the default rather than clearing it. So a
-     * BIGINT series read from this path still reports {@code float32}. Treat both fields as
-     * unpopulated from a graph read and fetch the node by id for its real values; do not gate
-     * numeric behaviour on them. Geometry comes back
+     * <p><strong>Constructor defaults are not facts here.</strong> {@code Timeseries} seeds a
+     * {@code tableEngine} and an empty {@code securityCategories}, and the graph stores neither, so
+     * both are cleared rather than published as though they had been read. {@code valueType} is
+     * the exception: the graph does carry it, but only on nodes written since it started to — an
+     * older node reports it absent, so treat it as optional rather than guaranteed and fetch the
+     * node by id when you need certainty. Geometry comes back
      * as the graph's native WGS-84 point reconstructed as a GeoJSON Point (lossy for non-point
      * geometries, which Postgres holds in full), and only on assets.
      */
@@ -133,14 +132,16 @@ public final class NodeReadMapper {
                     yield asset;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES -> {
-                    // The graph stores none of a series' numeric metadata, and the DTO's
-                    // constructor defaults would otherwise be published as though it did — a
-                    // BIGINT series reporting float32, an empty securityCategories reading as
-                    // "unrestricted". Cleared, so they are absent rather than wrong.
+                    // The DTO's constructor defaults would otherwise be published as though the
+                    // graph had supplied them — an empty securityCategories reading as
+                    // "unrestricted", MERGETREE reported for a series stored some other way.
+                    // Cleared, so they are absent rather than wrong.
                     var ts = new ai.intellistream.datahub.timeseries.Timeseries();
-                    ts.setValueType(null);
                     ts.setTableEngine(null);
                     ts.setSecurityCategories(null);
+                    // The graph does carry the value type. Absent on nodes written before it did,
+                    // which is why it is read rather than assumed: null stays null.
+                    ts.setValueType(asString(node, "valueType"));
                     yield ts;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();
@@ -174,6 +175,12 @@ public final class NodeReadMapper {
     private static Boolean asBoolean(org.neo4j.driver.types.Node node, String key) {
         var value = node.get(key);
         return (value == null || value.isNull()) ? null : value.asBoolean();
+    }
+
+    /** Null for a property the node does not carry, so an absent value stays absent. */
+    private static String asString(org.neo4j.driver.types.Node node, String key) {
+        var value = node.get(key);
+        return (value == null || value.isNull()) ? null : value.asString();
     }
 
     /** The graph stores epoch millis; older nodes may carry a temporal value instead. */
