@@ -18,6 +18,10 @@ import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
+import ai.intellistream.datahub.errors.ResponseError;
+import org.springframework.http.HttpStatusCode;
 import ai.intellistream.datahub.transformers.PolicyTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
 import io.swagger.v3.oas.annotations.Operation;
@@ -185,6 +189,13 @@ public class PolicyController {
             // A scope or naming-config rejection is the caller's mistake, not a server fault; the
             // broad catch below would otherwise report it as a 500 with no usable detail.
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
+        } catch (DuplicateDataException e) {
+            // The shared pipeline's pre-check, which policy create now goes through: it catches a
+            // taken external id before the insert, so this is the 409 the caller gets in practice.
+            // The DataIntegrityViolationException below stays as the net for a race that slips
+            // past the check and reaches the unique index.
+            ResponseError<DuplicateError> dupError = e.getError();
+            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
         } catch (DataIntegrityViolationException dve) {
             // A duplicate externalId is a conflict, not a server fault. This was unhandled, so
             // creating a policy whose externalId already existed produced a bare 500 — the only
