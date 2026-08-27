@@ -7,8 +7,8 @@
 ## Why
 
 Datapoint ingestion is a hot path, but `TimeseriesService.insertDatapoints()`
-(`datahub-api/.../api/services/TimeseriesService.java`, ~line 628) and
-`deleteDatapoints()` (~line 936) both resolve the target timeseries from
+(`datahub-api/.../api/services/TimeseriesService.java`, ~line 728) and
+`deleteDatapoints()` (~line 1051) both resolve the target timeseries from
 PostgreSQL on every request via `timeseriesRepository.findByIdOrExternalId(...)`.
 
 Two costs follow from that:
@@ -44,9 +44,9 @@ That is the entire cacheable payload — small and stable.
 ## Plan
 
 1. **`TimeseriesMeta` record** — immutable `(id, externalId, valueTypeId,
-   valueTypeName, dataSetId)`. Place in `datahub-lib-nodep` (or `datahub-library`).
+   valueTypeName, dataSetId)`. Place in `datahub-commons`.
 
-2. **Extend `ValkeyService`** (`datahub-library/.../services/ValkeyService.java`),
+2. **Extend `ValkeyService`** (`datahub-infra/.../services/ValkeyService.java`),
    mirroring the existing `fetchLatestDatapoint`/`setLatestDatapoint`/`delete(key)`
    pattern (it already has `RedisClient` + `jsonMapper` + `DEFAULT_EXPIRE_TIME = 300`):
    - `Optional<TimeseriesMeta> fetchTimeseriesMeta(String tenantId, String lookupKey)`
@@ -66,11 +66,11 @@ That is the entire cacheable payload — small and stable.
 4. **Invalidation — must be airtight** (stale dataset/externalId gates a *write*
    permission check, so this is security-sensitive). Evict in every metadata-mutating
    path:
-   - `updateTimeseries(...)` (~line 1012) — externalId and dataset can change →
+   - `updateTimeseries(...)` (~line 1198) — externalId and dataset can change →
      evict **old and new** externalId.
-   - `deleteTimeseries(...)` (~line 166) — evict, or a deleted series stays
+   - `deleteTimeseries(...)` (~line 206) — evict, or a deleted series stays
      "writable" in cache until TTL.
-   - `save(...)` (~line 547) — evict-by-externalId on create to clear any stale
+   - `save(...)` (~line 521) — evict-by-externalId on create to clear any stale
      entry from a prior delete+recreate of the same externalId.
    - Eviction propagates across API instances because Valkey is shared — **but only
      if every writer calls it.** Audit for any other path that mutates a timeseries'
@@ -79,9 +79,9 @@ That is the entire cacheable payload — small and stable.
 ## Gotchas to bake in
 
 - **Tenant scoping is mandatory.** Keys must include `TenantContext.getTenantId()`
-  (ids and externalIds are per-tenant). While here, double-check the *existing*
-  latest-datapoint cache, which keys on a bare `externalId` — possible pre-existing
-  cross-tenant collision.
+  (ids and externalIds are per-tenant). The existing latest-datapoint cache already
+  does this — `ValkeyService.latestDatapointKey` hashes the externalId together with the
+  tenant id — so follow that pattern rather than inventing a second convention.
 - **Dual-key lookup.** Requests resolve by id *or* externalId; write both keys so
   either hits, and evict both.
 - **TTL bounds a write-ACL staleness window.** With explicit eviction on every write
