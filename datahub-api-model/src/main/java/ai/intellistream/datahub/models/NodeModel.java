@@ -4,7 +4,6 @@ package ai.intellistream.datahub.models;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.json.ToStringSerializer;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -126,53 +125,6 @@ public abstract class NodeModel extends AbstractResource {
     protected String typeLabel() {
         return null;
     }
-
-    /**
-     * Accept — and ignore — {@code isRoot} on the node types that cannot be roots.
-     *
-     * <p>Root-ness is a property of resources and assets only, so it lives on those two DTOs and
-     * not on this base (see NODE_READ_REFACTOR.md: illegal fields are unrepresentable rather than
-     * policed). But the flat create shape this api has always accepted carries {@code isRoot} on
-     * every body — it was one field on one form class, shared by every node type — so a body
-     * labelled DATASET, POLICY, FUNCTION or TIMESERIES arrives with a field the label-keyed
-     * deserializer's target DTO does not declare. The api reads request bodies with a strict
-     * mapper that rejects unknown fields ({@code StrictRequestBodyConfig}), so without this hook
-     * such a create answers 400 where it used to answer 201. In-tree callers now send the node
-     * shapes directly; this keeps faith with clients built against the older contract.
-     *
-     * <p>Declaring a setter here and <em>no</em> getter is what keeps those bodies binding without
-     * putting the field on the wire: serialization needs something to read, and this base has
-     * neither field nor accessor for it, so {@code isRoot} never appears in a response for these
-     * types. {@code Resource} and {@code Asset} carry a real {@code isRoot} field whose generated
-     * accessors override this setter and supply the getter, so root-ness is still bound, applied
-     * and serialized wherever it means something. (Do not reach for
-     * {@code @JsonProperty(access = WRITE_ONLY)} here: the annotation is inherited by those two
-     * subclasses and hides their real field from every response — their wire-contract tests fail
-     * the moment it is added.)
-     *
-     * <p>The value is <em>captured, not applied</em>. {@code false} is what the legacy shape sends
-     * for everything and means nothing, so it passes; {@code true} is a caller genuinely asking
-     * for a root, which these types cannot be, and the create path refuses it rather than
-     * pretending. See {@code getUnsupportedIsRoot()}.
-     */
-    public void setIsRoot(Boolean isRoot) {
-        this.unsupportedIsRoot = isRoot;
-    }
-
-    /**
-     * An {@code isRoot} that arrived on a node type which cannot be a root — captured by
-     * {@link #setIsRoot} so the create path can refuse a {@code true} instead of silently
-     * dropping it. Always null on {@code Resource} and {@code Asset}, whose own setter overrides
-     * that hook and applies the value for real.
-     *
-     * <p>{@code transient}, and that matters: {@code Resource} descends from this base and is the
-     * Avro-reflected payload of {@code ResourceCudMessage}. Avro reflection walks inherited
-     * fields and ignores Jackson annotations, so without {@code transient} this request-scoped
-     * scratch value would become a field of the published Pulsar schema — a coordinated-deploy
-     * change, to carry something no consumer wants.
-     */
-    @JsonIgnore
-    private transient Boolean unsupportedIsRoot;
 
     /**
      * Set the labels, always keeping {@link #typeLabel()} present.

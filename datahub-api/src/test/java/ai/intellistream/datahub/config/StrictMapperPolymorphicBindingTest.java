@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,45 +33,47 @@ class StrictMapperPolymorphicBindingTest {
             .build();
 
     /**
-     * The regression this guards: the flat create shape this api has always accepted carries
-     * {@code isRoot} on every body, even when its label sends it to a DTO that has no such field.
-     * In-tree callers now send the node shapes directly, but clients built against the older
-     * contract still post the flat one. Under the strict mapper an unknown
-     * field is a 400, so before {@code NodeModel.setIsRoot} existed, creating a function, data
-     * set, policy or time series through {@code /resources/create} answered 400 instead of 201.
-     * A lenient mapper cannot catch this; only the strict one the api actually binds with can.
+     * A node type that has no {@code isRoot} refuses a body carrying one, rather than binding it
+     * and throwing it away.
+     *
+     * <p>The shared base briefly declared a setter so those bodies would bind — the flat create
+     * shape sent {@code isRoot} on every body regardless of type-label, and the strict reader
+     * would otherwise 400 them. That shape has since been retired, nothing in the repo sends the
+     * field to a type that lacks it, and the hook had put back on the base exactly the field the
+     * DTO split exists to keep off it. So the answer is the honest one: the field is not part of
+     * this type, and the reader says so.
      */
     @Test
-    void legacyBodiesCarryingIsRootStillBindForEveryType() {
+    void aTypeThatHasNoIsRootRejectsABodyCarryingOne() {
         for (String label : new String[]{"FUNCTION", "DATASET", "POLICY", "TIMESERIES"}) {
             UnknownFieldCollector.begin();
             try {
-                NodeModel bound = strictMapper.readValue(
+                strictMapper.readValue(
                         "{\"externalId\":\"n1\",\"name\":\"N1\",\"labels\":[\"" + label + "\"],"
                                 + "\"isRoot\":false,\"metadata\":{}}", NodeModel.class);
-                assertTrue(UnknownFieldCollector.drain().isEmpty(),
-                        label + " body must not report isRoot as an unknown field (the api 400s on those)");
-                assertEquals(label, bound.getLabels().get(0));
+                var unknown = UnknownFieldCollector.drain();
+                assertFalse(unknown.isEmpty(),
+                        label + " must report isRoot as unknown, so the api answers 400 rather than "
+                                + "accepting a field this type has no concept of");
             } finally {
                 UnknownFieldCollector.drain();
             }
         }
     }
 
-    /** Root-ness still applies where it is legal, and is discarded where it is not. */
+    /** The types that can be roots still bind it normally. */
     @Test
-    void isRootIsAppliedOnResourcesAndDiscardedElsewhere() {
-        Resource resource = (Resource) strictMapper.readValue(
-                """
-                {"externalId":"pump_1","name":"Pump 1","labels":["PIPE"],"isRoot":true}
-                """, NodeModel.class);
-        assertEquals(Boolean.TRUE, resource.getIsRoot());
-
-        // A data set is never a navigation root; the value is accepted and dropped.
-        assertInstanceOf(DataSetModel.class, strictMapper.readValue(
-                """
-                {"externalId":"plant_data","name":"Plant data","labels":["DATASET"],"isRoot":true}
-                """, NodeModel.class));
+    void aTypeThatCanBeRootStillBindsIt() {
+        UnknownFieldCollector.begin();
+        try {
+            NodeModel bound = strictMapper.readValue("""
+                    {"externalId":"pump_1","name":"Pump 1","labels":["PIPE"],"isRoot":true}
+                    """, NodeModel.class);
+            assertTrue(UnknownFieldCollector.drain().isEmpty());
+            assertEquals(Boolean.TRUE, ((Resource) bound).getIsRoot());
+        } finally {
+            UnknownFieldCollector.drain();
+        }
     }
 
     @Test
