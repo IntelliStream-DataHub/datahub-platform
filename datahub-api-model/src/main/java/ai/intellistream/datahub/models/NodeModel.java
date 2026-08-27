@@ -36,9 +36,9 @@ import java.util.Objects;
  * in later slices.
  *
  * <p>{@code externalId}/{@code name} validation is unified here (previously it diverged per type); the base
- * carries {@code @NotBlank @Size} + {@code @ForbiddenValues}, and canonicalizes {@code externalId} to
- * snake_case on set for <em>every</em> node type (the node table hashes the snake-cased form for lookups,
- * so this keeps the returned id consistent with what's stored/queried).
+ * carries {@code @NotBlank @Size} + {@code @ForbiddenValues}. It does <em>not</em> canonicalize
+ * {@code externalId}: the value is stored exactly as sent, uniformly across every node type. See
+ * {@link #setExternalId} for why, and note that lookups fold the value rather than rewriting it.
  */
 @Getter
 @Setter

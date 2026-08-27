@@ -130,6 +130,42 @@ class PolicyServiceCreateTest {
                 .allSatisfy(n -> assertThat(n.getLabels()).contains("POLICY"));
     }
 
+    /**
+     * The generated fallback must survive the tenant's naming policy.
+     *
+     * <p>It did not have to while policy create had its own path. The shared pipeline judges every
+     * create, and a raw UUIDv7's hyphens fail a SNAKE_CASE preset, so a tenant that had opted into
+     * one could no longer create a policy without naming it themselves.
+     */
+    @Test
+    void generatesAnExternalIdThatPassesASnakeCasePolicy() throws Exception {
+        pipelineReturnsNodes(1);
+        PolicyEntity created = new PolicyEntity();
+        created.setId(9L);
+        created.setName("One");
+        when(policyRepository.findAllByExternalIdHashIn(anyList())).thenAnswer(inv -> {
+            created.setExternalIdHash(((List<Long>) inv.getArgument(0)).getFirst());
+            return List.of(created);
+        });
+
+        policyService.create(List.of(body(null, "One", null)));
+
+        String generated = capturedRequest().getNodes().iterator().next().getExternalId();
+        assertThat(generated).matches("[a-z0-9_]+");
+    }
+
+    /** A caller-supplied id is left exactly as sent, and judged on its merits like a rename is. */
+    @Test
+    void leavesACallerSuppliedExternalIdAlone() throws Exception {
+        pipelineReturnsNodes(1);
+        when(policyRepository.findAllByExternalIdHashIn(anyList())).thenReturn(List.of(entity("Policy-A-01")));
+
+        policyService.create(List.of(body("Policy-A-01", "One", null)));
+
+        assertThat(capturedRequest().getNodes().iterator().next().getExternalId())
+                .isEqualTo("Policy-A-01");
+    }
+
     /** A missing external id gets a generated one, and the edge must name that same value. */
     @Test
     void generatesAnExternalIdAndUsesItForTheEdge() throws Exception {

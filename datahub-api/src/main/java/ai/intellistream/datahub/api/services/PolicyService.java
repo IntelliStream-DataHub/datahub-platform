@@ -17,6 +17,7 @@ import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
+import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.*;
 import ai.intellistream.datahub.jpa.dto.PolicyResponseDTO;
@@ -120,9 +121,16 @@ public class PolicyService {
 
             // User-defined, or a random UUIDv7 fallback. Resolved here rather than left to the
             // pipeline because the ENFORCED_ON edge below has to name the node by it.
+            //
+            // The fallback is snake-cased, which it did not need to be while policy create had its
+            // own path: the shared pipeline judges every create against the tenant's naming policy,
+            // and a raw UUIDv7's hyphens fail a SNAKE_CASE preset — so a tenant that had opted into
+            // one could no longer create a policy without naming it themselves. A caller-supplied
+            // id is left exactly as sent and judged on its merits, the same way a policy rename
+            // already is.
             String externalId = (item.getExternalId() != null && !item.getExternalId().isBlank())
                     ? item.getExternalId()
-                    : IdGenerator.getRandomUUID7AsString();
+                    : TextValidator.toSnakeLowerCasedAllowStartWithDigits(IdGenerator.getRandomUUID7AsString());
             body.setExternalId(externalId);
             externalIds.add(externalId);
 
