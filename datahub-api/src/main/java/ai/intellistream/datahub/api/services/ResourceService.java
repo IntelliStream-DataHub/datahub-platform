@@ -12,6 +12,7 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.edge.EdgeMapper;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -182,6 +183,32 @@ public class ResourceService {
         // Create error list that can return missing nodes to user
         ResponseError<BadRequestError> errors = new ResponseError<>();
 
+        // Authorize the whole batch before judging its shape, so a caller who may not create
+        // what they asked for is told that — not handed a 400 about a data set id they were
+        // never allowed to name. Same stage order the update pipeline runs in.
+        for (NodeModel resource : apiReqData.getNodes()) {
+            // Deny creating a resource in a dataset the caller can't write (null dataset →
+            // requires the write-all grant).
+            dataSecurity.assertCanWriteDataSet(resource.getDataSetId());
+
+            // Creating a dataset or policy node is dataset management, whichever endpoint the
+            // request arrives through — the same gate /datasets and /policies apply. Checked on
+            // the requested type-labels before dispatch, because a per-dataset writer could
+            // otherwise mint a managed node here; worse, one carrying a data_set_id (which no
+            // /datasets-created node has), leaving it mutable under the same per-dataset grant.
+            if (managementTypeRequested(resource.getLabels())) {
+                dataSecurity.assertCanManageDataSets();
+            }
+        }
+
+        // The same two pre-checks /timeseries/create has always run. Without them a duplicate
+        // external id reached the unique index and a missing data set reached the foreign key,
+        // and both surfaced as a 500 for what is plainly a caller mistake — while the update path
+        // answers a clean 409 for exactly the first of them. Judged over the whole batch, before
+        // anything is mapped, so a rejected request creates nothing.
+        guardCreateExternalIds(apiReqData.getNodes());
+        guardReferencedDataSets(apiReqData.getNodes());
+
         // Naming policy, over the WHOLE batch and before anything is mapped or persisted. Placed
         // here rather than in the controller so the MCP tools — which call this method directly —
         // are covered by the same check. A NOT_OK verdict throws, so a rejected batch creates
@@ -195,19 +222,6 @@ public class ResourceService {
 
             // Loop asset submitted for creations and create AssetNode objects
             for(NodeModel resource : apiReqData.getNodes()){
-
-                // Deny creating a resource in a dataset the caller can't write (null dataset →
-                // requires the write-all grant).
-                dataSecurity.assertCanWriteDataSet(resource.getDataSetId());
-
-                // Creating a dataset or policy node is dataset management, whichever endpoint the
-                // request arrives through — the same gate /datasets and /policies apply. Checked on
-                // the requested type-labels before dispatch, because a per-dataset writer could
-                // otherwise mint a managed node here; worse, one carrying a data_set_id (which no
-                // /datasets-created node has), leaving it mutable under the same per-dataset grant.
-                if (managementTypeRequested(resource.getLabels())) {
-                    dataSecurity.assertCanManageDataSets();
-                }
 
                 // Do not set a random id, this is because you will not get the
                 // performance benefit from temporal locality
@@ -674,6 +688,67 @@ public class ResourceService {
             if (e.getEnd() != null) ids.add(e.getEnd());
         }
         return ids;
+    }
+
+    /**
+     * Refuse a create whose external id is already taken, or repeated within the batch.
+     *
+     * <p>Two items claiming one id both pass a per-item check, because neither is in the table
+     * yet, so the batch is judged as a batch — the same rule {@code guardRenames} applies on the
+     * update side, and with the same case-insensitive hash.
+     */
+    private void guardCreateExternalIds(Collection<? extends NodeModel> nodes) {
+        Map<Long, String> withinBatch = new HashMap<>();
+        List<Map<String, String>> collisions = new ArrayList<>();
+        for (NodeModel node : nodes) {
+            if (node.getExternalId() == null) {
+                continue;
+            }
+            if (withinBatch.put(ExternalIds.hash(node.getExternalId()), node.getExternalId()) != null) {
+                collisions.add(Map.of("externalId", node.getExternalId()));
+            }
+        }
+        if (!withinBatch.isEmpty()) {
+            nodeRepository.findAllByExternalIdHashIn(new ArrayList<>(withinBatch.keySet()), NameAndExternalId.class)
+                    .forEach(taken -> collisions.add(Map.of("externalId", taken.getExternalId())));
+        }
+        if (!collisions.isEmpty()) {
+            var error = new DuplicateError();
+            error.setCode(409);
+            error.setMessage("A node with that externalId already exists.");
+            error.setDuplicated(collisions);
+            throw new DuplicateDataException(new ResponseError<DuplicateError>().setError(error));
+        }
+    }
+
+    /**
+     * Refuse a create naming a data set that does not exist, rather than letting the foreign key
+     * fail at flush and reporting it as a 500.
+     */
+    private void guardReferencedDataSets(Collection<? extends NodeModel> nodes) {
+        Set<Long> referenced = nodes.stream()
+                .map(NodeModel::getDataSetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (referenced.isEmpty()) {
+            return;
+        }
+        // Through the node repository, which also catches an id that resolves to something that
+        // is not a data set — a foreign key alone would happily accept any node id.
+        Set<Long> found = nodeRepository.findAllById(referenced).stream()
+                .filter(DatasetEntity.class::isInstance)
+                .map(NodeEntity::getId)
+                .collect(Collectors.toSet());
+        List<Map<String, String>> missing = referenced.stream()
+                .filter(id -> !found.contains(id))
+                .map(id -> Map.of("dataSetId", String.valueOf(id)))
+                .toList();
+        if (!missing.isEmpty()) {
+            var de = new BadRequestError();
+            de.setMessage("DataSet cannot be found.");
+            de.getFields().addAll(missing);
+            throw new BadRequestException(new ResponseError<BadRequestError>().setError(de));
+        }
     }
 
     /**

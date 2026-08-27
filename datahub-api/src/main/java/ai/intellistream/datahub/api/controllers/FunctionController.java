@@ -115,6 +115,24 @@ public class FunctionController {
 
     @Tag(name = "Functions")
     @Operation(
+            summary = "Fetch one function by id",
+            description = """
+                    Returns the function with this id.
+
+                    A function you may not read is reported as missing rather than forbidden, so a
+                    404 does not tell you whether the id exists.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The function.")
+    @ApiResponse(responseCode = "404", description = "No such function, or not readable by this caller.")
+    @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> getFunction(@PathVariable("id") Long id) {
+        return new ResponseEntity<>(functionService.get(id), HttpStatus.OK);
+    }
+
+
+    @Tag(name = "Functions")
+    @Operation(
             summary = "Update function",
             description = "Update one or more functions (and any relations). Only the fields named in "
                     + "each entry's `update` block are changed."

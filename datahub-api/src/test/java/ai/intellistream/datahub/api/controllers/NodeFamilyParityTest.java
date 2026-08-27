@@ -70,10 +70,6 @@ class NodeFamilyParityTest {
     @MethodSource("nodeFamilyControllers")
     @DisplayName("F1: every type can be fetched by id on its own")
     void everyTypeHasASingleItemGet(Class<?> controller) {
-        // Function is create+delete only by design and has no addressable single item yet; see the
-        // audit's F4. Everything else must be reachable by id without POSTing a wrapper.
-        if (controller == FunctionController.class) return;
-
         assertThat(pathsFor(controller, RequestMethod.GET))
                 .as("%s should expose GET /{id}", controller.getSimpleName())
                 .anyMatch(p -> p.matches(".*/\\{[A-Za-z]*[Ii]d\\}$"));

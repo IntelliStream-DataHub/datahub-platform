@@ -10,6 +10,7 @@ import ai.intellistream.datahub.api.edge.EdgeMapper;
 import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.ResourceEntity;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.Resource;
@@ -112,6 +113,10 @@ class ResourceServiceCreateEventTest {
         when(nodeService.createFromResource(any())).thenReturn(saved);
         when(nodeRepository.saveAll(any())).thenReturn(List.of(saved));
         when(edgeRepository.saveAll(any())).thenReturn(List.of());
+        // The create path resolves every referenced data set before mapping anything.
+        DatasetEntity dataSet = new DatasetEntity();
+        dataSet.setId(7L);
+        when(nodeRepository.findAllById(any())).thenReturn(List.of(dataSet));
 
         service.create(request(7L));
 

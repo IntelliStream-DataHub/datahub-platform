@@ -100,6 +100,18 @@ class ResourceServiceNodeTypeAclTest {
         permissions = DatasetPermissions.of(false, true, Set.of(), Set.of());
     }
 
+    /**
+     * Let the create path's data-set-existence guard find this id.
+     *
+     * <p>Only needed by tests that create into a data set: the guard resolves every referenced id
+     * and refuses one that is missing or is not a data set.
+     */
+    private void datasetExists(long datasetId) {
+        DatasetEntity ds = mock(DatasetEntity.class);
+        when(ds.getId()).thenReturn(datasetId);
+        when(nodeRepository.findAllById(any())).thenReturn(List.of(ds));
+    }
+
     /** A node of the given entity type living in {@code datasetId} (null → orphan). */
     private static <T extends NodeEntity> T nodeInDataset(Class<T> type, long nodeId, Long datasetId) {
         T node = mock(type);
@@ -173,6 +185,7 @@ class ResourceServiceNodeTypeAclTest {
     @Test
     void allowsCreatingAPlainResourceWithPerDatasetWrite() {
         canWrite(7L);
+        datasetExists(7L);
         when(validator.validate(any())).thenReturn(Collections.emptySet());
         NodeEntity created = nodeInDataset(ResourceEntity.class, 5L, 7L);
         when(nodeService.createFromResource(any())).thenReturn(created);

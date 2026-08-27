@@ -7,6 +7,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 import ai.intellistream.datahub.function.Function;
+import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.RelForm;
@@ -86,6 +87,25 @@ public class FunctionService {
         // the response would otherwise swallow what it found.
         result.setWarnings(created.getWarnings());
         return result;
+    }
+
+    /**
+     * One function by id.
+     *
+     * <p>The last gap in the node family's endpoint surface: every other type could be fetched by
+     * id without POSTing a wrapper, and {@code NodeFamilyParityTest} carried an explicit exemption
+     * for this one. A function the caller may not read is reported as missing rather than
+     * forbidden, the same way {@code ResourceService.get} hides existence.
+     */
+    @Transactional(readOnly = true)
+    public DataWrapper<Function> get(Long id) {
+        FunctionEntity entity = functionRepository.findById(id)
+                .filter(f -> dataSecurity.hasReadPermissionToDataSet(f))
+                .orElseThrow(() -> new ObjectNotFoundException("Function with id: " + id + " Not found!"));
+
+        DataWrapper<Function> data = new DataWrapper<>();
+        data.getItems().add(FunctionTransformer.from(entity));
+        return data;
     }
 
     /**
