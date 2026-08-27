@@ -39,8 +39,6 @@ public class TimeseriesFields {
 
     private UpdateStringField description = new UpdateStringField();
 
-    private UpdateNumberListField securityCategories = new UpdateNumberListField();
-
     private UpdateNumberField dataSetId = new UpdateNumberField();
 
     @Schema(description = "The source field.")

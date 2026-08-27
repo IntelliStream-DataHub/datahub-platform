@@ -552,7 +552,6 @@ class TimeseriesFields extends UpdateFields{
 		this.unit = undefined;
 		this.unitExternalId = undefined;
 		this.isStep = undefined;
-		this.securityCategories = undefined;
 		this.dataSetId = undefined;
 	}
 }
