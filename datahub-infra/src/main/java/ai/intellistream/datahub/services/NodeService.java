@@ -108,14 +108,15 @@ public class NodeService {
             if (type != null && !TypeLabels.CREATABLE.contains(type)) {
                 throw invalidResource("Not allowed to create " + type + " using the resource api!");
             }
-            // Only an asset or a plain resource can be a navigation root. A root request has two
-            // spellings — the typed DTOs have no isRoot at all, so the base captures it, while the
-            // legacy flat body sets Resource's own field whatever label it carries — and both must
-            // be judged. `false` means nothing (the flat shape sends it on every body) and passes;
-            // `true` on a type that cannot be a root is refused rather than quietly dropped.
+            // Only an asset or a plain resource can be a navigation root, and only those two DTOs
+            // declare isRoot — a typed body cannot express one, so a Timeseries or DataSetModel
+            // carrying the field is rejected by the request reader before it gets here. What still
+            // reaches this check is the flat Resource shape, which declares isRoot whatever label
+            // it carries: `false` means nothing and passes, `true` on a type that cannot be a root
+            // is refused rather than quietly dropped.
             Boolean requestedIsRoot = form instanceof Asset asset ? asset.getIsRoot()
                     : form instanceof Resource res ? res.getIsRoot()
-                    : form.getUnsupportedIsRoot();
+                    : null;
             boolean canBeRoot = type == null || TypeLabels.ASSET.equals(type);
             if (!canBeRoot && Boolean.TRUE.equals(requestedIsRoot)) {
                 throw invalidResource("A " + type + " cannot be a navigation root; remove isRoot.");
