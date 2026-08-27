@@ -94,9 +94,11 @@ class NodeFamilyParityTest {
     void deleteReturns204(Class<?> controller) {
         Method delete = methodForPath(controller, "/delete", RequestMethod.POST);
         assertThat(delete).as("%s should have POST /delete", controller.getSimpleName()).isNotNull();
+        // Exactly 204, not merely "204 among others": PolicyController documented a 200 with a
+        // body alongside it, copied from the update endpoint, which a contains() check let stand.
         assertThat(declaredSuccessStatuses(delete))
-                .as("%s.%s should document 204", controller.getSimpleName(), delete.getName())
-                .contains("204");
+                .as("%s.%s should document 204 and nothing else", controller.getSimpleName(), delete.getName())
+                .containsExactly("204");
     }
 
     @ParameterizedTest(name = "{0} delete accepts both POST and DELETE")

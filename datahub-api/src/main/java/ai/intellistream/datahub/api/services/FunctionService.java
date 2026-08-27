@@ -63,14 +63,9 @@ public class FunctionService {
         // Straight through: the pipeline takes NodeModel and Function is one, so its FUNCTION
         // type-label drives the dispatch with nothing copied by hand — a field added to Function
         // later cannot be silently dropped on the way in.
-        // Timestamps are server-set (@Schema READ_ONLY), and AbstractResource initialises both to
-        // now() on every deserialized DTO — so passing the body straight through would let a
-        // caller backdate dateCreated, and would stamp the client's clock even when they sent
-        // nothing. The old hand-rolled copy dropped them by omission; this drops them on purpose.
-        apiReqData.getItems().forEach(fn -> {
-            fn.setCreatedTime((java.time.ZonedDateTime) null);
-            fn.setLastUpdatedTime((java.time.ZonedDateTime) null);
-        });
+        // Timestamps need no handling here: the create pipeline does not read them off the body
+        // at all, so Hibernate's generated values stand. (This used to null them defensively,
+        // which the DTO's setter quietly turned back into now().)
         graph.setNodes(new ArrayList<>(apiReqData.getItems()));
         graph.setRelations(new ArrayList<>());
 

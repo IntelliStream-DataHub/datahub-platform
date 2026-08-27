@@ -171,22 +171,10 @@ public class PolicyController {
             // that cannot fix it.
             items.forEach(PolicyScopeValidator::validate);
 
-            List<Policy> createdPolicies = items.stream()
-                    .map(p -> {
-                        PolicyEntity node =
-                                policyService.createEmptyPolicy(p.getName(), p.getTemplateId(), p.getExternalId(), p.getDataSetId(), p.getDescription(), p.getMetadata());
-                        // Create honours the flag too, so a policy can be restored from an export
-                        // already switched off rather than only by creating it live and disabling
-                        // it afterwards.
-                        if (p.isDeactivated()) {
-                            node = policyService.setDeactivated(node.getId(), true);
-                        }
-                        return PolicyTransformer.toPolicy(node);
-                    })
-                    .toList();
-
-            DataWrapper<Policy> data = new DataWrapper<>();
-            data.getItems().addAll(createdPolicies);
+            // One call for the whole batch, through the shared create pipeline — so a
+            // three-policy request is judged, authorized and published as one create, exactly like
+            // three resources are.
+            DataWrapper<Policy> data = policyService.create(items);
 
             return new ResponseEntity<>(data, HttpStatus.CREATED);
 
@@ -223,11 +211,6 @@ public class PolicyController {
     )
     @ApiResponse(responseCode = "204", description = "The policy nodes were deleted. No response body.",
             content = @Content)
-    @ApiResponse(responseCode = "200", description = "The policy after the update.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = PolicyDataWrapper.class)
-            ))
     @ApiResponse(responseCode = "409", description =
             "Concurrency conflict — another request modified or deleted the policy " +
                     "between read and write. Clients should re-fetch the current state and retry.",
