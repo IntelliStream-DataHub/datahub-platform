@@ -58,6 +58,7 @@ import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.repositories.node.NodeSort;
 import ai.intellistream.datahub.repositories.node.NodePredicateBuilder;
 import ai.intellistream.datahub.jpa.domains.NodeType;
+import ai.intellistream.datahub.jpa.dto.EdgeEndpoint;
 import ai.intellistream.datahub.models.IdCollection;
 import jakarta.persistence.criteria.*;
 import jakarta.validation.ConstraintViolation;
@@ -733,11 +734,15 @@ public class ResourceService {
         if (referenced.isEmpty()) {
             return;
         }
-        // Through the node repository, which also catches an id that resolves to something that
-        // is not a data set — a foreign key alone would happily accept any node id.
-        Set<Long> found = nodeRepository.findAllById(referenced).stream()
-                .filter(DatasetEntity.class::isInstance)
-                .map(NodeEntity::getId)
+        // On the discriminator, through a projection rather than by loading the rows: it also
+        // catches an id that resolves to something that is not a data set, which a foreign key
+        // alone would happily accept. A projection is a query result, so it is never a Hibernate
+        // proxy — an `instanceof DatasetEntity` over loaded entities would answer false for a real
+        // data set already held in the persistence context as a NodeEntity proxy.
+        Set<Long> found = nodeRepository.findAllByIdIn(referenced, EdgeEndpoint.class).stream()
+                .filter(e -> e.getNodeType() != null && e.getNodeType().getId() != null
+                        && e.getNodeType().getId() == NodeType.DATASET)
+                .map(EdgeEndpoint::getId)
                 .collect(Collectors.toSet());
         List<Map<String, String>> missing = referenced.stream()
                 .filter(id -> !found.contains(id))

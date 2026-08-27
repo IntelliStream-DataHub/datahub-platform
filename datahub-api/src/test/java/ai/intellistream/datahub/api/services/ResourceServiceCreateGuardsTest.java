@@ -10,7 +10,8 @@ import ai.intellistream.datahub.api.datasecurity.TestDataSecurity;
 import ai.intellistream.datahub.api.edge.EdgeMapper;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
-import ai.intellistream.datahub.jpa.domains.DatasetEntity;
+import ai.intellistream.datahub.jpa.domains.NodeType;
+import ai.intellistream.datahub.jpa.dto.EdgeEndpoint;
 import ai.intellistream.datahub.jpa.domains.ResourceEntity;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalId;
 import ai.intellistream.datahub.models.NodeModel;
@@ -100,9 +101,27 @@ class ResourceServiceCreateGuardsTest {
     }
 
     private void dataSetExists(long id) {
-        DatasetEntity ds = new DatasetEntity();
-        ds.setId(id);
-        when(nodeRepository.findAllById(any())).thenReturn(List.of(ds));
+        resolvesTo(endpoint(id, NodeType.DATASET));
+    }
+
+    /**
+     * Built before the stubbing starts, deliberately: {@link #endpoint} stubs its own mocks, and
+     * Mockito treats a {@code when()} opened inside another one's argument list as an unfinished
+     * stubbing.
+     */
+    private void resolvesTo(EdgeEndpoint... endpoints) {
+        when(nodeRepository.findAllByIdIn(any(), org.mockito.ArgumentMatchers.eq(EdgeEndpoint.class)))
+                .thenReturn(List.of(endpoints));
+    }
+
+    /** The projection the data-set guard queries: an id and the discriminator behind it. */
+    private static EdgeEndpoint endpoint(long id, long nodeTypeId) {
+        EdgeEndpoint.NodeTypeId type = mock(EdgeEndpoint.NodeTypeId.class);
+        when(type.getId()).thenReturn(nodeTypeId);
+        EdgeEndpoint endpoint = mock(EdgeEndpoint.class);
+        when(endpoint.getId()).thenReturn(id);
+        when(endpoint.getNodeType()).thenReturn(type);
+        return endpoint;
     }
 
     @Test
@@ -147,7 +166,7 @@ class ResourceServiceCreateGuardsTest {
     void refusesADataSetThatDoesNotExist() {
         allowValidation();
         nothingTaken();
-        when(nodeRepository.findAllById(any())).thenReturn(List.of());
+        resolvesTo();
 
         assertThatThrownBy(() -> service.create(request(7L, "pipe_1")))
                 .isInstanceOf(BadRequestException.class);
@@ -160,9 +179,7 @@ class ResourceServiceCreateGuardsTest {
     void refusesADataSetIdThatIsNotADataSet() {
         allowValidation();
         nothingTaken();
-        ResourceEntity notADataSet = new ResourceEntity();
-        notADataSet.setId(7L);
-        when(nodeRepository.findAllById(any())).thenReturn(List.of(notADataSet));
+        resolvesTo(endpoint(7L, NodeType.RESOURCE));
 
         assertThatThrownBy(() -> service.create(request(7L, "pipe_1")))
                 .isInstanceOf(BadRequestException.class);
@@ -201,6 +218,6 @@ class ResourceServiceCreateGuardsTest {
 
         assertThatCode(() -> service.create(request(null, "pipe_1"))).doesNotThrowAnyException();
 
-        verify(nodeRepository, never()).findAllById(any());
+        verify(nodeRepository, never()).findAllByIdIn(any(), org.mockito.ArgumentMatchers.eq(EdgeEndpoint.class));
     }
 }

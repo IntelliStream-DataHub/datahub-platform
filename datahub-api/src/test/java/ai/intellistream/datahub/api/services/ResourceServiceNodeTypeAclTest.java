@@ -107,9 +107,14 @@ class ResourceServiceNodeTypeAclTest {
      * and refuses one that is missing or is not a data set.
      */
     private void datasetExists(long datasetId) {
-        DatasetEntity ds = mock(DatasetEntity.class);
-        when(ds.getId()).thenReturn(datasetId);
-        when(nodeRepository.findAllById(any())).thenReturn(List.of(ds));
+        ai.intellistream.datahub.jpa.dto.EdgeEndpoint.NodeTypeId type =
+                mock(ai.intellistream.datahub.jpa.dto.EdgeEndpoint.NodeTypeId.class);
+        when(type.getId()).thenReturn(ai.intellistream.datahub.jpa.domains.NodeType.DATASET);
+        var endpoint = mock(ai.intellistream.datahub.jpa.dto.EdgeEndpoint.class);
+        when(endpoint.getId()).thenReturn(datasetId);
+        when(endpoint.getNodeType()).thenReturn(type);
+        when(nodeRepository.findAllByIdIn(any(), eq(ai.intellistream.datahub.jpa.dto.EdgeEndpoint.class)))
+                .thenReturn(List.of(endpoint));
     }
 
     /** A node of the given entity type living in {@code datasetId} (null → orphan). */

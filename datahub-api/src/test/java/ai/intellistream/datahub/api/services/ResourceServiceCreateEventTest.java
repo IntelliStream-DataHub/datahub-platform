@@ -114,9 +114,13 @@ class ResourceServiceCreateEventTest {
         when(nodeRepository.saveAll(any())).thenReturn(List.of(saved));
         when(edgeRepository.saveAll(any())).thenReturn(List.of());
         // The create path resolves every referenced data set before mapping anything.
-        DatasetEntity dataSet = new DatasetEntity();
-        dataSet.setId(7L);
-        when(nodeRepository.findAllById(any())).thenReturn(List.of(dataSet));
+        var type = mock(ai.intellistream.datahub.jpa.dto.EdgeEndpoint.NodeTypeId.class);
+        when(type.getId()).thenReturn(ai.intellistream.datahub.jpa.domains.NodeType.DATASET);
+        var dataSet = mock(ai.intellistream.datahub.jpa.dto.EdgeEndpoint.class);
+        when(dataSet.getId()).thenReturn(7L);
+        when(dataSet.getNodeType()).thenReturn(type);
+        when(nodeRepository.findAllByIdIn(any(), org.mockito.ArgumentMatchers.eq(
+                ai.intellistream.datahub.jpa.dto.EdgeEndpoint.class))).thenReturn(List.of(dataSet));
 
         service.create(request(7L));
 
