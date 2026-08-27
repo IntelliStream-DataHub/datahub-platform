@@ -51,7 +51,6 @@ import java.util.*;
 @Setter
 @JsonIgnoreProperties(value = { "createdTimeHR", "lastUpdatedTimeHR", "elementId" })
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Timeseries extends NodeModel {
 
     @NotBlank(message = "timeseries.unit.not.blank")
@@ -65,11 +64,9 @@ public class Timeseries extends NodeModel {
     private String unitExternalId;
 
     @Schema(description = "A collection of security categories.", example = "[33,5,128]")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private Collection<Integer> securityCategories = new ArrayList<>();
+        private Collection<Integer> securityCategories = new ArrayList<>();
 
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String tableEngine = TableEngine.MERGETREE.name();
+        private String tableEngine = TableEngine.MERGETREE.name();
 
     /** Value type used when the caller doesn't specify one (or sends null). */
     public static final String DEFAULT_VALUE_TYPE = "float32";
@@ -77,8 +74,7 @@ public class Timeseries extends NodeModel {
     @NotBlank
     @AllowedValueType
     @Schema(description = "The value type of the time series. Can be one of BIGINT, FLOAT, FLOAT32 (default), NUMERIC, DECIMAL32, TEXT and MIXED. Choosing the right one can optimize processing speed and reduce costs.", example = "FLOAT")
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    private String valueType = DEFAULT_VALUE_TYPE;
+        private String valueType = DEFAULT_VALUE_TYPE;
 
     @JsonCreator
     public Timeseries(){

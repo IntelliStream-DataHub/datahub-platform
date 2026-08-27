@@ -24,7 +24,6 @@ import java.util.stream.Collectors;
 @Getter
 @Setter
 @JsonIgnoreProperties(value = { "elementId" })
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
 @ToString(callSuper = true)
 public class Resource extends NodeModel {

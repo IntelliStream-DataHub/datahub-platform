@@ -42,6 +42,7 @@ import java.util.Objects;
  */
 @Getter
 @Setter
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public abstract class NodeModel extends AbstractResource {
 
     @JsonSerialize(using = ToStringSerializer.class)
@@ -82,12 +83,11 @@ public abstract class NodeModel extends AbstractResource {
      * as a shared node column. It was declared — identically, right down to the serializer — on
      * {@code Resource}, {@code Timeseries} and {@code Policy}, three copies free to drift apart.
      *
-     * <p>{@code NON_NULL} so a node with no data set simply omits the field rather than emitting
-     * {@code null}. That is what {@code Resource} already did through its class-level policy, and it
-     * keeps the field from appearing on {@code DataSetModel}, which expresses its own parentage
-     * through {@code connectedDataSets} instead (a dataset sits in a DAG of datasets, not in one).
+     * <p>A node with no data set omits the field rather than emitting {@code null} — from the
+     * class-level rule above, which every node DTO now inherits. That also keeps it off
+     * {@code DataSetModel}, which expresses its own parentage through {@code connectedDataSets}
+     * instead (a dataset sits in a DAG of datasets, not in one).
      */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonSerialize(using = ToStringSerializer.class)
     @Schema(description = "The id of the data set this node belongs to.", example = "12")
     private Long dataSetId;

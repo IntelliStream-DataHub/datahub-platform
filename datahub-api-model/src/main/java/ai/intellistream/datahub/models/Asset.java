@@ -20,7 +20,6 @@ import java.util.ArrayList;
 @Schema(name = "Asset", description = "Asset node: a resource with a geographic location")
 @Getter
 @Setter
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
 @ToString(callSuper = true)
 public class Asset extends NodeModel {

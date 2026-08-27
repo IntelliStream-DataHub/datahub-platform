@@ -35,7 +35,6 @@ import java.util.List;
 @NoArgsConstructor
 @JsonPropertyOrder({"id", "externalId", "name", "labels", "createdTime", "lastUpdatedTime"})
 @Schema(name = "Function", description = "Function datastore node")
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public class Function extends NodeModel {
 
     public static final String CANONICAL_LABEL = "FUNCTION";
