@@ -12,6 +12,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
@@ -69,26 +70,30 @@ class ResourceWireContractTest {
     }
 
     /**
-     * geoLocation is WRITE_ONLY on Resource: still accepted as legacy create input (a nested
-     * GeoJSON object, not a quoted string), never emitted on reads — a typed read returns an
-     * {@link Asset}, the only DTO whose geoLocation serializes.
+     * geoLocation is not part of this DTO's REST contract in either direction — it exists for the
+     * Pulsar payload, like {@code valueType}. An ASSET-labelled body is typed as an {@code Asset},
+     * which carries the real field; a body with no type-label is a plain resource, which has
+     * nowhere to store a location, so the field is unknown there and the api answers 400 rather
+     * than accepting it and dropping it.
      */
     @Test
     @SuppressWarnings("unchecked")
-    void geoLocationIsAcceptedAsInputButNeverSerialized() {
+    void geoLocationIsNeitherReadNorWrittenOnAResource() {
+        Resource r = new Resource();
+        r.setExternalId("sensor_a");
+        r.setName("Sensor A");
+        r.setGeoLocation(new GeoLocation("{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}"));
+
+        // Set in memory for the Pulsar path, absent from the JSON.
+        Map<String, Object> m = mapper.readValue(mapper.writeValueAsString(r), Map.class);
+        assertFalse(m.containsKey("geoLocation"));
+
+        // And not bound back off the wire either.
         Resource in = mapper.readValue(
                 "{\"externalId\":\"sensor_a\",\"name\":\"Sensor A\"," +
                 "\"geoLocation\":{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}}",
                 Resource.class);
-
-        // The input path still binds the geometry verbatim (the flat create needs it until the
-        // typed create ships).
-        Map<String, Object> boundGeo = mapper.readValue(in.getGeoLocation().getJson(), Map.class);
-        assertEquals("Point", boundGeo.get("type"));
-
-        // But it never comes back out of a Resource.
-        Map<String, Object> m = mapper.readValue(mapper.writeValueAsString(in), Map.class);
-        assertFalse(m.containsKey("geoLocation"));
+        assertNull(in.getGeoLocation());
     }
 
 }

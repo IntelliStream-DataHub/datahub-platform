@@ -24,7 +24,7 @@ class DataSetLabelProjectionTest {
         ds.setExternalId("plant_a_telemetry");
         ds.setLabels(List.of("PLANT_A", "TELEMETRY"));
 
-        Resource r = DataSetTransformer.toResource(ds);
+        DataSetModel r = DataSetTransformer.toResource(ds);
 
         assertTrue(r.getLabels().containsAll(List.of("PLANT_A", "TELEMETRY", "DATASET")), "got " + r.getLabels());
         assertEquals(3, r.getLabels().size(), "got " + r.getLabels());
