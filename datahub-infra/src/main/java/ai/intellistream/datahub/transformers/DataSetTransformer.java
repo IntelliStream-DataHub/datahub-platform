@@ -16,12 +16,23 @@ import java.util.Optional;
 public class DataSetTransformer {
 
 
-    public static Collection<Resource> toResources(Collection<DataSetModel> items){
+    public static Collection<DataSetModel> toResources(Collection<DataSetModel> items){
         return items.stream().map(DataSetTransformer::toResource).toList();
     }
 
-    public static Resource toResource(DataSetModel item){
-        Resource r = new Resource();
+    /**
+     * The create command for a data set.
+     *
+     * <p>Builds a {@link DataSetModel}, not a {@code Resource} wearing a DATASET label. Over HTTP
+     * the label-keyed deserializer types a body before the create path sees it, so the DTO class
+     * and the type-label always agree and {@code NodeService} can cross-check them. An in-process
+     * adapter has no deserializer, so whatever it constructs <em>is</em> the type — and while this
+     * built a plain {@code Resource}, that cross-check passed vacuously and dispatch rested
+     * entirely on the label being right. Building the real type makes both mechanisms say the same
+     * thing, and {@code DataSetModel} seeds its own DATASET label, so it cannot be forgotten.
+     */
+    public static DataSetModel toResource(DataSetModel item){
+        DataSetModel r = new DataSetModel();
         r.setId(item.getId());
         r.setExternalId(item.getExternalId());
         r.setDescription(item.getDescription());
@@ -29,13 +40,9 @@ public class DataSetTransformer {
         r.setSource(item.getSource());
         r.setMetadata(item.getMetadata());
         // Carry the caller's labels through; this used to replace them with List.of("DATASET"), so
-        // create was the one dataset path that could not label anything. Forging a type is still
-        // impossible: NodeService rejects a second type-label.
-        var labels = new ArrayList<>(item.getLabels());
-        if (!labels.contains(TypeLabels.DATASET)) {
-            labels.add(TypeLabels.DATASET);
-        }
-        r.setLabels(labels);
+        // create was the one dataset path that could not label anything. setLabels keeps the
+        // DATASET type-label present however the list arrives.
+        r.setLabels(new ArrayList<>(item.getLabels()));
         return r;
     }
 
@@ -75,7 +82,7 @@ public class DataSetTransformer {
     ) {
         GraphDataWrapper<NodeModel, RelForm> graphForm = new GraphDataWrapper<>();
         dataSets.forEach(dataSetModel -> {
-            Resource resource = toResource(dataSetModel);
+            DataSetModel resource = toResource(dataSetModel);
             graphForm.getNodes().add(resource);
 
             // Attach data set to other data sets

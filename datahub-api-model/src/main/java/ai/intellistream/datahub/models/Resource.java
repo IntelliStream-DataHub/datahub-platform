@@ -41,13 +41,17 @@ public class Resource extends NodeModel {
     private Boolean isRoot = false;
 
     /**
-     * Geographic data. WRITE_ONLY: still accepted as legacy create/update input (assets are
-     * created through /resources with an ASSET label), and still a field for the Pulsar Avro
-     * payload (the Neo4j consumer reads it off ResourceCudMessage) — but never serialized on
-     * REST reads. Typed reads return assets as {@link Asset}, the only DTO whose geoLocation
-     * appears on the wire.
+     * Geographic data — for the Pulsar payload only, like {@link #valueType}.
+     *
+     * <p>The field has to exist: {@code Resource} is the Avro-reflected payload of
+     * {@code ResourceCudMessage}, and the Neo4j consumer reads a created asset's location off it.
+     * It is not part of this DTO's REST contract in either direction. An ASSET-labelled body is
+     * typed as {@link Asset} by the deserializer, which carries the real field, and a body with
+     * no type-label describes a plain resource, which has nowhere to store a location — so
+     * accepting one there would silently drop it. {@code @JsonIgnore} instead of WRITE_ONLY says
+     * exactly that, and makes such a body a 400 naming the field.
      */
-    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @JsonIgnore
     @Valid
     private GeoLocation geoLocation;
 
