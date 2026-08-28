@@ -15,11 +15,22 @@ public class TenantContext {
      * {@code TenantContextExecutorService}.)
      */
     public static void runWith(String tenantId, Runnable task) {
+        callWith(tenantId, () -> {
+            task.run();
+            return null;
+        });
+    }
+
+    /**
+     * {@link #runWith} for work that produces a value — a per-tenant batch that reports whether it
+     * finished, say. Same save-set-restore contract.
+     */
+    public static <T> T callWith(String tenantId, java.util.function.Supplier<T> task) {
         String previous = CURRENT_TENANT.get();
         try {
             if (tenantId == null) CURRENT_TENANT.remove();
             else CURRENT_TENANT.set(tenantId);
-            task.run();
+            return task.get();
         } finally {
             if (previous == null) CURRENT_TENANT.remove();
             else CURRENT_TENANT.set(previous);

@@ -37,7 +37,7 @@ public class KVRocksConnectionProvider implements AutoCloseable {
 
     /**
      * Connection to a specific tenant's KVRocks instance. Use this from headless contexts (e.g. the
-     * stateful consumer) where there is no {@link TenantContext} and the tenant id comes from the
+     * event-CUD consumer) where there is no {@link TenantContext} and the tenant id comes from the
      * Pulsar message instead.
      */
     public StatefulRedisConnection<byte[], byte[]> openConnection(String tenantId) {

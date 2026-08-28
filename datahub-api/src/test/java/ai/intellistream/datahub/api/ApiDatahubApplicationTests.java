@@ -69,9 +69,6 @@ class ApiDatahubApplicationTests {
     @MockitoBean
     private InstanceLock instanceLock;
 
-    @MockitoBean(name = "resourceMessageProducer")
-    private Producer<?> resourceMessageProducer;
-
     @MockitoBean(name = "eventMessageProducer")
     private Producer<?> eventMessageProducer;
 

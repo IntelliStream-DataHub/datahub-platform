@@ -1137,8 +1137,8 @@ public class ResourceService {
         // Reject deletes that would disjoint a surviving node from the graph root. Anchor the
         // Neo4j component load on the deleted nodes plus the endpoints of every edge being removed,
         // so the fetched component covers every node whose connectivity could change. The check
-        // reads the (asynchronously updated) graph mirror — see fetchComponentForNodes for the
-        // eventual-consistency caveat.
+        // reads the graph mirror, which is applied after commit from the outbox queue — see
+        // fetchComponentForNodes for the eventual-consistency caveat.
         Set<Long> connectivityAnchors = new HashSet<>(resourceIdList);
         for (EdgeEntity e : edgesBeingDeleted) {
             if (e.getStart() != null) {

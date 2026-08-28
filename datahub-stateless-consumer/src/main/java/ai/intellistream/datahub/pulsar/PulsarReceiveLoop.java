@@ -7,9 +7,9 @@ import org.apache.pulsar.client.api.Message;
 import org.apache.pulsar.client.api.PulsarClientException;
 
 /**
- * Single-threaded, ordered receive loop for a Pulsar <b>Failover</b> subscription in the stateful
- * consumer. Failover keeps exactly one active consumer, so this pulls one message at a time and
- * applies it on a single dedicated thread, preserving total order.
+ * Single-threaded, ordered receive loop for a Pulsar <b>Failover</b> subscription. Failover keeps
+ * exactly one active consumer, so this pulls one message at a time and applies it on a single
+ * dedicated thread, preserving total order.
  *
  * <p><b>Failure handling — retry in place, then skip.</b> A failed message is retried in place
  * (bounded, with a fixed backoff) rather than nacked: a nack lets later messages pass while the
@@ -17,12 +17,17 @@ import org.apache.pulsar.client.api.PulsarClientException;
  * CREATE re-applied after a later UPDATE). Blocking the single loop thread instead keeps the stream
  * head where it is until the mutation succeeds. After {@code maxAttempts} the message is logged and
  * <b>skipped</b> (acked) so one poison message can't pin the head forever — Pulsar's own dead-letter
- * is inert on a single-active subscription. Note: a skipped mutation leaves that entity DIVERGED in
- * the graph. Postgres remains the source of truth, but no automated graph rebuild/reconciliation
- * job exists yet — recovery today means re-applying the entity manually (or a full graph rebuild by
- * hand), so treat every skip ERROR log as actionable. A long systemic outage (every message failing
- * past {@code maxAttempts}) therefore skips messages; size the retry budget to ride out a typical
- * transient outage. Writes are idempotent (MERGE), so a redelivery after a crash/reconnect is safe.
+ * is inert on a single-active subscription.
+ *
+ * <p>Note what a skip costs: the KVRocks key index for that event stops matching what ClickHouse
+ * holds, and nothing reconciles it, so treat every skip ERROR log as actionable. A long systemic
+ * outage (every message failing past {@code maxAttempts}) therefore skips messages; size the retry
+ * budget to ride out a typical transient outage. Redelivery after a crash is safe — a rename and a
+ * delete both land on the same key whether applied once or twice.
+ *
+ * <p>The graph mirror used to depend on this loop and no longer does: resource changes reach Neo4j
+ * through the {@code resource_outbox} table, where a failure blocks its tenant's queue visibly
+ * instead of being skipped.
  */
 @Slf4j
 public final class PulsarReceiveLoop<T> implements AutoCloseable {

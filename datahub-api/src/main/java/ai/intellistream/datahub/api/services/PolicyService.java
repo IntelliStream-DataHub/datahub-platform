@@ -138,9 +138,9 @@ public class PolicyService {
             edges.add(edgeRepository.save(resourceService.mapEdge(new EdgeEntity(), relForm)));
         }
 
-        // Publish to the graph pipeline (Pulsar -> stateful-consumer -> Neo4j) the same way
-        // ResourceService.create does, so the policy node (and its edge) actually enter the
-        // knowledge graph instead of living only in Postgres.
+        // Queue the policy node (and its edge) for the graph mirror the same way
+        // ResourceService.create does, so they actually enter the knowledge graph instead of
+        // living only in Postgres.
         List<EdgeProxy> edgeProxies = edges.stream().map(EdgeProxyTransformer::fromEdgeEntity).toList();
         Resource policyProxy = ResourceTransformer.from(policyNode, edgeProxies);
         var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());

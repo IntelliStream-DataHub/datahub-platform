@@ -55,7 +55,6 @@ public class InitNamespaces {
         // subscription fan-out namespaces/topics (formerly the global public-tenant/subscriptions)
         // are provisioned separately by SubscriptionTopicProvisioner, which runs in all profiles.
         List<String> wanted = new ArrayList<>();
-        wanted.add(internalTenant + "/resources");
         wanted.add(internalTenant + "/events");
         wanted.add(internalTenant + "/subscriptions");
 

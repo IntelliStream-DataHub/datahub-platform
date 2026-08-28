@@ -19,6 +19,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
+/**
+ * What a service changed, announced to {@code ResourceOutboxWriter} so the change can be queued for
+ * the graph mirror. Since the mirror re-reads state from Postgres when it applies, only the ids
+ * here are load-bearing; the DTO payloads are what the services already had to hand.
+ *
+ * <p>No longer a wire type: it used to be serialized as Avro-by-reflection onto a Pulsar topic,
+ * which made every field on the DTOs below part of a schema two deployables had to agree on.
+ */
 @Getter
 @Setter
 @NoArgsConstructor
@@ -33,7 +41,6 @@ public class ResourceCudMessage {
     private List<UpdateRelForm> updateEdges = new ArrayList<>();
     private List<UpdateTimeseries> updateTimeseries = new ArrayList<>();
 
-    private NodeChangeMessage changeMessage;
     private String tenantId;
 
     public ResourceCudMessage(EventAction eventAction, EventObject eventObject, String tenantId){

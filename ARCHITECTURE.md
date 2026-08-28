@@ -23,7 +23,6 @@ managed in HashiCorp Vault.
 ./gradlew test --tests "*.EventServiceTest"  # Run a single test class
 ./gradlew :datahub-api:bootRun         # Run API server (port 8081)
 ./gradlew :datahub-stateless-consumer:bootRun  # Run datapoint/event consumer
-./gradlew :datahub-stateful-consumer:bootRun   # Run graph (Neo4j) consumer
 ./gradlew :datahub-console:bootRun     # Run console UI
 ./gradlew startBootStack               # Run api, both consumers, and console in parallel
 ./gradlew --console plain jshell       # Interactive JShell (useful for IdGenerator.xxHash())
@@ -45,7 +44,6 @@ are built on the JVM (no Node.js required); see
 
 - **datahub-api** — REST API (Spring Boot web, port 8081). OAuth2 resource server, Swagger UI at `/swagger-ui.html`. Owns Flyway migrations. See [datahub-api/README.md](datahub-api/README.md).
 - **datahub-stateless-consumer** — Headless Spring Boot app. Consumes datapoint/event Pulsar messages, writes batched inserts to ClickHouse, and fans datapoints out to WebSocket subscription topics. Scales horizontally. No web server.
-- **datahub-stateful-consumer** — Headless Spring Boot app. Consumes resource CUD Pulsar messages and applies them to the Neo4j knowledge graph. Order-sensitive; runs with failover rather than fan-out.
 - **datahub-console** — Server-side rendered web UI (Thymeleaf + vanilla JS). OAuth2 client auth.
 - **datahub-infra** — Shared JPA entities, repositories, services. Neo4j graph operations, Redis/Lettuce caching, ClickHouse client.
 - **datahub-commons** — Minimal-dependency shared library: DTOs, form models, validators, utilities (UUID v7, hashing, LZ4/Zstd compression). No Spring Boot starters.
@@ -112,7 +110,7 @@ full operational detail. Key constraints:
 - **datahub-console** requires Valkey/Redis for Spring Session Redis (OAuth2 tokens, CSRF, locale all live in the externalized session).
 - **datahub-api** is stateless. Its WebSocket endpoints under `/timeseries/datapoints/` (`.../subscription/listen/**` for durable subscriptions, `.../listen` for the browser live tail) need **no** session affinity — the subscription cursor lives in Pulsar (`Failover`) and the tail is a non-durable `latest` consumer, so a reconnect resumes on any instance. The load balancer only needs WebSocket-upgrade support.
 - **datahub-stateless-consumer** is stateless; scale by adding instances (Pulsar subscription type coordinates distribution).
-- **datahub-stateful-consumer** applies order-sensitive graph mutations; run with Pulsar `Failover` subscription rather than scaling out.
+- **The Neo4j graph mirror** is applied by datahub-api from the per-tenant `resource_outbox` table, serialised by a Postgres advisory lock rather than by a single-instance deployment.
 
 ## Package structure
 
