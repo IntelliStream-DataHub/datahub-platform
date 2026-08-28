@@ -36,7 +36,6 @@ body:
         - API (datahub-api)
         - Console (datahub-console)
         - Datapoint/event consumer (datahub-stateless-consumer)
-        - Graph consumer (datahub-stateful-consumer)
         - Analysis service (datahub-analysis)
         - Java SDK (datahub-java-sdk)
         - Deployment, compose or scripts

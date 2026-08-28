@@ -15,6 +15,11 @@ import org.springframework.stereotype.Component;
 
 /**
  * Consumes event-CUD messages and applies external-id renames / deletes to KVRocks.
+ *
+ * <p>Lives in the stateless consumer, which scales out, but the subscription below is Failover:
+ * the broker keeps exactly one instance active and the rest as standbys, so the renames stay
+ * ordered however many instances run. Ordering is not optional here — a rename applied after a
+ * later one leaves the key index pointing at a name the event no longer has.
  */
 @Component
 @Profile({"dev", "prod"})
@@ -30,8 +35,8 @@ public class EventConsumers {
             PulsarClient pulsarClient,
             EventKvRocksListener listener,
             TopicNames topicNames,
-            @Value("${datahub.graph.retry.max-attempts:10}") int maxAttempts,
-            @Value("${datahub.graph.retry.backoff-ms:5000}") long retryBackoffMs
+            @Value("${datahub.event-kvrocks.retry.max-attempts:10}") int maxAttempts,
+            @Value("${datahub.event-kvrocks.retry.backoff-ms:5000}") long retryBackoffMs
     ) {
         this.pulsarClient = pulsarClient;
         this.listener = listener;
@@ -50,10 +55,9 @@ public class EventConsumers {
         // failed message in place then skips, so no DeadLetterPolicy (inert on single-active) is needed.
         Consumer<EventCudMessage> consumer = pulsarClient.newConsumer(schema)
                 .subscriptionName("event-cud-sub-kvrocks")
-                // See GraphEventNeo4jConsumer: a NEW subscription defaults to Latest, so
-                // events published before this consumer first attaches are dropped silently.
-                // Existing subscriptions keep their cursor; this only changes where a
-                // freshly created one starts.
+                // A NEW subscription defaults to Latest, so events published before this consumer
+                // first attaches would be dropped silently. Existing subscriptions keep their
+                // cursor; this only changes where a freshly created one starts.
                 .subscriptionInitialPosition(SubscriptionInitialPosition.Earliest)
                 .topic(topicNames.getEventsTopicName())
                 .subscriptionType(SubscriptionType.Failover)

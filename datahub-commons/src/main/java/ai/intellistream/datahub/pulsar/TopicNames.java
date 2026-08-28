@@ -24,7 +24,6 @@ public class TopicNames {
     }
 
     private static final String DP_TOPIC_NAME = "persistent://%s/datapoints/%s";
-    private static final String RESOURCES_TOPIC_NAME = "persistent://%s/resources/cud-events";
     private static final String EVENTS_TOPIC_NAME = "persistent://%s/events/cud-events";
     private static final String HTTP_MSG_TOPIC_NAME = "persistent://%s/http/message";
     private static final String SUBSCRIPTION_NOTIFY_TOPIC_NAME = "persistent://%s/subscriptions/notify";
@@ -37,11 +36,6 @@ public class TopicNames {
 
     public String getDPTopicName(String topic){
         return String.format(DP_TOPIC_NAME, internalTenant, topic);
-    }
-
-    public String getResourceTopicName(){
-        return String.format(RESOURCES_TOPIC_NAME, internalTenant);
-
     }
 
     public String getEventsTopicName(){

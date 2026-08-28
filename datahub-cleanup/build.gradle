@@ -21,9 +21,10 @@ repositories {
 
 dependencies {
 	// datahub-infra brings the JPA SubscriptionRepository + the multi-tenant routing datasource and
-	// the Pulsar admin client the subscription sweep needs. datahub-commons brings TenantConfigService
-	// (the tenant list from Vault) used by the file jobs and for per-tenant iteration. Neo4j/ClickHouse/
-	// Valkey clients pulled in transitively connect lazily and stay unused — see the app's @ComponentScan.
+	// the Pulsar admin client the subscription sweep needs, plus the ClickHouse client the weekly
+	// event-dimension rebuild reads from. datahub-commons brings TenantConfigService (the tenant list
+	// from Vault) used by the file jobs and for per-tenant iteration. The Neo4j and Valkey clients
+	// pulled in transitively connect lazily and stay unused — see the app's @ComponentScan.
 	implementation project(':datahub-infra')
 	implementation project(':datahub-commons')
 

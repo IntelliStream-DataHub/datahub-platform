@@ -1471,8 +1471,8 @@ public class TimeseriesService {
      *
      * <p>Resolved through {@link DatasetClosureService}, the same component that expands access
      * grants, so {@code dataSetId=X} covers exactly the datasets a grant on X would. This used to
-     * walk the Neo4j mirror instead: a second implementation of the same concept, over a store the
-     * stateful consumer writes asynchronously, so a timeseries in a freshly created child dataset
+     * walk the Neo4j mirror instead: a second implementation of the same concept, over a store
+     * written after the transaction commits, so a timeseries in a freshly created child dataset
      * was authorized correctly but missing from the filter until the mirror caught up.
      */
     private Set<Long> visibleDatasetClosure(long dataSetId) {

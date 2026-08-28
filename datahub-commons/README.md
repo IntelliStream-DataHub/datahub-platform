@@ -5,7 +5,7 @@ contracts that the rest of DataHub builds on. It depends on exactly one `datahub
 module — `datahub-api-model` — and re-exposes it transitively (`api`).
 
 Depended on by `datahub-infra`, `datahub-api`, `datahub-console`,
-`datahub-stateful-consumer`, and `datahub-stateless-consumer`.
+and `datahub-stateless-consumer`.
 _(Formerly `datahub-lib-nodep`.)_
 
 > The lean, framework-free **wire-contract** types (the DTOs/forms/envelopes the REST

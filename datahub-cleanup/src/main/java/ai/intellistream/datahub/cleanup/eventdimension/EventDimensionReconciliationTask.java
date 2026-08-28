@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.scheduled;
+package ai.intellistream.datahub.cleanup.eventdimension;
 
 import ai.intellistream.datahub.clickhouse.ClickHouseEventService;
 import ai.intellistream.datahub.repositories.event.EventDimensionRepository;
@@ -9,10 +9,9 @@ import ai.intellistream.datahub.tenant.TenantContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.stereotype.Component;
 import org.springframework.context.event.EventListener;
 import org.springframework.core.env.Environment;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 
 import java.util.Map;
@@ -27,16 +26,15 @@ import java.util.Map;
  * DISTINCT set from {@code events} and {@link EventDimensionRepository#rebuildAll rebuilds} all four
  * tables in one statement, dropping values that no longer occur.
  *
- * <p>It lives in the stateful consumer because that module runs as a Pulsar <em>Failover</em>
- * (single-active) deployment rather than scaling out — so the cross-tenant rebuild runs on one
- * instance without needing a distributed lock — and it already has the beans this needs: a ClickHouse
- * client (per-tenant), a Postgres datasource, and {@link TenantConfigService}. Enabled by default;
- * set {@code datahub.event-dimension.reconcile.enabled=false} to disable (e.g. on standby replicas if
- * you run more than one for HA).
+ * <p>It lives in the cleanup app because the rebuild is cross-tenant and must run on one instance:
+ * cleanup is deployed as a single instance by design, which is the same guarantee the single-active
+ * stateful consumer used to provide, and it already has the beans this needs — a per-tenant
+ * ClickHouse client, a Postgres datasource, and {@link TenantConfigService}. Enabled by default;
+ * set {@code datahub.event-dimension.reconcile.enabled=false} to disable (e.g. on a standby if you
+ * run more than one for HA).
  */
 @Slf4j
-@Configuration
-@EnableScheduling
+@Component
 @ConditionalOnProperty(name = "datahub.event-dimension.reconcile.enabled", havingValue = "true", matchIfMissing = true)
 public class EventDimensionReconciliationTask {
 

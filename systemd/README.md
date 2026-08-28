@@ -17,7 +17,7 @@ systemd/
 ```
 
 Instance names are the short module names: `api`, `console`, `stateless-consumer`,
-`stateful-consumer`, `analysis`, `cleanup`. `systemctl status datahub@api` and so on.
+`analysis`, `cleanup`. `systemctl status datahub@api` and so on.
 
 ## Host layout
 
@@ -29,7 +29,7 @@ a third host (or on the same two if the hardware is shared).
 |---|---|---|
 | app-1 | `datahub@api` (20 GB heap) | `datahub@console` (16 GB) |
 | app-2 | `datahub@api` (20 GB) | `datahub@console` (16 GB) |
-| app-3 | `datahub@stateless-consumer` (20 GB) | `datahub@stateful-consumer` (16 GB) |
+| app-3 | `datahub@stateless-consumer` (20 GB) | — |
 | app-4 | `datahub@analysis` (16 GB) | `datahub@cleanup` (4 GB) |
 
 The node for each instance is set in its `placement.conf` (`NUMAMask=0` or `1`), so a
@@ -37,8 +37,10 @@ different layout is a one-line change per instance on that host. Check the actua
 numbering with `lscpu | grep NUMA`; the units use `CPUAffinity=numa`, which derives the
 CPU set from the node, so they need no CPU numbers.
 
-The stateful consumer and cleanup must run as exactly one instance each (order-sensitive
-graph writes; single-instance housekeeping); the others scale by adding hosts.
+Cleanup must run as exactly one instance (its jobs are not built to run concurrently); the
+others scale by adding hosts. Graph writes stay ordered without a designated instance: every
+api instance drains the per-tenant `resource_outbox`, and a Postgres advisory lock in the
+tenant's own database lets only one of them apply at a time.
 
 ## Install (per host)
 
@@ -132,7 +134,6 @@ in `/etc/datahub/<name>/application.yml`.
 | `datahub@console` | 8080 | 9080 |
 | `datahub@analysis` | 8082 | 9082 |
 | `datahub@stateless-consumer` | none | 9083 |
-| `datahub@stateful-consumer` | none | 9084 |
 | `datahub@cleanup` | none | 9085 |
 
 Open the metrics ports to the Prometheus host only, and prefer a certificate over trusting that

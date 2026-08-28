@@ -150,19 +150,6 @@ services:
       <<: *app-env
       WAIT_FOR_API_URL: http://datahub-api:8081/
 
-  datahub-stateful-consumer:
-    image: datahub-stateful-consumer:local
-    build:
-      context: .
-      dockerfile: deploy/app/Dockerfile
-      args:
-        MODULE: datahub-stateful-consumer
-    depends_on: ["postgres", "neo4j", "pulsar", "datahub-api"]
-    # Wait for the API to finish per-tenant Flyway before loading per-tenant data.
-    environment:
-      <<: *app-env
-      WAIT_FOR_API_URL: http://datahub-api:8081/
-
   # Timeseries relationship analysis (port 8082). The console's Analyze tab and its
   # "related series" panel post here DIRECTLY FROM THE BROWSER, so without this service
   # both features fail with a connection refused and no explanation.
@@ -187,7 +174,6 @@ services:
       CORS_ALLOWED_ORIGINS: http://localhost:8080
       WAIT_FOR_API_URL: http://datahub-api:8081/
     restart: unless-stopped
-    ports: ["9084:9084"]
     # Published because the request comes from the host's browser, not from inside the network.
     ports: ["8082:8082", "9082:9082"]
 
@@ -200,19 +186,18 @@ services:
   # the Prometheus scrape. SPRING_PROFILES_ACTIVE=dev, set in the shared env above, keeps the
   # file jobs in dry-run; the subscription sweep is dry-run by default too.
   #
-  # DISABLED for the local/demo stack: a demo does not need the housekeeping sweeps, and the
-  # self-heal retrier is moot on the seeded single-tenant demo. Re-enable by uncommenting the
-  # service below, then `./scripts/up.sh --build` to build its image. Nothing depends on it.
-  # datahub-cleanup:
-  #   image: datahub-cleanup:local
-  #   build:
-  #     context: .
-  #     dockerfile: deploy/app/Dockerfile
-  #     args:
-  #       MODULE: datahub-cleanup
-  #   depends_on: ["postgres", "pulsar", "datahub-api"]
-  #   environment:
-  #     <<: *app-env
-  #     WAIT_FOR_API_URL: http://datahub-api:8081/
-  #   restart: unless-stopped
-  #   ports: ["9085:9085"]
+  # Enabled for the local stack: cleanup now also owns the event-dimension rebuild, whose
+  # dev-profile startup pass is what fills the console's type/sub_type/status/source dropdowns
+  # from ClickHouse. Without it they look broken on a fresh stack.
+  datahub-cleanup:
+    image: datahub-cleanup:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-cleanup
+    depends_on: ["postgres", "clickhouse", "pulsar", "datahub-api"]
+    environment:
+      <<: *app-env
+      WAIT_FOR_API_URL: http://datahub-api:8081/
+    restart: unless-stopped

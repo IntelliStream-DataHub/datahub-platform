@@ -5,10 +5,6 @@ bin/pulsar-admin namespaces create ${TENANT}/datapoints
 bin/pulsar-admin namespaces grant-permission ${TENANT}/datapoints --actions produce,consume --role istream
 bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/datapoints -l 10G -p producer_exception
 bin/pulsar-admin namespaces set-retention ${TENANT}/datapoints -s 11G -t 3d
-bin/pulsar-admin namespaces create ${TENANT}/resources
-bin/pulsar-admin namespaces grant-permission ${TENANT}/resources --actions produce,consume --role istream
-bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/resources -l 10G -p producer_exception
-bin/pulsar-admin namespaces set-retention ${TENANT}/resources -s 11G -t 3d
 bin/pulsar-admin namespaces create ${TENANT}/events
 bin/pulsar-admin namespaces grant-permission ${TENANT}/events --actions produce,consume --role istream
 bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/events -l 10G -p producer_exception

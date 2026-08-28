@@ -20,14 +20,18 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *       tenants;</li>
  *   <li><b>subscription</b> ({@code cleanup.subscription}) — orphaned Pulsar subscriptions whose
  *       backlog would otherwise grow until it trips the fan-out namespace's backlog quota and
- *       stalls a tenant's live datapoint feed.</li>
+ *       stalls a tenant's live datapoint feed;</li>
+ *   <li><b>event dimensions</b> ({@code cleanup.eventdimension}) — the weekly rebuild of the event
+ *       type/sub_type/status/source tables from ClickHouse, which is the only thing that drops
+ *       values whose last event is gone.</li>
  * </ul>
  *
  * <p>The subscription sweep needs Postgres (the {@code SubscriptionRepository}) and the Pulsar
  * admin client, so this app brings up datahub-infra's JPA + Pulsar config — including the
  * multi-tenant {@code StatelessRoutingDataSource}. Component scanning is kept to the packages those
- * beans live in ({@code config}, {@code tenant}, {@code pulsar}) plus this module's {@code cleanup}
- * package; Neo4j/ClickHouse/Valkey clients in {@code config} connect lazily and stay unused.
+ * beans live in ({@code config}, {@code tenant}, {@code pulsar}, {@code clickhouse}) plus this
+ * module's {@code cleanup} package; the Neo4j and Valkey clients in {@code config} connect lazily
+ * and stay unused.
  *
  * <p>Run as a SINGLE instance — two janitors deleting concurrently is wasteful and racy.
  */
@@ -39,6 +43,9 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "ai.intellistream.datahub.config",
         "ai.intellistream.datahub.tenant",
         "ai.intellistream.datahub.pulsar",
+        // ClickHouseEventService: the event-dimension rebuild reads the authoritative DISTINCT
+        // values from ClickHouse before rewriting the Postgres dimension tables.
+        "ai.intellistream.datahub.clickhouse",
         "ai.intellistream.datahub.cleanup"
 })
 public class DatahubCleanupApplication {
