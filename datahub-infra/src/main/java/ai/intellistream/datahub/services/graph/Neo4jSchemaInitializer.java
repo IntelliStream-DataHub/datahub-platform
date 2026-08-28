@@ -41,7 +41,12 @@ public class Neo4jSchemaInitializer {
 
     /** Idempotent and cheap after the first call for a tenant. */
     public void ensureConstraints(String tenantId) {
-        initialised.computeIfAbsent(tenantId, this::createConstraints);
+        if (initialised.containsKey(tenantId)) {
+            return;
+        }
+        if (createConstraints(tenantId)) {
+            initialised.put(tenantId, Boolean.TRUE);
+        }
     }
 
     private boolean createConstraints(String tenantId) {
@@ -65,8 +70,11 @@ public class Neo4jSchemaInitializer {
                 }
             }
         } catch (RuntimeException e) {
+            // Neo4j being briefly unreachable is not a reason to give up on the constraints for the
+            // rest of the JVM's life: report nothing done so the next drain tries again.
             log.error("Could not open a graph session to create constraints for tenant {}: {}",
                     tenantId, e.getMessage());
+            return false;
         }
         return true;
     }

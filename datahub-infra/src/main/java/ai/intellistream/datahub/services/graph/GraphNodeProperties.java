@@ -11,7 +11,6 @@ import org.neo4j.driver.Values;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -76,15 +75,19 @@ final class GraphNodeProperties {
 
     /**
      * The labels a node should carry: its user labels plus the type-label its concrete entity
-     * class dictates. Dashes are stripped because a label is written into the Cypher text, where
-     * an unquoted dash would parse as subtraction.
+     * class dictates, exactly as Postgres spells them.
+     *
+     * <p>The previous writer stripped dashes, because it pasted label names into Cypher unquoted
+     * and a bare dash there parses as subtraction. {@link #escape} removes the need, so the graph
+     * can carry the label the model actually holds; a node written by the old code converges to
+     * that spelling the next time it is touched.
      */
     static Set<String> labelsOf(NodeEntity node) {
         Set<String> labels = new LinkedHashSet<>();
         TypeLabels.forEntity(node).ifPresent(labels::add);
         if (node.getLabels() != null && !node.getLabels().isBlank()) {
             Arrays.stream(node.getLabels().split(","))
-                    .map(label -> label.replace("-", "").trim())
+                    .map(String::trim)
                     .filter(label -> !label.isBlank())
                     .forEach(labels::add);
         }
@@ -120,16 +123,15 @@ final class GraphNodeProperties {
         return Values.point(4326, coords[0], coords[1]);
     }
 
-    /** Label names are interpolated into Cypher, so they must be identifier-safe. */
-    static List<String> sanitize(Set<String> labels) {
-        List<String> safe = new ArrayList<>(labels.size());
-        for (String label : labels) {
-            if (label.matches("[A-Za-z_][A-Za-z0-9_]*")) {
-                safe.add(label);
-            } else {
-                log.warn("Skipping graph label '{}': not a valid Cypher identifier", label);
-            }
-        }
-        return safe;
+    /**
+     * A label as it must appear inside Cypher: backtick-quoted, with any internal backtick doubled.
+     *
+     * <p>Quoting rather than restricting. Label canonicalisation is unicode-aware, so {@code MÅLER}
+     * is an ordinary stored label here, and older graphs can hold labels with characters no
+     * canonicalisation would produce today. An identifier whitelist would drop those on the way in
+     * and, because labels are also removed by name, strip them from nodes that already carry them.
+     */
+    static String escape(String label) {
+        return "`" + label.replace("`", "``") + "`";
     }
 }

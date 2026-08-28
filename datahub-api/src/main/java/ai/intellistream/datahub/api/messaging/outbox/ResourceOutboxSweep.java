@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -39,6 +40,7 @@ public class ResourceOutboxSweep {
     private final Duration retention;
     private final int purgeEvery;
     private final AtomicLong passes = new AtomicLong();
+    private final AtomicBoolean sweeping = new AtomicBoolean();
 
     /**
      * The sweep runs on its own thread, not the scheduler's. Spring's default scheduler is a single
@@ -62,7 +64,21 @@ public class ResourceOutboxSweep {
 
     @Scheduled(fixedDelayString = "${datahub.outbox.sweep-ms:15000}")
     public void scheduleSweep() {
-        executor.submit(this::sweepAllTenants);
+        // fixedDelay would normally prevent overlap, but it measures this method, which only hands
+        // the work off. Without the guard, a pass slowed by an unreachable tenant database (a
+        // connect timeout per tenant) would have another queued behind it every interval, and the
+        // executor's queue would grow for as long as the outage lasts.
+        if (!sweeping.compareAndSet(false, true)) {
+            log.debug("Graph outbox sweep still running; skipping this tick");
+            return;
+        }
+        executor.submit(() -> {
+            try {
+                sweepAllTenants();
+            } finally {
+                sweeping.set(false);
+            }
+        });
     }
 
     void sweepAllTenants() {

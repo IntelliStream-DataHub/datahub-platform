@@ -151,12 +151,14 @@ class ResourceGraphApplierIT {
     }
 
     @Test
-    void aNodeCarriesItsTypeLabelAndItsUserLabels() {
+    void aNodeCarriesItsTypeLabelAndItsUserLabelsAsPostgresSpellsThem() {
+        // Including punctuation: the labels are quoted in the statement, so the graph carries the
+        // label the model holds rather than a mangled version of it.
         givenAsset(1L, "asset_1", "Pump A").setLabels("pump,rotating-equipment");
 
         apply(upsertNode(1L));
 
-        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "pump", "rotatingequipment");
+        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "pump", "rotating-equipment");
     }
 
     @Test
@@ -172,11 +174,48 @@ class ResourceGraphApplierIT {
     }
 
     @Test
+    void aLabelWithNonAsciiLettersReachesTheGraphAndSurvivesLaterWrites() {
+        // Label canonicalisation keeps Unicode letters (TextValidator's \\W is unicode-aware), so
+        // "maaler" spelled properly is the stored label MÅLER. This is a Norwegian product: dropping
+        // those would empty the graph's label filters for a large part of the model.
+        AssetEntity asset = givenAsset(1L, "asset_1", "Pump A");
+        asset.setLabels("MÅLER,BRØNN");
+
+        apply(upsertNode(1L));
+        assertThat(labelsOfNodeOne()).contains("MÅLER", "BRØNN");
+
+        // And a second write must not strip what the first one wrote.
+        apply(upsertNode(1L));
+        assertThat(labelsOfNodeOne()).contains("MÅLER", "BRØNN");
+    }
+
+    @Test
     void anEntityPostgresNoLongerHasIsNotRecreated() {
         // A delete that overtakes its own upsert must not resurrect the node.
         apply(upsertNode(404L));
 
         assertThat(countNodes()).isZero();
+    }
+
+    @Test
+    void aLegacyDuplicateIdDoesNotWedgeTheQueue() {
+        // Plain resources carry no type-label, so no uniqueness constraint covers them, and a graph
+        // written in the years before any constraints existed can hold two nodes for one id. The
+        // applier must keep going: with no attempt ceiling, a row that always throws would block
+        // that tenant's entire mirror rather than just being wrong about one node.
+        try (Session session = driver.session()) {
+            session.run("CREATE (:ASSET {id: 1, name: 'first'})").consume();
+            session.run("CREATE (:ASSET {id: 1, name: 'second'})").consume();
+        }
+        givenAsset(1L, "asset_1", "Pump A");
+
+        apply(upsertNode(1L));
+
+        try (Session session = driver.session()) {
+            List<String> names = session.run("MATCH (n {id: 1}) RETURN n.name AS v")
+                    .list(r -> r.get("v").asString());
+            assertThat(names).containsExactly("Pump A", "Pump A");
+        }
     }
 
     @Test

@@ -14,7 +14,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -114,7 +113,7 @@ public class ResourceGraphApplier {
      */
     private void upsertNode(NodeEntity node, Transaction tx) {
         Map<String, Object> props = GraphNodeProperties.of(node);
-        List<String> labels = GraphNodeProperties.sanitize(GraphNodeProperties.labelsOf(node));
+        Set<String> labels = GraphNodeProperties.labelsOf(node);
         // Only a type-label may key the MERGE: it is the one label guaranteed to be on the node
         // already (a user label may be newly added by this very write) and the one the uniqueness
         // constraint indexes.
@@ -122,13 +121,26 @@ public class ResourceGraphApplier {
 
         String merge = typeLabel == null
                 ? "MERGE (n {id: $id}) SET n = $props RETURN labels(n) AS labels"
-                : "MERGE (n:" + typeLabel + " {id: $id}) SET n = $props RETURN labels(n) AS labels";
-        var result = tx.run(merge, Map.of("id", node.getId(), "props", props));
-        List<String> current = result.single().get("labels").asList(v -> v.asString());
+                : "MERGE (n:" + GraphNodeProperties.escape(typeLabel)
+                        + " {id: $id}) SET n = $props RETURN labels(n) AS labels";
+        // Every matched row, not just one: a graph written before the uniqueness constraints existed
+        // can still hold two nodes for an id, and plain resources carry no type-label to constrain.
+        // Taking the union of their labels keeps such a node converging instead of failing forever,
+        // which under the no-attempt-ceiling policy would block the tenant's whole queue.
+        List<List<String>> matched = tx.run(merge, Map.of("id", node.getId(), "props", props))
+                .list(r -> r.get("labels").asList(v -> v.asString()));
+        if (matched.isEmpty()) {
+            log.warn("Graph upsert of node {} matched nothing", node.getId());
+            return;
+        }
+        if (matched.size() > 1) {
+            log.error("Graph holds {} nodes with id {} — deduplicate them; the mirror is writing to all",
+                    matched.size(), node.getId());
+        }
+        List<String> current = matched.stream().flatMap(List::stream).distinct().toList();
 
-        Set<String> wanted = new HashSet<>(labels);
-        List<String> toAdd = wanted.stream().filter(l -> !current.contains(l)).toList();
-        List<String> toRemove = current.stream().filter(l -> !wanted.contains(l)).toList();
+        List<String> toAdd = labels.stream().filter(l -> !current.contains(l)).toList();
+        List<String> toRemove = current.stream().filter(l -> !labels.contains(l)).toList();
         if (!toAdd.isEmpty()) {
             tx.run("MATCH (n {id: $id}) SET n" + joined(toAdd), Map.of("id", node.getId()));
         }
@@ -148,7 +160,7 @@ public class ResourceGraphApplier {
             log.warn("Skipping graph edge {}: no relationship type", edge.getId());
             return;
         }
-        String type = edge.getRelationshipType().getName().replace("-", "");
+        String type = edge.getRelationshipType().getName();
         Map<String, Object> params = Map.of(
                 "rid", edge.getId(),
                 "start", edge.getStart(),
@@ -159,7 +171,7 @@ public class ResourceGraphApplier {
         tx.run("MATCH (a)-[r {id: $rid}]->(b) "
                 + "WHERE type(r) <> $type OR a.id <> $start OR b.id <> $end DELETE r", params);
         tx.run("MATCH (a {id: $start}) MATCH (b {id: $end}) "
-                + "MERGE (a)-[r:" + type + " {id: $rid}]->(b) SET r = $props", params);
+                + "MERGE (a)-[r:" + GraphNodeProperties.escape(type) + " {id: $rid}]->(b) SET r = $props", params);
     }
 
     private void deleteNode(GraphSyncCommand.NodeRef ref, Transaction tx) {
@@ -197,7 +209,8 @@ public class ResourceGraphApplier {
         }
     }
 
+    /** Labels cannot be bound as parameters, so they are escaped and written into the statement. */
     private static String joined(List<String> labels) {
-        return ":" + String.join(":", labels);
+        return ":" + labels.stream().map(GraphNodeProperties::escape).collect(Collectors.joining(":"));
     }
 }
