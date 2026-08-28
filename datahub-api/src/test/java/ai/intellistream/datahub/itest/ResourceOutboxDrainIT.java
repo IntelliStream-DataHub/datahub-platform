@@ -91,6 +91,7 @@ class ResourceOutboxDrainIT {
         private final List<GraphSyncCommand> applied = new ArrayList<>();
         private long failOnNodeId = -1;
         private CountDownLatch pauseUntil;
+        private Runnable onApply;
 
         RecordingApplier() {
             super(null, null, null);
@@ -98,6 +99,9 @@ class ResourceOutboxDrainIT {
 
         @Override
         public void apply(GraphSyncCommand command, String tenantId) {
+            if (onApply != null) {
+                onApply.run();
+            }
             if (pauseUntil != null) {
                 try {
                     pauseUntil.await(10, TimeUnit.SECONDS);
@@ -209,6 +213,37 @@ class ResourceOutboxDrainIT {
     }
 
     @Test
+    void workQueuedWhileADrainIsRunningIsPickedUpByThatDrain() {
+        // requestDrain coalesces: a caller who finds a drain already in flight raises a flag rather
+        // than starting a second one, and the running drain has to come back for it. Without that,
+        // a write landing mid-drain would wait for the sweep instead of a few milliseconds.
+        //
+        // The narrower race — the flag raised after the running drain's last check but before it
+        // releases — is handled in drainLoop's finally block. It is not pinned here: hitting that
+        // window deterministically needs a hook in production code, which is a worse trade than
+        // the bounded delay the sweep already covers.
+        queue(1L);
+        CountDownLatch insideTheDrain = new CountDownLatch(1);
+        CountDownLatch releaseTheDrain = new CountDownLatch(1);
+        RecordingApplier slowApplier = new RecordingApplier();
+        slowApplier.onApply = () -> {
+            insideTheDrain.countDown();
+            await(releaseTheDrain);
+        };
+        ResourceOutboxDrainService service = newDrainService(slowApplier);
+
+        service.requestDrain(TENANT);
+        await(insideTheDrain);
+        // Arrives while the first drain is still running, so it can only set the flag.
+        Long queuedDuringDrain = queue(2L);
+        service.requestDrain(TENANT);
+        releaseTheDrain.countDown();
+
+        awaitApplied(queuedDuringDrain);
+        assertThat(repository.findById(queuedDuringDrain).orElseThrow().getAppliedAt()).isNotNull();
+    }
+
+    @Test
     void anEmptyQueueIsCheapAndReportsNothingToDo() {
         assertThat(drainService.drainOnce(TENANT)).isFalse();
         assertThat(repository.existsByAppliedAtIsNull()).isFalse();
@@ -222,6 +257,33 @@ class ResourceOutboxDrainIT {
     private void markFailed(Long rowId, Instant nextAttemptAt, String error) {
         new TransactionTemplate(transactionManager).executeWithoutResult(
                 status -> repository.recordFailure(rowId, 1, nextAttemptAt, error));
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new AssertionError("timed out waiting for the drain");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError(e);
+        }
+    }
+
+    /** The drain is asynchronous, so poll rather than assuming it has finished. */
+    private void awaitApplied(Long rowId) {
+        for (int i = 0; i < 100; i++) {
+            if (repository.findById(rowId).map(r -> r.getAppliedAt() != null).orElse(false)) {
+                return;
+            }
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AssertionError(e);
+            }
+        }
+        throw new AssertionError("row " + rowId + " was never applied");
     }
 
     private Long queue(Long nodeId) {

@@ -104,7 +104,7 @@ public class ResourceOutboxDrainService {
         }
         AtomicBoolean active = running.computeIfAbsent(tenantId, key -> new AtomicBoolean());
         if (!active.compareAndSet(false, true)) {
-            rerun.computeIfAbsent(tenantId, key -> new AtomicBoolean()).set(true);
+            rerunFlag(tenantId).set(true);
             return;
         }
         try {
@@ -121,7 +121,7 @@ public class ResourceOutboxDrainService {
             boolean more = true;
             while (more) {
                 more = TenantContext.callWith(tenantId, () -> drainOnce(tenantId));
-                if (!more && rerun.getOrDefault(tenantId, new AtomicBoolean()).getAndSet(false)) {
+                if (!more && rerunFlag(tenantId).getAndSet(false)) {
                     more = true;
                 }
             }
@@ -130,7 +130,18 @@ public class ResourceOutboxDrainService {
             log.error("Graph outbox drain failed for tenant {}: {}", tenantId, e.getMessage(), e);
         } finally {
             active.set(false);
+            // A drain requested in the window between the last check above and this release found
+            // the tenant still busy, so it only set the flag and returned. Nobody else will act on
+            // it now, and leaving it would make that change wait for the sweep instead of landing
+            // in milliseconds.
+            if (rerunFlag(tenantId).getAndSet(false)) {
+                requestDrain(tenantId);
+            }
         }
+    }
+
+    private AtomicBoolean rerunFlag(String tenantId) {
+        return rerun.computeIfAbsent(tenantId, key -> new AtomicBoolean());
     }
 
     /**
