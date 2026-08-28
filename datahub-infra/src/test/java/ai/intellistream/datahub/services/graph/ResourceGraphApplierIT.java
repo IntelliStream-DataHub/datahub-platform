@@ -7,7 +7,11 @@ import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.RelationshipType;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
+import ai.intellistream.datahub.models.EdgeProxy;
+import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
+import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
+import ai.intellistream.datahub.transformers.ResourceTransformer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,6 +21,8 @@ import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
 import org.neo4j.driver.GraphDatabase;
 import org.neo4j.driver.Session;
+import org.neo4j.driver.types.Node;
+import org.neo4j.driver.types.Relationship;
 import org.testcontainers.containers.Neo4jContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -245,6 +251,61 @@ class ResourceGraphApplierIT {
                 List.of()));
 
         assertThat(countNodes()).isEqualTo(1);
+    }
+
+    @Test
+    void whatTheApplierWritesIsWhatTheGraphReadersExpect() {
+        // The applier assigns a node's properties wholesale, so a name this mapping forgets is a
+        // property that disappears from the graph. These are the readers that would notice:
+        // every graph-sourced Resource in the api comes back through ResourceTransformer.fromNode.
+        AssetEntity asset = givenAsset(1L, "asset_1", "Pump A");
+        asset.setDescription("Main feed pump");
+        asset.setSource("SAP");
+        asset.setIsRoot(true);
+        asset.setGeoLocation("{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}");
+        asset.getMetadata().put("vendor", "acme");
+
+        apply(upsertNode(1L));
+
+        try (Session session = driver.session()) {
+            Node node = session.run("MATCH (n {id: 1}) RETURN n").single().get("n").asNode();
+            Resource read = ResourceTransformer.fromNode(node);
+
+            assertThat(read.getId()).isEqualTo(1L);
+            assertThat(read.getExternalId()).isEqualTo("asset_1");
+            assertThat(read.getName()).isEqualTo("Pump A");
+            assertThat(read.getDescription()).isEqualTo("Main feed pump");
+            assertThat(read.getSource()).isEqualTo("SAP");
+            assertThat(read.getIsRoot()).isTrue();
+            assertThat(read.getLabels()).contains("ASSET");
+            assertThat(read.getGeoLocation()).isNotNull();
+            assertThat(read.getGeoLocation().pointCoordinates()).containsExactly(10.75, 59.91);
+        }
+    }
+
+    @Test
+    void anEdgeComesBackThroughItsOwnReader() {
+        givenAsset(1L, "asset_1", "Pump A");
+        givenAsset(2L, "asset_2", "Tank B");
+        EdgeEntity edge = givenEdge(10L, 1L, 2L, "FLOWS_TO");
+        edge.setDescription("suction line");
+        edge.getMetadata().put("size", "DN200");
+
+        apply(new GraphSyncCommand(List.of(1L, 2L), List.of(10L), List.of(), List.of()));
+
+        try (Session session = driver.session()) {
+            Relationship rel = session.run("MATCH ()-[r {id: 10}]->() RETURN r")
+                    .single().get("r").asRelationship();
+            EdgeProxy read = EdgeProxyTransformer.from(rel);
+
+            assertThat(read.getId()).isEqualTo(10L);
+            assertThat(read.getStart()).isEqualTo(1L);
+            assertThat(read.getEnd()).isEqualTo(2L);
+            assertThat(read.getType()).isEqualTo("FLOWS_TO");
+            assertThat(read.getRelationshipTypeId()).isEqualTo(1L);
+            assertThat(read.getDescription()).isEqualTo("suction line");
+            assertThat(read.getMetadata()).containsEntry("size", "DN200");
+        }
     }
 
     @Test
