@@ -54,13 +54,12 @@ class NodeReadMapperGraphTest {
         assertThat(((Timeseries) dto).getValueType()).isNull();
     }
 
-    /** The graph stores neither of these, so neither may come back as a constructor default. */
+    /** The graph does not store this, so it must not come back as a constructor default. */
     @Test
     void clearsTheFieldsTheGraphDoesNotStore() {
         Timeseries dto = (Timeseries) NodeReadMapper.fromGraphNode(graphNode(
                 List.of("TIMESERIES"), Map.of("id", 5L, "externalId", "flow_1")));
 
         assertThat(dto.getTableEngine()).isNull();
-        assertThat(dto.getSecurityCategories()).isNull();
     }
 }

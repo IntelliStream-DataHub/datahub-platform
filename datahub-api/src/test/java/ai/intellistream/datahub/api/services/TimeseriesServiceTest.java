@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
@@ -84,6 +85,7 @@ class TimeseriesServiceTest {
     @Mock private ResourceService resourceService;
     @Mock private ValkeyService valkeyService;
     @Mock private ApplicationEventPublisher applicationEventPublisher;
+    @Mock private GraphOutbox graphOutbox;
     @Mock private Producer<DataWrapperBin> allDatapointProducer;
     @Mock private ai.intellistream.datahub.services.NodeService nodeService;
     @Mock private ai.intellistream.datahub.api.policy.PolicyEnforcement policyEnforcement;
@@ -505,11 +507,9 @@ class TimeseriesServiceTest {
             timeseriesService.save(wrap(ts("temperature")));
 
             org.mockito.Mockito.verify(dataSecurity).assertCanWriteDataSet(null);
-            org.mockito.ArgumentCaptor<ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent> cap =
-                    org.mockito.ArgumentCaptor.forClass(ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent.class);
-            org.mockito.Mockito.verify(applicationEventPublisher).publishEvent(cap.capture());
-            assertEquals(ai.intellistream.datahub.pulsar.EventObject.TIMESERIES,
-                    cap.getValue().message().getEventObject());
+            org.mockito.Mockito.verify(graphOutbox)
+                    .queueUpsert(org.mockito.ArgumentMatchers.anyCollection(),
+                                 org.mockito.ArgumentMatchers.anyCollection());
         } finally {
             ai.intellistream.datahub.tenant.TenantContext.clear();
         }

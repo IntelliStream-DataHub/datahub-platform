@@ -3,18 +3,17 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.datasecurity.DatasetPermissions;
 import ai.intellistream.datahub.api.datasecurity.TestDataSecurity;
 import ai.intellistream.datahub.api.edge.EdgeMapper;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.ResourceEntity;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.Resource;
-import ai.intellistream.datahub.pulsar.EventObject;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
@@ -40,6 +39,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -61,6 +61,7 @@ class ResourceServiceCreateEventTest {
     private final RelationshipTypeRepository relationshipTypeRepository = mock(RelationshipTypeRepository.class);
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final GraphOutbox graphOutbox = mock(GraphOutbox.class);
     private final Neo4JService neo4JService = mock(Neo4JService.class);
     private final DataSetRepository dataSetRepository = mock(DataSetRepository.class);
     private final SubscriptionRepository subscriptionRepository = mock(SubscriptionRepository.class);
@@ -72,7 +73,7 @@ class ResourceServiceCreateEventTest {
 
     private final ResourceService service = new ResourceService(
             entityManager, nodeRepository, nodeService, edgeRepository,
-            relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService, dataSecurity, subscriptionRepository, validator, policyEnforcement,
+            relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
             new EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
@@ -124,10 +125,10 @@ class ResourceServiceCreateEventTest {
 
         service.create(request(7L));
 
-        ArgumentCaptor<Object> cap = ArgumentCaptor.forClass(Object.class);
-        verify(eventPublisher).publishEvent(cap.capture());
-        ResourceCudPublishEvent event = (ResourceCudPublishEvent) cap.getValue();
-        assertEquals(EventObject.RESOURCE_AND_RELATION, event.message().getEventObject());
+        // One queued graph upsert for the whole batch. This used to assert one CUD event on the
+        // Pulsar topic; the topic is gone and the outbox is what the graph now reads, but the
+        // invariant is the same one: a create emits exactly one graph mutation, never one per node.
+        verify(graphOutbox).queueUpsert(anyCollection(), anyCollection());
     }
 
     @Test
@@ -139,6 +140,6 @@ class ResourceServiceCreateEventTest {
         assertThrows(RuntimeException.class, () -> service.create(request(7L)));
 
         verify(nodeRepository, never()).saveAll(any());
-        verify(eventPublisher, never()).publishEvent(any());
+        verify(graphOutbox, never()).queueUpsert(any(), any());
     }
 }

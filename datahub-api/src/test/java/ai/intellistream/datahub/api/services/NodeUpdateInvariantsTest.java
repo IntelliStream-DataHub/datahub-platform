@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.policy.NamingPolicyResolver;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
@@ -41,6 +41,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
@@ -84,6 +85,7 @@ class NodeUpdateInvariantsTest {
         @Mock private ResourceService resourceService;
         @Mock private DataSetRepository dataSetRepository;
         @Mock private ApplicationEventPublisher applicationEventPublisher;
+        @Mock private GraphOutbox graphOutbox;
 
         @InjectMocks private DataSetService dataSetService;
 
@@ -125,6 +127,7 @@ class NodeUpdateInvariantsTest {
         @Mock private PolicyRepository policyRepository;
         @Mock private DataSecurity dataSecurity;
         @Mock private ApplicationEventPublisher applicationEventPublisher;
+        @Mock private GraphOutbox graphOutbox;
         @Mock private NamingPolicyResolver namingPolicyResolver;
         @Mock private ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
@@ -209,14 +212,10 @@ class NodeUpdateInvariantsTest {
 
             policyService.updatePolicyNode(renaming());
 
-            ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
-            verify(applicationEventPublisher).publishEvent(captor.capture());
-            ResourceCudPublishEvent event = (ResourceCudPublishEvent) captor.getValue();
-            assertThat(event.message().getEventObject()).isEqualTo(EventObject.RESOURCE_AND_RELATION);
-            // Documented workaround, not an oversight: the consumer's UPDATE branch ignores
-            // `resources`, so the policy layer sends its idempotent CREATE upsert instead. Phase 6
-            // (event carries resolved labels) is what lets this become an honest UPDATE.
-            assertThat(event.message().getEventAction()).isEqualTo(EventAction.CREATE);
+            // Exactly one queued graph mutation. The CREATE-for-an-update workaround this used to
+            // assert is gone with the message: there is no event action any more, and queueUpsert
+            // is a genuine upsert, so the policy path no longer has to lie about what it did.
+            verify(graphOutbox).queueUpsert(anyCollection(), anyCollection());
         }
     }
 
@@ -231,6 +230,7 @@ class NodeUpdateInvariantsTest {
         @Mock private DataSecurity dataSecurity;
         @Mock private PolicyEnforcement policyEnforcement;
         @Mock private ApplicationEventPublisher applicationEventPublisher;
+        @Mock private GraphOutbox graphOutbox;
         @Mock private ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
         @InjectMocks private TimeseriesService timeseriesService;
@@ -284,8 +284,8 @@ class NodeUpdateInvariantsTest {
         }
 
         @Test
-        @DisplayName("a timeseries update publishes exactly one TIMESERIES event")
-        void aTimeseriesUpdatePublishesExactlyOneEvent() throws Exception {
+        @DisplayName("a timeseries update queues exactly one graph mutation")
+        void aTimeseriesUpdateQueuesExactlyOneGraphMutation() throws Exception {
             TenantContext.setTenantId("tenant-1");
             when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(entity()));
             when(policyEnforcement.check(anyList())).thenReturn(List.of());
@@ -293,11 +293,10 @@ class NodeUpdateInvariantsTest {
 
             timeseriesService.updateTimeseries(renaming());
 
-            ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
-            verify(applicationEventPublisher).publishEvent(captor.capture());
-            ResourceCudPublishEvent event = (ResourceCudPublishEvent) captor.getValue();
-            assertThat(event.message().getEventObject()).isEqualTo(EventObject.TIMESERIES);
-            assertThat(event.message().getEventAction()).isEqualTo(EventAction.UPDATE);
+            // The timeseries path queues by id (its entities are already saved), so it is the
+            // queueUpsertIds variant here. The invariant is unchanged: one graph mutation per
+            // update, never one per node.
+            verify(graphOutbox).queueUpsertIds(anyCollection(), anyCollection());
         }
     }
 }

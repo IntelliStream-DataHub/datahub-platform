@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.datasecurity.DatasetAccessDeniedException;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.datasecurity.DatasetPermissions;
@@ -71,6 +72,7 @@ class ResourceServiceNodeTypeAclTest {
     private final RelationshipTypeRepository relationshipTypeRepository = mock(RelationshipTypeRepository.class);
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final GraphOutbox graphOutbox = mock(GraphOutbox.class);
     private final Neo4JService neo4JService = mock(Neo4JService.class);
     private final DataSetRepository dataSetRepository = mock(DataSetRepository.class);
     private final SubscriptionRepository subscriptionRepository = mock(SubscriptionRepository.class);
@@ -83,7 +85,7 @@ class ResourceServiceNodeTypeAclTest {
 
     private final ResourceService service = new ResourceService(
             entityManager, nodeRepository, nodeService, edgeRepository,
-            relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService, dataSecurity, subscriptionRepository, validator, policyEnforcement,
+            relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(

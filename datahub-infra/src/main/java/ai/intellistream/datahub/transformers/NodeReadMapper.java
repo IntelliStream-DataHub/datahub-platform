@@ -132,13 +132,11 @@ public final class NodeReadMapper {
                     yield asset;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES -> {
-                    // The DTO's constructor defaults would otherwise be published as though the
-                    // graph had supplied them — an empty securityCategories reading as
-                    // "unrestricted", MERGETREE reported for a series stored some other way.
-                    // Cleared, so they are absent rather than wrong.
+                    // The DTO's constructor default would otherwise be published as though the
+                    // graph had supplied it — MERGETREE reported for a series stored some other
+                    // way. Cleared, so it is absent rather than wrong.
                     var ts = new ai.intellistream.datahub.timeseries.Timeseries();
                     ts.setTableEngine(null);
-                    ts.setSecurityCategories(null);
                     // The graph does carry the value type. Absent on nodes written before it did,
                     // which is why it is read rather than assumed: null stays null.
                     ts.setValueType(asString(node, "valueType"));

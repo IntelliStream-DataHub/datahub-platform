@@ -4,6 +4,7 @@ package ai.intellistream.datahub.api.services;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.datasecurity.DatasetPermissions;
 import ai.intellistream.datahub.api.datasecurity.TestDataSecurity;
@@ -67,7 +68,7 @@ class ResourceServiceCreateGuardsTest {
     private final ResourceService service = new ResourceService(
             mock(EntityManager.class), nodeRepository, nodeService, edgeRepository,
             relationshipTypeRepository, mock(RelationshipTypeService.class),
-            mock(ApplicationEventPublisher.class), mock(Neo4JService.class), dataSecurity,
+            mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class), dataSecurity,
             mock(SubscriptionRepository.class), validator, policyEnforcement,
             mock(DatasetClosureService.class),
             new EdgeMapper(nodeRepository, relationshipTypeRepository, mock(RelationshipTypeService.class)),

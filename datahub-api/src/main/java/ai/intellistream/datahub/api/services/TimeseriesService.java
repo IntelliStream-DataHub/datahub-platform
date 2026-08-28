@@ -1346,35 +1346,6 @@ public class TimeseriesService {
                 dbTs.setUnitExternalId(null);
             }
 
-            // Update securityCategories field
-            if(fields.getSecurityCategories().getSet() != null){
-
-                Set<Integer> scIdList = fields.getSecurityCategories().getSet()
-                        .stream()
-                        .mapToInt(Long::intValue)
-                        .boxed()
-                        .collect(Collectors.toCollection(TreeSet::new));
-                dbTs.setSecurityCategories(scIdList);
-            }
-
-            if(fields.getSecurityCategories().getAdd() != null){
-                Collection<Integer> addList = fields.getSecurityCategories().getAdd()
-                        .stream()
-                        .mapToInt(Long::intValue)
-                        .boxed()
-                        .collect(Collectors.toCollection(TreeSet::new));
-                dbTs.getSecurityCategories().addAll(addList);
-            }
-
-            if(fields.getSecurityCategories().getRemove() != null){
-                Collection<Integer> removeList = fields.getSecurityCategories().getRemove()
-                        .stream()
-                        .mapToInt(Long::intValue)
-                        .boxed()
-                        .collect(Collectors.toCollection(TreeSet::new));
-                dbTs.getSecurityCategories().removeAll(removeList);
-            }
-
             var updatedTimeseries = nodeRepository.save(dbTs);
             log.debug("Updated timeseries: {}", updatedTimeseries);
         }
