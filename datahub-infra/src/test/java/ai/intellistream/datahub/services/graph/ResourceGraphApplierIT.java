@@ -151,14 +151,26 @@ class ResourceGraphApplierIT {
     }
 
     @Test
-    void aNodeCarriesItsTypeLabelAndItsUserLabelsAsPostgresSpellsThem() {
-        // Including punctuation: the labels are quoted in the statement, so the graph carries the
-        // label the model holds rather than a mangled version of it.
+    void labelsReachTheGraphInTheirCanonicalForm() {
+        // Not every path that fills node.labels canonicalises first, so the mirror does it: the
+        // graph must spell a label the way a query for it will.
         givenAsset(1L, "asset_1", "Pump A").setLabels("pump,rotating-equipment");
 
         apply(upsertNode(1L));
 
-        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "pump", "rotating-equipment");
+        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "PUMP", "ROTATING_EQUIPMENT");
+    }
+
+    @Test
+    void aLabelThatWasWrittenNonCanonicallyIsCorrectedOnTheNextWrite() {
+        try (Session session = driver.session()) {
+            session.run("CREATE (n:ASSET:`rotating-equipment` {id: 1})").consume();
+        }
+        givenAsset(1L, "asset_1", "Pump A").setLabels("rotating-equipment");
+
+        apply(upsertNode(1L));
+
+        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "ROTATING_EQUIPMENT");
     }
 
     @Test
@@ -170,7 +182,7 @@ class ResourceGraphApplierIT {
         asset.setLabels("pump");
         apply(upsertNode(1L));
 
-        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "pump");
+        assertThat(labelsOfNodeOne()).containsExactlyInAnyOrder("ASSET", "PUMP");
     }
 
     @Test
@@ -394,7 +406,7 @@ class ResourceGraphApplierIT {
             asset = new AssetEntity();
             asset.setId(id);
             asset.setExternalId(externalId);
-            asset.setLabels("asset");
+            asset.setLabels("ASSET");
             nodes.put(id, asset);
         }
         asset.setName(name);

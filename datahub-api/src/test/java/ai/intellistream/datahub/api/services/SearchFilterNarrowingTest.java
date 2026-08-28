@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
@@ -142,7 +143,7 @@ class SearchFilterNarrowingTest {
                 entityManager, mock(NodeRepository.class), mock(NodeService.class),
                 mock(LabelService.class), mock(EdgeRepository.class),
                 mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class),
-                mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
+                mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class),
                 mock(DataSetRepository.class), dataSecurity,
                 mock(SubscriptionRepository.class), mock(Validator.class),
                 mock(PolicyEnforcement.class), closure);

@@ -6,6 +6,7 @@ import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.TypeLabels;
+import ai.intellistream.datahub.helpers.text.Labels;
 import ai.intellistream.datahub.models.GeoLocation;
 import org.neo4j.driver.Values;
 import org.slf4j.Logger;
@@ -74,21 +75,26 @@ final class GraphNodeProperties {
     }
 
     /**
-     * The labels a node should carry: its user labels plus the type-label its concrete entity
-     * class dictates, exactly as Postgres spells them.
+     * The labels a node should carry: its user labels plus the type-label its concrete entity class
+     * dictates, each in the one canonical form the rest of the platform uses.
      *
-     * <p>The previous writer stripped dashes, because it pasted label names into Cypher unquoted
-     * and a bare dash there parses as subtraction. {@link #escape} removes the need, so the graph
-     * can carry the label the model actually holds; a node written by the old code converges to
-     * that spelling the next time it is touched.
+     * <p>Canonicalised through {@link Labels#canonical} rather than trusted as stored, and through
+     * that method specifically. It is what {@code Label.setName} applies on persist and what
+     * {@code NodeFilter} reproduces to match label hashes, so a second spelling here would put
+     * labels in the graph that no query for them could find. The columns feeding this are not all
+     * written through that path, so a {@code rotating-equipment} can reach here; it belongs in the
+     * graph as {@code ROTATING_EQUIPMENT}.
+     *
+     * <p>The previous writer merely deleted dashes, which is neither canonical nor reversible.
+     * Nodes it wrote converge on the canonical spelling the next time they are touched.
      */
     static Set<String> labelsOf(NodeEntity node) {
         Set<String> labels = new LinkedHashSet<>();
         TypeLabels.forEntity(node).ifPresent(labels::add);
         if (node.getLabels() != null && !node.getLabels().isBlank()) {
             Arrays.stream(node.getLabels().split(","))
-                    .map(String::trim)
-                    .filter(label -> !label.isBlank())
+                    .map(Labels::canonical)
+                    .filter(label -> label != null && !label.isBlank())
                     .forEach(labels::add);
         }
         return labels;

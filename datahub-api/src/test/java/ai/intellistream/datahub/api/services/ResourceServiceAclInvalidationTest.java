@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -71,6 +72,7 @@ class ResourceServiceAclInvalidationTest {
     private final RelationshipTypeRepository relationshipTypeRepository = mock(RelationshipTypeRepository.class);
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final GraphOutbox graphOutbox = mock(GraphOutbox.class);
     private final Neo4JService neo4JService = mock(Neo4JService.class);
     private final DataSetRepository dataSetRepository = mock(DataSetRepository.class);
     private final ResourceRepository resourceRepository = mock(ResourceRepository.class);
@@ -87,7 +89,7 @@ class ResourceServiceAclInvalidationTest {
 
     private final ResourceService service = new ResourceService(
             entityManager, nodeRepository, nodeService, labelService, edgeRepository,
-            relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService,
+            relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
             dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService);
 
