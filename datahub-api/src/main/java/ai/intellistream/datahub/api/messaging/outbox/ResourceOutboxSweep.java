@@ -7,11 +7,14 @@ import ai.intellistream.datahub.tenant.TenantContext;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.InvalidDataAccessResourceUsageException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Set;
 import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -41,6 +44,9 @@ public class ResourceOutboxSweep {
     private final int purgeEvery;
     private final AtomicLong passes = new AtomicLong();
     private final AtomicBoolean sweeping = new AtomicBoolean();
+
+    /** Tenants whose table is missing, so the "not provisioned yet" note is logged once, not per tick. */
+    private final Set<String> unprovisioned = ConcurrentHashMap.newKeySet();
 
     /**
      * The sweep runs on its own thread, not the scheduler's. Spring's default scheduler is a single
@@ -86,6 +92,16 @@ public class ResourceOutboxSweep {
         for (String tenantId : tenantConfigService.cachedTenants.keySet()) {
             try {
                 TenantContext.runWith(tenantId, () -> sweepTenant(tenantId, purge));
+                if (unprovisioned.remove(tenantId)) {
+                    log.info("Graph outbox sweep resumed for tenant {}", tenantId);
+                }
+            } catch (InvalidDataAccessResourceUsageException e) {
+                // The tenant's migrations have not run, so the table is not there yet. That is
+                // already reported loudly and repeatedly by TenantFlywayMigrator; repeating it here
+                // with a stack trace every tick would bury the report that matters. Say it once.
+                if (unprovisioned.add(tenantId)) {
+                    log.warn("Graph outbox sweep skipping tenant {} until its schema is provisioned", tenantId);
+                }
             } catch (Exception e) {
                 // One tenant's database being unreachable must not stop the others being swept.
                 log.error("Graph outbox sweep failed for tenant {}: {}", tenantId, e.getMessage(), e);
