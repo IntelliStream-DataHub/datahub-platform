@@ -44,9 +44,9 @@ import java.util.Set;
  * make on an operator's behalf. They stay unfilterable until someone merges them, which the log
  * says plainly.
  */
-public class V37__rehash_labels_from_xx64_to_xx3 extends BaseJavaMigration {
+public class V41__rehash_labels_from_xx64_to_xx3 extends BaseJavaMigration {
 
-    private static final Logger log = LoggerFactory.getLogger(V37__rehash_labels_from_xx64_to_xx3.class);
+    private static final Logger log = LoggerFactory.getLogger(V41__rehash_labels_from_xx64_to_xx3.class);
 
     @Override
     public void migrate(Context context) throws Exception {
