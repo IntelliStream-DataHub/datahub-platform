@@ -16,7 +16,7 @@ import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatapointCudPublishEvent;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.responses.*;
 import ai.intellistream.datahub.clickhouse.ClickHouseDatapointService;
 import ai.intellistream.datahub.clickhouse.DatapointBinaryConverter;
@@ -33,7 +33,6 @@ import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventObject;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
@@ -105,6 +104,8 @@ public class TimeseriesService {
     private final EdgeRepository edgeRepository;
 
     private final ApplicationEventPublisher applicationEventPublisher;
+
+    private final GraphOutbox graphOutbox;
 
     private final Producer<DataWrapperBin> allDatapointProducer;
 
@@ -569,13 +570,8 @@ public class TimeseriesService {
 
             apiReqData.setItems(TimeseriesTransformer.from(tsEntities, edgeEntities));
 
-            // All is good so far, send create timeseries message
-            // Create resource in Neo4J
-            var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.TIMESERIES, TenantContext.getTenantId());
-            List<Resource> resources = ResourceTransformer.from(tsEntities);
-            msg.setResources(resources);
-            msg.setEdges(edgeEntities);
-            applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+            // Mirror the new timeseries and their edges into the graph.
+            graphOutbox.queueUpsert(tsEntities, edgeEntities);
 
             // Findings reference node_id, which only exists now that the rows are saved. A rejected
             // batch never reaches here, which is the intent: NOT_OK leaves no entity to attach to.
@@ -1228,9 +1224,8 @@ public class TimeseriesService {
             }
         }
 
-        var msg = new ResourceCudMessage(EventAction.UPDATE, EventObject.TIMESERIES, TenantContext.getTenantId());
-        msg.setUpdateTimeseries(apiReqData.getItems().stream().toList());
-        applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+        graphOutbox.queueUpsertIds(
+                apiReqData.getItems().stream().map(UpdateTimeseries::getId).toList(), List.of());
 
         return updatedTimeseries;
     }

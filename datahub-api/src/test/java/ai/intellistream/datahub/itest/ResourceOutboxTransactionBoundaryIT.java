@@ -3,15 +3,10 @@
 // so a nested @SpringBootConfiguration there would be picked up by every full-context test.
 package ai.intellistream.datahub.itest;
 
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
 import ai.intellistream.datahub.api.messaging.outbox.ResourceOutboxDrainService;
-import ai.intellistream.datahub.api.messaging.outbox.ResourceOutboxWriter;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.jpa.domains.AssetEntity;
 import ai.intellistream.datahub.jpa.domains.Label;
-import ai.intellistream.datahub.models.Resource;
-import ai.intellistream.datahub.pulsar.EventAction;
-import ai.intellistream.datahub.pulsar.EventObject;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.repositories.label.LabelRepository;
 import ai.intellistream.datahub.repositories.outbox.ResourceOutboxRepository;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
@@ -25,7 +20,6 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.persistence.autoconfigure.EntityScan;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 import org.springframework.test.context.ContextConfiguration;
@@ -77,29 +71,29 @@ class ResourceOutboxTransactionBoundaryIT {
     @EnableTransactionManagement
     static class JpaConfig {
 
-        /** The real writer, so BEFORE_COMMIT really joins the caller's transaction. */
+        /** The real outbox, so the row really is written in the caller's transaction. */
         @Bean
-        ResourceOutboxWriter resourceOutboxWriter(ResourceOutboxRepository repository) {
+        GraphOutbox graphOutbox(ResourceOutboxRepository repository) {
             // The drain is an after-commit concern and needs Neo4j; this test is about the write.
-            return new ResourceOutboxWriter(repository, mock(ResourceOutboxDrainService.class));
+            return new GraphOutbox(repository, mock(ResourceOutboxDrainService.class));
         }
 
         @Bean
-        AssetWritingService assetWritingService(ApplicationEventPublisher publisher) {
-            return new AssetWritingService(publisher);
+        AssetWritingService assetWritingService(GraphOutbox graphOutbox) {
+            return new AssetWritingService(graphOutbox);
         }
     }
 
-    /** Stands in for ResourceService: writes a node and announces it, in one transaction. */
+    /** Stands in for ResourceService: writes a node and queues it, in one transaction. */
     static class AssetWritingService {
 
         @PersistenceContext
         private EntityManager em;
 
-        private final ApplicationEventPublisher publisher;
+        private final GraphOutbox graphOutbox;
 
-        AssetWritingService(ApplicationEventPublisher publisher) {
-            this.publisher = publisher;
+        AssetWritingService(GraphOutbox graphOutbox) {
+            this.graphOutbox = graphOutbox;
         }
 
         @Transactional
@@ -107,7 +101,7 @@ class ResourceOutboxTransactionBoundaryIT {
             AssetEntity asset = newAsset(externalId);
             em.persist(asset);
             em.flush();
-            publisher.publishEvent(new ResourceCudPublishEvent(message(asset.getId(), externalId)));
+            graphOutbox.queueUpsert(List.of(asset), List.of());
             return asset.getId();
         }
 
@@ -116,13 +110,13 @@ class ResourceOutboxTransactionBoundaryIT {
             AssetEntity asset = newAsset(externalId);
             em.persist(asset);
             em.flush();
-            publisher.publishEvent(new ResourceCudPublishEvent(message(asset.getId(), externalId)));
-            throw new IllegalStateException("validation failed after the event was published");
+            graphOutbox.queueUpsert(List.of(asset), List.of());
+            throw new IllegalStateException("validation failed after the row was queued");
         }
 
-        /** Deliberately missing {@code @Transactional} — the mistake the writer must not absorb. */
+        /** Deliberately missing {@code @Transactional} — the mistake the outbox must not absorb. */
         public void createAssetOutsideATransaction(String externalId) {
-            publisher.publishEvent(new ResourceCudPublishEvent(message(1L, externalId)));
+            graphOutbox.queueUpsert(List.of(newAsset(externalId)), List.of());
         }
 
         private static AssetEntity newAsset(String externalId) {
@@ -133,15 +127,6 @@ class ResourceOutboxTransactionBoundaryIT {
             return asset;
         }
 
-        private static ResourceCudMessage message(Long id, String externalId) {
-            ResourceCudMessage message =
-                    new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TENANT);
-            Resource resource = new Resource();
-            resource.setId(id);
-            resource.setExternalId(externalId);
-            message.setResources(List.of(resource));
-            return message;
-        }
     }
 
     @Autowired
@@ -195,7 +180,7 @@ class ResourceOutboxTransactionBoundaryIT {
         // exact failure this table was introduced to remove.
         assertThatThrownBy(() -> service.createAssetOutsideATransaction("asset_no_tx"))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("outside a transaction");
+                .hasMessageContaining("@Transactional");
 
         assertThat(outbox.findAll()).isEmpty();
     }
