@@ -107,6 +107,9 @@ final class GraphNodeProperties {
         props.put("end", edge.getEnd());
         props.put("typeId", edge.getRelationshipType() == null ? null : edge.getRelationshipType().getId());
         props.put("description", edge.getDescription());
+        // Nodes carry the data set they belong to; edges did not, so an edge read back from the
+        // graph could not say which data set scoped it without going to Postgres for it.
+        props.put("dataSetId", edge.getDataSet() == null ? null : edge.getDataSet().getId());
         props.put("createdTime", edge.getDateCreated());
         props.put("lastUpdatedTime", edge.getLastUpdated());
         if (edge.getMetadata() != null) {

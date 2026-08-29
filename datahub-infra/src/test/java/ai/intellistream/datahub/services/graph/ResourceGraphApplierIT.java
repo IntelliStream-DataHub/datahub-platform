@@ -3,6 +3,7 @@ package ai.intellistream.datahub.services.graph;
 
 import ai.intellistream.datahub.config.Neo4j;
 import ai.intellistream.datahub.jpa.domains.AssetEntity;
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.RelationshipType;
@@ -341,6 +342,9 @@ class ResourceGraphApplierIT {
         EdgeEntity edge = givenEdge(10L, 1L, 2L, "FLOWS_TO");
         edge.setDescription("suction line");
         edge.getMetadata().put("size", "DN200");
+        DatasetEntity dataSet = new DatasetEntity();
+        dataSet.setId(7L);
+        edge.setDataSet(dataSet);
 
         apply(new GraphSyncCommand(List.of(1L, 2L), List.of(10L), List.of(), List.of()));
 
@@ -355,6 +359,7 @@ class ResourceGraphApplierIT {
             assertThat(read.getType()).isEqualTo("FLOWS_TO");
             assertThat(read.getRelationshipTypeId()).isEqualTo(1L);
             assertThat(read.getDescription()).isEqualTo("suction line");
+            assertThat(read.getDataSetId()).isEqualTo(7L);
             assertThat(read.getMetadata()).containsEntry("size", "DN200");
         }
     }
