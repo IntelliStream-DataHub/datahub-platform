@@ -159,7 +159,7 @@ public final class ExternalIdSuggester {
             return null;
         }
         derived = derived.replaceAll("_+", "_");
-        derived = derived.replaceAll("^_+", "").replaceAll("_+$", "");
+        derived = TextValidator.trimUnderscores(derived);
         return derived.isBlank() ? null : derived;
     }
 
