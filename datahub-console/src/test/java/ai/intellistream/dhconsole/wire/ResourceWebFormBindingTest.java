@@ -11,6 +11,8 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -85,5 +87,30 @@ class ResourceWebFormBindingTest {
         assertFalse(json.contains("relationFrom"), json);
         assertFalse(json.contains("relationTypes"), json);
         assertTrue(json.contains("pump_1"), json);
+    }
+
+    /**
+     * The form keeps its own {@code geoLocation}, which it used to inherit.
+     *
+     * <p>{@code geoLocation} left {@code Resource} when the Pulsar payload did &mdash; it lives on
+     * {@code Asset}, the one node type whose entity has the column. This form creates both assets
+     * and plain resources from one shape, so it declares the field itself and
+     * {@code ResourceApiService.toNode} reads it on the ASSET branch. Nothing in the console posts
+     * one today, which is exactly why this is pinned: the capability would otherwise be removed by
+     * someone tidying up, with no test to notice.
+     */
+    @Test
+    @DisplayName("geoLocation still binds, and stays console-side")
+    void geoLocationBindsOnTheForm() {
+        ResourceWebForm form = mapper.readValue("""
+                {"externalId":"pump_1","name":"Pump 1","labels":["ASSET"],
+                 "geoLocation":{"type":"Point","coordinates":[10.75,59.91]}}
+                """, ResourceWebForm.class);
+
+        assertNotNull(form.getGeoLocation(), "the browser must still be able to post a location");
+        assertArrayEquals(new double[]{10.75, 59.91}, form.getGeoLocation().pointCoordinates());
+
+        // Write-only, like the other console-side fields: the api is called with a typed Asset.
+        assertFalse(mapper.writeValueAsString(form).contains("geoLocation"));
     }
 }
