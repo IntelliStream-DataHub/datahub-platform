@@ -55,6 +55,43 @@ class NodeReadMapperGraphTest {
     }
 
     /**
+     * Metadata survives the round trip, with the prefix stripped.
+     *
+     * <p>The graph has no nested maps, so metadata is flattened to one {@code metadata_<key>}
+     * property per entry. Nothing put it back on the node path: every graph-sourced node came back
+     * with empty metadata, while the edge path reconstructed its own correctly the whole time.
+     */
+    @Test
+    void readsMetadataBackWithoutItsPrefix() {
+        NodeModel dto = NodeReadMapper.fromGraphNode(graphNode(
+                List.of("ASSET"), Map.of("id", 5L, "externalId", "pump_1",
+                        "metadata_vendor", "acme", "metadata_work_order", "wo-12")));
+
+        assertThat(dto.getMetadata())
+                .containsEntry("vendor", "acme")
+                .containsEntry("work_order", "wo-12");
+    }
+
+    /** Structural properties sit beside the metadata ones; only the prefixed keys are metadata. */
+    @Test
+    void doesNotMistakeStructuralPropertiesForMetadata() {
+        NodeModel dto = NodeReadMapper.fromGraphNode(graphNode(
+                List.of("ASSET"), Map.of("id", 5L, "externalId", "pump_1", "name", "Pump 1",
+                        "source", "SAP", "metadata_vendor", "acme")));
+
+        assertThat(dto.getMetadata()).containsOnlyKeys("vendor");
+    }
+
+    /** A node with no metadata gets an empty map, not null: callers iterate it. */
+    @Test
+    void givesAnEmptyMapWhenTheNodeHasNoMetadata() {
+        NodeModel dto = NodeReadMapper.fromGraphNode(graphNode(
+                List.of("ASSET"), Map.of("id", 5L, "externalId", "pump_1")));
+
+        assertThat(dto.getMetadata()).isNotNull().isEmpty();
+    }
+
+    /**
      * The projection carries a series' unit and engine, so a graph read must return them.
      *
      * <p>These were cleared while the Pulsar payload carried none. The graph is written from the

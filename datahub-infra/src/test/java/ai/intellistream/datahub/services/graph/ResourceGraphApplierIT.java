@@ -337,6 +337,12 @@ class ResourceGraphApplierIT {
             assertThat(read.getSource()).isEqualTo("SAP");
             assertThat(read.getIsRoot()).isTrue();
             assertThat(read.getLabels()).contains("ASSET");
+            // The applier flattens metadata to metadata_<key> properties, so a reader has to put
+            // them back. This is the assertion the test was one line short of: it already wrote a
+            // vendor tag and never checked it survived the round trip.
+            assertThat(read.getMetadata()).containsEntry("vendor", "acme");
+            assertThat(read.getMetadata()).doesNotContainKey("metadata_vendor");
+
             assertThat(read.getGeoLocation()).isNotNull();
             assertThat(read.getGeoLocation().pointCoordinates()).containsExactly(10.75, 59.91);
         }

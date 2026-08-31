@@ -50,6 +50,9 @@ import java.util.Set;
  */
 public final class NodeReadMapper {
 
+    /** Metadata is flattened onto graph nodes with this prefix; see {@code GraphNodeProperties}. */
+    private static final String METADATA_PREFIX = "metadata_";
+
     private NodeReadMapper() {
     }
 
@@ -162,6 +165,7 @@ public final class NodeReadMapper {
         dto.setDataSetId((Long) map.get("dataSetId"));
         dto.setCreatedTime(graphTime(map.get("createdTime")));
         dto.setLastUpdatedTime(graphTime(map.get("lastUpdatedTime")));
+        dto.setMetadata(metadataFrom(map));
         // Canonicalised, not raw: a legacy graph node labelled `Asset` would otherwise be typed
         // as an ASSET and then have ASSET appended alongside its own `Asset`, so one node comes
         // back carrying the same type-label twice.
@@ -176,6 +180,26 @@ public final class NodeReadMapper {
     private static Boolean asBoolean(org.neo4j.driver.types.Node node, String key) {
         var value = node.get(key);
         return (value == null || value.isNull()) ? null : value.asBoolean();
+    }
+
+    /**
+     * The node's user metadata, rebuilt from the {@code metadata_}-prefixed graph properties.
+     *
+     * <p>The graph has no nested maps, so a node's metadata is flattened to one property per key
+     * (see {@code GraphNodeProperties}). Nothing put it back on the node path, so every
+     * graph-sourced node came back with empty metadata while the edge path — which has had
+     * {@code EdgeProxyTransformer.stripMetadataPrefix} all along — reconstructed its own correctly.
+     * The prefix is what separates user keys from the structural properties beside them, and it is
+     * stripped here so callers see the keys they wrote.
+     */
+    private static Map<String, String> metadataFrom(Map<String, Object> properties) {
+        Map<String, String> metadata = new HashMap<>();
+        properties.forEach((key, value) -> {
+            if (key.startsWith(METADATA_PREFIX) && value != null) {
+                metadata.put(key.substring(METADATA_PREFIX.length()), String.valueOf(value));
+            }
+        });
+        return metadata;
     }
 
     /** Null for a property the node does not carry, so an absent value stays absent. */
