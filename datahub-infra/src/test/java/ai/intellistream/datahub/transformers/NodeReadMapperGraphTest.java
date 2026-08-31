@@ -55,6 +55,25 @@ class NodeReadMapperGraphTest {
     }
 
     /**
+     * A deactivated policy must not read back as active.
+     *
+     * <p>{@code isDeactivated} gates whether a policy is enforced, and the DTO's field is a
+     * primitive that defaults to false. Not reading it would report every graph-sourced policy as
+     * live, which is the same failure mode as a BIGINT series reading back as float32: a
+     * constructor default published as though the graph had said it.
+     */
+    @Test
+    void readsWhetherAPolicyIsDeactivated() {
+        var off = (ai.intellistream.datahub.models.Policy) NodeReadMapper.fromGraphNode(graphNode(
+                List.of("POLICY"), Map.of("id", 5L, "externalId", "naming_1", "isDeactivated", true)));
+        var on = (ai.intellistream.datahub.models.Policy) NodeReadMapper.fromGraphNode(graphNode(
+                List.of("POLICY"), Map.of("id", 6L, "externalId", "naming_2", "isDeactivated", false)));
+
+        assertThat(off.isDeactivated()).isTrue();
+        assertThat(on.isDeactivated()).isFalse();
+    }
+
+    /**
      * Metadata survives the round trip, with the prefix stripped.
      *
      * <p>The graph has no nested maps, so metadata is flattened to one {@code metadata_<key>}

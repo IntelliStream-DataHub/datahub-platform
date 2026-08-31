@@ -149,8 +149,16 @@ public final class NodeReadMapper {
                     yield ts;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();
-                case ai.intellistream.datahub.jpa.domains.TypeLabels.POLICY ->
-                        new ai.intellistream.datahub.models.Policy();
+                case ai.intellistream.datahub.jpa.domains.TypeLabels.POLICY -> {
+                    // isDeactivated is projected, and it gates whether the policy is enforced at
+                    // all. The DTO's field is a primitive defaulting to false, so not reading it
+                    // would report every graph-sourced policy as active. A node that does not
+                    // carry the property keeps that default, which is the same answer the entity
+                    // gives for a column that is NOT NULL DEFAULT false.
+                    var policy = new ai.intellistream.datahub.models.Policy();
+                    policy.setDeactivated(Boolean.TRUE.equals(asBoolean(node, "isDeactivated")));
+                    yield policy;
+                }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.FUNCTION -> new Function();
                 default -> new Resource();
             };
