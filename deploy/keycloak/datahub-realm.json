@@ -210,6 +210,14 @@
               ]
             }
           ]
+        },
+        {
+          "name": "datahub",
+          "subGroups": [
+            {
+              "name": "tenant-admin"
+            }
+          ]
         }
       ]
     },
@@ -258,6 +266,14 @@
                   "name": "write"
                 }
               ]
+            }
+          ]
+        },
+        {
+          "name": "datahub",
+          "subGroups": [
+            {
+              "name": "tenant-admin"
             }
           ]
         }
