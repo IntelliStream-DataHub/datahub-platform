@@ -60,6 +60,14 @@ public class Timeseries extends NodeModel {
     @Schema(description = "The external id of the unit that the time series use.", example = "mass_flow_rate_kghr")
     private String unitExternalId;
 
+    /**
+     * Which ClickHouse table engine backs this series.
+     *
+     * <p>An internal storage decision, not something a caller chooses or can act on, so it does not
+     * belong on the wire. It stays a field because the graph projection carries it and in-process
+     * readers use it; {@code @JsonIgnore} keeps it off the REST contract in both directions.
+     */
+    @JsonIgnore
     private String tableEngine = TableEngine.MERGETREE.name();
 
     /** Value type used when the caller doesn't specify one (or sends null). */

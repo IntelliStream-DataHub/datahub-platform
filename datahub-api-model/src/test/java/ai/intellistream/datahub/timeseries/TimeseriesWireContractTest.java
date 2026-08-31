@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Pins the exact on-the-wire shape of {@link Timeseries} (field set + serialized values + the per-field
@@ -50,7 +51,6 @@ class TimeseriesWireContractTest {
         assertEquals("deg_c", m.get("unitExternalId"));  // canonicalized
         assertEquals("desc", m.get("description"));
         assertEquals("21", m.get("dataSetId"));          // ToStringSerializer
-        assertEquals("MERGETREE", m.get("tableEngine"));
         assertEquals("float", m.get("valueType"));       // normalized
         assertEquals("src", m.get("source"));
         assertEquals("2024-06-17T12:34:56Z", m.get("createdTime"));
@@ -60,9 +60,14 @@ class TimeseriesWireContractTest {
         // is also the discriminator that routes it to the timeseries path on /resources/create.
         assertEquals(List.of("TIMESERIES"), m.get("labels"));
 
-        // Timeseries has no @JsonInclude — the full field set is always present.
+        // tableEngine is deliberately absent: which ClickHouse engine backs the series is an
+        // internal storage decision a caller cannot act on, so it is @JsonIgnore'd. It is still a
+        // field — the graph projection carries it and in-process readers use it — just not a
+        // wire one.
+        assertFalse(m.containsKey("tableEngine"), m.toString());
+
         assertEquals(Set.of("id", "externalId", "name", "metadata", "unit", "unitExternalId",
                 "relatedResources", "description", "dataSetId", "source", "labels",
-                "tableEngine", "valueType", "createdTime", "lastUpdatedTime"), m.keySet());
+                "valueType", "createdTime", "lastUpdatedTime"), m.keySet());
     }
 }

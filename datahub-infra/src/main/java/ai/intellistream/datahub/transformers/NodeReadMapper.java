@@ -93,19 +93,19 @@ public final class NodeReadMapper {
 
     /**
      * Map a Neo4j graph node to its typed DTO, dispatching on the node's labels (the graph
-     * carries the same type-labels the rows do). The graph stores only a subset of each node's
-     * columns, so a {@code Timeseries} from this path arrives <em>typed but sparsely populated</em>
-     * (no unit, no securityCategories) — still strictly better than arriving mistyped as a
-     * {@code Resource} carrying an {@code isRoot} that means nothing for it.
+     * carries the same type-labels the rows do). The graph still stores a subset of each node's
+     * columns, so a node from this path is <em>typed but sparsely populated</em> — but it is a
+     * smaller subset than it was, because the projection is written from the entity now rather
+     * than from a fixed message payload.
      *
-     * <p><strong>Constructor defaults are not facts here.</strong> {@code Timeseries} seeds a
-     * {@code tableEngine} and an empty {@code securityCategories}, and the graph stores neither, so
-     * both are cleared rather than published as though they had been read. {@code valueType} is
-     * the exception: the graph does carry it, but only on nodes written since it started to — an
-     * older node reports it absent, so treat it as optional rather than guaranteed and fetch the
-     * node by id when you need certainty. Geometry comes back
-     * as the graph's native WGS-84 point reconstructed as a GeoJSON Point (lossy for non-point
-     * geometries, which Postgres holds in full), and only on assets.
+     * <p><strong>Nothing here is a constructor default.</strong> A time series' {@code valueType},
+     * {@code unit}, {@code unitExternalId} and {@code tableEngine} are all projected, so all four
+     * are read. Every one of them is nonetheless <em>optional</em>: a node written before a given
+     * field was projected reports it absent, and defaulting would assert something the graph never
+     * said — which is exactly how a BIGINT series once read back as {@code float32}. Fetch the node
+     * by id when you need certainty. Geometry comes back as the graph's native WGS-84 point
+     * reconstructed as a GeoJSON Point (lossy for non-point geometries, which Postgres holds in
+     * full), and only on assets.
      */
     public static NodeModel fromGraphNode(org.neo4j.driver.types.Node node) {
         List<String> labels = new ArrayList<>();
@@ -132,14 +132,17 @@ public final class NodeReadMapper {
                     yield asset;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES -> {
-                    // The DTO's constructor default would otherwise be published as though the
-                    // graph had supplied it — MERGETREE reported for a series stored some other
-                    // way. Cleared, so it is absent rather than wrong.
+                    // Every one of these is written to the graph by GraphNodeProperties, so read
+                    // them rather than assume. Clearing them was right while the Pulsar payload
+                    // carried none — reporting a constructor default would have asserted MERGETREE
+                    // for a series stored some other way — but the projection is written from the
+                    // entity now. A node written before a given field was projected reads null,
+                    // which is why none of these is defaulted.
                     var ts = new ai.intellistream.datahub.timeseries.Timeseries();
-                    ts.setTableEngine(null);
-                    // The graph does carry the value type. Absent on nodes written before it did,
-                    // which is why it is read rather than assumed: null stays null.
                     ts.setValueType(asString(node, "valueType"));
+                    ts.setUnit(asString(node, "unit"));
+                    ts.setUnitExternalId(asString(node, "unitExternalId"));
+                    ts.setTableEngine(asString(node, "tableEngine"));
                     yield ts;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();

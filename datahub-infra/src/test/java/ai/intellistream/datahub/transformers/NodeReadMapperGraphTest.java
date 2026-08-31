@@ -54,12 +54,39 @@ class NodeReadMapperGraphTest {
         assertThat(((Timeseries) dto).getValueType()).isNull();
     }
 
-    /** The graph does not store this, so it must not come back as a constructor default. */
+    /**
+     * The projection carries a series' unit and engine, so a graph read must return them.
+     *
+     * <p>These were cleared while the Pulsar payload carried none. The graph is written from the
+     * entity now and {@code GraphNodeProperties} projects all four, so clearing them would throw
+     * away something the graph actually said.
+     */
     @Test
-    void clearsTheFieldsTheGraphDoesNotStore() {
+    void readsTheUnitAndEngineTheProjectionCarries() {
+        Timeseries dto = (Timeseries) NodeReadMapper.fromGraphNode(graphNode(
+                List.of("TIMESERIES"), Map.of("id", 5L, "externalId", "flow_1",
+                        "unit", "kg/hr", "unitExternalId", "mass_flow_rate_kghr",
+                        "tableEngine", "MERGETREE")));
+
+        assertThat(dto.getUnit()).isEqualTo("kg/hr");
+        assertThat(dto.getUnitExternalId()).isEqualTo("mass_flow_rate_kghr");
+        assertThat(dto.getTableEngine()).isEqualTo("MERGETREE");
+    }
+
+    /**
+     * A node written before a field was projected reports it absent, never defaulted.
+     *
+     * <p>The constructor seeds {@code tableEngine = MERGETREE}, which would otherwise assert an
+     * engine the graph never named — the same class of bug as a BIGINT series reading back as
+     * float32.
+     */
+    @Test
+    void defaultsNothingTheNodeDoesNotCarry() {
         Timeseries dto = (Timeseries) NodeReadMapper.fromGraphNode(graphNode(
                 List.of("TIMESERIES"), Map.of("id", 5L, "externalId", "flow_1")));
 
         assertThat(dto.getTableEngine()).isNull();
+        assertThat(dto.getUnit()).isNull();
+        assertThat(dto.getUnitExternalId()).isNull();
     }
 }
