@@ -45,6 +45,9 @@ public class EdgeProxyTransformer {
                 stripMetadataPrefix(props)
         );
         ep.setDescription(props.get("description"));
+        if (props.get("dataSetId") != null) {
+            ep.setDataSetId(Long.valueOf(props.get("dataSetId")));
+        }
         return ep;
     }
 
@@ -61,6 +64,9 @@ public class EdgeProxyTransformer {
         // below — matched nothing and silently emptied every edge's metadata before it reached Neo4j.
         e.setMetadata(edge.getMetadata() != null ? new HashMap<>(edge.getMetadata()) : new HashMap<>());
         e.setDescription(edge.getDescription());
+        if (edge.getDataSet() != null) {
+            e.setDataSetId(edge.getDataSet().getId());
+        }
         return e;
     }
 
