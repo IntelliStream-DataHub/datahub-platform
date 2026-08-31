@@ -276,20 +276,7 @@ public class PolicyService {
         return value;
     }
 
-    /**
-     * Re-assert a policy node in the graph after a write, so an edit does not leave Neo4j stale.
-     *
-     * <p><b>Why the action is CREATE for what is logically an update.</b> The Neo4j consumer's
-     * {@code UPDATE} branch reads only {@code updateResourceForms}/{@code updateTimeseries} and
-     * ignores {@code resources} entirely ({@code GraphEventNeo4jListener.updateResourceAndRelations}),
-     * and the policy layer does not build those label-oriented forms. Its {@code createResource},
-     * by contrast, is an idempotent MERGE-on-id upsert that re-asserts every node property — so a
-     * CREATE matches the existing node rather than duplicating it, and actually applies the change.
-     * Sending UPDATE here would be more honest and would silently do nothing.
-     *
-     * <p>Fixing that properly means teaching the consumer's UPDATE path to accept full resources
-     * (or having policies build update forms); tracked in the audit backlog.
-     */
+    /** Re-assert a policy node in the graph after a write, so an edit does not leave Neo4j stale. */
     private void publishPolicyUpsert(PolicyEntity saved) {
         graphOutbox.queueUpsert(List.of(saved), List.of());
     }
