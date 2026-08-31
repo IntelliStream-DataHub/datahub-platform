@@ -17,6 +17,8 @@ import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.GeoLocation;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.policy.PolicyWarning;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
@@ -138,7 +140,7 @@ public class GraphTransferService {
         }
 
         Map<Long, String> externalIdById = new HashMap<>();
-        for (Resource node : network.nodes()) {
+        for (NodeModel node : network.nodes()) {
             externalIdById.put(node.getId(), node.getExternalId());
         }
         resolveDanglingDataSetIds(network, externalIdById);
@@ -183,7 +185,7 @@ public class GraphTransferService {
 
     private static void writeNodes(GraphFileCodec.GraphFileWriter writer, ResourceNetwork network,
                                    Map<Long, String> externalIdById, boolean dataSets) throws IOException {
-        for (Resource node : network.nodes()) {
+        for (NodeModel node : network.nodes()) {
             if (containsLabel(node.getLabels(), TypeLabels.DATASET) != dataSets) {
                 continue;
             }
@@ -192,8 +194,8 @@ public class GraphTransferService {
                     node.getName(),
                     node.getDescription(),
                     node.getSource(),
-                    Boolean.TRUE.equals(node.getIsRoot()),
-                    node.getGeoLocation() != null ? node.getGeoLocation().getJson() : null,
+                    Boolean.TRUE.equals(isRootOf(node)),
+                    geoJsonOf(node),
                     externalIdById.get(node.getDataSetId()),
                     new ArrayList<>(node.getLabels()),
                     new HashMap<>(node.getMetadata())));
@@ -208,7 +210,7 @@ public class GraphTransferService {
      */
     private void resolveDanglingDataSetIds(ResourceNetwork network, Map<Long, String> externalIdById) {
         Set<Long> dangling = new HashSet<>();
-        for (Resource node : network.nodes()) {
+        for (NodeModel node : network.nodes()) {
             if (node.getDataSetId() != null && !externalIdById.containsKey(node.getDataSetId())) {
                 dangling.add(node.getDataSetId());
             }
@@ -228,7 +230,7 @@ public class GraphTransferService {
     private static String exportFileName(ResourceNetwork network, Long id) {
         String base = network.nodes().stream()
                 .filter(n -> id.equals(n.getId()))
-                .map(Resource::getExternalId)
+                .map(NodeModel::getExternalId)
                 .findFirst()
                 .orElse("graph");
         return base.replaceAll("[^A-Za-z0-9._-]", "_") + ".dhgraph";
@@ -322,8 +324,8 @@ public class GraphTransferService {
         // Datasets first (within the segment; the exporter also orders them first in the file),
         // so the nodes that follow can resolve their dataset reference.
         for (List<ExportedNode> chunk : chunks(dataSets, CREATE_BATCH_SIZE)) {
-            GraphDataWrapper<Resource, EdgeProxy> created = createNodes(chunk, dataSetIdByHash, tally);
-            for (Resource resource : created.getNodes()) {
+            GraphDataWrapper<NodeModel, EdgeProxy> created = createNodes(chunk, dataSetIdByHash, tally);
+            for (NodeModel resource : created.getNodes()) {
                 dataSetIdByHash.put(ExternalIds.hash(resource.getExternalId()), resource.getId());
             }
         }
@@ -336,12 +338,12 @@ public class GraphTransferService {
         }
     }
 
-    private GraphDataWrapper<Resource, EdgeProxy> createNodes(List<ExportedNode> chunk,
+    private GraphDataWrapper<NodeModel, EdgeProxy> createNodes(List<ExportedNode> chunk,
                                                               Map<Long, Long> dataSetIdByHash,
                                                               ImportTally tally) {
-        var wrapper = new GraphDataWrapper<Resource, RelForm>();
+        var wrapper = new GraphDataWrapper<NodeModel, RelForm>();
         chunk.forEach(n -> wrapper.getNodes().add(toResource(n, dataSetIdByHash, tally)));
-        GraphDataWrapper<Resource, EdgeProxy> created = create(wrapper);
+        GraphDataWrapper<NodeModel, EdgeProxy> created = create(wrapper);
         tally.nodesCreated += created.getNodes().size();
         collectWarnings(created, tally.warnings);
         return created;
@@ -402,16 +404,16 @@ public class GraphTransferService {
         }
 
         for (List<RelForm> chunk : chunks(forms, CREATE_BATCH_SIZE)) {
-            var wrapper = new GraphDataWrapper<Resource, RelForm>();
+            var wrapper = new GraphDataWrapper<NodeModel, RelForm>();
             wrapper.getRelations().addAll(chunk);
-            GraphDataWrapper<Resource, EdgeProxy> created = create(wrapper);
+            GraphDataWrapper<NodeModel, EdgeProxy> created = create(wrapper);
             tally.relationsCreated += created.getRelations().size();
             collectWarnings(created, tally.warnings);
         }
     }
 
     /** {@link ResourceService#create} with its checked Pulsar exception adapted for lambda use. */
-    private GraphDataWrapper<Resource, EdgeProxy> create(GraphDataWrapper<Resource, RelForm> wrapper) {
+    private GraphDataWrapper<NodeModel, EdgeProxy> create(GraphDataWrapper<NodeModel, RelForm> wrapper) {
         try {
             return resourceService.create(wrapper);
         } catch (PulsarClientException e) {
@@ -449,23 +451,55 @@ public class GraphTransferService {
         }
     }
 
+    /** {@code isRoot} belongs to the two shapes that can be a navigation root. */
+    private static Boolean isRootOf(NodeModel node) {
+        if (node instanceof Asset asset) return asset.getIsRoot();
+        if (node instanceof Resource resource) return resource.getIsRoot();
+        return null;
+    }
+
+    /** A location belongs to an asset; no other shape has one to export. */
+    private static String geoJsonOf(NodeModel node) {
+        if (node instanceof Asset asset && asset.getGeoLocation() != null) {
+            return asset.getGeoLocation().getJson();
+        }
+        return null;
+    }
+
     private static String edgeKey(Long start, Long end, String type) {
         return start + "|" + end + "|" + (type == null ? "" : type.toUpperCase());
     }
 
-    private static Resource toResource(ExportedNode node, Map<Long, Long> dataSetIdByHash,
-                                       ImportTally tally) {
-        Resource resource = new Resource();
+    /**
+     * The DTO an exported node imports as.
+     *
+     * <p>An ASSET-labelled node becomes an {@link Asset}: that is the only shape with somewhere to
+     * put a {@code geoLocation}, and the create path dispatches on the same type-label. Everything
+     * else is a plain {@link Resource} carrying its labels, which is how the shared create path
+     * builds a data set, a function or a policy. Time series never reach here; the import skips
+     * them, because the export file has no room for a unit or a value type.
+     */
+    private static NodeModel toResource(ExportedNode node, Map<Long, Long> dataSetIdByHash,
+                                        ImportTally tally) {
+        NodeModel resource;
+        if (containsLabel(node.labels(), TypeLabels.ASSET)) {
+            Asset asset = new Asset();
+            asset.setIsRoot(node.isRoot());
+            if (node.geoJson() != null) {
+                asset.setGeoLocation(new GeoLocation(node.geoJson()));
+            }
+            resource = asset;
+        } else {
+            Resource plain = new Resource();
+            plain.setIsRoot(node.isRoot());
+            resource = plain;
+        }
         resource.setExternalId(node.externalId());
         resource.setName(node.name());
         resource.setDescription(node.description());
         resource.setSource(node.source());
-        resource.setIsRoot(node.isRoot());
         resource.setLabels(node.labels());
         resource.setMetadata(new HashMap<>(node.metadata()));
-        if (node.geoJson() != null) {
-            resource.setGeoLocation(new GeoLocation(node.geoJson()));
-        }
         if (node.dataSetExternalId() != null) {
             Long dataSetId = dataSetIdByHash.get(ExternalIds.hash(node.dataSetExternalId()));
             if (dataSetId != null) {
@@ -500,7 +534,7 @@ public class GraphTransferService {
         return labels.stream().anyMatch(l -> l != null && l.equalsIgnoreCase(label));
     }
 
-    private static void collectWarnings(GraphDataWrapper<Resource, EdgeProxy> created,
+    private static void collectWarnings(GraphDataWrapper<NodeModel, EdgeProxy> created,
                                         Collection<PolicyWarning> warnings) {
         if (created.getWarnings() != null) {
             warnings.addAll(created.getWarnings());

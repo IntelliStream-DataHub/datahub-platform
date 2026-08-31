@@ -50,7 +50,7 @@ class GraphTransferServiceImportTest {
     private NodeRepository nodeRepository;
     private EdgeRepository edgeRepository;
     private final AtomicInteger commits = new AtomicInteger();
-    private final List<GraphDataWrapper<Resource, RelForm>> createCalls = new ArrayList<>();
+    private final List<GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm>> createCalls = new ArrayList<>();
     private GraphTransferService service;
 
     @BeforeEach
@@ -77,9 +77,9 @@ class GraphTransferServiceImportTest {
         // endpoint resolution above agrees with it).
         AtomicLong edgeIds = new AtomicLong(1);
         when(resourceService.create(any())).thenAnswer((InvocationOnMock inv) -> {
-            GraphDataWrapper<Resource, RelForm> in = inv.getArgument(0);
+            GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm> in = inv.getArgument(0);
             createCalls.add(in);
-            var out = new GraphDataWrapper<Resource, EdgeProxy>();
+            var out = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, EdgeProxy>();
             in.getNodes().forEach(n -> {
                 n.setId(ExternalIds.hash(n.getExternalId()));
                 out.getNodes().add(n);
@@ -153,7 +153,7 @@ class GraphTransferServiceImportTest {
         service.importGraph(new ByteArrayInputStream(encode(nodes, List.of())));
 
         long dataSetId = ExternalIds.hash("ds_main");
-        List<Resource> created = createCalls.stream()
+        List<ai.intellistream.datahub.models.NodeModel> created = createCalls.stream()
                 .flatMap(w -> w.getNodes().stream())
                 .filter(n -> n.getExternalId().startsWith("asset_"))
                 .toList();
@@ -165,16 +165,18 @@ class GraphTransferServiceImportTest {
     @Test
     void streamedExportRoundTripsThroughTheSegmentedImport() throws Exception {
         // A component as the graph returns it: one dataset, 24 assets in it, a 23-edge chain.
-        var networkNodes = new java.util.HashSet<Resource>();
+        // Typed the way a graph read hands them over, so the export exercises the per-type
+        // accessors for isRoot and geoLocation rather than a flat shape that has neither.
+        var networkNodes = new java.util.HashSet<ai.intellistream.datahub.models.NodeModel>();
         var networkEdges = new java.util.HashSet<EdgeProxy>();
-        Resource dataSet = new Resource();
+        var dataSet = new ai.intellistream.datahub.models.DataSetModel();
         dataSet.setId(1L);
         dataSet.setExternalId("ds_main");
         dataSet.setName("Main dataset");
         dataSet.setLabels(List.of("DATASET"));
         networkNodes.add(dataSet);
         for (long i = 2; i <= 25; i++) {
-            Resource asset = new Resource();
+            var asset = new ai.intellistream.datahub.models.Asset();
             asset.setId(i);
             asset.setExternalId("asset_" + i);
             asset.setName("Asset " + i);
@@ -200,7 +202,7 @@ class GraphTransferServiceImportTest {
         assertThat(result.relationsSkipped()).isZero();
         assertThat(result.dataSetReferencesDropped()).isZero();
         // The dataset leads the file, so every asset resolved its dataset reference on import.
-        List<Resource> createdAssets = createCalls.stream()
+        List<ai.intellistream.datahub.models.NodeModel> createdAssets = createCalls.stream()
                 .flatMap(w -> w.getNodes().stream())
                 .filter(n -> n.getExternalId().startsWith("asset_"))
                 .toList();
