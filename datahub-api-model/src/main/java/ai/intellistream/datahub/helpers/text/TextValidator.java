@@ -102,11 +102,16 @@ public class TextValidator {
         s = CAMEL_CASE_PATTERN.matcher(s).replaceAll("$1_$2");
         s = REPLACE_SPECIAL_C.matcher(s.toLowerCase()).replaceAll("_");
 
-        // Trim leading and trailing underscores
-        s = s.replaceAll("^_+", ""); // Remove leading underscores
-        s = s.replaceAll("_+$", ""); // Remove trailing underscores
+        return trimUnderscores(s);
+    }
 
-        return s;
+    /** Strips leading/trailing underscore runs by index; the regex {@code _+$} backtracks quadratically on long runs. */
+    public static String trimUnderscores(String s) {
+        int start = 0;
+        int end = s.length();
+        while (start < end && s.charAt(start) == '_') start++;
+        while (end > start && s.charAt(end - 1) == '_') end--;
+        return s.substring(start, end);
     }
 
     public static String toSnakeLowerCasedAllowStartWithDigits(String s){

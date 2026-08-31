@@ -31,6 +31,7 @@ def assetBundles = [
 		[name: 'app',       type: 'js', manifest: 'js/app.manifest.js',        output: 'js/app.bundle.min.js'],
 		[name: 'rightForm', type: 'js', manifest: 'js/right-form.manifest.js', output: 'js/right-form.bundle.min.js'],
 		[name: 'files',     type: 'js', manifest: 'js/files.manifest.js',      output: 'js/files.bundle.min.js'],
+		[name: 'resources', type: 'js', manifest: 'js/resources.manifest.js',  output: 'js/resources.bundle.min.js'],
 		[name: 'tutorial',  type: 'js', manifest: 'js/tutorial.manifest.js',   output: 'js/tutorial.bundle.min.js'],
 		[name: 'dashboard', type: 'js', manifest: 'js/dashboard.manifest.js',  output: 'js/dashboard.bundle.min.js'],
 		[name: 'insights',  type: 'js', manifest: 'js/insights.manifest.js',   output: 'js/insights.bundle.min.js'],
