@@ -114,11 +114,6 @@ Accept: application/json
           "set": "temperature_deg_f",
           "set_null": false
         },
-        "securityCategories": {
-          "set": null,
-          "add": null,
-          "remove": null
-        },
         "dataSetId": {
           "set": null,
           "set_null": false

@@ -34,9 +34,6 @@ import java.util.*;
  *       "assetId": 1,
 
  *       "description": "string",
- *       "securityCategories": [
- *         0
- *       ],
  *       "dataSetId": 1,
  *       "createdTime": '',
  *       "lastUpdatedTime": ''
@@ -62,9 +59,6 @@ public class Timeseries extends NodeModel {
     @ForbiddenValues(message = "Forbidden value for external id.")
     @Schema(description = "The external id of the unit that the time series use.", example = "mass_flow_rate_kghr")
     private String unitExternalId;
-
-    @Schema(description = "A collection of security categories.", example = "[33,5,128]")
-    private Collection<Integer> securityCategories = new ArrayList<>();
 
     private String tableEngine = TableEngine.MERGETREE.name();
 

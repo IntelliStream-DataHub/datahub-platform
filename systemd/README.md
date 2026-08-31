@@ -17,7 +17,7 @@ systemd/
 ```
 
 Instance names are the short module names: `api`, `console`, `stateless-consumer`,
-`stateful-consumer`, `analysis`, `cleanup`. `systemctl status datahub@api` and so on.
+`analysis`, `cleanup`. `systemctl status datahub@api` and so on.
 
 ## Host layout
 
@@ -29,7 +29,7 @@ a third host (or on the same two if the hardware is shared).
 |---|---|---|
 | app-1 | `datahub@api` (20 GB heap) | `datahub@console` (16 GB) |
 | app-2 | `datahub@api` (20 GB) | `datahub@console` (16 GB) |
-| app-3 | `datahub@stateless-consumer` (20 GB) | `datahub@stateful-consumer` (16 GB) |
+| app-3 | `datahub@stateless-consumer` (20 GB) | — |
 | app-4 | `datahub@analysis` (16 GB) | `datahub@cleanup` (4 GB) |
 
 The node for each instance is set in its `placement.conf` (`NUMAMask=0` or `1`), so a
@@ -37,8 +37,10 @@ different layout is a one-line change per instance on that host. Check the actua
 numbering with `lscpu | grep NUMA`; the units use `CPUAffinity=numa`, which derives the
 CPU set from the node, so they need no CPU numbers.
 
-The stateful consumer and cleanup must run as exactly one instance each (order-sensitive
-graph writes; single-instance housekeeping); the others scale by adding hosts.
+Cleanup must run as exactly one instance (its jobs are not built to run concurrently); the
+others scale by adding hosts. Graph writes stay ordered without a designated instance: every
+api instance drains the per-tenant `resource_outbox`, and a Postgres advisory lock in the
+tenant's own database lets only one of them apply at a time.
 
 ## Install (per host)
 
@@ -81,7 +83,8 @@ journalctl -fu datahub@api
 service never sees the file. If Vault requires a client certificate, the `VAULT_KEYSTORE`
 lines in the same file point at a PKCS12 under `/etc/datahub`, which the unit's
 `ProtectSystem=strict` still lets the service read. Firewall: the api listens on 8081 and the console on 8080
-for the load balancer only; open them to the LB addresses, not the world.
+for the load balancer only; open them to the LB addresses, not the world, and the metrics ports
+(9080, 9081; see [Metrics](#metrics)) to the Prometheus host.
 
 The apps expect a **pgbouncer on localhost** (`StatelessRoutingDataSource` opens a
 connection per request and has no pool of its own). The unit orders itself after
@@ -104,6 +107,72 @@ setting. Three things to line up:
 
 `sysctl.d/90-datahub-app.conf` turns off router advertisements, autoconf and temporary
 addresses on the app hosts; a server's source address must stay put.
+
+## Metrics
+
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: JVM
+memory and GC, threads, CPU, Tomcat connections and request latency per endpoint. The api, console
+and analysis serve it on a second port next to the application port, so the load balancer never
+reaches it; the consumers and cleanup listen on nothing else.
+
+**It ships switched off.** The scrape carries no token, so whatever reaches the port reads your
+request rates, error rates, endpoint inventory and JVM internals. Turn it on per service with
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+```
+
+in `/etc/datahub/<name>/application.yml`.
+
+| Instance | Application port | Metrics port |
+|---|---|---|
+| `datahub@api` | 8081 | 9081 |
+| `datahub@console` | 8080 | 9080 |
+| `datahub@analysis` | 8082 | 9082 |
+| `datahub@stateless-consumer` | none | 9083 |
+| `datahub@cleanup` | none | 9085 |
+
+Open the metrics ports to the Prometheus host only, and prefer a certificate over trusting that
+rule. Put the stores and their passwords in the shared `datahub-platform` Vault secret, the same one
+that holds the Keycloak issuer:
+
+| Vault key | What it is |
+|---|---|
+| `metrics.keystore` | PKCS12 (or `.jks`) holding this host's server certificate and key |
+| `metrics.keystore-password` | its password |
+| `metrics.truststore` | the CA that signed the Prometheus client certificate |
+| `metrics.truststore-password` | its password |
+| `metrics.client-auth` | optional; `need` unless set |
+
+Each service reads those at startup and configures `management.server.ssl.*` (or `server.ssl.*` for
+the three without an application port) from them, so the passwords never sit in a file on the
+application hosts. Set no `metrics.keystore` and the port stays plain HTTP, which is what an
+installation that has not set this up gets.
+
+Prometheus then scrapes with `scheme: https` and a `tls_config` naming its client certificate and
+the same CA. The ports bind the wildcard address like the application ports;
+`management.server.address` (or `server.address`) narrows that as well, if the host has an internal
+interface. A scrape job per host:
+
+```yaml
+scrape_configs:
+  - job_name: datahub
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app-1.internal.example.org:9081", "app-2.internal.example.org:9081"]
+        labels: { service: api }
+      - targets: ["app-1.internal.example.org:9080", "app-2.internal.example.org:9080"]
+        labels: { service: console }
+```
+
+The health endpoint is not exposed: its indicators would probe the tenant-routing datasource,
+which has no connection to offer without a tenant. nginx's passive checks (`max_fails`) cover
+upstream health.
+
 
 ## Why these numbers
 

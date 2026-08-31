@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.api;
 
 
+import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
 import ai.intellistream.datahub.config.KeycloakVaultSecrets;
 import ai.intellistream.datahub.config.PulsarVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
@@ -139,7 +140,8 @@ public class ApiDatahubApplication {
         SpringApplication app = new SpringApplication(ApiDatahubApplication.class);
         // Registered here, not in spring.factories, so @SpringBootTest contexts never reach Vault.
         app.addListeners(new VaultConfigurationLoader(
-                new PulsarVaultSecrets(), new KeycloakVaultSecrets()));
+                new PulsarVaultSecrets(), new KeycloakVaultSecrets(),
+                new MetricsTlsVaultSecrets(MetricsTlsVaultSecrets.MANAGEMENT_SSL)));
         app.run(args);
     }
 

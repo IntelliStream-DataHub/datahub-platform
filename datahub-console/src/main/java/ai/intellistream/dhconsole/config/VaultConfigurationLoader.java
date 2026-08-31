@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.config;
 
+import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
+
 /**
  * The console's Vault loader: the shared one with {@link ConsoleVaultSecrets} plugged in.
  *
@@ -13,6 +15,7 @@ public class VaultConfigurationLoader
         extends ai.intellistream.datahub.config.VaultConfigurationLoader {
 
     public VaultConfigurationLoader() {
-        super(new ConsoleVaultSecrets());
+        super(new ConsoleVaultSecrets(),
+                new MetricsTlsVaultSecrets(MetricsTlsVaultSecrets.MANAGEMENT_SSL));
     }
 }

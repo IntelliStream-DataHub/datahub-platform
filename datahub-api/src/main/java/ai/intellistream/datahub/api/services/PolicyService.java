@@ -31,10 +31,9 @@ import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventObject;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.tenant.TenantContext;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -58,6 +57,7 @@ public class PolicyService {
     private final GovernanceTemplateRepository governanceTemplateRepo;
     private final ai.intellistream.datahub.repositories.node.PolicyRepository policyRepository;
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final GraphOutbox graphOutbox;
 
     /**
      * Policies are what make a dataset write-protected, so writing one is the same class of act as
@@ -138,15 +138,10 @@ public class PolicyService {
             edges.add(edgeRepository.save(resourceService.mapEdge(new EdgeEntity(), relForm)));
         }
 
-        // Publish to the graph pipeline (Pulsar -> stateful-consumer -> Neo4j) the same way
-        // ResourceService.create does, so the policy node (and its edge) actually enter the
-        // knowledge graph instead of living only in Postgres.
-        List<EdgeProxy> edgeProxies = edges.stream().map(EdgeProxyTransformer::fromEdgeEntity).toList();
-        Resource policyProxy = ResourceTransformer.from(policyNode, edgeProxies);
-        var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
-        msg.setResources(List.of(policyProxy));
-        msg.setEdges(edgeProxies);
-        applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+        // Queue the policy node (and its edge) for the graph mirror the same way
+        // ResourceService.create does, so they actually enter the knowledge graph instead of
+        // living only in Postgres.
+        graphOutbox.queueUpsert(List.of(policyNode), edges);
 
         namingPolicyResolver.invalidate();
 
@@ -296,11 +291,7 @@ public class PolicyService {
      * (or having policies build update forms); tracked in the audit backlog.
      */
     private void publishPolicyUpsert(PolicyEntity saved) {
-        Resource policyProxy = ResourceTransformer.from(saved, List.<EdgeProxy>of());
-        var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
-        msg.setResources(List.of(policyProxy));
-        msg.setEdges(List.<EdgeProxy>of());
-        applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+        graphOutbox.queueUpsert(List.of(saved), List.of());
     }
 
 

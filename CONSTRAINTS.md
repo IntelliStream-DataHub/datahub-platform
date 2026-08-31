@@ -22,6 +22,13 @@ up somewhere other than the file you are editing.
 4. **One type label per node.** `typeLabels` encode the node's type and the mapping is one to
    one, so a node has exactly one. Other labels are free to change.
 
+5. **No tenant dimension on a metric.** The Prometheus scrape is unauthenticated by design, so a
+   metric tagged with a tenant id publishes the customer list, and one tagged with a tenant's
+   volume publishes what each customer ingests. Per-tenant counting belongs in the Valkey counters
+   that already back the dashboard and the quotas, which are read through an authenticated
+   endpoint. This is easy to breach by accident: the daily quotas and lifetime ceilings are exactly
+   the numbers someone will reach for a Grafana panel next.
+
 ## Frontend
 
 1. **Forms follow one style.** The JavaScript forms should stay consistent with each other

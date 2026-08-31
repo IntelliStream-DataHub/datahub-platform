@@ -11,8 +11,8 @@ import java.util.Map;
 /**
  * Browse-sized projection of {@link Timeseries} for the list/search MCP tools. Drops the
  * full DTO's low-signal fields — {@code tableEngine}, {@code valueType}, empty
- * {@code securityCategories}/{@code relatedResources}, and both audit timestamps — which the
- * LLM does not need to pick a series. Use {@code timeseries_get} for the full record.
+ * {@code relatedResources}, and both audit timestamps — which the LLM does not need to pick
+ * a series. Use {@code timeseries_get} for the full record.
  */
 @JsonInclude(JsonInclude.Include.NON_EMPTY)
 public record LeanTimeseries(

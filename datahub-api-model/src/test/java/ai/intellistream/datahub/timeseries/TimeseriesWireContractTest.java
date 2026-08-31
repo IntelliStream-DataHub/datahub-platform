@@ -34,7 +34,6 @@ class TimeseriesWireContractTest {
         ts.setUnit("Deg C");
         ts.setUnitExternalId("Deg.C");       // canonicalized -> deg_c
         ts.setDescription("desc");
-        ts.setSecurityCategories(List.of(1, 2));
         ts.setDataSetId(21L);
         ts.setValueType("FLOAT");            // normalized -> float
         ts.setSource("src");                 // hoisted onto NodeModel
@@ -50,7 +49,6 @@ class TimeseriesWireContractTest {
         assertEquals("Deg C", m.get("unit"));
         assertEquals("deg_c", m.get("unitExternalId"));  // canonicalized
         assertEquals("desc", m.get("description"));
-        assertEquals(List.of(1, 2), m.get("securityCategories"));
         assertEquals("21", m.get("dataSetId"));          // ToStringSerializer
         assertEquals("MERGETREE", m.get("tableEngine"));
         assertEquals("float", m.get("valueType"));       // normalized
@@ -64,7 +62,7 @@ class TimeseriesWireContractTest {
 
         // Timeseries has no @JsonInclude — the full field set is always present.
         assertEquals(Set.of("id", "externalId", "name", "metadata", "unit", "unitExternalId",
-                "relatedResources", "description", "securityCategories", "dataSetId", "source", "labels",
+                "relatedResources", "description", "dataSetId", "source", "labels",
                 "tableEngine", "valueType", "createdTime", "lastUpdatedTime"), m.keySet());
     }
 }

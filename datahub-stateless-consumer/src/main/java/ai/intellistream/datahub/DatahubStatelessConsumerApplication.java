@@ -2,6 +2,7 @@
 package ai.intellistream.datahub;
 
 import ai.intellistream.datahub.config.PulsarVaultSecrets;
+import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -24,7 +25,8 @@ public class DatahubStatelessConsumerApplication {
 
 	public static void main(String[] args) {
 		SpringApplication app = new SpringApplication(DatahubStatelessConsumerApplication.class);
-		app.addListeners(new VaultConfigurationLoader(new PulsarVaultSecrets()));
+		app.addListeners(new VaultConfigurationLoader(new PulsarVaultSecrets(),
+				new MetricsTlsVaultSecrets(MetricsTlsVaultSecrets.SERVER_SSL)));
 		app.run(args);
 	}
 

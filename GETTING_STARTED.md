@@ -189,7 +189,7 @@ Pulsar URLs assume TLS ports (`pulsar+ssl://…:6651`), so for the plaintext loc
 broker you also override the Pulsar service URLs and disable TLS.
 
 Create `application-local.yml` in **each** service you intend to run
-(`datahub-api`, `datahub-stateless-consumer`, `datahub-stateful-consumer`,
+(`datahub-api`, `datahub-stateless-consumer`,
 `datahub-console`) under `src/main/resources/`. These files are gitignored
 because they hold your role-id/secret-id.
 
@@ -246,7 +246,6 @@ Individually:
 ```bash
 ./gradlew :datahub-api:bootRun                 --args='--spring.profiles.active=dev,local'   # API,  :8081
 ./gradlew :datahub-stateless-consumer:bootRun  --args='--spring.profiles.active=dev,local'   # datapoint/event consumer
-./gradlew :datahub-stateful-consumer:bootRun   --args='--spring.profiles.active=dev,local'   # Neo4j graph consumer
 ./gradlew :datahub-console:bootRun             --args='--spring.profiles.active=dev,local'    # console UI
 ```
 

@@ -7,9 +7,6 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
-import java.util.Set;
-import java.util.TreeSet;
-
 
 @Entity
 @DiscriminatorValue("2")
@@ -21,11 +18,6 @@ public class TimeseriesEntity extends NodeEntity{
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "value_type_id")
     private TimeseriesValueType valueType;
-
-    @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "timeseries_security_categories", joinColumns = @JoinColumn(name = "timeseries_id"))
-    @Column(name = "security_categories_integer")
-    private Set<Integer> securityCategories = new TreeSet<>();
 
     private String unit;
 
@@ -59,7 +51,6 @@ public class TimeseriesEntity extends NodeEntity{
     public String toString() {
         return "TimeseriesEntity{" + "id=" + id +
                 ", valueType=" + valueType +
-                ", securityCategories=" + securityCategories +
                 ", unit='" + unit + '\'' +
                 ", unitExternalId='" + unitExternalId + '\'' +
                 ", tableEngine=" + tableEngine +

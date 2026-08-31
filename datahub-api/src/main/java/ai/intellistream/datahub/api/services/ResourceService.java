@@ -11,7 +11,8 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatasetAclInvalidationEvent;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
+import ai.intellistream.datahub.services.graph.GraphSyncCommand;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -33,7 +34,6 @@ import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventObject;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.repositories.node.*;
 import ai.intellistream.datahub.repositories.subscription.SubscriptionRepository;
 import ai.intellistream.datahub.services.LabelService;
@@ -93,6 +93,7 @@ public class ResourceService {
     private final RelationshipTypeService relationshipTypeService;
 
     private final ApplicationEventPublisher applicationEventPublisher;
+    private final GraphOutbox graphOutbox;
 
     private final Neo4JService neo4JService;
 
@@ -117,6 +118,7 @@ public class ResourceService {
             RelationshipTypeRepository relationshipTypeRepository,
             RelationshipTypeService relationshipTypeService,
             ApplicationEventPublisher applicationEventPublisher,
+            GraphOutbox graphOutbox,
             Neo4JService neo4JService,
             DataSetRepository dataSetRepository,
             DataSecurity dataSecurity,
@@ -132,6 +134,7 @@ public class ResourceService {
         this.relationshipTypeRepository = relationshipTypeRepository;
         this.relationshipTypeService = relationshipTypeService;
         this.applicationEventPublisher = applicationEventPublisher;
+        this.graphOutbox = graphOutbox;
         this.neo4JService = neo4JService;
         this.dataSetRepository = dataSetRepository;
         this.dataSecurity = dataSecurity;
@@ -229,14 +232,12 @@ public class ResourceService {
 
                 invalidateDatasetAclIfNeeded(nodes, edges, false);
 
-                var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
-                msg.setResources(resourceList);
                 collection.setNodes(resourceList);
                 collection.setRelations(edgesList);
-                msg.setEdges(edgesList);
 
+                // Flush first: the outbox row records ids, and edge ids are assigned by the insert.
                 entityManager.flush();
-                applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+                graphOutbox.queueUpsert(nodes, edges);
 
                 // Findings reference node_id, which only exists now. A rejected batch never gets
                 // here, which is the intent: NOT_OK leaves no entity to attach a finding to.
@@ -504,18 +505,11 @@ public class ResourceService {
 
             invalidateDatasetAclIfNeeded(nodes, edges, belongsToTouched.get());
 
-            var msg = new ResourceCudMessage(EventAction.UPDATE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
-            msg.setResources(resourceList);
-            msg.setUpdateResourceForms(apiReqData.getNodes().stream().toList());
-
-            msg.setEdges(edgesList);
-            msg.setUpdateEdges(apiReqData.getRelations().stream().toList());
-
             collection.setNodes(resourceList);
             collection.setRelations(edgesList);
 
             nodeRepository.flush();
-            applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+            graphOutbox.queueUpsert(nodes, edges);
 
             recordPolicyWarnings(policyWarnings, nodes);
             collection.setWarnings(policyWarnings.stream().map(PolicyWarning::from).toList());
@@ -1137,8 +1131,8 @@ public class ResourceService {
         // Reject deletes that would disjoint a surviving node from the graph root. Anchor the
         // Neo4j component load on the deleted nodes plus the endpoints of every edge being removed,
         // so the fetched component covers every node whose connectivity could change. The check
-        // reads the (asynchronously updated) graph mirror — see fetchComponentForNodes for the
-        // eventual-consistency caveat.
+        // reads the graph mirror, which is applied after commit from the outbox queue — see
+        // fetchComponentForNodes for the eventual-consistency caveat.
         Set<Long> connectivityAnchors = new HashSet<>(resourceIdList);
         for (EdgeEntity e : edgesBeingDeleted) {
             if (e.getStart() != null) {
@@ -1202,10 +1196,11 @@ public class ResourceService {
                 resourceIdList.isEmpty() ? List.of() : nodeRepository.findAllById(resourceIdList),
                 edgesBeingDeleted, false);
 
-        var msg = new ResourceCudMessage(EventAction.DELETE, EventObject.RESOURCE_AND_RELATION, TenantContext.getTenantId());
-        msg.setResources(apiReqData.getNodes().stream().toList());
-        msg.setEdges(apiReqData.getRelations().stream().toList());
-        applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+        graphOutbox.queueDelete(
+                apiReqData.getNodes().stream()
+                        .map(it -> new GraphSyncCommand.NodeRef(it.getId(), it.getExternalId()))
+                        .toList(),
+                apiReqData.getRelations().stream().map(EdgeProxy::getId).toList());
 
         return deletedCollection;
     }

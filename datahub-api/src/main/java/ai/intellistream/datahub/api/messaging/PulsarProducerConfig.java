@@ -4,7 +4,6 @@ package ai.intellistream.datahub.api.messaging;
 import ai.intellistream.datahub.api.responses.DataWrapperBin;
 import ai.intellistream.datahub.config.AppInstanceId;
 import ai.intellistream.datahub.pulsar.EventCudMessage;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.pulsar.SubscriptionNotifyMessage;
 import ai.intellistream.datahub.pulsar.TopicNames;
 import org.apache.pulsar.client.api.*;
@@ -72,18 +71,6 @@ public class PulsarProducerConfig {
         this.topicProvisioner = topicProvisioner;
         this.topicNames = topicNames;
         this.instanceSuffix = "-" + appInstanceId.get();
-    }
-
-    @Bean(name = "resourceMessageProducer")
-    public Producer<ResourceCudMessage> produceResourceMessage() throws PulsarClientException {
-        return pulsarClient
-                .newProducer(Schema.AVRO(ResourceCudMessage.class))
-                .topic(topicNames.getResourceTopicName())
-                .accessMode(ProducerAccessMode.Shared)
-                .compressionType(CompressionType.ZSTD)
-                .producerName("reqlog-resource-producer" + instanceSuffix)
-                .sendTimeout(10, TimeUnit.SECONDS)
-                .create();
     }
 
     @Bean(name = "eventMessageProducer")

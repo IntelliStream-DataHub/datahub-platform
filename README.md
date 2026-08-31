@@ -169,12 +169,11 @@ The console assistant is read-only by design — mutating tools are never offere
 
 ## Architecture
 
-DataHub is delivered as six Spring Boot 4 services (Java 25), designed to run independently and scale horizontally behind a load balancer:
+DataHub is delivered as five Spring Boot 4 services (Java 25), designed to run independently and scale horizontally behind a load balancer:
 
 - **datahub-api**: REST API and OAuth2 resource server. Owns the ontology and the ingestion endpoints.
 - **datahub-console**: server-side rendered web UI (Thymeleaf + vanilla JS). OAuth2 client against your identity provider.
-- **datahub-stateless-consumer**: headless service that consumes datapoint and event topics from Pulsar, lands them in ClickHouse, and fans datapoints out to live WebSocket subscribers.
-- **datahub-stateful-consumer**: headless service that applies resource create/update/delete messages to the Neo4j knowledge graph and maintains event key mappings.
+- **datahub-stateless-consumer**: headless service that consumes datapoint and event topics from Pulsar, lands them in ClickHouse, fans datapoints out to live WebSocket subscribers, and maintains the Kvrocks event key mappings.
 - **datahub-analysis**: stateless compute service for time-series relationship analysis, serving both the console's Analyze tab and the `analysis_related_series` MCP tool described above.
 - **datahub-cleanup**: scheduled housekeeping, and the persistent retrier for per-tenant schema migrations.
 
@@ -189,7 +188,6 @@ graph LR
     Console["datahub-console<br/>Web UI"]
     API["datahub-api<br/>REST API"]
     ConsumerSL["datahub-stateless-consumer<br/>Datapoint &amp; event ingest"]
-    ConsumerSF["datahub-stateful-consumer<br/>Graph updates"]
 
     Valkey[("Valkey / Redis")]
     PG[("PostgreSQL")]
@@ -210,11 +208,9 @@ graph LR
     API --> Pulsar
     API -. secrets .-> Vault
     Pulsar --> ConsumerSL
-    Pulsar --> ConsumerSF
     ConsumerSL --> CH
     ConsumerSL --> PG
-    ConsumerSF --> Neo
-    ConsumerSF --> KV
+    ConsumerSL --> KV
     IdP -. OAuth2 / JWT .-> Console
     IdP -. OAuth2 / JWT .-> API
 ```
@@ -281,9 +277,9 @@ No sticky sessions required.
 
 Stateless. Pulsar's subscription types (`Shared` / `Key_Shared`) coordinate work distribution across consumer instances. Add instances to scale throughput.
 
-### datahub-stateful-consumer
+### The Neo4j graph mirror
 
-Applies order-sensitive graph mutations, so it does not scale out. Run it with Pulsar's `Failover` subscription type: one instance is active and a standby takes over if it dies.
+Written by datahub-api, not by a service of its own. A resource change queues a row in the tenant's `resource_outbox` table in the same transaction that writes the node, so the two commit together; any api instance then drains the queue and applies it. Ordering does not depend on running a single instance: a Postgres advisory lock, held in the tenant's own database for the length of one drain, lets exactly one instance apply at a time. A row that cannot be applied blocks its tenant's queue and records why, rather than being dropped.
 
 ### datahub-analysis
 
@@ -296,6 +292,10 @@ The console's Analyze tab and its "related series" panel call this service **dir
 Run **one instance**: two janitors deleting concurrently is wasteful and racy.
 
 It is also the only persistent retrier of the per-tenant Flyway migration: `datahub-api` provisions a tenant on demand and gives up after a single attempt, so without this service a tenant whose migration failed once stays broken.
+
+### Metrics
+
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085. For the api, console and analysis that is a second port next to the application port, so a load balancer never reaches it. It ships switched off, because the scrape carries no token: turn it on per service with `management.endpoints.web.exposure.include=prometheus`, open the port to the Prometheus host only, and prefer mutual TLS (`management.server.ssl.*` with `client-auth: need`) over trusting that rule. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
 
 ### Flyway
 

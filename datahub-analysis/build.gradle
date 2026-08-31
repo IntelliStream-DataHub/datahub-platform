@@ -34,6 +34,9 @@ dependencies {
 	// user JWT the api forwards (same issuer as the api) and requires ROLE_DATAHUB_ACCESS. No ACL/DB
 	// — the api already authorized the user and fetched the data; this only authenticates the caller.
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	implementation 'org.springframework.boot:spring-boot-starter-security'
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
 

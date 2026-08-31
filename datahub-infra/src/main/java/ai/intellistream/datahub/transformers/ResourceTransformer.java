@@ -109,7 +109,7 @@ public class ResourceTransformer {
         labelsIter.forEachRemaining(labels::add);
         resource.setLabels(labels);
 
-        // Metadata rides on the node as "metadata_"-prefixed properties (GraphEventNeo4jListener),
+        // Metadata rides on the node as "metadata_"-prefixed properties (GraphNodeProperties),
         // the same convention EdgeProxyTransformer reads off relationships. It used to be dropped
         // here, so every graph-sourced response returned nodes with empty metadata.
         Map<String, String> metadata = new HashMap<>();

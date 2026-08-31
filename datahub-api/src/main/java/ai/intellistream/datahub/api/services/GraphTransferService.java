@@ -49,7 +49,7 @@ import java.util.Set;
  * nodes as {@code metadata_} properties, and edges carry their dataset id. The one Postgres
  * touch left is resolving dataset ids to externalIds when the dataset node itself is not part
  * of the component (assigned by field, never linked). Geometry is whatever the graph holds —
- * a point, or nothing for non-point geometries (deliberately; see GraphEventNeo4jListener).
+ * a point, or nothing for non-point geometries (deliberately; see GraphNodeProperties).
  * Everything is keyed by externalId in the file; numeric ids are database identities and do not
  * survive a transfer.
  *

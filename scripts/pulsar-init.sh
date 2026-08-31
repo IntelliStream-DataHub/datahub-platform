@@ -43,7 +43,7 @@ for ct in ${CUSTOMER_TENANTS:-foo bar}; do
   create_tenant "$ct"
 done
 
-for ns in datapoints resources events subscriptions http; do
+for ns in datapoints events subscriptions http; do
   create_ns "${INTERNAL}/${ns}"
 done
 create_ns "${PUBLIC}/subscriptions"

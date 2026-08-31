@@ -5,7 +5,7 @@
 #
 #   systemctl enable --now datahub@api          /opt/datahub/api/app.jar
 #   systemctl enable --now datahub@console      /etc/datahub/console.env, /etc/datahub/console/
-#   datahub@stateless-consumer, datahub@stateful-consumer, datahub@analysis, datahub@cleanup
+#   datahub@stateless-consumer, datahub@analysis, datahub@cleanup
 #
 # Host-specific placement (which NUMA node, memory ceiling, extra writable mounts) lives
 # in a drop-in per instance, datahub@<name>.service.d/placement.conf, so this file is the

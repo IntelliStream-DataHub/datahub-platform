@@ -320,9 +320,9 @@ These are the three that actually bit during verification.
   up to 90 seconds, after which the request fails closed. So a brief Keycloak blip is invisible and
   a sustained outage converges to denial.
 - `DatasetClosureService` maps `externalId` to node id, then expands the `BELONGS_TO` closure with
-  a recursive CTE over the `edge` table. Postgres, not Neo4j: the Neo4j copy is written
-  asynchronously by `datahub-stateful-consumer`, so an ACL resolved through it would lag behind
-  writes.
+  a recursive CTE over the `edge` table. Postgres, not Neo4j: the Neo4j copy is written after the
+  transaction commits, from the `resource_outbox` queue, so an ACL resolved through it would lag
+  behind writes.
 - Both cached under a per-tenant generation counter in Valkey, bumped when a dataset is created or
   renamed or a `BELONGS_TO` edge changes, so invalidation is one `INCR` and stale entries expire on
   their own.

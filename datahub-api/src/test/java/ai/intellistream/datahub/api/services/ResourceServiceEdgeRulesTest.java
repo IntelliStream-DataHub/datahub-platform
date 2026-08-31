@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
@@ -54,7 +55,7 @@ class ResourceServiceEdgeRulesTest {
             mock(EntityManager.class), nodeRepository, mock(NodeService.class),
             mock(LabelService.class), mock(EdgeRepository.class),
             mock(RelationshipTypeRepository.class), relationshipTypeService,
-            mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
+            mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class),
             mock(DataSetRepository.class), mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), mock(DatasetClosureService.class));

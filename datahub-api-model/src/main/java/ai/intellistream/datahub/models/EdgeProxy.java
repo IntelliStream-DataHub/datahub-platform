@@ -44,8 +44,9 @@ public class EdgeProxy implements Serializable {
     private Long relationshipTypeId;
 
     /**
-     * The data set this edge belongs to. Carried on the message so the Neo4j mirror learns it —
-     * without it the assignment only existed in Postgres and every graph read lost it.
+     * The data set this edge belongs to. Nodes have carried theirs into the graph for a long time;
+     * edges did not, so the assignment existed only in Postgres and an edge read back from the
+     * graph could not say what scoped it.
      */
     @JsonSerialize(using = ToStringSerializer.class)
     private Long dataSetId;
