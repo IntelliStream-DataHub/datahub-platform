@@ -8,7 +8,7 @@ buildscript {
     }
     dependencies {
         // Required for the Flyway Gradle plugin to recognize Postgres (Flyway 10+).
-        classpath 'org.flywaydb:flyway-database-postgresql:13.3.0'
+        classpath 'org.flywaydb:flyway-database-postgresql:13.4.0'
     }
 }
 
@@ -18,7 +18,7 @@ plugins {
     id 'io.spring.dependency-management'
     // Migration scripts live in this module (src/main/resources/db/migration), so the local-dev
     // flywayMigrate/flywayInfo tasks live here too: ./gradlew :datahub-infra:flywayMigrate
-    id "org.flywaydb.flyway" version "13.3.0"
+    id "org.flywaydb.flyway" version "13.4.0"
     // SharedPostgres lives in src/testFixtures so integration tests in other modules can reuse the
     // one migrated container instead of standing up their own. See datahub-api's ITs.
     id 'java-test-fixtures'
@@ -38,7 +38,7 @@ dependencies {
 
     // Neo4j
     implementation 'org.neo4j.driver:neo4j-java-driver:6.2.1'
-    implementation 'org.neo4j:neo4j-cypher-dsl:2025.3.0'
+    implementation 'org.neo4j:neo4j-cypher-dsl:2025.3.1'
 
     // Vault client
     implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
@@ -87,8 +87,8 @@ dependencies {
     // Flyway lives here (not in datahub-api) so both datahub-api's on-demand tenant provisioning and
     // datahub-cleanup's scheduled self-heal sweep share one migration engine and one copy of the
     // scripts under src/main/resources/db/migration. See TenantMigrationService.
-    implementation 'org.flywaydb:flyway-core:13.3.0'
-    runtimeOnly 'org.flywaydb:flyway-database-postgresql:13.3.0'
+    implementation 'org.flywaydb:flyway-core:13.4.0'
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql:13.4.0'
 
     implementation 'at.yawk.lz4:lz4-java:1.11.2'
     implementation 'com.github.luben:zstd-jni:1.5.7-15'
@@ -117,9 +117,9 @@ dependencies {
 
     // Test fixtures (SharedPostgres). These are `implementation` on the main source set, so they
     // are not on the fixtures compile classpath by inheritance and have to be named again.
-    testFixturesImplementation 'org.flywaydb:flyway-core:13.3.0'
+    testFixturesImplementation 'org.flywaydb:flyway-core:13.4.0'
     testFixturesImplementation 'org.testcontainers:postgresql:1.21.4'
-    testFixturesRuntimeOnly 'org.flywaydb:flyway-database-postgresql:13.3.0'
+    testFixturesRuntimeOnly 'org.flywaydb:flyway-database-postgresql:13.4.0'
     testFixturesRuntimeOnly 'org.postgresql:postgresql'
     testImplementation 'org.testcontainers:neo4j:1.21.4'
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
