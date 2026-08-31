@@ -1,23 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.transformers;
 
-import ai.intellistream.datahub.jpa.domains.AssetEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
-import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.models.EdgeProxy;
-import ai.intellistream.datahub.models.GeoLocation;
 import ai.intellistream.datahub.models.Resource;
 
 import java.util.*;
 
-import static ai.intellistream.datahub.jpa.domains.TimeseriesValueType.getTableType;
 
 public class ResourceTransformer {
 
     public static List<Resource> from(Collection<? extends NodeEntity> nodes) {
-        return nodes.stream().map(ResourceTransformer::from).toList();
-    }
-    public static List<Resource> fromTimeseriesEntities(Collection<TimeseriesEntity> nodes) {
         return nodes.stream().map(ResourceTransformer::from).toList();
     }
     /**
@@ -33,17 +26,6 @@ public class ResourceTransformer {
         resource.setSource(node.getSource());
         resource.setCreatedTime(node.getDateCreated());
         resource.setLastUpdatedTime(node.getLastUpdated());
-        if(node instanceof AssetEntity asset){
-            if(asset.getGeoLocation() != null){
-                resource.setGeoLocation(new GeoLocation(asset.getGeoLocation()));
-            }
-        }
-        if(node instanceof TimeseriesEntity ts){
-
-            resource.setValueType(getTableType(ts.getValueType()));
-
-        }
-
         if(node.getDataSet() != null){
             resource.setDataSetId(node.getDataSet().getId());
         }

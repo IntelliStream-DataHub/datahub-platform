@@ -33,4 +33,17 @@ public class ResourceWebForm extends Resource {
     @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private List<String> relationTypes;
 
+    /**
+     * The location the form offers, which only an asset can store.
+     *
+     * <p>Declared here rather than inherited: this one form creates both assets and plain
+     * resources, so the browser can post a location, but {@code Resource} has nowhere to keep one
+     * — {@code geoLocation} lives on {@code Asset} alone now that the flat shape no longer has to
+     * double as a Pulsar payload. {@code toNode} reads it on the ASSET branch and drops it
+     * otherwise, which is the behaviour it already had; the field simply belongs to the form.
+     */
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
+    @jakarta.validation.Valid
+    private ai.intellistream.datahub.models.GeoLocation geoLocation;
+
 }

@@ -155,8 +155,10 @@ public class NodeService {
             NodeEntity node;
             if (TypeLabels.ASSET.equals(type)) {
                 AssetEntity asset = new AssetEntity();
-                GeoLocation geo = form instanceof Asset a ? a.getGeoLocation()
-                        : form instanceof Resource r ? r.getGeoLocation() : null;
+                // Only Asset declares a location. The flat Resource shape used to carry one too,
+                // for the Avro payload; with that gone the fallback would only let a body that
+                // cannot describe a location supply one.
+                GeoLocation geo = form instanceof Asset a ? a.getGeoLocation() : null;
                 asset.setGeoLocation(geo == null ? null : geo.getJson());
                 node = asset;
             } else if (TypeLabels.FUNCTION.equals(type)) {

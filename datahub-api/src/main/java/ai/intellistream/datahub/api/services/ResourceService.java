@@ -50,7 +50,6 @@ import ai.intellistream.datahub.services.RelationshipTypeService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
 import ai.intellistream.datahub.transformers.NodeReadMapper;
-import ai.intellistream.datahub.transformers.ResourceTransformer;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
@@ -258,18 +257,14 @@ public class ResourceService {
                 // Save all new edges so they get id and verify all is good
                 Iterable<EdgeEntity> savedEdges = edgeRepository.saveAll(edges);
 
-                // The Pulsar payload stays the flat Resource (Avro reflection cannot carry a
-                // polymorphic union; the Neo4j consumer reads isRoot/geoLocation off it), while
-                // the REST echo comes back typed through the read mapper.
-                List<Resource> resourceList = new ArrayList<>();
+                // The echo comes back typed through the read mapper. A flat Resource list used to
+                // be built alongside it for the Pulsar payload; the graph is written from the
+                // entities now, so there is only one shape here.
                 List<EdgeProxy> edgesList = new ArrayList<>();
                 List<NodeEntity> savedList = new ArrayList<>();
 
                 savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
-                savedResources.forEach( it -> {
-                    savedList.add(it);
-                    resourceList.add( ResourceTransformer.from(it, edgesList) );
-                });
+                savedResources.forEach(savedList::add);
 
                 invalidateDatasetAclIfNeeded(nodes, edges, false);
                 invalidateNamingPolicyIfNeeded(nodes);
@@ -460,16 +455,12 @@ public class ResourceService {
             // Save all new edges so they get id and verify all is good
             Iterable<EdgeEntity> savedEdges = edgeRepository.saveAll(edges);
 
-            // Two shapes, deliberately: the flat Resource feeds Pulsar (Avro reflection cannot
-            // carry a polymorphic union), while the REST echo is typed, so updating an asset's
-            // geoLocation or a timeseries' unit returns that field back.
-            List<Resource> resourceList = new ArrayList<>();
+            // One shape: the echo is typed, so updating an asset's geoLocation or a timeseries'
+            // unit returns that field back. A second flat list used to be built here to feed the
+            // Pulsar payload; the graph is written from the entities now, so nothing reads it.
             List<EdgeProxy> edgesList = new ArrayList<>();
             List<NodeEntity> savedList = new ArrayList<>();
-            savedResources.forEach( it -> {
-                savedList.add(it);
-                resourceList.add( ResourceTransformer.from(it) );
-            });
+            savedResources.forEach(savedList::add);
             savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
 
             invalidateDatasetAclIfNeeded(nodes, edges, belongsToTouched.get());

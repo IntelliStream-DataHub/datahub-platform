@@ -13,6 +13,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
@@ -70,30 +71,40 @@ class ResourceWireContractTest {
     }
 
     /**
-     * geoLocation is not part of this DTO's REST contract in either direction — it exists for the
-     * Pulsar payload, like {@code valueType}. An ASSET-labelled body is typed as an {@code Asset},
-     * which carries the real field; a body with no type-label is a plain resource, which has
-     * nowhere to store a location, so the field is unknown there and the api answers 400 rather
-     * than accepting it and dropping it.
+     * A plain resource has no location at all, in memory or on the wire.
+     *
+     * <p>The field used to exist on {@code Resource} and be {@code @JsonIgnore}d: it was the
+     * Avro-reflected Pulsar payload, and the Neo4j consumer read a created asset's location off
+     * it. The graph is written from the entities now, so the field went with the payload and
+     * {@code geoLocation} lives on {@code Asset} alone — the one node type whose entity has the
+     * column. This pins that it does not come back: a location on a plain resource has nowhere
+     * to be stored, so the strict request reader answers 400 rather than dropping it silently.
      */
     @Test
-    @SuppressWarnings("unchecked")
-    void geoLocationIsNeitherReadNorWrittenOnAResource() {
-        Resource r = new Resource();
-        r.setExternalId("sensor_a");
-        r.setName("Sensor A");
-        r.setGeoLocation(new GeoLocation("{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}"));
+    void aPlainResourceHasNoGeoLocation() {
+        assertFalse(hasProperty(Resource.class, "geoLocation"),
+                "geoLocation belongs to Asset; a plain resource has no column for it");
+        assertTrue(hasProperty(Asset.class, "geoLocation"),
+                "Asset is the node type that carries a location");
+    }
 
-        // Set in memory for the Pulsar path, absent from the JSON.
-        Map<String, Object> m = mapper.readValue(mapper.writeValueAsString(r), Map.class);
-        assertFalse(m.containsKey("geoLocation"));
+    /** Likewise valueType, which is a time series' own concern. */
+    @Test
+    void aPlainResourceHasNoValueType() {
+        assertFalse(hasProperty(Resource.class, "valueType"),
+                "valueType belongs to Timeseries; it was on Resource only for the Pulsar payload");
+        assertTrue(hasProperty(ai.intellistream.datahub.timeseries.Timeseries.class, "valueType"),
+                "Timeseries is where a value type is a real field");
+    }
 
-        // And not bound back off the wire either.
-        Resource in = mapper.readValue(
-                "{\"externalId\":\"sensor_a\",\"name\":\"Sensor A\"," +
-                "\"geoLocation\":{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}}",
-                Resource.class);
-        assertNull(in.getGeoLocation());
+    /** Declared fields including inherited ones, which is what a DTO's shape actually is. */
+    private static boolean hasProperty(Class<?> type, String name) {
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (var f : c.getDeclaredFields()) {
+                if (f.getName().equals(name)) return true;
+            }
+        }
+        return false;
     }
 
 }

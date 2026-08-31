@@ -9,7 +9,6 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import tools.jackson.databind.annotation.JsonSerialize;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -39,28 +38,6 @@ public class Resource extends NodeModel {
      */
     @Schema(description = "Is this a root resource?", example = "true")
     private Boolean isRoot = false;
-
-    /**
-     * Geographic data — for the Pulsar payload only, like {@link #valueType}.
-     *
-     * <p>The field has to exist: {@code Resource} is the Avro-reflected payload of
-     * {@code ResourceCudMessage}, and the Neo4j consumer reads a created asset's location off it.
-     * It is not part of this DTO's REST contract in either direction. An ASSET-labelled body is
-     * typed as {@link Asset} by the deserializer, which carries the real field, and a body with
-     * no type-label describes a plain resource, which has nowhere to store a location — so
-     * accepting one there would silently drop it. {@code @JsonIgnore} instead of WRITE_ONLY says
-     * exactly that, and makes such a body a 400 naming the field.
-     */
-    @JsonIgnore
-    @Valid
-    private GeoLocation geoLocation;
-
-    /**
-     * If resource is Timeseries, use this field when passing messages. It is not used for the api
-     * frontend, so users will not see this.
-     */
-    @JsonIgnore
-    private String valueType = null;
 
     public Resource() {
     }
