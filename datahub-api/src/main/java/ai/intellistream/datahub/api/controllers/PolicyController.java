@@ -18,6 +18,10 @@ import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
+import ai.intellistream.datahub.errors.ResponseError;
+import org.springframework.http.HttpStatusCode;
 import ai.intellistream.datahub.transformers.PolicyTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
 import io.swagger.v3.oas.annotations.Operation;
@@ -171,22 +175,10 @@ public class PolicyController {
             // that cannot fix it.
             items.forEach(PolicyScopeValidator::validate);
 
-            List<Policy> createdPolicies = items.stream()
-                    .map(p -> {
-                        PolicyEntity node =
-                                policyService.createEmptyPolicy(p.getName(), p.getTemplateId(), p.getExternalId(), p.getDataSetId(), p.getDescription(), p.getMetadata());
-                        // Create honours the flag too, so a policy can be restored from an export
-                        // already switched off rather than only by creating it live and disabling
-                        // it afterwards.
-                        if (p.isDeactivated()) {
-                            node = policyService.setDeactivated(node.getId(), true);
-                        }
-                        return PolicyTransformer.toPolicy(node);
-                    })
-                    .toList();
-
-            DataWrapper<Policy> data = new DataWrapper<>();
-            data.getItems().addAll(createdPolicies);
+            // One call for the whole batch, through the shared create pipeline — so a
+            // three-policy request is judged, authorized and published as one create, exactly like
+            // three resources are.
+            DataWrapper<Policy> data = policyService.create(items);
 
             return new ResponseEntity<>(data, HttpStatus.CREATED);
 
@@ -197,6 +189,13 @@ public class PolicyController {
             // A scope or naming-config rejection is the caller's mistake, not a server fault; the
             // broad catch below would otherwise report it as a 500 with no usable detail.
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
+        } catch (DuplicateDataException e) {
+            // The shared pipeline's pre-check, which policy create now goes through: it catches a
+            // taken external id before the insert, so this is the 409 the caller gets in practice.
+            // The DataIntegrityViolationException below stays as the net for a race that slips
+            // past the check and reaches the unique index.
+            ResponseError<DuplicateError> dupError = e.getError();
+            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
         } catch (DataIntegrityViolationException dve) {
             // A duplicate externalId is a conflict, not a server fault. This was unhandled, so
             // creating a policy whose externalId already existed produced a bare 500 — the only
@@ -223,11 +222,6 @@ public class PolicyController {
     )
     @ApiResponse(responseCode = "204", description = "The policy nodes were deleted. No response body.",
             content = @Content)
-    @ApiResponse(responseCode = "200", description = "The policy after the update.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = PolicyDataWrapper.class)
-            ))
     @ApiResponse(responseCode = "409", description =
             "Concurrency conflict — another request modified or deleted the policy " +
                     "between read and write. Clients should re-fetch the current state and retry.",

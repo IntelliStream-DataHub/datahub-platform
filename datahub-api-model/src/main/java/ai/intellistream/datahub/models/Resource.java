@@ -4,11 +4,11 @@ package ai.intellistream.datahub.models;
 import ai.intellistream.datahub.json.ToStringSerializer;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import tools.jackson.databind.annotation.JsonSerialize;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -23,7 +23,6 @@ import java.util.stream.Collectors;
 @Getter
 @Setter
 @JsonIgnoreProperties(value = { "elementId" })
-@JsonInclude(JsonInclude.Include.NON_NULL)
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
 @ToString(callSuper = true)
 public class Resource extends NodeModel {
@@ -39,19 +38,6 @@ public class Resource extends NodeModel {
      */
     @Schema(description = "Is this a root resource?", example = "true")
     private Boolean isRoot = false;
-
-    /**
-     * Geographic data.
-     */
-    @Valid
-    private GeoLocation geoLocation;
-
-    /**
-     * If resource is Timeseries, use this field when passing messages. It is not used for the api
-     * frontend, so users will not see this.
-     */
-    @JsonIgnore
-    private String valueType = null;
 
     public Resource() {
     }

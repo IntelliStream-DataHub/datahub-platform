@@ -9,6 +9,9 @@ import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.RelationshipType;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.models.EdgeProxy;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.transformers.NodeReadMapper;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
 import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
@@ -308,8 +311,10 @@ class ResourceGraphApplierIT {
     @Test
     void whatTheApplierWritesIsWhatTheGraphReadersExpect() {
         // The applier assigns a node's properties wholesale, so a name this mapping forgets is a
-        // property that disappears from the graph. These are the readers that would notice:
-        // every graph-sourced Resource in the api comes back through ResourceTransformer.fromNode.
+        // property that disappears from the graph. This is the reader that would notice: every
+        // graph-sourced node in the api comes back through NodeReadMapper.fromGraphNode, which
+        // types it from its labels (an ASSET-labelled node becomes an Asset, carrying the isRoot
+        // and geoLocation that only an asset has).
         AssetEntity asset = givenAsset(1L, "asset_1", "Pump A");
         asset.setDescription("Main feed pump");
         asset.setSource("SAP");
@@ -321,7 +326,9 @@ class ResourceGraphApplierIT {
 
         try (Session session = driver.session()) {
             Node node = session.run("MATCH (n {id: 1}) RETURN n").single().get("n").asNode();
-            Resource read = ResourceTransformer.fromNode(node);
+            NodeModel node1 = NodeReadMapper.fromGraphNode(node);
+            assertThat(node1).isInstanceOf(Asset.class);
+            Asset read = (Asset) node1;
 
             assertThat(read.getId()).isEqualTo(1L);
             assertThat(read.getExternalId()).isEqualTo("asset_1");
@@ -330,6 +337,12 @@ class ResourceGraphApplierIT {
             assertThat(read.getSource()).isEqualTo("SAP");
             assertThat(read.getIsRoot()).isTrue();
             assertThat(read.getLabels()).contains("ASSET");
+            // The applier flattens metadata to metadata_<key> properties, so a reader has to put
+            // them back. This is the assertion the test was one line short of: it already wrote a
+            // vendor tag and never checked it survived the round trip.
+            assertThat(read.getMetadata()).containsEntry("vendor", "acme");
+            assertThat(read.getMetadata()).doesNotContainKey("metadata_vendor");
+
             assertThat(read.getGeoLocation()).isNotNull();
             assertThat(read.getGeoLocation().pointCoordinates()).containsExactly(10.75, 59.91);
         }

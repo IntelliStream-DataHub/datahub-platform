@@ -2,13 +2,20 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.policy.PolicyCandidate;
+import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
+import ai.intellistream.datahub.api.policy.NamingPolicyResolver;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.models.policy.PolicyWarning;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.edge.EdgeMapper;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatasetAclInvalidationEvent;
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
@@ -25,7 +32,6 @@ import ai.intellistream.datahub.jpa.domains.*;
 // also on this file's wildcard imports: here RelationshipType is the JPA entity.
 import ai.intellistream.datahub.jpa.domains.RelationshipType;
 import ai.intellistream.datahub.jpa.dto.EdgeDTO;
-import ai.intellistream.datahub.jpa.dto.EdgeEndpoint;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalId;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalIdDTO;
 import ai.intellistream.datahub.models.*;
@@ -43,7 +49,7 @@ import ai.intellistream.datahub.services.NodeService;
 import ai.intellistream.datahub.services.RelationshipTypeService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
-import ai.intellistream.datahub.transformers.ResourceTransformer;
+import ai.intellistream.datahub.transformers.NodeReadMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
@@ -51,6 +57,7 @@ import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.repositories.node.NodeSort;
 import ai.intellistream.datahub.repositories.node.NodePredicateBuilder;
 import ai.intellistream.datahub.jpa.domains.NodeType;
+import ai.intellistream.datahub.jpa.dto.EdgeEndpoint;
 import ai.intellistream.datahub.models.IdCollection;
 import jakarta.persistence.criteria.*;
 import jakarta.validation.ConstraintViolation;
@@ -61,7 +68,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,7 +83,6 @@ import java.util.stream.Collectors;
 @Slf4j
 public class ResourceService {
 
-    private final DataSetRepository dataSetRepository;
     // No per-type repositories here any more. They existed only for the search fan-out that ran one
     // full-text query per node type; the search is a single generic node query now, so the four
     // typed repositories it needed are no longer dependencies of this service.
@@ -87,7 +92,6 @@ public class ResourceService {
     private final NodeRepository nodeRepository;
 
     private final NodeService nodeService;
-    private final LabelService labelService;
     private final EdgeRepository edgeRepository;
     private final RelationshipTypeRepository relationshipTypeRepository;
     private final RelationshipTypeService relationshipTypeService;
@@ -109,39 +113,50 @@ public class ResourceService {
     /** The one authority for "which data sets are beneath this one" — shared with the ACL. */
     private final DatasetClosureService datasetClosureService;
 
+    /** Builds edges and enforces the edge endpoint rules; see {@link EdgeMapper}. */
+    private final EdgeMapper edgeMapper;
+
+    /** The shared node-update pipeline; see {@link NodeUpdateService}. */
+    private final NodeUpdateService nodeUpdateService;
+
+    /** Caches the naming rules; a policy write through this path must not leave it stale. */
+    private final NamingPolicyResolver namingPolicyResolver;
+
     public ResourceService(
             EntityManager entityManager,
             NodeRepository nodeRepository,
             NodeService nodeService,
-            LabelService labelService,
             EdgeRepository edgeRepository,
             RelationshipTypeRepository relationshipTypeRepository,
             RelationshipTypeService relationshipTypeService,
             ApplicationEventPublisher applicationEventPublisher,
             GraphOutbox graphOutbox,
             Neo4JService neo4JService,
-            DataSetRepository dataSetRepository,
             DataSecurity dataSecurity,
             SubscriptionRepository subscriptionRepository,
             Validator validator,
             PolicyEnforcement policyEnforcement,
-            DatasetClosureService datasetClosureService){
+            DatasetClosureService datasetClosureService,
+            EdgeMapper edgeMapper,
+            NodeUpdateService nodeUpdateService,
+            NamingPolicyResolver namingPolicyResolver){
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
-        this.labelService = labelService;
         this.edgeRepository = edgeRepository;
         this.relationshipTypeRepository = relationshipTypeRepository;
         this.relationshipTypeService = relationshipTypeService;
         this.applicationEventPublisher = applicationEventPublisher;
         this.graphOutbox = graphOutbox;
         this.neo4JService = neo4JService;
-        this.dataSetRepository = dataSetRepository;
         this.dataSecurity = dataSecurity;
         this.subscriptionRepository = subscriptionRepository;
         this.validator = validator;
         this.policyEnforcement = policyEnforcement;
         this.datasetClosureService = datasetClosureService;
+        this.edgeMapper = edgeMapper;
+        this.nodeUpdateService = nodeUpdateService;
+        this.namingPolicyResolver = namingPolicyResolver;
     }
 
     /**
@@ -154,19 +169,45 @@ public class ResourceService {
      * @throws RuntimeException
      */
     @Transactional(rollbackFor = Exception.class)
-    public GraphDataWrapper<Resource, EdgeProxy> create(GraphDataWrapper<Resource, RelForm> apiReqData)
+    public GraphDataWrapper<NodeModel, EdgeProxy> create(GraphDataWrapper<NodeModel, RelForm> apiReqData)
             throws PulsarClientException, RuntimeException {
 
         // Validate here too, not only at the controller: the resource_create / dataset_create
         // MCP tools call this method directly and would otherwise bypass the Resource/RelForm
         // bean constraints (e.g. a blank externalId or name).
-        Set<ConstraintViolation<GraphDataWrapper<Resource, RelForm>>> violations = validator.validate(apiReqData);
+        Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> violations = validator.validate(apiReqData);
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
         }
 
         // Create error list that can return missing nodes to user
         ResponseError<BadRequestError> errors = new ResponseError<>();
+
+        // Authorize the whole batch before judging its shape, so a caller who may not create
+        // what they asked for is told that — not handed a 400 about a data set id they were
+        // never allowed to name. Same stage order the update pipeline runs in.
+        for (NodeModel resource : apiReqData.getNodes()) {
+            // Deny creating a resource in a dataset the caller can't write (null dataset →
+            // requires the write-all grant).
+            dataSecurity.assertCanWriteDataSet(resource.getDataSetId());
+
+            // Creating a dataset or policy node is dataset management, whichever endpoint the
+            // request arrives through — the same gate /datasets and /policies apply. Checked on
+            // the requested type-labels before dispatch, because a per-dataset writer could
+            // otherwise mint a managed node here; worse, one carrying a data_set_id (which no
+            // /datasets-created node has), leaving it mutable under the same per-dataset grant.
+            if (managementTypeRequested(resource.getLabels())) {
+                dataSecurity.assertCanManageDataSets();
+            }
+        }
+
+        // The same two pre-checks /timeseries/create has always run. Without them a duplicate
+        // external id reached the unique index and a missing data set reached the foreign key,
+        // and both surfaced as a 500 for what is plainly a caller mistake — while the update path
+        // answers a clean 409 for exactly the first of them. Judged over the whole batch, before
+        // anything is mapped, so a rejected request creates nothing.
+        guardCreateExternalIds(apiReqData.getNodes());
+        guardReferencedDataSets(apiReqData.getNodes());
 
         // Naming policy, over the WHOLE batch and before anything is mapped or persisted. Placed
         // here rather than in the controller so the MCP tools — which call this method directly —
@@ -175,16 +216,12 @@ public class ResourceService {
         List<PolicyFinding> policyWarnings = policyEnforcement.check(namingCandidatesForCreate(apiReqData.getNodes()));
 
         try{
-            GraphDataWrapper<Resource, EdgeProxy> collection = new GraphDataWrapper<>();
+            GraphDataWrapper<NodeModel, EdgeProxy> collection = new GraphDataWrapper<>();
             List<NodeEntity> nodes = new ArrayList<>();
             List<EdgeEntity> edges = new ArrayList<>();
 
             // Loop asset submitted for creations and create AssetNode objects
-            for(Resource resource : apiReqData.getNodes()){
-
-                // Deny creating a resource in a dataset the caller can't write (null dataset →
-                // requires the write-all grant).
-                dataSecurity.assertCanWriteDataSet(resource.getDataSetId());
+            for(NodeModel resource : apiReqData.getNodes()){
 
                 // Do not set a random id, this is because you will not get the
                 // performance benefit from temporal locality
@@ -220,19 +257,19 @@ public class ResourceService {
                 // Save all new edges so they get id and verify all is good
                 Iterable<EdgeEntity> savedEdges = edgeRepository.saveAll(edges);
 
-                // Convert saved objects into proxy objects and send to pulsar
-                List<Resource> resourceList = new ArrayList<>();
+                // The echo comes back typed through the read mapper. A flat Resource list used to
+                // be built alongside it for the Pulsar payload; the graph is written from the
+                // entities now, so there is only one shape here.
                 List<EdgeProxy> edgesList = new ArrayList<>();
+                List<NodeEntity> savedList = new ArrayList<>();
 
                 savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
-                savedResources.forEach( it -> {
-                    var a = ResourceTransformer.from(it, edgesList);
-                    resourceList.add( a );
-                });
+                savedResources.forEach(savedList::add);
 
                 invalidateDatasetAclIfNeeded(nodes, edges, false);
+                invalidateNamingPolicyIfNeeded(nodes);
 
-                collection.setNodes(resourceList);
+                collection.setNodes(NodeReadMapper.from(savedList, edgesList));
                 collection.setRelations(edgesList);
 
                 // Flush first: the outbox row records ids, and edge ids are assigned by the insert.
@@ -292,47 +329,17 @@ public class ResourceService {
      * <p>Index is the item's position in the submitted batch, so a rejection can name which of 500
      * items was wrong rather than only that something was.
      */
-    private static List<PolicyCandidate> namingCandidatesForCreate(Collection<Resource> resources) {
+    private static List<PolicyCandidate> namingCandidatesForCreate(Collection<? extends NodeModel> resources) {
         List<PolicyCandidate> candidates = new ArrayList<>(resources.size());
         int index = 0;
-        for (Resource resource : resources) {
+        for (NodeModel resource : resources) {
             candidates.add(PolicyCandidate.forCreate(
                     index++, resource.getExternalId(), resource.getName(), resource.getDataSetId()));
         }
         return candidates;
     }
 
-    /**
-     * Reduce an update batch to naming-policy candidates, keeping only the items whose external id
-     * actually changes.
-     *
-     * <p>Carrying the previous value is what makes that possible, and the rule it enables is not a
-     * nicety: without it, tightening a policy makes every pre-existing resource unupdatable, and
-     * editing an unrelated field on a legacy resource fails on a naming rule the caller never
-     * touched. {@link PolicyCandidate#requiresEvaluation()} does the comparison.
-     */
-    private static List<PolicyCandidate> namingCandidatesForUpdate(
-            List<Map.Entry<UpdateResourceForm, NodeEntity>> targets) {
-        List<PolicyCandidate> candidates = new ArrayList<>();
-        int index = 0;
-        for (Map.Entry<UpdateResourceForm, NodeEntity> target : targets) {
-            UpdateResourceForm form = target.getKey();
-            NodeEntity entity = target.getValue();
-            String newExternalId = form.getUpdate() == null ? null : form.getUpdate().getExternalId().getSet();
-            if (newExternalId != null) {
-                // The incoming name if the same request renames it, else the stored one — a
-                // suggestion should be derived from the name the entity will actually have.
-                String newName = form.getUpdate().getName().getSet();
-                candidates.add(PolicyCandidate.forUpdate(
-                        index, newExternalId,
-                        newName != null ? newName : entity.getName(),
-                        entity.getDataSet() == null ? null : entity.getDataSet().getId(),
-                        entity.getId(), entity.getExternalId()));
-            }
-            index++;
-        }
-        return candidates;
-    }
+
 
     /**
      * Persist warnings once the entities exist, mapping each finding's external id to its node id.
@@ -405,69 +412,22 @@ public class ResourceService {
      * @throws RuntimeException
      */
     @Transactional(rollbackFor = Exception.class)
-    public GraphDataWrapper<Resource, EdgeProxy> update(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData)
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData)
             throws PulsarClientException, RuntimeException {
 
         try{
-            GraphDataWrapper<Resource, EdgeProxy> collection = new GraphDataWrapper<>();
+            GraphDataWrapper<NodeModel, EdgeProxy> collection = new GraphDataWrapper<>();
             List<NodeEntity> nodes = new ArrayList<>();
             List<EdgeEntity> edges = new ArrayList<>();
             List<PolicyFinding> policyWarnings;
 
-            // Create error list that can return missing nodes to user
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-
-            // Resolve every target first, WITHOUT mutating any of them. The naming policy has to
-            // see the whole batch before anything is written, and updateNode() below writes the new
-            // external id straight onto the managed entity — after which Hibernate may auto-flush
-            // ahead of the guard's own query and persist a value the policy was about to reject.
-            // So: resolve, then judge, then apply.
-            List<Map.Entry<UpdateResourceForm, NodeEntity>> targets = new ArrayList<>();
-            for(UpdateResourceForm form : apiReqData.getNodes()){
-                NodeEntity resource = null;
-                Long id = form.getId();
-                String externalId = form.getExternalId();
-                if(id == null && externalId == null){
-                    var de = new BadRequestError();
-                    de.setMessage("Missing both id and externalId, asset cannot be found.");
-                    de.getFields().add(Map.of("externalId", "null", "id", "null"));
-                    errors.setError(de);
-                    throw new BadRequestException(errors);
-                } else if(id != null){
-                    resource = nodeRepository.findById(id).orElse(null);
-                } else {
-                    Long externalHashId = ExternalIds.hash(externalId);
-                    resource = nodeRepository.findByExternalIdHash(externalHashId);
-                }
-
-                if(resource != null){
-                    // Must be able to write the resource's current dataset before mutating it.
-                    dataSecurity.assertCanWrite(resource);
-                    // Functions are plain datastore nodes now — editable like any resource.
-                    targets.add(Map.entry(form, resource));
-                } else {
-                    var de = new BadRequestError();
-                    de.setMessage("Resource cannot be found.");
-                    de.getFields().add(Map.of("externalId", String.valueOf(externalId), "id", String.valueOf(id)));
-                    errors.setError(de);
-                    throw new BadRequestException(errors);
-                }
-            }
-
-            // If missing nodes found, throw error to user
-            if(errors.getError() != null && !errors.getError().getFields().isEmpty()){
-                throw new BadRequestException(errors);
-            }
-
-            // Only ids that actually change are judged — see namingCandidatesForUpdate. Otherwise
-            // tightening a policy would make every pre-existing resource unupdatable, and a steward
-            // fixing a description would get a naming error on a field they did not touch.
-            policyWarnings = policyEnforcement.check(namingCandidatesForUpdate(targets));
-
-            // Now apply. Nothing above this line has mutated an entity.
-            for (Map.Entry<UpdateResourceForm, NodeEntity> target : targets) {
-                nodes.add( updateNode(target.getValue(), target.getKey()) );
-            }
+            // The node half of the update runs through the shared pipeline: resolve and
+            // authorize every target without touching it, judge the whole batch against the
+            // naming policy, then apply. The order matters — see NodeUpdateService.
+            var targets = nodeUpdateService.resolveAndAuthorize(apiReqData.getNodes());
+            nodeUpdateService.guardRenames(targets);
+            policyWarnings = nodeUpdateService.judgeNaming(targets);
+            nodes.addAll(nodeUpdateService.apply(targets));
 
             // Update all new assets so they get id and verify all is good
             Iterable<NodeEntity> savedResources = nodeRepository.saveAll(nodes);
@@ -495,17 +455,22 @@ public class ResourceService {
             // Save all new edges so they get id and verify all is good
             Iterable<EdgeEntity> savedEdges = edgeRepository.saveAll(edges);
 
-            // Convert saved objects into proxy objects and send to pulsar
-            List<Resource> resourceList = new ArrayList<>();
+            // One shape: the echo is typed, so updating an asset's geoLocation or a timeseries'
+            // unit returns that field back. A second flat list used to be built here to feed the
+            // Pulsar payload; the graph is written from the entities now, so nothing reads it.
             List<EdgeProxy> edgesList = new ArrayList<>();
-            savedResources.forEach( it -> {
-                resourceList.add( ResourceTransformer.from(it) );
-            });
+            List<NodeEntity> savedList = new ArrayList<>();
+            savedResources.forEach(savedList::add);
             savedEdges.forEach( it -> edgesList.add( EdgeProxyTransformer.fromEdgeEntity(it) ));
 
             invalidateDatasetAclIfNeeded(nodes, edges, belongsToTouched.get());
+            invalidateNamingPolicyIfNeeded(nodes);
 
-            collection.setNodes(resourceList);
+            // Mapped WITHOUT edges on purpose, unlike create. On create the edges in hand ARE
+            // every edge those brand-new nodes have; on update edgesList holds only the relations
+            // this request touched, so attaching them would make a node with twelve edges answer
+            // with the one that changed — a partial set indistinguishable from a complete one.
+            collection.setNodes(NodeReadMapper.from(savedList));
             collection.setRelations(edgesList);
 
             nodeRepository.flush();
@@ -515,6 +480,19 @@ public class ResourceService {
             collection.setWarnings(policyWarnings.stream().map(PolicyWarning::from).toList());
 
             return collection;
+        } catch (NamingPolicyViolationException e) {
+            // Before the BadRequestException catch, which it extends: flattening it here loses the
+            // per-item `violations` list that NamingPolicyExceptionHandler exists to render, and
+            // the controller's own re-throw would never see it. create() already does this.
+            throw e;
+        } catch (DuplicateDataException e) {
+            // The 409 guardRenames promises. It is a RuntimeException, so the blanket catch below
+            // was turning every colliding rename into an empty 500 — on /resources/update and, via
+            // the adapter, on /datasets/update too.
+            throw e;
+        } catch (OptimisticLockingFailureException e) {
+            // Same shape: the controller has a handler for this, which the re-wrap below hid.
+            throw e;
         } catch (BadRequestException e){
             throw new BadRequestException(e.getError());
         } catch (InvalidResourceException e){
@@ -623,245 +601,37 @@ public class ResourceService {
         }
 
         // Same endpoint rules as create — an update can retarget the edge or change its type.
-        assertEdgeEndpointsAllowed(edge);
+        edgeMapper.assertEdgeEndpointsAllowed(edge);
         return edge;
     }
 
-    @Transactional
-    public NodeEntity updateNode(NodeEntity resource, UpdateResourceForm form) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        if(!form.getUpdate().validateFields()){
-            errors.setError(new BadRequestError());
-            form.getUpdate().getErrors().forEach( error -> {
-                errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-            });
-            throw new BadRequestException(errors);
-        }
-
-        ResourceFields fields = form.getUpdate();
-        resource.setLastUpdated(ZonedDateTime.now());
-
-        // Update externalId
-        if(fields.getExternalId().getSet() != null){
-            String newExternalId = fields.getExternalId().getSet();
-            if(form.getExternalId() == null){
-                form.setExternalId(resource.getExternalId());
-            }
-            resource.setExternalId(newExternalId);
-        }
-
-        // Update name field
-        if(fields.getName().getSet() != null){
-            resource.setName(fields.getName().getSet());
-        }
-
-        /**
-         * Update metadata
-         * If key found, update metadata value in existing entry,
-         * If key not found, add entry
-         * If remove, delete metadata entry
-         */
-        Map<String, String> metadata = resource.getMetadata();
-        if(fields.getMetadata().getSet() != null){
-            resource.setMetadata(fields.getMetadata().getSet());
-        }
-
-        if(fields.getMetadata().getAdd() != null){
-            resource.getMetadata().putAll(fields.getMetadata().getAdd());
-        }
-        if(fields.getMetadata().getRemove() != null ){
-            resource.getMetadata().keySet().removeAll(fields.getMetadata().getRemove());
-        }
-
-        // Update description field
-        if(fields.getDescription().getSet() != null){
-            resource.setDescription(fields.getDescription().getSet());
-        }
-        if(fields.getDescription().getSetNull()){
-            resource.setDescription(null);
-        }
-        // Update source field (common to all node types)
-        if(fields.getSource().getSet() != null){
-            resource.setSource(fields.getSource().getSet());
-        }
-        if(fields.getSource().getSetNull() ){
-            resource.setSource(null);
-        }
-        if (resource instanceof AssetEntity asset){
-            if(fields.getGeoLocation().getSet() != null){
-                asset.setGeoLocation(fields.getGeoLocation().getSet().getJson());
-            }
-            if(fields.getGeoLocation().getSetNull()){
-                asset.setGeoLocation(null);
-            }
-        }
 
 
-        // Update labels. A node's type-label (ASSET/DATASET/POLICY/TIMESERIES/FUNCTION) is intrinsic
-        // and immutable — resolveLabelUpdate returns the new label names with this node's type-label
-        // enforced (empty when no label change was requested; see LabelService#resolveLabelUpdate).
-        // Apply the same names to both Postgres representations so they can't drift: the labels string
-        // and the M2M labelEntities (the latter is what the label-in-use check reads via Label.nodes).
-        labelService.resolveLabelUpdate(resource, fields.getLabels())
-                .ifPresent(labelNames -> nodeService.applyLabelNames(resource, labelNames));
 
-        // Update dataset id field
-        if(fields.getDataSetId().getSet() != null){
-            Long dataSetId = fields.getDataSetId().getSet();
-            // Moving a resource into a dataset also requires write access to the target.
-            dataSecurity.assertCanWriteDataSet(dataSetId);
-            DatasetEntity dataSet = dataSetRepository.findById(dataSetId).orElseThrow(()->{
-                var de = new BadRequestError();
-                de.setMessage("DataSet cannot be found.");
-                de.getFields().add(Map.of("DataSet.Id", String.valueOf(dataSetId)));
-                errors.setError(de);
-                return new BadRequestException(errors);
-            });
-            resource.setDataSet(dataSet);
-        }
-        if(fields.getDataSetId().getSetNull()){
-            resource.setDataSet(null);
-        }
-
-        return resource;
-    }
-
-
+    /** Delegates to {@link EdgeMapper}; kept so existing callers (policy, timeseries, edges) keep their entry point. */
     @Transactional
     public EdgeEntity mapEdge(EdgeEntity edge, @Valid RelForm form) {
-
-        NameAndExternalIdDTO fromNode = null;
-        try{
-            if(form.getFromId() != null){
-                fromNode = nodeRepository.findById(form.getFromId(), NameAndExternalIdDTO.class)
-                        .orElseThrow(() -> new ObjectNotFoundException("Source node not found with id: " + form.getFromId()));
-            } else if(form.getFromExternalId() != null){
-                long id = ExternalIds.hash(form.getFromExternalId());
-                fromNode = nodeRepository.findByExternalIdHash(id, NameAndExternalIdDTO.class);
-            }
-        } catch (EmptyResultDataAccessException e){
-            throw endpointNotFound("fromNode", form.getFromExternalId(), form.getFromId());
-        }
-        // A lookup by external id answers with null rather than throwing, and a form naming
-        // neither an id nor an external id never looks anything up at all. Both left the edge
-        // with a null endpoint, which surfaced as a bare "must not be null" from the entity's
-        // @NotNull at flush time — so say plainly which endpoint could not be resolved.
-        if (fromNode == null) {
-            throw endpointNotFound("fromNode", form.getFromExternalId(), form.getFromId());
-        }
-
-        NameAndExternalIdDTO toNode = null;
-        try{
-            if(form.getToId() != null){
-                toNode = nodeRepository.findById(form.getToId(), NameAndExternalIdDTO.class)
-                        .orElseThrow(() -> new ObjectNotFoundException("Target node not found with id: " + form.getToId()));
-            } else if(form.getToExternalId() != null){
-                long id = ExternalIds.hash(form.getToExternalId());
-                toNode = nodeRepository.findByExternalIdHash(id, NameAndExternalIdDTO.class);
-            }
-        } catch (EmptyResultDataAccessException e){
-            throw endpointNotFound("toNode", form.getToExternalId(), form.getToId());
-        }
-        if (toNode == null) {
-            throw endpointNotFound("toNode", form.getToExternalId(), form.getToId());
-        }
-
-        edge.setStart(fromNode.getId());
-        edge.setEnd(toNode.getId());
-        edge.setDescription(form.getDescription());
-
-        RelationshipType relType = null;
-        if(form.getRelationshipTypeId() != null){
-            relType = relationshipTypeRepository.getReferenceById(form.getRelationshipTypeId());
-        }
-        // Fall through to find-or-create when the caller supplied a name — delegating to
-        // RelationshipTypeService so concurrent edge creates naming the same new
-        // relationship can't collide on relationship_hash_key.
-        if(relType == null && form.getRelationshipType() != null){
-            relType = relationshipTypeService.findOrCreateByName(form.getRelationshipType());
-        }
-        edge.setRelationshipType(relType);
-
-        edge.setMetadata(form.getMetadata());
-
-        if(form.getDataSetId() != null){
-            edge.setDataSet(nodeRepository.getReferenceById(form.getDataSetId()));
-        }
-
-        assertEdgeEndpointsAllowed(edge);
-        return edge;
+        return edgeMapper.mapEdge(edge, form);
     }
 
+
     /**
-     * A 400 naming the endpoint that could not be resolved, and what was submitted for it.
+     * Drop the cached naming rules if this write touched a policy.
      *
-     * <p>{@code String.valueOf} rather than the raw values because the fields map is
-     * {@code Map<String, String>}, which rejects nulls — and a null is exactly what a caller who
-     * supplied neither identifier needs to see reported back.
+     * <p>{@code PolicyService} invalidates on every one of its five mutations, because a
+     * NAMING_CONVENTION policy that changed and did not take effect is the failure the cache's own
+     * javadoc warns about. Polymorphic create/update/delete made this path able to write policy
+     * nodes too — with the manage grant — and it was not invalidating, so a convention created
+     * here was ignored until the TTL expired.
+     *
+     * <p>Coarse on purpose, like {@link #invalidateDatasetAclIfNeeded}: any policy node touched
+     * drops the cache. Policies change rarely, and recomputing costs one query.
      */
-    private static BadRequestException endpointNotFound(String endpoint, String externalId, Long id) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        BadRequestError error = new BadRequestError();
-        error.setMessage("Could not find " + endpoint);
-        error.getFields().add(Map.of(
-                "externalId", String.valueOf(externalId),
-                "id", String.valueOf(id)));
-        errors.setError(error);
-        return new BadRequestException(errors);
-    }
-
-    /**
-     * What may connect to what. Mirrors the console's edge-form guard, but here it is the
-     * enforcement point — a direct API call must obey the same rules:
-     * <ul>
-     *   <li>A relation TO a dataset is how something becomes part of it, and membership is
-     *       {@code BELONGS_TO} — any other type would read as structure yet mean nothing to the
-     *       hierarchy (ACL closure, dataset timeseries listing), so it is rejected.</li>
-     *   <li>A timeseries has one dataset. A dataset may connect to a timeseries only when the
-     *       series has no dataset yet or already belongs to <em>that</em> dataset — the equal case
-     *       must stay legal because creating a timeseries inside a dataset creates exactly that
-     *       membership edge in the same request.</li>
-     * </ul>
-     * Runs against the edge's final endpoints and type, so {@link #mapEdge} and
-     * {@link #updateEdge} (which can retarget an edge) share it.
-     */
-    private void assertEdgeEndpointsAllowed(EdgeEntity edge) {
-        if (edge.getStart() == null || edge.getEnd() == null) {
-            return;
-        }
-        EdgeEndpoint to = nodeRepository.findById(edge.getEnd(), EdgeEndpoint.class).orElse(null);
-        if (to == null) {
-            return;
-        }
-        String relName = edge.getRelationshipType() == null ? null : edge.getRelationshipType().getName();
-        long toType = nodeTypeOf(to);
-        if (toType == NodeType.DATASET && !DatasetClosureService.BELONGS_TO.equalsIgnoreCase(relName)) {
-            throw edgeRuleViolation("A relation to a data set must use the BELONGS_TO relationship");
-        }
-        if (toType == NodeType.TIMESERIES) {
-            EdgeEndpoint from = nodeRepository.findById(edge.getStart(), EdgeEndpoint.class).orElse(null);
-            Long tsDataSet = (to.getDataSet() == null) ? null : to.getDataSet().getId();
-            if (from != null && nodeTypeOf(from) == NodeType.DATASET
-                    && tsDataSet != null && !tsDataSet.equals(edge.getStart())) {
-                throw edgeRuleViolation(
-                        "The time series already belongs to a data set and cannot be connected to another one");
-            }
+    private void invalidateNamingPolicyIfNeeded(Collection<? extends NodeEntity> nodes) {
+        if (nodes != null && nodes.stream().anyMatch(n -> n instanceof PolicyEntity)) {
+            namingPolicyResolver.invalidate();
         }
     }
-
-    private static long nodeTypeOf(EdgeEndpoint endpoint) {
-        return (endpoint.getNodeType() == null || endpoint.getNodeType().getId() == null)
-                ? -1 : endpoint.getNodeType().getId();
-    }
-
-    private static BadRequestException edgeRuleViolation(String message) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        BadRequestError error = new BadRequestError();
-        error.setMessage(message);
-        errors.setError(error);
-        return new BadRequestException(errors);
-    }
-
 
     // ---- dataset ACL cache invalidation -------------------------------------------------------
 
@@ -913,6 +683,71 @@ public class ResourceService {
     }
 
     /**
+     * Refuse a create whose external id is already taken, or repeated within the batch.
+     *
+     * <p>Two items claiming one id both pass a per-item check, because neither is in the table
+     * yet, so the batch is judged as a batch — the same rule {@code guardRenames} applies on the
+     * update side, and with the same case-insensitive hash.
+     */
+    private void guardCreateExternalIds(Collection<? extends NodeModel> nodes) {
+        Map<Long, String> withinBatch = new HashMap<>();
+        List<Map<String, String>> collisions = new ArrayList<>();
+        for (NodeModel node : nodes) {
+            if (node.getExternalId() == null) {
+                continue;
+            }
+            if (withinBatch.put(ExternalIds.hash(node.getExternalId()), node.getExternalId()) != null) {
+                collisions.add(Map.of("externalId", node.getExternalId()));
+            }
+        }
+        if (!withinBatch.isEmpty()) {
+            nodeRepository.findAllByExternalIdHashIn(new ArrayList<>(withinBatch.keySet()), NameAndExternalId.class)
+                    .forEach(taken -> collisions.add(Map.of("externalId", taken.getExternalId())));
+        }
+        if (!collisions.isEmpty()) {
+            var error = new DuplicateError();
+            error.setCode(409);
+            error.setMessage("A node with that externalId already exists.");
+            error.setDuplicated(collisions);
+            throw new DuplicateDataException(new ResponseError<DuplicateError>().setError(error));
+        }
+    }
+
+    /**
+     * Refuse a create naming a data set that does not exist, rather than letting the foreign key
+     * fail at flush and reporting it as a 500.
+     */
+    private void guardReferencedDataSets(Collection<? extends NodeModel> nodes) {
+        Set<Long> referenced = nodes.stream()
+                .map(NodeModel::getDataSetId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (referenced.isEmpty()) {
+            return;
+        }
+        // On the discriminator, through a projection rather than by loading the rows: it also
+        // catches an id that resolves to something that is not a data set, which a foreign key
+        // alone would happily accept. A projection is a query result, so it is never a Hibernate
+        // proxy — an `instanceof DatasetEntity` over loaded entities would answer false for a real
+        // data set already held in the persistence context as a NodeEntity proxy.
+        Set<Long> found = nodeRepository.findAllByIdIn(referenced, EdgeEndpoint.class).stream()
+                .filter(e -> e.getNodeType() != null && e.getNodeType().getId() != null
+                        && e.getNodeType().getId() == NodeType.DATASET)
+                .map(EdgeEndpoint::getId)
+                .collect(Collectors.toSet());
+        List<Map<String, String>> missing = referenced.stream()
+                .filter(id -> !found.contains(id))
+                .map(id -> Map.of("dataSetId", String.valueOf(id)))
+                .toList();
+        if (!missing.isEmpty()) {
+            var de = new BadRequestError();
+            de.setMessage("DataSet cannot be found.");
+            de.getFields().addAll(missing);
+            throw new BadRequestException(new ResponseError<BadRequestError>().setError(de));
+        }
+    }
+
+    /**
      * Deny the request unless the caller can write the dataset of <em>every</em> one of these
      * nodes. Used to authorise edge mutations by their endpoints, because an edge has no dataset
      * of its own to check against.
@@ -925,18 +760,40 @@ public class ResourceService {
      * a dataset they have no write access to at all.
      *
      * <p>Nodes with no dataset are orphans and, per the usual rule, writable only by a caller
-     * holding an all-datasets write grant. Dataset nodes themselves have no {@code data_set_id},
-     * so building a dataset hierarchy needs that same grant — which is already true of creating a
-     * dataset at all, so this adds no new restriction there.
+     * holding an all-datasets write grant. An edge onto a dataset or policy node additionally
+     * requires the manage grant explicitly — building or re-wiring the dataset hierarchy is
+     * dataset management — rather than relying on those nodes being orphans, which stops holding
+     * the moment one is minted carrying a {@code data_set_id}.
      */
     private void assertCanWriteNodes(Collection<Long> nodeIds) {
         Set<Long> ids = nodeIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
         if (ids.isEmpty()) return;
-        nodeRepository.findAllByIdIn(ids, NodeEntity.class).forEach(dataSecurity::assertCanWrite);
+        nodeRepository.findAllByIdIn(ids, NodeEntity.class).forEach(node -> {
+            dataSecurity.assertCanWrite(node);
+            if (isManagedNodeType(node)) {
+                dataSecurity.assertCanManageDataSets();
+            }
+        });
+    }
+
+    /**
+     * True if this node's lifecycle is dataset management — a dataset or a policy — so mutating it
+     * requires {@link DataSecurity#assertCanManageDataSets()} no matter which endpoint the
+     * mutation arrived through, mirroring the explicit gates on {@code /datasets}
+     * ({@code DataSetController}) and {@code /policies} ({@code PolicyService}).
+     */
+    private static boolean isManagedNodeType(NodeEntity node) {
+        return node instanceof DatasetEntity || node instanceof PolicyEntity;
+    }
+
+    /** True if these requested labels would mint a node {@link #isManagedNodeType managed} as a dataset or policy. */
+    private static boolean managementTypeRequested(List<String> labelNames) {
+        Set<String> types = TypeLabels.typeLabelsIn(labelNames);
+        return types.contains(TypeLabels.DATASET) || types.contains(TypeLabels.POLICY);
     }
 
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> get(Long id) {
+    public DataWrapper<NodeModel> get(Long id) {
         NodeEntity node = nodeRepository.findById(id).orElseThrow(() ->
                 new ObjectNotFoundException("Node with id: " + id + " Not found!"));
 
@@ -946,14 +803,14 @@ public class ResourceService {
             throw new ObjectNotFoundException("Node with id: " + id + " Not found!");
         }
 
-        DataWrapper<Resource> data = new DataWrapper<>();
-        data.getItems().add(ResourceTransformer.from(node));
+        DataWrapper<NodeModel> data = new DataWrapper<>();
+        data.getItems().add(NodeReadMapper.from(node));
         return data;
     }
 
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> filter(ResourceRetreiver apiReqData) {
-        DataWrapper<Resource> data = new DataWrapper<>();
+    public DataWrapper<NodeModel> filter(ResourceRetreiver apiReqData) {
+        DataWrapper<NodeModel> data = new DataWrapper<>();
         if (apiReqData.getFilter() == null) {
             return data;
         }
@@ -1035,7 +892,7 @@ public class ResourceService {
         TypedQuery<NodeEntity> query = entityManager.createQuery(q);
         query.setMaxResults(apiReqData.getLimit());
         List<NodeEntity> nodes = query.getResultList();
-        data.setItems(ResourceTransformer.from(nodes));
+        data.setItems(NodeReadMapper.from(nodes));
         data.setNextCursor(NodePaging.nextCursor(nodes, apiReqData.getLimit(), sort));
 
         return data;
@@ -1086,10 +943,19 @@ public class ResourceService {
         // the timeseries delete. Nodes resolve regardless of subtype (a timeseries is a node row),
         // so a timeseries deleted via /resources/delete still gets the same checks the timeseries
         // endpoint applies.
+        // Snapshotted before the delete below, because both invalidations need to know what kinds
+        // of node were removed and a lookup afterwards finds nothing.
+        List<NodeEntity> deletedEntities = List.of();
         if(!resourceIdList.isEmpty()){
             // Deny the whole batch unless the caller can write every targeted node's dataset.
-            List<NodeEntity> deletedEntities = nodeRepository.findAllById(resourceIdList);
-            deletedEntities.forEach(dataSecurity::assertCanWrite);
+            deletedEntities = nodeRepository.findAllById(resourceIdList);
+            deletedEntities.forEach(entity -> {
+                dataSecurity.assertCanWrite(entity);
+                // Deleting a dataset or policy node is dataset management — same gate as update.
+                if (isManagedNodeType(entity)) {
+                    dataSecurity.assertCanManageDataSets();
+                }
+            });
 
             // Block deletion while any targeted node is still referenced by a subscription, so no
             // subscriber silently loses its feed. Only timeseries are ever referenced, so this is a
@@ -1149,7 +1015,7 @@ public class ResourceService {
                 // Resolve external ids from the loaded component so the error is meaningful to the
                 // caller (who works in external ids); fall back to the internal id if a node has none.
                 Map<Long, String> externalIdById = new HashMap<>();
-                for (Resource r : component.nodes()) {
+                for (NodeModel r : component.nodes()) {
                     if (r.getId() != null && r.getExternalId() != null) {
                         externalIdById.put(r.getId(), r.getExternalId());
                     }
@@ -1192,9 +1058,10 @@ public class ResourceService {
             deletedCollection.getRelations().add(ep);
         });
 
-        invalidateDatasetAclIfNeeded(
-                resourceIdList.isEmpty() ? List.of() : nodeRepository.findAllById(resourceIdList),
-                edgesBeingDeleted, false);
+        // From the pre-delete snapshot: the rows are gone by now, so re-reading them would answer
+        // "nothing was touched" and quietly skip both invalidations.
+        invalidateDatasetAclIfNeeded(deletedEntities, edgesBeingDeleted, false);
+        invalidateNamingPolicyIfNeeded(deletedEntities);
 
         graphOutbox.queueDelete(
                 apiReqData.getNodes().stream()
@@ -1238,7 +1105,7 @@ public class ResourceService {
     }
 
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> findAllByIdAndExternalId(Set<Long> idList, Set<String> externalIdList) {
+    public DataWrapper<NodeModel> findAllByIdAndExternalId(Set<Long> idList, Set<String> externalIdList) {
         // Narrow to the caller's readable datasets in SQL; unreadable nodes are simply omitted.
         List<NodeEntity> assetNodes;
         if (dataSecurity.hasReadAccessToEverything()) {
@@ -1249,8 +1116,8 @@ public class ResourceService {
                     ? new ArrayList<>()
                     : nodeRepository.findAllByIdOrExternalIdAndDataSetIdIn(idList, externalIdList, allowed);
         }
-        DataWrapper<Resource> data = new DataWrapper<>();
-        data.setItems(ResourceTransformer.from(assetNodes));
+        DataWrapper<NodeModel> data = new DataWrapper<>();
+        data.setItems(NodeReadMapper.from(assetNodes));
         return data;
     }
 
@@ -1269,8 +1136,8 @@ public class ResourceService {
      * cost a second round trip and, past the ceiling, silently dropped rows that matched both.
      */
     @Transactional(readOnly = true)
-    public DataWrapper<Resource> search(SearchBody<ResourceFilter> searchForm) {
-        var data = new DataWrapper<Resource>();
+    public DataWrapper<NodeModel> search(SearchBody<ResourceFilter> searchForm) {
+        var data = new DataWrapper<NodeModel>();
         ResourceFilter filter = searchForm.getFilter();
 
         // A list of only unknown type names resolves to empty. They asked to be narrowed to those
@@ -1324,7 +1191,7 @@ public class ResourceService {
 
         TypedQuery<NodeEntity> query = entityManager.createQuery(q);
         query.setMaxResults(searchForm.getLimit());
-        data.setItems(ResourceTransformer.from(query.getResultList()));
+        data.setItems(NodeReadMapper.from(query.getResultList()));
         return data;
     }
 

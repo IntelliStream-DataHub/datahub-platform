@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.mcp.tools;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.mcp.McpResultConverter;
 import ai.intellistream.datahub.api.mcp.dto.LeanDataSet;
 import ai.intellistream.datahub.api.mcp.dto.McpList;
@@ -102,7 +103,7 @@ public class DatasetMcpTools {
         if (description != null) ds.setDescription(description);
 
         List<PolicyEntity> policies = policyRepository.findAll();
-        GraphDataWrapper<Resource, RelForm> graph =
+        GraphDataWrapper<NodeModel, RelForm> graph =
                 DataSetTransformer.toGraphForm(List.of(ds), policies, List.of());
         var results = resourceService.create(graph);
 

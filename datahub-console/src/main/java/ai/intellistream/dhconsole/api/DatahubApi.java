@@ -12,13 +12,13 @@ import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.resource.RelTypeForm;
-import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.api.responses.ResourceNetwork;
 import ai.intellistream.dhconsole.models.TimeseriesQueryParams;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import feign.Headers;
@@ -37,31 +37,31 @@ import org.springframework.http.ResponseEntity;
 public interface DatahubApi {
 
     @RequestLine("POST /resources/create")
-    GraphDataWrapper<Resource, EdgeProxy> createResourcesAndRelations(GraphDataWrapper<ResourceForm, RelForm> apiReqData);
+    GraphDataWrapper<NodeModel, EdgeProxy> createResourcesAndRelations(GraphDataWrapper<NodeModel, RelForm> apiReqData);
 
     @RequestLine("GET /resources/{id}")
-    DataWrapper<Resource> getResourceById(@Param("id") Long id);
+    DataWrapper<NodeModel> getResourceById(@Param("id") Long id);
 
     @RequestLine("POST /resources/byids")
-    DataWrapper<Resource> byIds(DataWrapper<IdCollection> apiReqData);
+    DataWrapper<NodeModel> byIds(DataWrapper<IdCollection> apiReqData);
 
     @RequestLine("POST /resources/fetch-related")
     ResourceNetwork fetchRelatedResources(RelatedResourcesForm apiReqData);
 
     @RequestLine("POST /resources/update")
-    GraphDataWrapper<Resource, EdgeProxy> updateResourcesAndRelations(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> form);
+    GraphDataWrapper<NodeModel, EdgeProxy> updateResourcesAndRelations(GraphDataWrapper<UpdateResourceForm, UpdateRelForm> form);
 
     @RequestLine("POST /resources/filter")
-    DataWrapper<Resource> filter(ResourceRetreiver apiReqData);
+    DataWrapper<NodeModel> filter(ResourceRetreiver apiReqData);
 
     @RequestLine("GET /resources/{id}")
-    DataWrapper<Resource> get(@Param("id") Long id);
+    DataWrapper<NodeModel> get(@Param("id") Long id);
 
     @RequestLine("DELETE /resources/delete")
     GraphDataWrapper<Resource, EdgeProxy> deleteResource(DataWrapper<IdCollection> apiReqData);
 
     @RequestLine("POST /resources/search")
-    DataWrapper<Resource> searchResource(SearchBody<ResourceFilter> form);
+    DataWrapper<NodeModel> searchResource(SearchBody<ResourceFilter> form);
 
     @RequestLine("GET /edges/{id}")
     DataWrapper<EdgeProxy> getEdgeById(@Param("id") Long id);

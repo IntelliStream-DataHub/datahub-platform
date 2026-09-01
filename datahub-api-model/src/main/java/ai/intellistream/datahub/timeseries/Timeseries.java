@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.timeseries;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.databind.annotation.JsonSerialize;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
@@ -7,7 +8,6 @@ import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.validation.AllowedValueType;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
-import ai.intellistream.datahub.resource.NodeForm;
 import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import com.fasterxml.jackson.annotation.*;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -60,6 +60,14 @@ public class Timeseries extends NodeModel {
     @Schema(description = "The external id of the unit that the time series use.", example = "mass_flow_rate_kghr")
     private String unitExternalId;
 
+    /**
+     * Which ClickHouse table engine backs this series.
+     *
+     * <p>An internal storage decision, not something a caller chooses or can act on, so it does not
+     * belong on the wire. It stays a field because the graph projection carries it and in-process
+     * readers use it; {@code @JsonIgnore} keeps it off the REST contract in both directions.
+     */
+    @JsonIgnore
     private String tableEngine = TableEngine.MERGETREE.name();
 
     /** Value type used when the caller doesn't specify one (or sends null). */
@@ -68,7 +76,7 @@ public class Timeseries extends NodeModel {
     @NotBlank
     @AllowedValueType
     @Schema(description = "The value type of the time series. Can be one of BIGINT, FLOAT, FLOAT32 (default), NUMERIC, DECIMAL32, TEXT and MIXED. Choosing the right one can optimize processing speed and reduce costs.", example = "FLOAT")
-    private String valueType = DEFAULT_VALUE_TYPE;
+        private String valueType = DEFAULT_VALUE_TYPE;
 
     @JsonCreator
     public Timeseries(){
@@ -90,22 +98,19 @@ public class Timeseries extends NodeModel {
         }
     }
 
+    /**
+     * Lower-cased, and {@code null} kept as "the source did not supply one".
+     *
+     * <p>It used to fold null into the default, which meant no source could say it did not know.
+     * The graph is such a source: it stores neither the value type nor the table engine, so a
+     * series read through {@code /resources/fetch-related} reported {@code float32} whatever it
+     * actually was. The default for an ordinary create is unaffected — it comes from the field
+     * initialiser, and Jackson never calls a setter for a property the body omits. An explicit
+     * {@code "valueType": null} now fails {@link jakarta.validation.constraints.NotBlank} with a
+     * clear message instead of being quietly replaced.
+     */
     public void setValueType(String valueType) {
-        // An unspecified value type (null) falls back to the default rather than NPE-ing in
-        // .toLowerCase(); an explicit blank ("") is left for @NotBlank to reject as malformed.
-        this.valueType = (valueType == null) ? DEFAULT_VALUE_TYPE : valueType.toLowerCase();
+        this.valueType = (valueType == null) ? null : valueType.toLowerCase();
     }
 
-    @JsonIgnore
-    public NodeForm getNodeForm(){
-        var f = new NodeForm();
-        f.setName(getName());
-        f.setDescription(getDescription());
-        f.setExternalId(getExternalId());
-        f.setDataSetId(getDataSetId());
-        f.setCreatedTime(getCreatedTime());
-        f.setLastUpdatedTime(getLastUpdatedTime());
-        f.setMetadata(getMetadata());
-        return f;
-    }
 }

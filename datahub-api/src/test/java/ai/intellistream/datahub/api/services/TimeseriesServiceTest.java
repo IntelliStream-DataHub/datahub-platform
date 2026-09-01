@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
@@ -84,7 +85,11 @@ class TimeseriesServiceTest {
     @Mock private ResourceService resourceService;
     @Mock private ValkeyService valkeyService;
     @Mock private ApplicationEventPublisher applicationEventPublisher;
+    @Mock private GraphOutbox graphOutbox;
     @Mock private Producer<DataWrapperBin> allDatapointProducer;
+    @Mock private ai.intellistream.datahub.services.NodeService nodeService;
+    @Mock private ai.intellistream.datahub.api.policy.PolicyEnforcement policyEnforcement;
+    @Mock private ai.intellistream.datahub.api.services.node.NodeUpdateService nodeUpdateService;
 
     @InjectMocks private TimeseriesService timeseriesService;
 
@@ -475,4 +480,83 @@ class TimeseriesServiceTest {
         assertTrue(result.getItems().isEmpty());
         verify(timeseriesRepository, never()).search(anyString(), anyInt(), any(), any());
     }
+    private static TimeseriesEntity tsEntity(long id, String externalId) {
+        TimeseriesEntity e = new TimeseriesEntity();
+        e.setId(id);
+        e.setExternalId(externalId);
+        e.setName("Temp");
+        e.setLabels("TIMESERIES");
+        e.setValueType(new ai.intellistream.datahub.jpa.domains.TimeseriesValueType(7)); // float32 — avoids getTableType NPE
+        return e;
+    }
+
+    @Test
+    void save_authorizesAndPublishesTimeseriesEvent() throws Exception {
+        // Safety net before the create-engine unification: a timeseries create must authorize the
+        // dataset and publish exactly one TIMESERIES (not RESOURCE_AND_RELATION) CUD event.
+        ai.intellistream.datahub.tenant.TenantContext.setTenantId("tenant-1");
+        try {
+            when(validator.validate(any())).thenReturn(Collections.emptySet());
+            when(nodeRepository.findAllByExternalIdHashIn(anyList(), eq(NameAndExternalId.class)))
+                    .thenReturn(List.of());
+            TimeseriesEntity saved = tsEntity(1L, "temperature");
+            when(nodeService.mapTimeseriesFrom(any())).thenReturn(List.of(saved));
+            when(timeseriesRepository.saveAll(anyList())).thenReturn(List.of(saved));
+            when(edgeRepository.saveAll(anyList())).thenReturn(List.of());
+
+            timeseriesService.save(wrap(ts("temperature")));
+
+            org.mockito.Mockito.verify(dataSecurity).assertCanWriteDataSet(null);
+            org.mockito.Mockito.verify(graphOutbox)
+                    .queueUpsert(org.mockito.ArgumentMatchers.anyCollection(),
+                                 org.mockito.ArgumentMatchers.anyCollection());
+        } finally {
+            ai.intellistream.datahub.tenant.TenantContext.clear();
+        }
+    }
+
+    @Test
+    void save_createsPublishDataToEdgeFromRelatedResource() throws Exception {
+        // The auto-edge behaviour that must survive any create unification: a relatedResource with
+        // no explicit relationship type becomes a PUBLISH_DATA_TO edge into the timeseries.
+        ai.intellistream.datahub.tenant.TenantContext.setTenantId("tenant-1");
+        try {
+            when(validator.validate(any())).thenReturn(Collections.emptySet());
+            when(nodeRepository.findAllByExternalIdHashIn(anyList(), eq(NameAndExternalId.class)))
+                    .thenReturn(List.of());
+            TimeseriesEntity saved = tsEntity(1L, "temperature");
+            when(nodeService.mapTimeseriesFrom(any())).thenReturn(List.of(saved));
+            when(timeseriesRepository.saveAll(anyList())).thenReturn(List.of(saved));
+            ai.intellistream.datahub.jpa.dto.NameAndEId src = mock(ai.intellistream.datahub.jpa.dto.NameAndEId.class);
+            when(src.getId()).thenReturn(5L);
+            when(nodeRepository.findAllByIdOrExternalId(any(), any(),
+                    eq(ai.intellistream.datahub.jpa.dto.NameAndEId.class))).thenReturn(List.of(src));
+            ai.intellistream.datahub.jpa.domains.RelationshipType relType =
+                    mock(ai.intellistream.datahub.jpa.domains.RelationshipType.class);
+            when(relType.getName()).thenReturn("PUBLISH_DATA_TO");
+            when(resourceService.mapEdge(any(), any())).thenAnswer(inv -> {
+                EdgeEntity e = inv.getArgument(0);
+                e.setId(10L);
+                e.setStart(5L);
+                e.setEnd(1L);
+                e.setRelationshipType(relType);
+                return e;
+            });
+            when(edgeRepository.saveAll(anyList()))
+                    .thenAnswer(inv -> new java.util.ArrayList<>((java.util.Collection<EdgeEntity>) inv.getArgument(0)));
+
+            Timeseries ts = ts("temperature");
+            ts.getRelatedResources().add(ai.intellistream.datahub.models.RelatedNode.createFromId(5L));
+            timeseriesService.save(wrap(ts));
+
+            org.mockito.ArgumentCaptor<ai.intellistream.datahub.models.RelForm> relCap =
+                    org.mockito.ArgumentCaptor.forClass(ai.intellistream.datahub.models.RelForm.class);
+            org.mockito.Mockito.verify(resourceService).mapEdge(any(), relCap.capture());
+            assertEquals("PUBLISH_DATA_TO", relCap.getValue().getRelationshipType());
+            assertEquals("temperature", relCap.getValue().getToExternalId());
+        } finally {
+            ai.intellistream.datahub.tenant.TenantContext.clear();
+        }
+    }
+
 }

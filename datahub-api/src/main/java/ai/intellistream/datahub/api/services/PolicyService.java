@@ -11,7 +11,13 @@ import ai.intellistream.datahub.api.policy.PolicyScopeValidator;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.forms.PolicyFields;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
+import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.models.validation.ResourceFields;
+import ai.intellistream.datahub.api.policy.PolicyEnforcement;
+import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
+import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.*;
 import ai.intellistream.datahub.jpa.dto.PolicyResponseDTO;
@@ -20,14 +26,9 @@ import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.governance.GovernanceTemplateRepository;
-import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
-import ai.intellistream.datahub.repositories.node.NodeTypeRepository;
-import ai.intellistream.datahub.repositories.node.RelationshipTypeRepository;
-import ai.intellistream.datahub.services.NodeService;
 import ai.intellistream.datahub.transformers.PolicyTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
-import ai.intellistream.datahub.transformers.EdgeProxyTransformer;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventObject;
@@ -49,10 +50,6 @@ import java.util.stream.Collectors;
 public class PolicyService {
 
     private final NodeRepository nodeRepository;
-    private final NodeTypeRepository nodeTypeRepository;
-    private final EdgeRepository edgeRepository;
-    private final RelationshipTypeRepository relationshipTypeRepository;
-    private final NodeService nodeService;
     private final ResourceService resourceService;
     private final GovernanceTemplateRepository governanceTemplateRepo;
     private final ai.intellistream.datahub.repositories.node.PolicyRepository policyRepository;
@@ -79,73 +76,114 @@ public class PolicyService {
      */
     private final NamingPolicyResolver namingPolicyResolver;
 
-    // 1. CREATE NEW EMPTY POLICY NODE
+    /** The one node-update pipeline; see {@link NodeUpdateService}. */
+    private final NodeUpdateService nodeUpdateService;
+
+    /** Records naming-policy warnings, the same way the resource and timeseries paths do. */
+    private final PolicyEnforcement policyEnforcement;
+
+    /**
+     * Create policy nodes through the shared resource pipeline.
+     *
+     * <p>Was a hand-rolled copy of {@code ResourceService.create}, run once per item from the
+     * controller — its own save, its own edge, its own CUD event each. That made policy creates the
+     * one create in the node family no naming policy ever judged, the one that skipped the
+     * create-side external-id and data-set checks, and the one where a three-policy request emitted
+     * three events instead of one. It now builds {@link Policy} bodies and hands the batch over,
+     * the same way the data set and function adapters do. The manage gate is not repeated here: the
+     * pipeline applies it to any body carrying the POLICY type-label, whichever endpoint the
+     * request came through.
+     *
+     * <p>{@code dataSetId} is deliberately <em>not</em> put on a body. A policy node is an orphan by
+     * construction (POLICY_DATASETID_BUG.md) and the pipeline rejects a POLICY body naming a data
+     * set outright; the field has always meant "attach it with an {@code ENFORCED_ON} edge", so
+     * that is what it becomes. Each edge names its new node by external id, which resolves because
+     * the pipeline flushes its nodes before it maps relations.
+     */
     @Transactional
-    public PolicyEntity createEmptyPolicy(String name, Long templateId, String externalId, Long dataSetId, String description, Map<String, String> metadata) {
+    public DataWrapper<Policy> create(Collection<Policy> items)
+            throws org.apache.pulsar.client.api.PulsarClientException {
 
-        dataSecurity.assertCanManageDataSets();
+        var graph = new GraphDataWrapper<ai.intellistream.datahub.models.NodeModel, RelForm>();
+        // External id per item, in request order, so the deactivated pass below can find each
+        // created node again without relying on the echo's ordering.
+        List<String> externalIds = new ArrayList<>();
 
-        PolicyEntity policyNode = new PolicyEntity();
+        for (Policy item : items) {
+            Policy body = new Policy();
 
-        // `name` is the display name; the graph identifies a policy by the "POLICY" label
-        // (graph-network.js keys off labels.includes("POLICY") to render it and open the
-        // policy editor), so the label must be POLICY — not the name.
-        String nodeName = (name != null && !name.isBlank()) ? name : "Policy";
-        policyNode.setName(nodeName);
-        // Through applyLabelNames, so the POLICY label row and the node_labels link are written too.
-        // Setting the labels string alone left every policy reporting labels: ["POLICY"] while
-        // matching no label filter — and in a tenant whose policies were all created here, no POLICY
-        // label row existed at all.
-        nodeService.applyLabelNames(policyNode, List.of(TypeLabels.POLICY));
+            // `name` is the display name; the graph identifies a policy by the "POLICY" label
+            // (graph-network.js keys off labels.includes("POLICY") to render it and open the policy
+            // editor), so the label must be POLICY — not the name. The Policy DTO seeds that label
+            // itself, and the pipeline creates the label row and the node_labels link from it.
+            String name = item.getName();
+            body.setName((name != null && !name.isBlank()) ? name : "Policy");
 
-        // externalId is user-defined or a random UUIDv7 fallback. setExternalId normalizes the
-        // value AND derives externalIdHash from that normalized form — do NOT also set the hash
-        // from the raw string, or a later lookup by external id would never match the stored row.
-        String effectiveExternalId = (externalId != null && !externalId.isBlank())
-                ? externalId
-                : IdGenerator.getRandomUUID7AsString();
-        policyNode.setExternalId(effectiveExternalId);
+            // User-defined, or a random UUIDv7 fallback. Resolved here rather than left to the
+            // pipeline because the ENFORCED_ON edge below has to name the node by it.
+            //
+            // The fallback is snake-cased, which it did not need to be while policy create had its
+            // own path: the shared pipeline judges every create against the tenant's naming policy,
+            // and a raw UUIDv7's hyphens fail a SNAKE_CASE preset — so a tenant that had opted into
+            // one could no longer create a policy without naming it themselves. A caller-supplied
+            // id is left exactly as sent and judged on its merits, the same way a policy rename
+            // already is.
+            String externalId = (item.getExternalId() != null && !item.getExternalId().isBlank())
+                    ? item.getExternalId()
+                    : TextValidator.toSnakeLowerCasedAllowStartWithDigits(IdGenerator.getRandomUUID7AsString());
+            body.setExternalId(externalId);
+            externalIds.add(externalId);
 
-        // Persist the optional description from the form's Advanced section. Was silently dropped
-        // before (this method never received it), so a created policy's description always read
-        // back null even though the form sent one. The update path already persists it.
-        if (description != null && !description.isBlank()) {
-            policyNode.setDescription(description);
+            if (item.getDescription() != null && !item.getDescription().isBlank()) {
+                body.setDescription(item.getDescription());
+            }
+            if (item.getTemplateId() != null) {
+                body.getMetadata().put("templateId", String.valueOf(item.getTemplateId()));
+            }
+            // The form-supplied policy config (kind + params), verbatim. Inert for now — the graph
+            // just carries it (createResource flattens each key to a metadata_<key> node prop).
+            if (item.getMetadata() != null && !item.getMetadata().isEmpty()) {
+                body.getMetadata().putAll(item.getMetadata());
+            }
+            graph.getNodes().add(body);
+
+            if (item.getDataSetId() != null) {
+                RelForm relForm = new RelForm();
+                relForm.setFromId(item.getDataSetId());
+                relForm.setToExternalId(externalId);
+                relForm.setRelationshipType("ENFORCED_ON");
+                relForm.setDataSetId(item.getDataSetId());
+                graph.getRelations().add(relForm);
+            }
         }
 
-        if (templateId != null) {
-            policyNode.getMetadata().put("templateId", String.valueOf(templateId));
+        var created = resourceService.create(graph);
+
+        // Re-read as entities. The pipeline has already published one CUD event for the batch and
+        // invalidated the naming resolver.
+        Map<Long, PolicyEntity> byExternalIdHash = new LinkedHashMap<>();
+        List<Long> hashes = externalIds.stream().map(ai.intellistream.datahub.helpers.text.ExternalIds::hash).toList();
+        policyRepository.findAllByExternalIdHashIn(new ArrayList<>(hashes))
+                .forEach(e -> byExternalIdHash.put(e.getExternalIdHash(), e));
+
+        var result = new DataWrapper<Policy>();
+        int index = 0;
+        for (Policy item : items) {
+            PolicyEntity node = byExternalIdHash.get(hashes.get(index++));
+            if (node == null) {
+                throw new ObjectNotFoundException("Policy was created but could not be read back.");
+            }
+            // Create honours the flag too, so a policy can be restored from an export already
+            // switched off rather than only by creating it live and disabling it afterwards.
+            if (item.isDeactivated()) {
+                node = setDeactivated(node.getId(), true);
+            }
+            result.getItems().add(PolicyTransformer.toPolicy(node));
         }
-        // Persist the form-supplied policy config (kind + params) verbatim. Inert for now — the
-        // graph just carries it (createResource flattens each key to a metadata_<key> node prop).
-        if (metadata != null && !metadata.isEmpty()) {
-            policyNode.getMetadata().putAll(metadata);
-        }
-
-        nodeRepository.save(policyNode);
-        nodeRepository.flush();
-
-        // Optionally attach the policy to a dataset via a ENFORCED_ON edge, so it shows up
-        // connected in the node network. Reuses ResourceService.mapEdge (which find-or-creates the
-        // relationship type) exactly like resource creation does.
-        List<EdgeEntity> edges = new ArrayList<>();
-        if (dataSetId != null) {
-            RelForm relForm = new RelForm();
-            relForm.setFromId(dataSetId);
-            relForm.setToId(policyNode.getId());
-            relForm.setRelationshipType("ENFORCED_ON");
-            relForm.setDataSetId(dataSetId);
-            edges.add(edgeRepository.save(resourceService.mapEdge(new EdgeEntity(), relForm)));
-        }
-
-        // Queue the policy node (and its edge) for the graph mirror the same way
-        // ResourceService.create does, so they actually enter the knowledge graph instead of
-        // living only in Postgres.
-        graphOutbox.queueUpsert(List.of(policyNode), edges);
-
-        namingPolicyResolver.invalidate();
-
-        return policyNode;
+        // The pipeline judged these names; re-wrapping the response would otherwise swallow what it
+        // found, the same way the data set and function adapters carry their warnings out.
+        result.setWarnings(created.getWarnings());
+        return result;
     }
 
     /**
@@ -170,6 +208,11 @@ public class PolicyService {
     @Transactional
     public PolicyEntity updatePolicyNode(UpdatePolicyForm form) {
 
+        // Ahead of the lookup, deliberately, and again inside the pipeline. The pipeline's gate is
+        // the one that guarantees this for every path into a policy; this one guarantees the
+        // caller learns nothing by asking. Resolving first would answer "no such policy" (404) for
+        // an id that does not exist and "forbidden" (403) for one that does, which is an
+        // enumeration oracle for someone who may not touch policies at all.
         dataSecurity.assertCanManageDataSets();
 
         boolean hasExternalId = form.getExternalId() != null && !form.getExternalId().isBlank();
@@ -177,8 +220,11 @@ public class PolicyService {
             throw new IllegalArgumentException("Policy id or externalId is required for update");
         }
 
-        // Identify by either, like every other update endpoint. A null id simply never matches, so
-        // the OR resolves to whichever the caller supplied.
+        // Resolved here, not by the pipeline: this lookup is scoped to policies, so an id naming
+        // some other kind of node is "no such policy" (404) rather than the pipeline's generic
+        // "resource cannot be found" (400). Identify by either id or externalId, like every other
+        // update endpoint — a null id simply never matches, so the OR resolves to whichever the
+        // caller supplied.
         PolicyEntity node = policyRepository
                 .findByIdOrExternalId(form.getId(), hasExternalId ? form.getExternalId() : null)
                 .orElseThrow(() -> new ObjectNotFoundException("Policy node not found: "
@@ -187,44 +233,31 @@ public class PolicyService {
         // An item naming a policy but carrying no changes is a no-op, not a null dereference.
         PolicyFields fields = form.getUpdate() != null ? form.getUpdate() : new PolicyFields();
 
-        // 1. BASIC FIELDS. Throughout: `set` wins over `setNull`, so a value the caller supplied is
-        // never discarded by a stray clear on the same field.
+        // Judged on the input, before anything is applied, so a rejected update costs no writes.
         if (fields.getName().getSet() != null) {
-            node.setName(requireNonBlank(fields.getName().getSet(), "name"));
+            requireNonBlank(fields.getName().getSet(), "name");
         }
-
         if (fields.getExternalId().getSet() != null) {
-            // setExternalId normalizes and re-derives externalIdHash; setting the hash from the
-            // raw string here would desync it from the stored (normalized) external_id.
-            node.setExternalId(requireNonBlank(fields.getExternalId().getSet(), "externalId"));
+            requireNonBlank(fields.getExternalId().getSet(), "externalId");
         }
 
-        if (fields.getDescription().getSet() != null) {
-            node.setDescription(fields.getDescription().getSet());
-        } else if (fields.getDescription().getSetNull()) {
-            node.setDescription(null);
-        }
+        // 1. THE SHARED HALF, through the one pipeline. name / externalId / description / source /
+        // metadata are ordinary node fields, so the engine applies them — and with them come the
+        // ACL (the manage grant, since this is a PolicyEntity), the type-label guard, and the
+        // naming policy. That last one is new: a policy rename used to be the one rename in the
+        // system no naming convention was allowed to judge.
+        // The caller's form carries the id too: authorize() stamps the adapter command, which is
+        // discarded, but a policy identified by externalId alone must still publish a usable id.
+        form.setId(node.getId());
+        UpdateResourceForm command = asNodeCommand(form, fields);
+        List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
+        nodeUpdateService.guardRenames(targets);
+        // A NOT_OK verdict throws; a WARN verdict comes back as findings, and dropping them would
+        // close only half the divergence — the resource and timeseries paths both record theirs.
+        List<PolicyFinding> policyWarnings = nodeUpdateService.judgeNaming(targets);
+        nodeUpdateService.apply(targets);
 
-        if (fields.getSource().getSet() != null) {
-            node.setSource(fields.getSource().getSet());
-        } else if (fields.getSource().getSetNull()) {
-            node.setSource(null);
-        }
-
-        // 2. METADATA (activePolicies, availablePolicies, etc.). set/add/remove, like every other
-        // metadata map — the old putAll-only form could add and overwrite keys but never drop one,
-        // so shrinking activePolicies was impossible and stale keys stayed forever.
-        if (fields.getMetadata().getSet() != null) {
-            node.setMetadata(new HashMap<>(fields.getMetadata().getSet()));
-        }
-        if (fields.getMetadata().getAdd() != null) {
-            node.getMetadata().putAll(fields.getMetadata().getAdd());
-        }
-        if (fields.getMetadata().getRemove() != null) {
-            node.getMetadata().keySet().removeAll(fields.getMetadata().getRemove());
-        }
-
-        // Deactivation is a column on the node, so it is set here rather than smuggled through the
+        // 2. THE POLICY'S OWN. Deactivation is a column on the node, so it is set here rather than smuggled through the
         // metadata map the caller supplied. Only when the caller actually asked: this assignment
         // used to be unconditional, and since the old DTO's flag was a primitive defaulting to
         // false, renaming a deactivated policy silently switched it back on.
@@ -257,12 +290,57 @@ public class PolicyService {
         PolicyScopeValidator.validateNamingConfig(node.getMetadata());
 
         PolicyEntity saved = policyRepository.save(node);
+        // Findings reference node_id, so they are recorded after the save that guarantees one.
+        if (!policyWarnings.isEmpty()) {
+            policyEnforcement.recordWarnings(policyWarnings, Map.of(saved.getExternalId(),
+                    new PolicyEnforcement.WrittenEntity(saved.getId(), null)));
+        }
 
         publishPolicyUpsert(saved);
 
         namingPolicyResolver.invalidate();
 
         return saved;
+    }
+
+    /**
+     * The policy's shared field changes as the canonical node-update command.
+     *
+     * <p>{@code PolicyFields} and {@code ResourceFields} say the same thing about the five fields
+     * every node has; only {@code deactivated} and {@code templateId} are the policy's own, and
+     * those stay here. Adapting rather than widening the shared command is what keeps type-specific
+     * fields out of it — the same shape {@code DataSetService} uses.
+     */
+    private static UpdateResourceForm asNodeCommand(UpdatePolicyForm form, PolicyFields fields) {
+        UpdateResourceForm command = new UpdateResourceForm(form.getId());
+        command.setExternalId(form.getExternalId());
+        ResourceFields target = command.getUpdate();
+        if (fields.getName().getSet() != null) {
+            target.getName().set(fields.getName().getSet());
+        }
+        if (fields.getExternalId().getSet() != null) {
+            target.getExternalId().set(fields.getExternalId().getSet());
+        }
+        if (fields.getDescription().getSet() != null) {
+            target.getDescription().set(fields.getDescription().getSet());
+        } else if (fields.getDescription().getSetNull()) {
+            target.getDescription().setNull(true);
+        }
+        if (fields.getSource().getSet() != null) {
+            target.getSource().set(fields.getSource().getSet());
+        } else if (fields.getSource().getSetNull()) {
+            target.getSource().setNull(true);
+        }
+        if (fields.getMetadata().getSet() != null) {
+            target.getMetadata().setSet(fields.getMetadata().getSet());
+        }
+        if (fields.getMetadata().getAdd() != null) {
+            target.getMetadata().add(fields.getMetadata().getAdd());
+        }
+        if (fields.getMetadata().getRemove() != null) {
+            target.getMetadata().remove(fields.getMetadata().getRemove());
+        }
+        return command;
     }
 
     /** Replacing a required field with blank is a caller mistake, not a way to clear it. */

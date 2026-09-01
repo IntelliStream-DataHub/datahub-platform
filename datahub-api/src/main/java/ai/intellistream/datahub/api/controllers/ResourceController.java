@@ -12,6 +12,7 @@ import ai.intellistream.datahub.api.responses.swaggerdto.ResourceGraphDataWrappe
 import ai.intellistream.datahub.api.services.ResourceService;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.ResponseError;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
@@ -112,6 +113,12 @@ public class ResourceController {
                     `externalId`. `depth` controls how many relationship hops to follow; keep it
                     small (1–3) unless you know the graph is sparse, because the result set grows
                     quickly.
+
+                    Nodes come back typed by their type-label (a time series as a Timeseries, a
+                    data set as a data set, and so on). The graph stores only a subset of each
+                    node's columns, so graph-sourced nodes are typed but sparsely populated —
+                    a Timeseries here carries no `unit` or `securityCategories`; fetch it by id
+                    for the full record.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Returns the starting resource plus every resource and relationship reached within `depth` hops.",
@@ -148,6 +155,12 @@ public class ResourceController {
                     count — so "the 10 nearest time series" is exact however many intermediate nodes
                     lie between them. `excludedLabels` (e.g. `["POLICY"]`) are never traversed or
                     returned; `relationshipTypes` restricts which edges may be followed.
+
+                    Nodes come back typed by their type-label (a time series as a Timeseries, a
+                    data set as a data set, and so on). The graph stores only a subset of each
+                    node's columns, so graph-sourced nodes are typed but sparsely populated —
+                    a Timeseries here carries no `unit` or `securityCategories`; fetch it by id
+                    for the full record.
                     """
     )
     @ApiResponse(responseCode = "200", description = "The nearest matching nodes plus every node and relationship on the paths to them.",
@@ -215,7 +228,7 @@ public class ResourceController {
         try{
             var idList = apiReqData.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
             var externalIdList = apiReqData.getItems().stream().map(IdCollection::getExternalId).filter(Objects::nonNull).collect(Collectors.toSet());
-            DataWrapper<Resource> resources = resourceService.findAllByIdAndExternalId(idList, externalIdList);
+            DataWrapper<NodeModel> resources = resourceService.findAllByIdAndExternalId(idList, externalIdList);
             return new ResponseEntity<>(resources, HttpStatus.OK);
         } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
             // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
@@ -317,7 +330,7 @@ public class ResourceController {
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
             }
-            DataWrapper<Resource> items = resourceService.filter(apiReqData);
+            DataWrapper<NodeModel> items = resourceService.filter(apiReqData);
             return new ResponseEntity<>(items, HttpStatus.OK);
         } catch (ConstraintViolationException e){
             log.error(e.getMessage());
@@ -393,7 +406,7 @@ public class ResourceController {
         // before this method ran, so the hand-rolled pass could only ever re-check what had
         // already passed — and its bare-string 400 disagreed with the shape @Valid produces.
         try{
-            DataWrapper<Resource> items = resourceService.search(form);
+            DataWrapper<NodeModel> items = resourceService.search(form);
             return new ResponseEntity<>(items, HttpStatus.OK);
         }
         catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
@@ -560,14 +573,14 @@ public class ResourceController {
             )
             @RequestBody
             @Schema(implementation = CreateResources.class)
-            GraphDataWrapper<Resource, RelForm> apiReqData
+            GraphDataWrapper<NodeModel, RelForm> apiReqData
     ){
         try{
-            Set<ConstraintViolation<GraphDataWrapper<Resource, RelForm>>> errors = validator.validate(apiReqData);
+            Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> errors = validator.validate(apiReqData);
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
             }
-            GraphDataWrapper<Resource, EdgeProxy> results = resourceService.create(apiReqData);
+            GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.create(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.CREATED);
         } catch (ConstraintViolationException cve){
             var e = BuildErrorResponse.createConstraintViolationError(cve);
@@ -715,7 +728,7 @@ public class ResourceController {
             )
             @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData){
         try{
-            GraphDataWrapper<Resource, EdgeProxy> results = resourceService.update(apiReqData);
+            GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.update(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.OK);
         } catch (ConstraintViolationException cve){
             var e = BuildErrorResponse.createConstraintViolationError(cve);
@@ -736,6 +749,12 @@ public class ResourceController {
         // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
         catch (org.springframework.security.access.AccessDeniedException e){
             throw e;
+        }
+        catch (DuplicateDataException e){
+            // A rename onto an external id already in use: the shared guard's 409, with the
+            // offending ids, rather than the generic 500 the catch below would give.
+            ResponseError<DuplicateError> dupError = e.getError();
+            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
         }
         catch (PulsarClientException | RuntimeException e){
             log.error(e.getMessage(), e);

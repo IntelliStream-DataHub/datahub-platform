@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.controllers.api;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.models.EdgeProxy;
@@ -63,7 +64,7 @@ public class EdgeApiController {
     )
     public ResponseEntity<?> update(@Valid @RequestBody RelFormWithId form){
         try {
-            GraphDataWrapper<Resource, EdgeProxy> data = this.resourceApiService.updateEdge(form);
+            GraphDataWrapper<NodeModel, EdgeProxy> data = this.resourceApiService.updateEdge(form);
             return new ResponseEntity<>(data, HttpStatus.CREATED);
         } catch (Exception e){
             log.error(e.getMessage());

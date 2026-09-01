@@ -13,6 +13,7 @@ import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.SearchForm;
 import ai.intellistream.datahub.models.UpdateRelForm;
@@ -63,7 +64,7 @@ public class ResourceMcpTools {
                     creates.
                     """
     )
-    public GraphDataWrapper<Resource, EdgeProxy> createResource(
+    public GraphDataWrapper<NodeModel, EdgeProxy> createResource(
             @ToolParam(description = "Stable snake_case id. 3–256 chars.")
             String externalId,
             @ToolParam(description = "Human-readable display name.")
@@ -88,7 +89,7 @@ public class ResourceMcpTools {
         }
         r.setLabels(new ArrayList<>(labelList));
 
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getNodes().add(r);
         return resourceService.create(req);
     }
@@ -101,7 +102,7 @@ public class ResourceMcpTools {
                     of the two collections (as comma-separated strings).
                     """
     )
-    public DataWrapper<Resource> getResource(
+    public DataWrapper<NodeModel> getResource(
             @ToolParam(required = false, description = "Comma-separated numeric ids.")
             String ids,
             @ToolParam(required = false, description = "Comma-separated externalIds.")
@@ -159,7 +160,7 @@ public class ResourceMcpTools {
                     aren't exposed here — use the REST API for those.
                     """
     )
-    public GraphDataWrapper<Resource, EdgeProxy> updateResource(
+    public GraphDataWrapper<NodeModel, EdgeProxy> updateResource(
             @ToolParam(description = "Id of the resource to update.")
             Long id,
             @ToolParam(required = false, description = "New display name.")
@@ -284,7 +285,7 @@ public class ResourceMcpTools {
     private Long resolveId(String externalId) {
         return resourceService.findAllByIdAndExternalId(Set.of(), Set.of(externalId))
                 .getItems().stream()
-                .map(Resource::getId)
+                .map(NodeModel::getId)
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException(
                         "No resource with externalId '" + externalId + "'"));

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import ai.intellistream.datahub.json.ToStringSerializer;

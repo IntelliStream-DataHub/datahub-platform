@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 import ai.intellistream.datahub.function.Function;
+import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.RelForm;
@@ -39,16 +41,13 @@ import java.util.stream.Collectors;
 public class FunctionService {
 
     private final FunctionRepository functionRepository;
-    private final FunctionTransformer functionTransformer;
     private final ResourceService resourceService;
     private final DataSecurity dataSecurity;
 
     public FunctionService(FunctionRepository functionRepository,
-                           FunctionTransformer functionTransformer,
                            ResourceService resourceService,
                            DataSecurity dataSecurity) {
         this.functionRepository = functionRepository;
-        this.functionTransformer = functionTransformer;
         this.resourceService = resourceService;
         this.dataSecurity = dataSecurity;
     }
@@ -60,43 +59,48 @@ public class FunctionService {
      */
     @Transactional
     public DataWrapper<Function> create(DataWrapper<Function> apiReqData) throws PulsarClientException {
-        var graph = new GraphDataWrapper<Resource, RelForm>();
-        graph.setNodes(apiReqData.getItems().stream().map(FunctionService::asResource)
-                .collect(Collectors.toCollection(ArrayList::new)));
+        var graph = new GraphDataWrapper<NodeModel, RelForm>();
+        // Straight through: the pipeline takes NodeModel and Function is one, so its FUNCTION
+        // type-label drives the dispatch with nothing copied by hand — a field added to Function
+        // later cannot be silently dropped on the way in.
+        // Timestamps need no handling here: the create pipeline does not read them off the body
+        // at all, so Hibernate's generated values stand. (This used to null them defensively,
+        // which the DTO's setter quietly turned back into now().)
+        graph.setNodes(new ArrayList<>(apiReqData.getItems()));
         graph.setRelations(new ArrayList<>());
 
-        GraphDataWrapper<Resource, EdgeProxy> created = resourceService.create(graph);
+        GraphDataWrapper<NodeModel, EdgeProxy> created = resourceService.create(graph);
 
         List<Long> ids = created.getNodes().stream()
-                .map(Resource::getId)
+                .map(NodeModel::getId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
 
         var result = new DataWrapper<Function>();
-        result.setItems(new ArrayList<>(functionTransformer.toFunction(functionRepository.findAllById(ids))));
+        result.setItems(new ArrayList<>(FunctionTransformer.toFunction(functionRepository.findAllById(ids))));
+        // Same reason as the data set adapter: the shared path judged the name, and re-wrapping
+        // the response would otherwise swallow what it found.
+        result.setWarnings(created.getWarnings());
         return result;
     }
 
     /**
-     * Carry a {@link Function} into the resource pipeline.
+     * One function by id.
      *
-     * <p>{@code Function} extends {@code NodeModel}, not {@code Resource}, so that it cannot carry
-     * {@code isRoot}/{@code geoLocation}/{@code valueType} — fields a function has no meaning for.
-     * The pipeline takes {@code Resource}, so the shared node fields are copied across explicitly.
-     * The label list already carries {@code FUNCTION} (see {@code Function.typeLabel()}), which is
-     * what makes {@code NodeService.createFromResource} build a {@code FunctionEntity}.
+     * <p>The last gap in the node family's endpoint surface: every other type could be fetched by
+     * id without POSTing a wrapper, and {@code NodeFamilyParityTest} carried an explicit exemption
+     * for this one. A function the caller may not read is reported as missing rather than
+     * forbidden, the same way {@code ResourceService.get} hides existence.
      */
-    private static Resource asResource(Function fn) {
-        var r = new Resource();
-        r.setId(fn.getId());
-        r.setExternalId(fn.getExternalId());
-        r.setName(fn.getName());
-        r.setDescription(fn.getDescription());
-        r.setSource(fn.getSource());
-        r.setDataSetId(fn.getDataSetId());
-        r.setMetadata(fn.getMetadata());
-        r.setLabels(fn.getLabels());
-        return r;
+    @Transactional(readOnly = true)
+    public DataWrapper<Function> get(Long id) {
+        FunctionEntity entity = functionRepository.findById(id)
+                .filter(f -> dataSecurity.hasReadPermissionToDataSet(f))
+                .orElseThrow(() -> new ObjectNotFoundException("Function with id: " + id + " Not found!"));
+
+        DataWrapper<Function> data = new DataWrapper<>();
+        data.getItems().add(FunctionTransformer.from(entity));
+        return data;
     }
 
     /**
@@ -120,7 +124,7 @@ public class FunctionService {
         }
 
         var results = new DataWrapper<Function>();
-        results.setItems(new ArrayList<>(functionTransformer.toFunction(entities)));
+        results.setItems(new ArrayList<>(FunctionTransformer.toFunction(entities)));
         return results;
     }
 
@@ -130,7 +134,7 @@ public class FunctionService {
      * via the label-resolution rules in {@link ResourceService}.
      */
     @Transactional
-    public GraphDataWrapper<Resource, EdgeProxy> update(
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(
             GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
         return resourceService.update(apiReqData);
     }

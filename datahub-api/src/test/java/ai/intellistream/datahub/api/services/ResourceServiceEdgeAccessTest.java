@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -97,10 +98,14 @@ class ResourceServiceEdgeAccessTest {
     private final DataSecurity dataSecurity = TestDataSecurity.backedBy(() -> permissions);
 
     private final ResourceService service = new ResourceService(
-            entityManager, nodeRepository, nodeService, labelService, edgeRepository,
+            entityManager, nodeRepository, nodeService, edgeRepository,
             relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
-            dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
-            datasetClosureService);
+            dataSecurity, subscriptionRepository, validator, policyEnforcement,
+            datasetClosureService,
+                new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
+            new ai.intellistream.datahub.api.services.node.NodeUpdateService(
+                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),
+            mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
 
     @AfterEach
     void clear() {
@@ -147,12 +152,12 @@ class ResourceServiceEdgeAccessTest {
                 .thenReturn(Optional.of(new NameAndExternalIdDTO(id, "node-" + id, "ext-" + id, id)));
     }
 
-    private static GraphDataWrapper<Resource, RelForm> linkRequest(long fromId, long toId) {
+    private static GraphDataWrapper<NodeModel, RelForm> linkRequest(long fromId, long toId) {
         RelForm rel = new RelForm();
         rel.setFromId(fromId);
         rel.setToId(toId);
         rel.setRelationshipType("BELONGS_TO");
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return req;
     }

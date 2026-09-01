@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.NodeModelSubtypes;
+import ai.intellistream.datahub.jpa.domains.TypeLabels;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -38,11 +41,28 @@ class NodeFamilyParityTest {
     private static Stream<Class<?>> nodeFamilyControllers() {
         return Stream.of(
                 ResourceController.class,
+                AssetController.class,
                 TimeseriesController.class,
                 DataSetController.class,
                 EventController.class,
                 PolicyController.class,
                 FunctionController.class);
+    }
+
+    // ---- Wire-side discriminator registry ------------------------------------------------------
+
+    /**
+     * The wire-side dispatch table ({@code NodeModelSubtypes.BY_TYPE_LABEL} in datahub-api-model)
+     * and the entity-side authority ({@code TypeLabels.ALL} in datahub-infra) must name the same
+     * type-labels. They live in different modules and cannot reference each other, so this is the
+     * one place they are held equal: adding a node type to one without the other fails here, not
+     * in review.
+     */
+    @Test
+    @DisplayName("F0: the label-keyed deserializer registry matches TypeLabels")
+    void subtypeRegistryMatchesTypeLabels() {
+        assertThat(NodeModelSubtypes.BY_TYPE_LABEL.keySet())
+                .isEqualTo(TypeLabels.ALL);
     }
 
     // ---- Endpoint surface ----------------------------------------------------------------------
@@ -51,13 +71,56 @@ class NodeFamilyParityTest {
     @MethodSource("nodeFamilyControllers")
     @DisplayName("F1: every type can be fetched by id on its own")
     void everyTypeHasASingleItemGet(Class<?> controller) {
-        // Function is create+delete only by design and has no addressable single item yet; see the
-        // audit's F4. Everything else must be reachable by id without POSTing a wrapper.
-        if (controller == FunctionController.class) return;
-
         assertThat(pathsFor(controller, RequestMethod.GET))
                 .as("%s should expose GET /{id}", controller.getSimpleName())
                 .anyMatch(p -> p.matches(".*/\\{[A-Za-z]*[Ii]d\\}$"));
+    }
+
+    /**
+     * F9: a duplicate external id must reach the caller as the pipeline's 409, on every create.
+     *
+     * <p>Structural rather than behavioural, and it reads the source because a catch block is not
+     * visible through reflection. Worth having anyway: this is the shape of a real regression.
+     * Policy create was moved onto the shared pipeline and started throwing
+     * {@code DuplicateDataException}, which its controller did not catch, so a duplicate would have
+     * come back as a bare 500 on the one endpoint whose docs had just started promising a 409.
+     */
+    @ParameterizedTest(name = "{0} create answers the pipeline's 409")
+    @MethodSource("nodeFamilyControllers")
+    @DisplayName("F9: every create surfaces a duplicate external id as 409, not 500")
+    void createHandlesDuplicateData(Class<?> controller) throws Exception {
+        Method create = methodForPath(controller, "/create", RequestMethod.POST);
+        assertThat(create).as("%s should have POST /create", controller.getSimpleName()).isNotNull();
+
+        String source = sourceOf(controller);
+        String body = methodBody(source, create.getName());
+        assertThat(body)
+                .as("%s.%s should catch DuplicateDataException; the shared create path throws it "
+                        + "for a taken external id, and an uncaught one is a 500", 
+                        controller.getSimpleName(), create.getName())
+                .contains("DuplicateDataException");
+    }
+
+    /** The controller's own source file, read from the module rather than the classpath. */
+    private static String sourceOf(Class<?> controller) throws Exception {
+        java.nio.file.Path path = java.nio.file.Path.of("src/main/java",
+                controller.getName().replace('.', '/') + ".java");
+        assertThat(java.nio.file.Files.exists(path))
+                .as("expected to find %s; this test reads sources and must run from the module directory", path)
+                .isTrue();
+        return java.nio.file.Files.readString(path);
+    }
+
+    /**
+     * From the named method's signature to the closing brace at its own indentation. Crude on
+     * purpose: it only has to decide whether a catch clause is inside this method rather than a
+     * neighbouring one.
+     */
+    private static String methodBody(String source, String methodName) {
+        int start = source.indexOf(" " + methodName + "(");
+        assertThat(start).as("method %s not found in source", methodName).isNotNegative();
+        int end = source.indexOf("\n    }\n", start);
+        return end < 0 ? source.substring(start) : source.substring(start, end);
     }
 
     // ---- Status codes --------------------------------------------------------------------------
@@ -79,9 +142,11 @@ class NodeFamilyParityTest {
     void deleteReturns204(Class<?> controller) {
         Method delete = methodForPath(controller, "/delete", RequestMethod.POST);
         assertThat(delete).as("%s should have POST /delete", controller.getSimpleName()).isNotNull();
+        // Exactly 204, not merely "204 among others": PolicyController documented a 200 with a
+        // body alongside it, copied from the update endpoint, which a contains() check let stand.
         assertThat(declaredSuccessStatuses(delete))
-                .as("%s.%s should document 204", controller.getSimpleName(), delete.getName())
-                .contains("204");
+                .as("%s.%s should document 204 and nothing else", controller.getSimpleName(), delete.getName())
+                .containsExactly("204");
     }
 
     @ParameterizedTest(name = "{0} delete accepts both POST and DELETE")

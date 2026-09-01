@@ -3,6 +3,7 @@ package ai.intellistream.datahub.jpa.domains;
 
 import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import jakarta.persistence.*;
+import org.hibernate.annotations.BatchSize;
 import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;

@@ -22,8 +22,10 @@ class TimeseriesForm extends DatasetFormAbstract{
 	getFormFields(){
 		return `
 			${this.getEntityIdField()}
-			<input type="hidden" name="isRoot" value="${this.isRoot}"/>
-			
+			<!-- No isRoot: a time series is never a navigation root. The field was posted as the
+			     string "undefined" (this.isRoot is never assigned on this form), which the api
+			     ignored while the property was unbindable and now rejects. -->
+
 			<div data-type="relations" class="form-section">
 				<label>${$L('from.relations')}</label>
 				<div class="flex-container left-right">
