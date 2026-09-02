@@ -28,6 +28,7 @@ public class TenantConfigService {
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final VaultProperties vault;
+    private final TenantLlmStore llmStore;
 
     // Application-wide defaults for feature flags a tenant's Vault `tenant-config` block
     // doesn't set explicitly. Vault wins per tenant; these fill the gaps.
@@ -52,10 +53,11 @@ public class TenantConfigService {
     public volatile Map<String, Tenant> cachedTenants = new ConcurrentHashMap<>();
 
     public TenantConfigService(JsonMapper jsonMapper, ApplicationEventPublisher eventPublisher,
-                               VaultProperties vault) {
+                               VaultProperties vault, TenantLlmStore llmStore) {
         this.jsonMapper = jsonMapper;
         this.eventPublisher = eventPublisher;
         this.vault = vault;
+        this.llmStore = llmStore;
         HttpClient.Builder builder = HttpClient.newBuilder();
         VaultClientFactory.sslContext(vault).ifPresent(builder::sslContext);
         this.httpClient = builder.build();
@@ -115,6 +117,11 @@ public class TenantConfigService {
                 tenantData.forEach((name, tenant) -> {
                     tenant.setOrganizationName(name);
                     applyFeatureDefaults(tenant.getFeatures());
+                    // The model config lives in its own secret so that it can be written without
+                    // handing anyone write access to the connection registry. One extra read per
+                    // tenant every five minutes; a tenant with none simply gets null and falls
+                    // back to the deployment default.
+                    tenant.setLlm(llmStore.read(tenant.getOrganizationId()));
                     refreshed.put(tenant.getOrganizationId(), tenant);
                 });
                 cachedTenants = refreshed;
@@ -142,6 +149,26 @@ public class TenantConfigService {
         } catch (Exception e) {
             log.error("Vault refresh failed: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Re-read one tenant's model config now, rather than waiting for the next refresh.
+     *
+     * <p>Called straight after a write so someone who has just saved a form sees what they saved.
+     * Without it the settings page would keep showing the old model for up to five minutes, which
+     * reads as "the save did not work" and invites them to do it again.
+     *
+     * <p>Mutates the cached {@link Tenant} in place rather than rebuilding the map: the alternative
+     * is a full Vault refresh for one field. The race is benign — a reader mid-call either sees the
+     * old config or the new one, both of which are configurations that were true a moment ago.
+     */
+    public void refreshLlm(String orgId) {
+        Tenant tenant = cachedTenants.get(orgId);
+        if (tenant == null) {
+            log.warn("Asked to refresh the model config for unknown tenant {}", orgId);
+            return;
+        }
+        tenant.setLlm(llmStore.read(orgId));
     }
 
     void applyFeatureDefaults(TenantFeatures features) {

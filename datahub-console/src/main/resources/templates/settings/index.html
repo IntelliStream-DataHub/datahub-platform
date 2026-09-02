@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{settings}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+</head>
+
+<!--
+  A pure template-serve, like the Analyze tab: everything on this page is fetched from and written
+  to datahub-api directly with the signed-in user's token. The console contributes no controller
+  logic and never sees the model configuration, which is also why it never sees the API key.
+-->
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'settings')}">
+<main class="layout-body">
+	<div class="topic-content pad20">
+		<h1 th:text="#{settings.llm.title}">Model</h1>
+		<p class="small-text" th:text="#{settings.llm.intro}"></p>
+
+		<p id="settings-message" class="small-text" hidden></p>
+		<p id="settings-using-default" class="small-text" hidden
+		   th:text="#{settings.llm.using.default}"></p>
+
+		<form id="settings-llm-form" class="datahub-form-fields" hidden style="max-width:520px">
+			<label for="llm-provider" th:text="#{settings.llm.provider}">Provider</label>
+			<select id="llm-provider" class="w100">
+				<option value="" th:text="#{settings.llm.provider.default}"></option>
+				<option value="ANTHROPIC">Anthropic</option>
+				<option value="OPENAI_COMPATIBLE" th:text="#{settings.llm.provider.openai}"></option>
+			</select>
+
+			<label for="llm-model" th:text="#{settings.llm.model}">Model</label>
+			<input id="llm-model" class="w100" type="text" autocomplete="off"
+			       th:attr="placeholder=#{settings.llm.model.placeholder}"/>
+
+			<div data-openai-only hidden>
+				<label for="llm-base-url" th:text="#{settings.llm.base.url}">Endpoint</label>
+				<input id="llm-base-url" class="w100" type="text" autocomplete="off"
+				       placeholder="http://localhost:11434/v1"/>
+			</div>
+
+			<div data-openai-only hidden>
+				<label for="llm-reasoning-effort" th:text="#{settings.llm.reasoning.effort}"></label>
+				<input id="llm-reasoning-effort" class="w100" type="text" autocomplete="off"/>
+				<p class="small-text" th:text="#{settings.llm.reasoning.effort.help}"></p>
+			</div>
+
+			<label for="llm-turn-timeout" th:text="#{settings.llm.turn.timeout}">Turn timeout</label>
+			<input id="llm-turn-timeout" class="w100" type="text" autocomplete="off" placeholder="4m"/>
+
+			<!-- Write-only: the api never returns the key, so this can offer to replace or clear it
+			     but never to show it. Leaving it blank keeps whatever is stored. -->
+			<label for="llm-api-key" th:text="#{settings.llm.api.key}">API key</label>
+			<input id="llm-api-key" class="w100" type="password" autocomplete="new-password"/>
+			<p class="small-text" th:text="#{settings.llm.api.key.help}"></p>
+
+			<div id="llm-clear-key-row" hidden>
+				<label class="checkbox">
+					<input id="llm-clear-key" type="checkbox"/>
+					<span th:text="#{settings.llm.api.key.clear}"></span>
+				</label>
+			</div>
+
+			<button id="settings-save" type="submit" class="btn primary"
+			        th:text="#{datahub.save}">Save</button>
+		</form>
+	</div>
+</main>
+<th:block th:replace="~{layout/main :: js('settings')}"></th:block>
+</body>
+</html>

@@ -99,6 +99,16 @@
                     <i class="fa-regular fa-sun theme-when-dark"></i>
                     <i class="fa-regular fa-moon theme-when-light"></i>
                 </li>
+                <!-- Settings is a link rather than a data-type action: it is a page, and the api
+                     decides whether the person may see anything on it. The console cannot know
+                     that without asking, and asking on every page render to hide one menu item
+                     would cost more than the item is worth. -->
+                <li>
+                    <a th:href="@{/settings}">
+                        <span th:text="#{settings}"></span>
+                        <i class="fa-regular fa-sliders"></i>
+                    </a>
+                </li>
                 <li data-type="about">
                     <span th:text="#{about.menu}"></span>
                     <i class="fa-regular fa-circle-info"></i>

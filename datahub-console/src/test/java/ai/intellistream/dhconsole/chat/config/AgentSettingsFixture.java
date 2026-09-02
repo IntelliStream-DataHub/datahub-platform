@@ -34,16 +34,16 @@ public final class AgentSettingsFixture {
 
     /** A caller who may read everything — the common case, and the one that narrows nothing. */
     public static CallerPermissions readsEverything() {
-        return new CallerPermissions(true, false, false, Set.of(), Set.of());
+        return new CallerPermissions(true, false, false, Set.of(), Set.of(), false, false);
     }
 
     /** A caller with grants on specific datasets. */
     public static CallerPermissions reads(Long... datasetIds) {
-        return new CallerPermissions(false, false, false, Set.of(datasetIds), Set.of());
+        return new CallerPermissions(false, false, false, Set.of(datasetIds), Set.of(), false, false);
     }
 
     /** A caller with no grant anywhere: signed in, but with access to nothing. */
     public static CallerPermissions readsNothing() {
-        return new CallerPermissions(false, false, false, Set.of(), Set.of());
+        return new CallerPermissions(false, false, false, Set.of(), Set.of(), false, false);
     }
 }

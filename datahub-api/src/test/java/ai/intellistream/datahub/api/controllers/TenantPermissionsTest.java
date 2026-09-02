@@ -2,8 +2,10 @@
 package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.datasecurity.SettingsSecurity;
 import ai.intellistream.datahub.tenant.CallerPermissions;
 import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantLlmStore;
 import org.junit.jupiter.api.Test;
 
 import java.util.Set;
@@ -24,8 +26,10 @@ import static org.mockito.Mockito.when;
 class TenantPermissionsTest {
 
     private final DataSecurity dataSecurity = mock(DataSecurity.class);
-    private final TenantController controller =
-            new TenantController(mock(TenantConfigService.class), dataSecurity);
+    private final SettingsSecurity settingsSecurity = mock(SettingsSecurity.class);
+    private final TenantController controller = new TenantController(
+            mock(TenantConfigService.class), dataSecurity, settingsSecurity,
+            mock(TenantLlmStore.class));
 
     private CallerPermissions permissions() {
         return controller.getPermissions().getBody();
@@ -98,9 +102,26 @@ class TenantPermissionsTest {
     }
 
     @Test
+    void reportsTheSettingsGrantsSoAClientCanHideWhatItCannotUse() {
+        // Configuration is a different power from data, so it is reported separately rather than
+        // inferred from the dataset flags. A client uses it to decide whether to show a settings
+        // page at all; the api enforces it regardless of what the client did.
+        when(dataSecurity.readableDataSetIds()).thenReturn(Set.of());
+        when(dataSecurity.writableDataSetIds()).thenReturn(Set.of());
+        when(settingsSecurity.canReadSettings()).thenReturn(true);
+        when(settingsSecurity.canWriteSettings()).thenReturn(false);
+
+        CallerPermissions permissions = permissions();
+
+        assertThat(permissions.canReadSettings()).isTrue();
+        assertThat(permissions.canWriteSettings()).isFalse();
+    }
+
+    @Test
     void nullIdSetsReadAsNoAccessRatherThanThrowing() {
         // Defensive: a deserialized instance from an older client may carry nulls.
-        CallerPermissions permissions = new CallerPermissions(false, false, false, null, null);
+        CallerPermissions permissions =
+                new CallerPermissions(false, false, false, null, null, false, false);
 
         assertThat(permissions.canReadNothing()).isTrue();
         assertThat(permissions.canWriteNothing()).isTrue();

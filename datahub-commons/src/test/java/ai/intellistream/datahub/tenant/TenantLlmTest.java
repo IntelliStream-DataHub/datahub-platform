@@ -10,40 +10,52 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The {@code llm} block of a tenant's Vault entry.
+ * The {@code tenant-llm/<org-id>} secret.
+ *
+ * <p>Parsed on its own rather than through {@link Tenant}, which is how {@code TenantLlmStore}
+ * reads it: the model config lives in its own secret so it can be written without granting write
+ * access to the connection registry, and {@code Tenant.llm} is filled in afterwards.
  *
  * <p>Deserialization is the whole contract here: these values are hand-written into Vault by an
- * operator, so every reasonable spelling has to work and an unreasonable one has to be loud.
+ * operator or written by the settings form, so every reasonable spelling has to work and an
+ * unreasonable one has to be loud.
  */
 class TenantLlmTest {
 
     private final JsonMapper json = JsonMapper.builder().build();
 
-    private Tenant tenant(String body) {
-        return json.readValue(body, Tenant.class);
+    private TenantLlm llm(String body) {
+        return json.readValue(body, TenantLlm.class);
     }
 
     @Test
-    void readsTheTenantsModelFromItsVaultEntry() {
-        Tenant tenant = tenant("""
-                {"org-id": "t1", "llm":
-                   {"provider": "anthropic", "api-key": "sk-ant-x", "model": "claude-opus-5"}}
+    void readsTheTenantsModelFromItsOwnSecret() {
+        TenantLlm llm = llm("""
+                {"provider": "anthropic", "api-key": "sk-ant-x", "model": "claude-opus-5"}
                 """);
 
-        assertThat(tenant.getLlm().getProvider()).isEqualTo(LlmProvider.ANTHROPIC);
-        assertThat(tenant.getLlm().getApiKey()).isEqualTo("sk-ant-x");
-        assertThat(tenant.getLlm().getModel()).isEqualTo("claude-opus-5");
+        assertThat(llm.getProvider()).isEqualTo(LlmProvider.ANTHROPIC);
+        assertThat(llm.getApiKey()).isEqualTo("sk-ant-x");
+        assertThat(llm.getModel()).isEqualTo("claude-opus-5");
+    }
+
+    @Test
+    void theModelConfigDoesNotComeFromTheConnectionRegistry() {
+        // The split is the point: an llm block left behind in tenant-resources must not be read,
+        // or a tenant could keep a credential in the secret nothing is allowed to write.
+        Tenant tenant = json.readValue("""
+                {"org-id": "t1", "llm": {"provider": "anthropic", "api-key": "stale"}}
+                """, Tenant.class);
+
+        assertThat(tenant.getLlm()).isNull();
     }
 
     @Test
     void readsASelfHostedModelWithNoCredential() {
-        Tenant tenant = tenant("""
-                {"org-id": "t1", "llm":
-                   {"provider": "openai-compatible", "base-url": "http://vllm:8000/v1",
-                    "model": "qwen3-32b", "reasoning-effort": "none"}}
+        TenantLlm llm = llm("""
+                {"provider": "openai-compatible", "base-url": "http://vllm:8000/v1",
+                 "model": "qwen3-32b", "reasoning-effort": "none"}
                 """);
-
-        TenantLlm llm = tenant.getLlm();
         assertThat(llm.getProvider()).isEqualTo(LlmProvider.OPENAI_COMPATIBLE);
         assertThat(llm.getBaseUrl()).isEqualTo("http://vllm:8000/v1");
         assertThat(llm.getReasoningEffort()).isEqualTo("none");
@@ -52,17 +64,20 @@ class TenantLlmTest {
     }
 
     @Test
-    void aTenantWithNoBlockHasNoModelOfItsOwn() {
-        assertThat(tenant("""
+    void aTenantWithNoSecretHasNoModelOfItsOwn() {
+        // TenantLlmStore returns null on a 404, and the deployment default then applies.
+        Tenant tenant = json.readValue("""
                 {"org-id": "t1"}
-                """).getLlm()).isNull();
+                """, Tenant.class);
+
+        assertThat(tenant.getLlm()).isNull();
     }
 
     @Test
     void unsetFieldsStayNullSoTheDeploymentDefaultCanFillThem() {
-        TenantLlm backend = tenant("""
-                {"org-id": "t1", "llm": {"model": "claude-opus-5"}}
-                """).getLlm();
+        TenantLlm backend = llm("""
+                {"model": "claude-opus-5"}
+                """);
 
         assertThat(backend.getModel()).isEqualTo("claude-opus-5");
         assertThat(backend.getProvider()).isNull();
@@ -84,8 +99,8 @@ class TenantLlmTest {
     @Test
     void anUnrecognisedProviderIsLoudRatherThanSilentlyIgnored() {
         // Falling back to the default here would answer from the wrong model without saying so.
-        assertThatThrownBy(() -> tenant("""
-                {"org-id": "t1", "llm": {"provider": "anthropc"}}
+        assertThatThrownBy(() -> llm("""
+                {"provider": "anthropc"}
                 """))
                 .rootCause()
                 .isInstanceOf(IllegalArgumentException.class);
@@ -105,8 +120,8 @@ class TenantLlmTest {
     }
 
     private TenantLlm backendWithTimeout(String value) {
-        return tenant("""
-                {"org-id": "t1", "llm": {"turn-timeout": "%s"}}
-                """.formatted(value)).getLlm();
+        return llm("""
+                {"turn-timeout": "%s"}
+                """.formatted(value));
     }
 }

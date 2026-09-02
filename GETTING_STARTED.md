@@ -504,23 +504,51 @@ layout the app uses after the master merge — three secrets, written by
 
 ### The per-tenant model
 
-`llm` is an optional block in a tenant's `tenant-resources` entry naming the model that tenant's
-agents use. **One per tenant** — every agent it runs bills to the same key, which is what makes
-usage attributable to a customer without a reconciliation step.
+Each tenant's model configuration is its **own secret**, at `tenant-llm/<org-id>`:
 
-```json
-"acme": {
-  "tenant-config": { "files": true, "chat": true },
-  "llm": { "provider": "anthropic", "api-key": "sk-ant-...", "model": "claude-opus-5" }
-}
+```
+vault kv put intellistream-datahub/tenant-llm/$ORG_ID \
+  provider=anthropic api-key=sk-ant-... model=claude-opus-5
 ```
 
 or, for a tenant running its own model:
 
-```json
-"llm": { "provider": "openai-compatible", "base-url": "http://vllm.acme:8000/v1",
-         "model": "qwen3-32b", "reasoning-effort": "none", "turn-timeout": "10m" }
 ```
+vault kv put intellistream-datahub/tenant-llm/$ORG_ID \
+  provider=openai-compatible base-url=http://vllm.acme:8000/v1 \
+  model=qwen3-32b reasoning-effort=none turn-timeout=10m
+```
+
+**One per tenant** — every agent it runs bills to the same key, which is what makes usage
+attributable to a customer without a reconciliation step.
+
+#### Why it is not in `tenant-resources`
+
+It is the one thing an application may write, because a tenant admin edits it from the console.
+`tenant-resources` holds every tenant's database credentials, so granting write there would let a
+compromised datahub-api repoint anyone's Postgres.
+
+Vault cannot narrow that for us. ACL policies are path-based, and KV plugins do not support the
+`allowed_parameters` family at all, so "may update `tenant-resources.<tenant>.llm` and nothing
+else" is not expressible however it is phrased. Giving the model config its own path is the only
+shape in which Vault itself enforces the boundary:
+
+```hcl
+path "intellistream-datahub/*"      { capabilities = ["read", "list"] }
+path "intellistream-datahub/data/*" { capabilities = ["read", "list"] }
+
+path "intellistream-datahub/data/tenant-llm/*" {
+  capabilities = ["read", "create", "update"]
+}
+```
+
+Keyed by **org id**, not org name: every request carries an id, so the write path needs no name
+lookup and renaming an organization does not strand its configuration.
+
+Vault still does not enforce *which* tenant the api writes for — that would need a Vault identity
+per tenant and a templated policy, and datahub-api holds one AppRole for all of them. That rule
+lives where every other per-tenant rule does: `TenantContext` plus the `/settings/write` grant, on
+the request.
 
 It says **which model and how to reach it** — nothing about how much to spend on it. Effort and
 the output-token roof are per agent, in that tenant's `agent` table, because they are cost dials
@@ -542,6 +570,12 @@ Two organization groups gate configuration, alongside the `/datasets/...` groups
 Flat, organization-scoped, with no wildcard — settings are one thing, not a hierarchy of things.
 Write does not imply read, matching how the dataset pair behaves, so a person gets both and an
 automation that only pushes configuration gets one. `DATAHUB_ADMIN` implies both.
+
+They gate `GET`/`PUT /tenant/llm` and the agent management endpoints. The console's **Settings**
+page under the user menu is a pure template-serve: it reads and writes datahub-api directly with
+the signed-in user's token, so the console never handles the model configuration and never sees
+the API key. Neither does anyone else — `GET /tenant/llm` reports only whether a key is stored,
+and a `PUT` that omits the key leaves the stored one alone.
 
 Fetching one agent by name (`GET /agents/{externalId}`) is deliberately **not** gated: that is how
 the console learns what it is about to run, so requiring `/settings/read` for it would mean

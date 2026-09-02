@@ -32,6 +32,12 @@ import java.util.Set;
  *                           {@code readAll} false means no access at all
  * @param writableDataSetIds datasets the caller may write, same expansion and same caveat
  *                           against {@code writeAll}
+ * @param canReadSettings    the caller may read this tenant's configuration — the
+ *                           {@code /settings/read} organization group. A power over configuration
+ *                           rather than over data, which is why it is not derived from either of
+ *                           the flags above
+ * @param canWriteSettings   the caller may change it — {@code /settings/write}. Does not follow
+ *                           from {@code canReadSettings}
  */
 @Schema(name = "CallerPermissions",
         description = """
@@ -55,7 +61,13 @@ public record CallerPermissions(
 
         @Schema(description = "Writable dataset ids, hierarchy-expanded. Empty when writeAll, "
                 + "and also when the caller can write nothing.")
-        Set<Long> writableDataSetIds) {
+        Set<Long> writableDataSetIds,
+
+        @Schema(description = "The caller may read this tenant's configuration (/settings/read).")
+        boolean canReadSettings,
+
+        @Schema(description = "The caller may change it (/settings/write).")
+        boolean canWriteSettings) {
 
     /**
      * True when the caller can read no dataset at all — neither everything nor anything named.

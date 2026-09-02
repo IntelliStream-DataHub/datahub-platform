@@ -38,6 +38,7 @@ def assetBundles = [
 		[name: 'analyze',   type: 'js', manifest: 'js/analyze.manifest.js',    output: 'js/analyze.bundle.min.js'],
 		[name: 'findings',  type: 'js', manifest: 'js/findings.manifest.js',  output: 'js/findings.bundle.min.js'],
 		[name: 'chat',      type: 'js', manifest: 'js/chat.manifest.js',       output: 'js/chat.bundle.min.js'],
+		[name: 'settings',  type: 'js', manifest: 'js/settings.manifest.js',   output: 'js/settings.bundle.min.js'],
 		// CSS example (create the manifest first, then uncomment):
 		// [name: 'app', type: 'css', manifest: 'css/app.manifest.css', output: 'css/app.bundle.min.css'],
 ]

@@ -21,6 +21,10 @@ public class AppConfig implements WebMvcConfigurer {
         // fetches the timeseries list and runs the relationship analysis client-side against the
         // datahub-api directly, so no backend-for-frontend controller logic is needed here.
         registry.addViewController("/timeseries/analyze").setViewName("timeseries/analyze");
+        // Tenant settings are the same shape: the page reads and writes datahub-api directly with
+        // the signed-in user's token, so the console has nothing to contribute but the template.
+        // It deliberately never handles the model configuration, and so never handles the API key.
+        registry.addViewController("/settings").setViewName("settings/index");
     }
 
 }

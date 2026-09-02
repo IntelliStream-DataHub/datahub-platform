@@ -115,14 +115,6 @@ vault kv put "$MOUNT/datahub-console" \
 # so each tenant value is a nested JSON OBJECT. Writing `foo={...}` instead would store
 # the value as a STRING, which TenantConfigService cannot deserialize into a Tenant.
 #
-# The asymmetric "llm" block is deliberate: foo names its own model, bar names none and
-# therefore falls back to the deployment-wide default on the datahub-console secret. That
-# way the default dev stack exercises both halves of the precedence rule without anyone
-# having to edit Vault by hand first.
-#
-# One "llm" block per tenant, not a map: every agent a tenant runs bills to the same key,
-# which is what makes usage attributable to a customer. It says which model and how to
-# reach it; how much to spend on it lives per agent, in that tenant's `agent` table.
 vault kv put "$MOUNT/tenant-resources" - <<JSON
 {
   "foo": {
@@ -134,8 +126,7 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
     "valkey":     { "host": "$VALKEY_HOST", "port": 6379, "user": "default", "password": "changeme" },
     "kvrocks":    { "host": "${KV_HOST%%:*}", "port": 6666 },
     "file-storage": { "host": "localhost", "root-path": "/tmp/datahub/foo/files", "trash-path": "/tmp/datahub/foo/trash" },
-    "tenant-config": { "files": true, "chat": true },
-    "llm": { "provider": "anthropic", "api-key": "${DATAHUB_CHAT_API_KEY:-changeme}", "model": "${DATAHUB_CHAT_MODEL:-claude-opus-5}" }
+    "tenant-config": { "files": true, "chat": true }
   },
   "bar": {
     "org-id": "$BAR_ID",
@@ -151,11 +142,36 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
 }
 JSON
 
+# Per-tenant model configuration, one secret per tenant keyed by ORG ID (not org name: every
+# request carries an id, and keying on it means the write path needs no name lookup and renaming
+# an organization does not strand its configuration).
+#
+# This is the ONLY thing any application may write to Vault — see the policy below. It is separate
+# from tenant-resources precisely so that the write capability cannot reach a database credential.
+#
+# Seeded for foo only. bar deliberately has none and falls back to the deployment-wide llm.*
+# defaults on the datahub-console secret, so the default dev stack exercises both halves of the
+# precedence rule without anyone having to edit Vault by hand first.
+echo "==> Seeding per-tenant model config (foo only; bar uses the deployment default)"
+vault kv put "$MOUNT/tenant-llm/$FOO_ID" \
+  provider=anthropic \
+  api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
+  model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+
 echo "==> Enabling AppRole auth + datahub policy"
 vault auth enable approle 2>/dev/null || echo "    (already enabled)"
+# Read everything; write exactly one thing. tenant-llm/<org-id> is the only path any application
+# may write, and it holds nothing but model settings — which is the entire reason it is a separate
+# secret. Vault policies are path-based and KV plugins do not support allowed_parameters, so
+# "may update tenant-resources.<tenant>.llm and nothing else" is not expressible at any mount;
+# giving the model config its own path is the only shape in which Vault can enforce that boundary.
+# Without the split, granting this write would also grant the ability to repoint any tenant's
+# Postgres, since tenant-resources holds every tenant's database credentials.
 vault policy write datahub - <<EOF
 path "$MOUNT/*"      { capabilities = ["read", "list"] }
 path "$MOUNT/data/*" { capabilities = ["read", "list"] }
+
+path "$MOUNT/data/tenant-llm/*" { capabilities = ["read", "create", "update"] }
 EOF
 vault write auth/approle/role/datahub \
   token_policies=datahub token_ttl=1h token_max_ttl=4h secret_id_num_uses=0 secret_id_ttl=0
