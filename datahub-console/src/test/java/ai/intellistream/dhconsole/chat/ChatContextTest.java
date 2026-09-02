@@ -3,7 +3,8 @@ package ai.intellistream.dhconsole.chat;
 
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
-import ai.intellistream.dhconsole.chat.llm.LlmClient;
+import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
+import ai.intellistream.dhconsole.chat.llm.LlmBackends;
 import ai.intellistream.dhconsole.chat.mcp.McpBridge;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.junit.jupiter.api.Test;
@@ -78,7 +79,14 @@ class ChatContextTest {
 
             assertThat(context.getBean(ChatService.class)).isNotNull();
             assertThat(context.getBean(McpBridge.class)).isNotNull();
-            assertThat(context.getBean(LlmClient.class).providerId()).startsWith("anthropic/");
+            assertThat(context.getBean(ChatSettingsResolver.class)).isNotNull();
+
+            // There is no LlmClient bean any more — a tenant may bring its own credential, so the
+            // client is resolved per turn. What the container still owes us is a cache that can
+            // build one, which is what this proves.
+            LlmBackends backends = context.getBean(LlmBackends.class);
+            var settings = ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic();
+            assertThat(backends.forSettings(settings).providerId(settings)).startsWith("anthropic/");
         }
     }
 
@@ -90,7 +98,11 @@ class ChatContextTest {
                 "datahub.chat.base-url", "http://localhost:11434/v1"))) {
 
             assertThat(context.getBean(ChatService.class)).isNotNull();
-            assertThat(context.getBean(LlmClient.class).providerId())
+
+            LlmBackends backends = context.getBean(LlmBackends.class);
+            var settings = ai.intellistream.dhconsole.chat.config.ChatSettingsFixture
+                    .openAiCompatible("http://localhost:11434/v1", null);
+            assertThat(backends.forSettings(settings).providerId(settings))
                     .isEqualTo("openai-compatible/qwen3.5:latest");
         }
     }
@@ -107,7 +119,8 @@ class ChatContextTest {
         try (context) {
             // The console must boot unchanged for deployments that have not enabled chat.
             assertThat(context.getBeanNamesForType(ChatService.class)).isEmpty();
-            assertThat(context.getBeanNamesForType(LlmClient.class)).isEmpty();
+            assertThat(context.getBeanNamesForType(LlmBackends.class)).isEmpty();
+            assertThat(context.getBeanNamesForType(ChatSettingsResolver.class)).isEmpty();
         }
     }
 }

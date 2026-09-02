@@ -500,7 +500,40 @@ layout the app uses after the master merge — three secrets, written by
 |------|---------|----------|
 | `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
-| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, and the Spring Session Valkey store (`http.session.valkey.*`). |
+| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the deployment-wide chat defaults (`llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url`, `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.turn-timeout`, `llm.instructions`). |
+| `tenant-llm/<org-id>` | console | One secret per tenant naming the model that tenant's chat uses: `provider`, `api-key`, `model`, `base-url`, `reasoning-effort`, `turn-timeout`. Optional — a tenant without one uses the `llm.*` defaults above. |
+
+### The per-tenant model
+
+Each tenant's chat can run on its own model, configured in its own secret keyed by organization id:
+
+```
+vault kv put intellistream-datahub/tenant-llm/$ORG_ID \
+  provider=anthropic api-key=sk-ant-... model=claude-opus-5
+```
+
+or, for a tenant running its own:
+
+```
+vault kv put intellistream-datahub/tenant-llm/$ORG_ID \
+  provider=openai-compatible base-url=http://vllm.acme:8000/v1 \
+  model=qwen3-32b reasoning-effort=none turn-timeout=10m
+```
+
+Every field is optional and falls back to the deployment-wide `llm.*` defaults on the
+`datahub-console` secret. A tenant with no secret at all uses those defaults entirely, which is
+what every tenant did before this existed — so this is additive, and an existing deployment
+behaves identically until someone writes one.
+
+How much a turn may spend (`llm.max-output-tokens`, `llm.effort`) stays deployment-wide: a tenant
+chooses which model it talks to, not how much the deployment is willing to spend on a call.
+
+**Why its own secret rather than a block in `tenant-resources`.** That secret holds every tenant's
+database credentials, and this is the piece of tenant configuration a person will eventually edit
+from the console. Vault cannot narrow a write within a secret — ACL policies are path-based, and KV
+plugins do not support the `allowed_parameters` family at all — so a write path would have to grant
+far more than model settings. Nothing writes it yet, and reads need no policy change because the
+AppRole already reads the whole mount.
 
 Host fields in `tenant-resources` are bare (no port) — the code appends each store's
 port; `postgresql.uri` is a full JDBC URL. Each tenant value is a nested JSON **object**

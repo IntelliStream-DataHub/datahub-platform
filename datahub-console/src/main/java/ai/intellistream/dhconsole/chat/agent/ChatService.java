@@ -2,9 +2,11 @@
 package ai.intellistream.dhconsole.chat.agent;
 
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
 import ai.intellistream.dhconsole.chat.llm.LlmClient;
+import ai.intellistream.dhconsole.chat.llm.LlmClients;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
 import ai.intellistream.dhconsole.chat.llm.LlmToolDef;
 import ai.intellistream.dhconsole.chat.llm.LlmTurn;
@@ -38,16 +40,16 @@ public class ChatService {
     /** More buttons than this under one answer is noise rather than help. */
     private static final int MAX_VIEWS = 3;
 
-    private final LlmClient llm;
+    private final LlmClients backends;
     private final McpBridge mcp;
     private final ToolPolicy policy;
     private final ConsoleViews consoleViews;
     private final ChatPrompt prompt;
     private final ChatProperties properties;
 
-    public ChatService(LlmClient llm, McpBridge mcp, ToolPolicy policy, ConsoleViews consoleViews,
-                       ChatPrompt prompt, ChatProperties properties) {
-        this.llm = llm;
+    public ChatService(LlmClients backends, McpBridge mcp, ToolPolicy policy,
+                       ConsoleViews consoleViews, ChatPrompt prompt, ChatProperties properties) {
+        this.backends = backends;
         this.mcp = mcp;
         this.policy = policy;
         this.consoleViews = consoleViews;
@@ -58,6 +60,7 @@ public class ChatService {
     /**
      * Run one user turn to completion.
      *
+     * @param settings which model this tenant's chat runs on, resolved on the request thread
      * @param bearer the signed-in user's access token, captured on the request thread — every tool
      *               call is made as that user so datahub-api's ACLs and tenant routing apply
      * @param zone   the user's time zone, so relative periods resolve where they are
@@ -65,8 +68,8 @@ public class ChatService {
      *               to every iteration of this turn: a turn that earned a deep first pass has
      *               earned an equally deep pass over the tool results it just fetched.
      */
-    public ChatReply send(ChatConversation conversation, String bearer, String userMessage, ZoneId zone,
-                          ChatEffort effort) {
+    public ChatReply send(ChatConversation conversation, ChatSettings settings, String bearer,
+                          String userMessage, ZoneId zone, ChatEffort effort) {
         String systemPrompt = prompt.build(zone);
         conversation.append(LlmMessage.user(userMessage));
 
@@ -79,9 +82,10 @@ public class ChatService {
         // A LinkedHashSet so a filter the model repeats across iterations yields one button, in the
         // order the lookups happened.
         Set<ConsoleView> views = new LinkedHashSet<>();
+        LlmClient llm = backends.forSettings(settings);
 
         for (int iteration = 0; iteration < properties.getMaxIterations(); iteration++) {
-            LlmTurn turn = llm.send(systemPrompt, tools, conversation.messages(), effort);
+            LlmTurn turn = llm.send(settings, systemPrompt, tools, conversation.messages(), effort);
             conversation.append(LlmMessage.assistant(turn.blocks()));
 
             if (!turn.wantsTools()) {

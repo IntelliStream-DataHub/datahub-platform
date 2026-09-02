@@ -6,6 +6,8 @@ import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleView;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
+import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
@@ -66,15 +68,17 @@ public class ChatApiController {
     private static final int MAX_VIEWS = 3;
 
     private final ChatService chatService;
+    private final ChatSettingsResolver settingsResolver;
     private final AccessTokens accessTokens;
     private final MessageSource messageSource;
     private final ConsoleViews consoleViews;
     private final ChatProperties properties;
 
-    public ChatApiController(ChatService chatService, AccessTokens accessTokens,
-                            MessageSource messageSource, ConsoleViews consoleViews,
-                            ChatProperties properties) {
+    public ChatApiController(ChatService chatService, ChatSettingsResolver settingsResolver,
+                            AccessTokens accessTokens, MessageSource messageSource,
+                            ConsoleViews consoleViews, ChatProperties properties) {
         this.chatService = chatService;
+        this.settingsResolver = settingsResolver;
         this.accessTokens = accessTokens;
         this.messageSource = messageSource;
         this.consoleViews = consoleViews;
@@ -123,13 +127,18 @@ public class ChatApiController {
         ChatConversation conversation = conversation(session);
         long startedAt = System.nanoTime();
         try {
+            // Resolved per turn, on the request thread: a tenant may have been reconfigured since
+            // the last one, and TenantConfigService refreshes from Vault on its own schedule.
+            ChatSettings settings = settingsResolver.forCurrentTenant();
             ChatEffort effort = ChatEffort.parse(request.effort(), properties.getEffort());
-            ChatReply reply = chatService.send(conversation, bearer, request.message(), zoneOf(request), effort);
+            ChatReply reply = chatService.send(conversation, settings, bearer, request.message(),
+                    zoneOf(request), effort);
             session.setAttribute(CONVERSATION_ATTRIBUTE, conversation); // re-set so Spring Session saves it
             // The only record that a turn finished. Everything else on this path logs on failure
             // only, which leaves the case that matters - the server answered but the browser never
             // received it - looking exactly like a turn that was never answered at all.
-            log.info("Chat turn answered in {} ms: {} chars, tools {}{}", elapsedMs(startedAt),
+            log.info("Chat turn answered in {} ms on {}: {} chars, tools {}{}", elapsedMs(startedAt),
+                    settings.model(),
                     reply.reply() == null ? 0 : reply.reply().length(), reply.toolsUsed(),
                     reply.truncated() ? ", truncated" : "");
             return ResponseEntity.ok(ChatResponse.of(reply));

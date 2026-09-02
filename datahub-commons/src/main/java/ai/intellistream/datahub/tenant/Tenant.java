@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.tenant;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -36,6 +37,17 @@ public class Tenant {
 
     @JsonProperty("tenant-config")
     private TenantFeatures features;
+
+    /**
+     * This tenant's model configuration. Absent for a tenant that has not been given its own, in
+     * which case the deployment-wide default applies.
+     *
+     * <p>{@code @JsonIgnore} because it does <strong>not</strong> come from this secret: it lives
+     * at {@code tenant-llm/<org-id>}, and {@code TenantConfigService} fills it in after
+     * deserializing the rest. See {@link TenantLlmStore} for why it is separate.
+     */
+    @JsonIgnore
+    private TenantLlm llm;
 
     public TenantFeatures getFeatures() {
         if (features == null) {

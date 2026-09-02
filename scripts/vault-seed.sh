@@ -141,6 +141,25 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
 }
 JSON
 
+# Per-tenant model configuration, one secret per tenant keyed by ORG ID (not org name: every
+# request carries an id, and keying on it means renaming an organization does not strand its
+# configuration).
+#
+# Separate from tenant-resources on purpose. That secret holds every tenant's database credentials,
+# and this is the piece of tenant config a person will eventually edit from the console — Vault
+# cannot narrow a write within a secret, so a write path would have to grant far more than the
+# model settings. Nothing writes it yet; putting it in the right place now means the write is a
+# policy line later rather than a data migration for everyone who configured it early.
+#
+# Seeded for foo only. bar deliberately has none and falls back to the deployment-wide llm.*
+# defaults on the datahub-console secret, so the default dev stack exercises both halves of the
+# precedence rule without anyone having to edit Vault by hand first.
+echo "==> Seeding per-tenant model config (foo only; bar uses the deployment default)"
+vault kv put "$MOUNT/tenant-llm/$FOO_ID" \
+  provider=anthropic \
+  api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
+  model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+
 echo "==> Enabling AppRole auth + datahub policy"
 vault auth enable approle 2>/dev/null || echo "    (already enabled)"
 vault policy write datahub - <<EOF

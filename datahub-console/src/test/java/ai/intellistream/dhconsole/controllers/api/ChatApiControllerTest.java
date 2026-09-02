@@ -5,6 +5,7 @@ import ai.intellistream.dhconsole.chat.agent.ChatReply;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -52,6 +54,8 @@ class ChatApiControllerTest {
     @BeforeEach
     void setUp() {
         chatService = mock(ChatService.class);
+        ChatSettingsResolver settingsResolver = mock(ChatSettingsResolver.class);
+        when(settingsResolver.forCurrentTenant()).thenReturn(anthropic());
         AccessTokens accessTokens = mock(AccessTokens.class);
         when(accessTokens.token()).thenReturn("user-token");
 
@@ -64,14 +68,14 @@ class ChatApiControllerTest {
         ConsoleViews consoleViews = new ConsoleViews(JsonMapper.builder().build());
         properties = new ChatProperties();
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ChatApiController(chatService, accessTokens, messages,
-                        consoleViews, properties))
+                .standaloneSetup(new ChatApiController(chatService, settingsResolver, accessTokens,
+                        messages, consoleViews, properties))
                 .build();
     }
 
     @Test
     void returnsTheReplyAndTheToolTrace() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("You have 3 datasets.", List.of("dataset_list"), List.of(), false));
 
         mockMvc.perform(post("/api/chat")
@@ -85,7 +89,7 @@ class ChatApiControllerTest {
 
     @Test
     void forwardsTheSignedInUsersTokenToTheLoop() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
         mockMvc.perform(post("/api/chat")
@@ -94,12 +98,12 @@ class ChatApiControllerTest {
                 .andExpect(status().isOk());
 
         // Not a service account: every tool call downstream runs as this user.
-        verify(chatService).send(any(), eq("user-token"), eq("hi"), any(), any());
+        verify(chatService).send(any(), any(), eq("user-token"), eq("hi"), any(), any());
     }
 
     @Test
     void forwardsTheEffortTheUserPickedForThisMessage() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
         mockMvc.perform(post("/api/chat")
@@ -107,13 +111,13 @@ class ChatApiControllerTest {
                         .content("{\"message\":\"dig into this\",\"effort\":\"max\"}"))
                 .andExpect(status().isOk());
 
-        verify(chatService).send(any(), anyString(), eq("dig into this"), any(), eq(ChatEffort.MAX));
+        verify(chatService).send(any(), any(), anyString(), eq("dig into this"), any(), eq(ChatEffort.MAX));
     }
 
     @Test
     void anAbsentOrUnusableEffortFallsBackToTheConfiguredDefault() throws Exception {
         properties.setEffort(ChatEffort.MEDIUM);
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
         // A panel cached from before the picker shipped sends no effort at all; one cached across a
@@ -128,7 +132,7 @@ class ChatApiControllerTest {
                 .andExpect(status().isOk());
 
         verify(chatService, times(2))
-                .send(any(), anyString(), anyString(), any(), eq(ChatEffort.MEDIUM));
+                .send(any(), any(), anyString(), anyString(), any(), eq(ChatEffort.MEDIUM));
     }
 
     @Test
@@ -154,7 +158,7 @@ class ChatApiControllerTest {
 
     @Test
     void keepsTheTranscriptInTheSessionAcrossRequests() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
         MockHttpSession session = new MockHttpSession();
 
@@ -177,7 +181,7 @@ class ChatApiControllerTest {
 
     @Test
     void anExpiredTokenIsReportedAsUnauthorisedNotAsAServerError() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenThrow(new McpException("401 from api", true));
 
         mockMvc.perform(post("/api/chat")
@@ -189,7 +193,7 @@ class ChatApiControllerTest {
 
     @Test
     void anApiFailureIsReportedAsBadGateway() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenThrow(new McpException("connection refused", false));
 
         mockMvc.perform(post("/api/chat")
