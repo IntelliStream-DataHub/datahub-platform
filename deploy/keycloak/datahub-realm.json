@@ -115,6 +115,9 @@
       "webOrigins": [
         "+"
       ],
+      "attributes": {
+        "post.logout.redirect.uris": "http://localhost:8080/*##http://localhost:*"
+      },
       "protocolMappers": [
         {
           "name": "datahub-realm-roles-id-token",

@@ -90,7 +90,7 @@ public class WebSecurityConfig {
                     .invalidateHttpSession(true)
                     .clearAuthentication(true)
                     .deleteCookies("JSESSIONID")
-                    .logoutSuccessHandler(new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository));
+                    .logoutSuccessHandler(oidcLogoutSuccessHandler(clientRegistrationRepository));
         });
         http.exceptionHandling(ex -> ex
                 .accessDeniedHandler(new CustomAccessDeniedHandler())
@@ -109,6 +109,20 @@ public class WebSecurityConfig {
                 .anyRequest().authenticated());
         // @formatter:on
         return http.build();
+    }
+
+    private static LogoutSuccessHandler oidcLogoutSuccessHandler(InMemoryClientRegistrationRepository clientRegistrationRepository) {
+        final var handler = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        // Without a post_logout_redirect_uri the identity provider decides where the user lands
+        // after RP-initiated logout, which meant its own "you are logged out" page on the
+        // Keycloak host — the same URL whatever hostname the console was served from. "{baseUrl}"
+        // is expanded per request (honouring X-Forwarded-* via server.forward-headers-strategy),
+        // so every deployment sends the user back to its own root, which is unauthenticated and
+        // therefore bounces straight into the login screen. The trailing slash is deliberate: it
+        // matches a "https://<console-host>/*" entry in Keycloak's valid post-logout redirect
+        // URIs, which the client must list or Keycloak rejects the logout.
+        handler.setPostLogoutRedirectUri("{baseUrl}/");
+        return handler;
     }
 
     private AuthenticationFailureHandler noOrganizationAwareFailureHandler() {
