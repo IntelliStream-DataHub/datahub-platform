@@ -10,21 +10,28 @@ import org.springframework.boot.convert.DurationStyle;
 import java.time.Duration;
 
 /**
- * One named LLM backend a tenant may point an agent at, loaded from the tenant's Vault entry
- * under the {@code llm-backends} key:
+ * A tenant's LLM configuration, loaded from its Vault entry under the {@code llm} key:
  *
  * <pre>
- * "llm-backends": {
- *   "house":  { "provider": "anthropic", "api-key": "sk-ant-...", "model": "claude-opus-5" },
- *   "onprem": { "provider": "openai-compatible", "base-url": "http://vllm.acme:8000/v1",
- *               "model": "qwen3-32b", "reasoning-effort": "none", "turn-timeout": "10m" }
- * }
+ * "llm": { "provider": "anthropic", "api-key": "sk-ant-...", "model": "claude-opus-5" }
  * </pre>
  *
- * <p><strong>A backend says which model and how to reach it — nothing about how much to spend on
+ * <p>or, for a tenant running its own model:
+ *
+ * <pre>
+ * "llm": { "provider": "openai-compatible", "base-url": "http://vllm.acme:8000/v1",
+ *          "model": "qwen3-32b", "reasoning-effort": "none", "turn-timeout": "10m" }
+ * </pre>
+ *
+ * <p><strong>One credential per tenant.</strong> Every agent that tenant runs bills to this key,
+ * which is what makes usage attributable to a customer without a reconciliation step. There is
+ * deliberately no way to give one agent a different credential from another: that would be a
+ * second billing relationship inside one tenant, and nothing has asked for one.
+ *
+ * <p><strong>It says which model and how to reach it — nothing about how much to spend on
  * it.</strong> Effort and the output-token roof are per-agent (the {@code agent} table), because
  * they are cost dials an operator wants to turn without touching a secret store, and because one
- * backend serves several agents that should not be forced to share a budget.
+ * tenant's agents should not be forced to share a budget just because they share a key.
  *
  * <p>Deliberately <strong>not</strong> in {@code datahub-api-model}: {@link TenantFeatures} lives
  * there and is serialized verbatim out of {@code GET /tenant/features} to any API client. An api
@@ -36,7 +43,7 @@ import java.time.Duration;
  */
 @Data
 @NoArgsConstructor
-public class TenantLlmBackend {
+public class TenantLlm {
 
     /** Which wire protocol to speak. Unset falls back to the deployment default. */
     private LlmProvider provider;

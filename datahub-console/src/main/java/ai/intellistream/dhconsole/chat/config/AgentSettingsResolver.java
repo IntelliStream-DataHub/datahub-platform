@@ -4,7 +4,7 @@ package ai.intellistream.dhconsole.chat.config;
 import ai.intellistream.datahub.agent.AgentDefinition;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
-import ai.intellistream.datahub.tenant.TenantLlmBackend;
+import ai.intellistream.datahub.tenant.TenantLlm;
 import ai.intellistream.dhconsole.api.DatahubApi;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.security.UserSession;
@@ -60,7 +60,7 @@ public class AgentSettingsResolver {
 
     /** Visible for tests, and the seam an autonomous runner would reuse with its own agent. */
     public AgentSettings forAgent(AgentDefinition agent) {
-        TenantLlmBackend backend = backendFor(agent.backendRef());
+        TenantLlm backend = tenantLlm();
 
         return new AgentSettings(
                 agent.externalId(),
@@ -84,30 +84,18 @@ public class AgentSettingsResolver {
     }
 
     /**
-     * The named backend from this tenant's Vault entry, or null to use the deployment default.
+     * This tenant's LLM configuration, or null to use the deployment default.
      *
-     * <p>A named-but-absent backend logs and falls back. It is worth a line because the symptom —
-     * an assistant answering from the wrong model — is otherwise indistinguishable from a
-     * deliberate configuration.
+     * <p>One per tenant, so there is nothing to look up by name and nothing to get wrong: a tenant
+     * either has its own model or it does not.
      */
-    private TenantLlmBackend backendFor(String backendRef) {
-        if (backendRef == null || backendRef.isBlank()) {
-            return null;
-        }
+    private TenantLlm tenantLlm() {
         String orgId = userSession.getOrganizationId();
         if (orgId == null) {
             return null;
         }
         Tenant tenant = tenantConfigService.getConfig(orgId);
-        if (tenant == null) {
-            return null;
-        }
-        TenantLlmBackend backend = tenant.getLlmBackends().get(backendRef);
-        if (backend == null) {
-            log.warn("Agent names backend '{}', which is not in tenant {}'s llm-backends block; "
-                    + "falling back to the deployment default", backendRef, orgId);
-        }
-        return backend;
+        return tenant == null ? null : tenant.getLlm();
     }
 
     private static String joinInstructions(String deployment, String agent) {

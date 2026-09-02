@@ -44,9 +44,6 @@ public class AgentEntity {
     @Column(name = "display_name", nullable = false)
     private String displayName;
 
-    @Column(name = "backend_ref")
-    private String backendRef;
-
     @Column(name = "instructions")
     private String instructions;
 

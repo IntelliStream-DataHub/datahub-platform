@@ -5,7 +5,7 @@ import ai.intellistream.datahub.agent.AgentDefinition;
 import ai.intellistream.datahub.agent.AgentEffort;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.datasecurity.SettingsSecurity;
 import ai.intellistream.datahub.api.mcp.ToolCatalog;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.jpa.domains.AgentEntity;
@@ -34,11 +34,17 @@ import java.util.List;
  * class, reviewable in one place, rather than a configuration a customer can talk themselves
  * into. The catalogue already knows which tools those are.
  *
- * <h3>Who may write</h3>
- * The same grant that lets a caller manage datasets — an all-datasets write grant, or
- * {@code DATAHUB_ADMIN}. An agent definition is a tenant-wide governance object in the same sense
- * a dataset is: it decides what an assistant may reach across the whole tenant, so it is not
- * something a per-dataset grant should confer.
+ * <h3>Who may read and who may write</h3>
+ * Writing needs {@code /settings/write} in the caller's organization; listing them needs
+ * {@code /settings/read}. Both are configuration powers and neither follows from a data grant —
+ * see {@code SettingsGrants} for why this stopped being an all-datasets write grant.
+ *
+ * <p><strong>Fetching one agent by name is deliberately not gated.</strong> That is the call the
+ * console makes on every turn to find out what it is running, so requiring
+ * {@code /settings/read} for it would mean granting the settings group to every person who uses
+ * the assistant — which would leave the group naming a power nobody was actually restricted from.
+ * Reading an agent in order to run it is not a settings read. Nothing in the definition is secret:
+ * the credential is a tenant-level Vault value and never appears in it.
  */
 @Slf4j
 @Service
@@ -46,19 +52,26 @@ public class AgentService {
 
     private final AgentRepository repository;
     private final ToolCatalog toolCatalog;
-    private final DataSecurity dataSecurity;
+    private final SettingsSecurity settingsSecurity;
 
-    public AgentService(AgentRepository repository, ToolCatalog toolCatalog, DataSecurity dataSecurity) {
+    public AgentService(AgentRepository repository, ToolCatalog toolCatalog,
+                        SettingsSecurity settingsSecurity) {
         this.repository = repository;
         this.toolCatalog = toolCatalog;
-        this.dataSecurity = dataSecurity;
+        this.settingsSecurity = settingsSecurity;
     }
 
+    /** The management view: every agent, enabled or not. Needs {@code /settings/read}. */
     @Transactional(readOnly = true)
     public List<AgentDefinition> list() {
+        settingsSecurity.assertCanReadSettings();
         return repository.findAllByOrderByExternalIdAsc().stream().map(AgentService::toDefinition).toList();
     }
 
+    /**
+     * One agent by name. Not gated — see the class javadoc: this is how anything about to run an
+     * agent learns what to run.
+     */
     @Transactional(readOnly = true)
     public AgentDefinition get(String externalId) {
         return repository.findByExternalId(externalId)
@@ -74,7 +87,7 @@ public class AgentService {
      */
     @Transactional
     public AgentDefinition save(String externalId, AgentDefinition submitted) {
-        dataSecurity.assertCanManageDataSets();
+        settingsSecurity.assertCanWriteSettings();
         validate(externalId, submitted);
 
         AgentEntity entity = repository.findByExternalId(externalId).orElseGet(() -> {
@@ -84,7 +97,6 @@ public class AgentService {
         });
 
         entity.setDisplayName(submitted.displayName());
-        entity.setBackendRef(blankToNull(submitted.backendRef()));
         entity.setInstructions(blankToNull(submitted.instructions()));
         entity.setToolAllowlist(new ArrayList<>(submitted.toolAllowlist()));
         entity.setDefaultEffort(blankToNull(submitted.defaultEffort()));
@@ -95,14 +107,14 @@ public class AgentService {
         AgentEntity saved = repository.save(entity);
         // Worth a line: this changes what a model may reach, for everyone in the tenant, until
         // someone changes it back.
-        log.info("Agent {} saved with {} tools, backend {}, enabled {}", externalId,
-                saved.getToolAllowlist().size(), saved.getBackendRef(), saved.isEnabled());
+        log.info("Agent {} saved with {} tools, enabled {}", externalId,
+                saved.getToolAllowlist().size(), saved.isEnabled());
         return toDefinition(saved);
     }
 
     @Transactional
     public void delete(String externalId) {
-        dataSecurity.assertCanManageDataSets();
+        settingsSecurity.assertCanWriteSettings();
         AgentEntity entity = repository.findByExternalId(externalId)
                 .orElseThrow(() -> new ObjectNotFoundException("Agent not found: " + externalId));
         repository.delete(entity);
@@ -162,7 +174,6 @@ public class AgentService {
         return new AgentDefinition(
                 entity.getExternalId(),
                 entity.getDisplayName(),
-                entity.getBackendRef(),
                 entity.getInstructions(),
                 entity.getToolAllowlist(),
                 entity.getDefaultEffort(),

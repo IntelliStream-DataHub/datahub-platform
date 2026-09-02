@@ -4,7 +4,7 @@ package ai.intellistream.dhconsole.chat.llm;
 import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
-import ai.intellistream.datahub.tenant.TenantLlmBackend;
+import ai.intellistream.datahub.tenant.TenantLlm;
 import ai.intellistream.dhconsole.chat.config.AgentSettings;
 import ai.intellistream.dhconsole.chat.config.AgentSettings.BackendKey;
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
@@ -135,14 +135,16 @@ public class LlmBackends implements LlmClients {
         Set<BackendKey> live = new HashSet<>();
         live.add(new BackendKey(properties.getProvider(), properties.getApiKey(), properties.getBaseUrl()));
         for (Tenant tenant : tenantConfigService.cachedTenants.values()) {
-            for (TenantLlmBackend backend : tenant.getLlmBackends().values()) {
-                // Mirrors how AgentSettingsResolver fills the gaps, so a backend that inherits the
-                // deployment credential maps to the same key here as it does there.
-                live.add(new BackendKey(
-                        backend.getProvider() == null ? properties.getProvider() : backend.getProvider(),
-                        backend.getApiKey() == null ? properties.getApiKey() : backend.getApiKey(),
-                        backend.getBaseUrl() == null ? properties.getBaseUrl() : backend.getBaseUrl()));
+            TenantLlm llm = tenant.getLlm();
+            if (llm == null) {
+                continue;
             }
+            // Mirrors how AgentSettingsResolver fills the gaps, so a tenant that inherits the
+            // deployment credential maps to the same key here as it does there.
+            live.add(new BackendKey(
+                    llm.getProvider() == null ? properties.getProvider() : llm.getProvider(),
+                    llm.getApiKey() == null ? properties.getApiKey() : llm.getApiKey(),
+                    llm.getBaseUrl() == null ? properties.getBaseUrl() : llm.getBaseUrl()));
         }
         return live;
     }

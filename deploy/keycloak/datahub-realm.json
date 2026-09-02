@@ -212,6 +212,17 @@
           ]
         },
         {
+          "name": "settings",
+          "subGroups": [
+            {
+              "name": "read"
+            },
+            {
+              "name": "write"
+            }
+          ]
+        },
+        {
           "name": "datahub",
           "subGroups": [
             {
@@ -266,6 +277,17 @@
                   "name": "write"
                 }
               ]
+            }
+          ]
+        },
+        {
+          "name": "settings",
+          "subGroups": [
+            {
+              "name": "read"
+            },
+            {
+              "name": "write"
             }
           ]
         },

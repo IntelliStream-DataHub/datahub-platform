@@ -86,8 +86,8 @@ class AgentEntityIT {
     @Test
     void theSeededAgentLeavesEveryCostDialUnsetSoDeploymentDefaultsStillApply() {
         AgentEntity seeded = repository.findByExternalId("console-assistant").orElseThrow();
+        // Which model it runs on is a tenant-level Vault setting, not the agent's to choose.
 
-        assertThat(seeded.getBackendRef()).isNull();
         assertThat(seeded.getInstructions()).isNull();
         assertThat(seeded.getDefaultEffort()).isNull();
         assertThat(seeded.getMaxOutputTokens()).isNull();

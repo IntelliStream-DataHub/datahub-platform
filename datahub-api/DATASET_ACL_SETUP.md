@@ -251,3 +251,14 @@ if (dataSecurity.hasReadAccessToEverything()) {
     // query variant with: WHERE data_set_id IN (:allowed)
 }
 ```
+
+## Settings groups are a separate vocabulary
+
+`/settings/read` and `/settings/write` gate a tenant's own configuration — today its agent
+definitions. They are organization groups like the dataset grants and live in the same tree, but
+nothing in this document applies to them: no wildcard, no hierarchy, no expansion, and
+`DatasetGrants` ignores them entirely. See `SettingsGrants`.
+
+They exist because configuring an assistant used to require an all-datasets write grant, which
+made "may curate agents" a consequence of "may write every row in the tenant". Configuration and
+data are different powers.

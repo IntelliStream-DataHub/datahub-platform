@@ -11,7 +11,6 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -159,10 +158,10 @@ class LlmBackendsTest {
     private static Tenant tenantWithKey(String apiKey) {
         Tenant tenant = new Tenant();
         tenant.setOrganizationId("t1");
-        var backend = new ai.intellistream.datahub.tenant.TenantLlmBackend();
+        var backend = new ai.intellistream.datahub.tenant.TenantLlm();
         backend.setProvider(LlmProvider.ANTHROPIC);
         backend.setApiKey(apiKey);
-        tenant.setLlmBackends(Map.of("house", backend));
+        tenant.setLlm(backend);
         return tenant;
     }
 }

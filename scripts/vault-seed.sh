@@ -115,11 +115,14 @@ vault kv put "$MOUNT/datahub-console" \
 # so each tenant value is a nested JSON OBJECT. Writing `foo={...}` instead would store
 # the value as a STRING, which TenantConfigService cannot deserialize into a Tenant.
 #
-# The asymmetric "llm-backends" block is deliberate: foo names its own model, bar names
-# none and therefore falls back to the deployment-wide default on the datahub-console
-# secret. That way the default dev stack exercises both halves of the precedence rule
-# without anyone having to edit Vault by hand first. A backend says which model and how
-# to reach it; how much to spend on it lives per agent, in the tenant's `agent` table.
+# The asymmetric "llm" block is deliberate: foo names its own model, bar names none and
+# therefore falls back to the deployment-wide default on the datahub-console secret. That
+# way the default dev stack exercises both halves of the precedence rule without anyone
+# having to edit Vault by hand first.
+#
+# One "llm" block per tenant, not a map: every agent a tenant runs bills to the same key,
+# which is what makes usage attributable to a customer. It says which model and how to
+# reach it; how much to spend on it lives per agent, in that tenant's `agent` table.
 vault kv put "$MOUNT/tenant-resources" - <<JSON
 {
   "foo": {
@@ -132,9 +135,7 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
     "kvrocks":    { "host": "${KV_HOST%%:*}", "port": 6666 },
     "file-storage": { "host": "localhost", "root-path": "/tmp/datahub/foo/files", "trash-path": "/tmp/datahub/foo/trash" },
     "tenant-config": { "files": true, "chat": true },
-    "llm-backends": {
-      "house": { "provider": "anthropic", "api-key": "${DATAHUB_CHAT_API_KEY:-changeme}", "model": "${DATAHUB_CHAT_MODEL:-claude-opus-5}" }
-    }
+    "llm": { "provider": "anthropic", "api-key": "${DATAHUB_CHAT_API_KEY:-changeme}", "model": "${DATAHUB_CHAT_MODEL:-claude-opus-5}" }
   },
   "bar": {
     "org-id": "$BAR_ID",

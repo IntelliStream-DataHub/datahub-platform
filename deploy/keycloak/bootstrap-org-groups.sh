@@ -118,6 +118,13 @@ fi
 # both wildcard grants so the dev stack behaves as before, plus read+write on the tenant's demo
 # dataset so the per-dataset group path shape is exercised end to end as well.
 #
+# /settings/read and /settings/write gate this tenant's own configuration — today the agent
+# definitions, and whatever else becomes configurable. They are top-level beside /datasets because
+# they are a power over configuration rather than over data, and flat (no wildcard, nothing to
+# expand) because settings are one thing and not a hierarchy of things. Write does not imply read,
+# matching the dataset pair, so a person gets both and an automation that only pushes config gets
+# one. Unlike tenant-admin these ARE read: see SettingsGrants.
+#
 # /datahub/tenant-admin is the other thing in the tree: the organization's administrators. It is a
 # group and not a realm role precisely because a realm role is realm-global — one person may
 # administer one tenant and be an ordinary member of another, which a role cannot express. It is
@@ -171,6 +178,11 @@ for tenant in foo bar; do
   # does with a real tenant's first user. The service account is deliberately left out: it is a
   # machine identity for data access, not a person who administers anyone.
   grant "$tenant" "$tenant" "/datahub/tenant-admin"
+  # The tenant's own administrator curates its agents, so they get both settings grants. The
+  # service account deliberately gets neither: it is a machine identity for data access, and
+  # nothing about it should be able to rewrite what an assistant may reach.
+  grant "$tenant" "$tenant" "/settings/read"
+  grant "$tenant" "$tenant" "/settings/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/read"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/data_set_demo/write"

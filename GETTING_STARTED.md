@@ -498,33 +498,55 @@ layout the app uses after the master merge — three secrets, written by
 
 | Path | Read by | Contents |
 |------|---------|----------|
-| `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, `tenant-config`, and the optional `llm-backends`. The source of truth for all backend connections. |
+| `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, `tenant-config`, and the optional `llm`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
 | `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the deployment-wide chat defaults (`llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url`, `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.turn-timeout`, `llm.instructions`). |
 
-### Per-tenant LLM backends
+### The per-tenant model
 
-`llm-backends` is an optional block in a tenant's `tenant-resources` entry, naming the models
-that tenant's agents may use. A backend says **which model and how to reach it**; how much to
-spend on it lives per agent, in that tenant's `agent` table.
+`llm` is an optional block in a tenant's `tenant-resources` entry naming the model that tenant's
+agents use. **One per tenant** — every agent it runs bills to the same key, which is what makes
+usage attributable to a customer without a reconciliation step.
 
 ```json
 "acme": {
   "tenant-config": { "files": true, "chat": true },
-  "llm-backends": {
-    "house":  { "provider": "anthropic", "api-key": "sk-ant-...", "model": "claude-opus-5" },
-    "onprem": { "provider": "openai-compatible", "base-url": "http://vllm.acme:8000/v1",
-                "model": "qwen3-32b", "reasoning-effort": "none", "turn-timeout": "10m" }
-  }
+  "llm": { "provider": "anthropic", "api-key": "sk-ant-...", "model": "claude-opus-5" }
 }
 ```
 
+or, for a tenant running its own model:
+
+```json
+"llm": { "provider": "openai-compatible", "base-url": "http://vllm.acme:8000/v1",
+         "model": "qwen3-32b", "reasoning-effort": "none", "turn-timeout": "10m" }
+```
+
+It says **which model and how to reach it** — nothing about how much to spend on it. Effort and
+the output-token roof are per agent, in that tenant's `agent` table, because they are cost dials
+an operator wants to turn without touching a secret store.
+
 Every field is optional, and an unset one falls back to the deployment-wide `llm.*` defaults on
-the `datahub-console` secret. A tenant with no `llm-backends` block at all uses those defaults
-entirely, which is what every tenant did before the block existed. An agent points at a backend
-by name through its `backend_ref`; a name that is not in the block falls back to the deployment
-default and logs, so deleting a backend degrades the agents using it rather than taking them off
-the air silently.
+the `datahub-console` secret. A tenant with no `llm` block at all uses those defaults entirely,
+which is what every tenant did before the block existed.
+
+### Who may change a tenant's settings
+
+Two organization groups gate configuration, alongside the `/datasets/...` groups that gate data:
+
+```
+/settings/read     list agents, read the tool catalogue
+/settings/write    create, replace and delete agents
+```
+
+Flat, organization-scoped, with no wildcard — settings are one thing, not a hierarchy of things.
+Write does not imply read, matching how the dataset pair behaves, so a person gets both and an
+automation that only pushes configuration gets one. `DATAHUB_ADMIN` implies both.
+
+Fetching one agent by name (`GET /agents/{externalId}`) is deliberately **not** gated: that is how
+the console learns what it is about to run, so requiring `/settings/read` for it would mean
+granting the group to everyone who uses the assistant. Nothing in a definition is secret — the
+model credential is a tenant-level Vault value and never appears in one.
 
 Host fields in `tenant-resources` are bare (no port) — the code appends each store's
 port; `postgresql.uri` is a full JDBC URL. Each tenant value is a nested JSON **object**

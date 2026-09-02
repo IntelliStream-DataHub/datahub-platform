@@ -1,5 +1,5 @@
--- Agent definitions: what an LLM agent is called, what it is told, which model backend it uses,
--- and — the point of the table — exactly which MCP tools it may be offered.
+-- Agent definitions: what an LLM agent is called, what it is told, and — the point of the
+-- table — exactly which MCP tools it may be offered.
 --
 -- Before this table there was one hard-wired assistant. Its prompt came from a deployment-wide
 -- Vault field and its tool list was a hardcoded set of twenty names compiled into datahub-console,
@@ -8,12 +8,13 @@
 -- to something different. All three are the same missing concept: an agent.
 --
 -- WHAT LIVES HERE AND WHAT LIVES IN VAULT
--- A tenant's `llm-backends` Vault block says which model an agent may use and how to reach it —
--- provider, credential, base url. It holds secrets, so it stays in Vault. This table says what to
--- do with that model: the prompt, the tools, and how much to spend per turn. Those are not
--- secrets, they are edited far more often, and they differ per agent while a backend is shared,
--- so they belong in the tenant's own database where a change is a transaction and not a secret
--- rotation. `backend_ref` is the join between the two, by name.
+-- A tenant's `llm` Vault block says which model its agents use and how to reach it — provider,
+-- credential, base url. It holds a secret, so it stays in Vault, and there is one per tenant:
+-- every agent bills to the same key, which is what makes usage attributable to a customer.
+-- This table says what to do with that model: the prompt, the tools, and how much to spend per
+-- turn. Those are not secrets, they are edited far more often, and they differ per agent where
+-- the credential does not, so they belong in the tenant's own database where a change is a
+-- transaction rather than a secret rotation.
 --
 -- ONE TABLE PER TENANT DATABASE
 -- Tenants are separate databases, not schemas, so there is no tenant column — the routing
@@ -34,12 +35,6 @@ CREATE TABLE agent (
     -- Shown to people. Free text, and expected to be translated by the caller, not here.
     display_name      text NOT NULL,
 
-    -- Names an entry in the tenant's Vault `llm-backends` block. NULL means the deployment-wide
-    -- default backend, which is what every tenant used before this table existed. A name that no
-    -- longer exists in Vault is treated the same way, so deleting a backend degrades the agents
-    -- using it to the default rather than breaking them.
-    backend_ref       text,
-
     -- Appended to the built-in system prompt — domain vocabulary, tag conventions, what this
     -- customer cares about. Appended and never substituted, so the tool discipline and the
     -- read-only framing in the built-in prompt cannot be configured away from here.
@@ -56,9 +51,9 @@ CREATE TABLE agent (
     -- perform each read and write.
     tool_allowlist    text[] NOT NULL DEFAULT '{}',
 
-    -- COST CONTROLS. Per agent rather than per backend, because one backend serves several
-    -- agents that should not be forced to share a budget, and because these are dials an
-    -- operator wants to turn without touching a secret store.
+    -- COST CONTROLS. Per agent rather than per tenant, because a tenant's agents share one
+    -- credential and should not be forced to share a budget with it, and because these are dials
+    -- an operator wants to turn without touching a secret store.
 
     -- Where the effort picker starts for a new user: 'low' | 'medium' | 'high' | 'xhigh' | 'max'.
     -- Only the starting point — effort is a per-message choice and the picker keeps overriding
@@ -92,7 +87,7 @@ CREATE TABLE agent (
 -- request after the migration exactly as it answered the last one before it.
 --
 -- This row is the tenant's to edit from here on: narrowing the list, adding instructions or
--- pointing it at their own backend is expected, and nothing overwrites it later.
+-- changing its budgets is expected, and nothing overwrites it later.
 INSERT INTO agent (external_id, display_name, tool_allowlist)
 VALUES (
     'console-assistant',

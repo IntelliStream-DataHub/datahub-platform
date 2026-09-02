@@ -15,15 +15,12 @@ import java.util.List;
  * widen the other: an allowlist cannot grant access to data the caller has no grant on, and a
  * grant cannot reach a tool the allowlist omits.
  *
- * <p><strong>No credential appears here.</strong> {@link #backendRef} names a backend in the
- * tenant's Vault entry; resolving that name to a model, an endpoint and a key happens server-side,
- * in a process that already holds Vault credentials. This record is safe to hand to any client
- * that may see the agent at all.
+ * <p><strong>No credential appears here, and none can.</strong> Which model an agent runs on is a
+ * tenant-level fact held in Vault, resolved server-side in a process that already holds Vault
+ * credentials. This record is safe to hand to any client that may see the agent at all.
  *
  * @param externalId       stable name, e.g. {@code console-assistant}
  * @param displayName      shown to people
- * @param backendRef       names an entry in the tenant's Vault {@code llm-backends} block, or
- *                         null for the deployment-wide default
  * @param instructions     appended to the built-in system prompt, never substituted for it
  * @param toolAllowlist    the MCP tools this agent may be offered. Default-deny: empty means no
  *                         tools, not all of them
@@ -37,14 +34,13 @@ import java.util.List;
  */
 @Schema(name = "AgentDefinition",
         description = """
-                A named LLM assistant: its instructions, which model backend it uses, and exactly
-                which MCP tools it may be offered. What it can actually reach is this list
-                intersected with the permissions of whoever runs it — neither widens the other.""")
+                A named LLM assistant: its instructions, its budgets, and exactly which MCP tools
+                it may be offered. What it can actually reach is this list intersected with the
+                permissions of whoever runs it — neither widens the other. Which model it runs on
+                is a tenant-level setting, not the agent's to choose.""")
 public record AgentDefinition(
         @Schema(description = "Stable name.", example = "console-assistant") String externalId,
         @Schema(description = "Name shown to people.", example = "Console assistant") String displayName,
-        @Schema(description = "Named backend in the tenant's Vault block, or null for the "
-                + "deployment default.", example = "house") String backendRef,
         @Schema(description = "Extra system-prompt instructions, appended to the built-in prompt.")
         String instructions,
         @Schema(description = "MCP tools this agent may use. Empty means none.")

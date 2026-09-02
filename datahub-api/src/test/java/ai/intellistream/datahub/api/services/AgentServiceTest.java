@@ -3,8 +3,8 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.agent.AgentDefinition;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.datasecurity.DataSecurity;
-import ai.intellistream.datahub.api.datasecurity.DatasetAccessDeniedException;
+import ai.intellistream.datahub.api.datasecurity.SettingsAccessDeniedException;
+import ai.intellistream.datahub.api.datasecurity.SettingsSecurity;
 import ai.intellistream.datahub.api.mcp.ToolCatalog;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.jpa.domains.AgentEntity;
@@ -33,11 +33,12 @@ import static org.mockito.Mockito.when;
 class AgentServiceTest {
 
     private final AgentRepository repository = mock(AgentRepository.class);
-    private final DataSecurity dataSecurity = mock(DataSecurity.class);
-    private final AgentService service = new AgentService(repository, new ToolCatalog(), dataSecurity);
+    private final SettingsSecurity settingsSecurity = mock(SettingsSecurity.class);
+    private final AgentService service =
+            new AgentService(repository, new ToolCatalog(), settingsSecurity);
 
     private static AgentDefinition definition(List<String> tools) {
-        return new AgentDefinition("assistant", "Assistant", null, null, tools, null, null, null, true);
+        return new AgentDefinition("assistant", "Assistant", null, tools, null, null, null, true);
     }
 
     /**
@@ -112,7 +113,7 @@ class AgentServiceTest {
 
     @Test
     void refusesAnEffortLevelThatIsNotOne() {
-        AgentDefinition bad = new AgentDefinition("assistant", "Assistant", null, null,
+        AgentDefinition bad = new AgentDefinition("assistant", "Assistant", null,
                 List.of("event_search"), "hardest", null, null, true);
 
         assertThatThrownBy(() -> save(bad))
@@ -128,8 +129,8 @@ class AgentServiceTest {
             when(repository.findByExternalId("assistant")).thenReturn(Optional.empty());
             when(repository.save(any(AgentEntity.class))).thenAnswer(i -> i.getArgument(0));
 
-            AgentDefinition definition = new AgentDefinition("assistant", "Assistant", null, null,
-                    List.of("event_search"), level, null, null, true);
+            AgentDefinition definition = new AgentDefinition("assistant", "Assistant", null,
+                List.of("event_search"), level, null, null, true);
 
             assertThat(service.save("assistant", definition).defaultEffort()).isEqualTo(level);
         }
@@ -137,34 +138,35 @@ class AgentServiceTest {
 
     @Test
     void refusesABudgetThatWouldDefineAnAgentThatCanNeverAnswer() {
-        AgentDefinition noIterations = new AgentDefinition("assistant", "Assistant", null, null,
+        AgentDefinition noIterations = new AgentDefinition("assistant", "Assistant", null,
                 List.of("event_search"), null, null, 0, true);
         assertThatThrownBy(() -> save(noIterations)).isInstanceOf(BadRequestException.class);
 
-        AgentDefinition noTokens = new AgentDefinition("assistant", "Assistant", null, null,
+        AgentDefinition noTokens = new AgentDefinition("assistant", "Assistant", null,
                 List.of("event_search"), null, 0, null, true);
         assertThatThrownBy(() -> save(noTokens)).isInstanceOf(BadRequestException.class);
     }
 
     @Test
     void refusesAnAgentWithNoDisplayName() {
-        AgentDefinition nameless = new AgentDefinition("assistant", "  ", null, null,
-                List.of(), null, null, null, true);
+        AgentDefinition nameless = new AgentDefinition("assistant", "  ", null, List.of(), null, null, null, true);
 
         assertThatThrownBy(() -> save(nameless)).isInstanceOf(BadRequestException.class);
     }
 
     @Test
-    void writingRequiresTheGrantThatManagesDatasets() {
-        // An agent's tool list governs what an assistant may reach across the whole tenant, so a
-        // per-dataset grant must not confer it.
-        doThrow(DatasetAccessDeniedException.datasetManagement())
-                .when(dataSecurity).assertCanManageDataSets();
+    void writingRequiresTheSettingsWriteGroup() {
+        // Configuring an assistant is a power over configuration, not over data: it used to need an
+        // all-datasets write grant, which meant the only way to let someone curate agents was to
+        // hand them every row in the tenant.
+        doThrow(SettingsAccessDeniedException.write())
+                .when(settingsSecurity).assertCanWriteSettings();
 
         assertThatThrownBy(() -> service.save("assistant", definition(List.of("event_search"))))
-                .isInstanceOf(DatasetAccessDeniedException.class);
+                .isInstanceOf(SettingsAccessDeniedException.class)
+                .hasMessageContaining("/settings/write");
         assertThatThrownBy(() -> service.delete("assistant"))
-                .isInstanceOf(DatasetAccessDeniedException.class);
+                .isInstanceOf(SettingsAccessDeniedException.class);
 
         verify(repository, never()).save(any());
         verify(repository, never()).delete(any());
@@ -173,11 +175,37 @@ class AgentServiceTest {
     @Test
     void theGrantIsCheckedBeforeTheBodyIsValidated() {
         // Otherwise the validation messages tell an unauthorised caller which tools exist.
-        doThrow(DatasetAccessDeniedException.datasetManagement())
-                .when(dataSecurity).assertCanManageDataSets();
+        doThrow(SettingsAccessDeniedException.write())
+                .when(settingsSecurity).assertCanWriteSettings();
 
         assertThatThrownBy(() -> service.save("assistant", definition(List.of("event_serach"))))
-                .isInstanceOf(DatasetAccessDeniedException.class);
+                .isInstanceOf(SettingsAccessDeniedException.class);
+    }
+
+    @Test
+    void listingRequiresTheSettingsReadGroup() {
+        // The management view. Fetching one agent by name is deliberately not gated — that is how
+        // the console learns what it is running, and gating it would mean granting the settings
+        // group to everyone who uses the assistant.
+        doThrow(SettingsAccessDeniedException.read())
+                .when(settingsSecurity).assertCanReadSettings();
+
+        assertThatThrownBy(service::list)
+                .isInstanceOf(SettingsAccessDeniedException.class)
+                .hasMessageContaining("/settings/read");
+    }
+
+    @Test
+    void fetchingOneAgentToRunItNeedsNoSettingsGrant() {
+        doThrow(SettingsAccessDeniedException.read())
+                .when(settingsSecurity).assertCanReadSettings();
+        AgentEntity existing = new AgentEntity();
+        existing.setExternalId("assistant");
+        existing.setDisplayName("Assistant");
+        existing.setToolAllowlist(new java.util.ArrayList<>(List.of("event_search")));
+        when(repository.findByExternalId("assistant")).thenReturn(Optional.of(existing));
+
+        assertThat(service.get("assistant").toolAllowlist()).containsExactly("event_search");
     }
 
     @Test
