@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
-import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import ai.intellistream.datahub.tenant.LlmProvider;
+import ai.intellistream.dhconsole.chat.config.AgentSettings;
+import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.anthropic.AnthropicSetup;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -31,7 +34,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * id is real and that the API accepts our tool schema and message shapes.
  */
 @Tag("integration")
-class AnthropicLlmClientIT {
+class SpringAiAnthropicLlmClientIT {
 
     /**
      * The key, from {@code ANTHROPIC_API_KEY} or from {@code datahub.chat.api-key} in
@@ -43,7 +46,7 @@ class AnthropicLlmClientIT {
         if (fromEnvironment != null && !fromEnvironment.isBlank()) {
             return fromEnvironment;
         }
-        try (InputStream in = AnthropicLlmClientIT.class.getResourceAsStream("/application-test.properties")) {
+        try (InputStream in = SpringAiAnthropicLlmClientIT.class.getResourceAsStream("/application-test.properties")) {
             if (in == null) {
                 return null;
             }
@@ -75,13 +78,20 @@ class AnthropicLlmClientIT {
             """
             {"type":"object","properties":{"limit":{"type":"integer","description":"Max rows"}}}""");
 
-    private AnthropicLlmClient client() {
-        ChatProperties properties = new ChatProperties();
-        properties.setMaxOutputTokens(1024);
-        return new AnthropicLlmClient(
-                AnthropicOkHttpClient.builder().apiKey(apiKey()).build(),
-                properties,
-                JsonMapper.builder().build());
+    private SpringAiAnthropicLlmClient client() {
+        AnthropicChatModel model = AnthropicChatModel.builder()
+                .anthropicClient(AnthropicSetup.setupSyncClient(
+                        null, apiKey(), null, null, null, java.util.Map.of()))
+                .options(AnthropicChatOptions.builder().build())
+                .build();
+        return new SpringAiAnthropicLlmClient(model, JsonMapper.builder().build());
+    }
+
+    /** A 1024-token roof, so a run of this test costs pennies rather than pounds. */
+    private static AgentSettings settings() {
+        return new AgentSettings("integration-test", LlmProvider.ANTHROPIC, null, "claude-opus-5",
+                null, null, java.time.Duration.ofMinutes(4), null, List.of("unit_list"),
+                ChatEffort.HIGH, 1024, 6, 40, 24_000);
     }
 
     /**
@@ -97,7 +107,7 @@ class AnthropicLlmClientIT {
     @Test
     void theApiAcceptsAdaptiveThinkingAtEveryCheapEffortLevel() {
         for (ChatEffort effort : List.of(ChatEffort.LOW, ChatEffort.MEDIUM, ChatEffort.HIGH)) {
-            LlmTurn turn = client().send(
+            LlmTurn turn = client().send(settings(),
                     "Answer in one word.",
                     List.of(),
                     List.of(LlmMessage.user("Say OK and nothing else.")),
@@ -110,8 +120,8 @@ class AnthropicLlmClientIT {
 
     @Test
     void answersAPlainQuestion() {
-        LlmTurn turn = client().send(
-                "Answer in exactly one short sentence.",
+        LlmTurn turn = client().send(settings(),
+                    "Answer in exactly one short sentence.",
                 List.of(),
                 List.of(LlmMessage.user("Say OK and nothing else.")), ChatEffort.HIGH);
 
@@ -121,8 +131,8 @@ class AnthropicLlmClientIT {
 
     @Test
     void acceptsOurToolSchemaAndAsksToUseIt() {
-        LlmTurn turn = client().send(
-                "You are a data assistant. Use the tools to answer; never guess.",
+        LlmTurn turn = client().send(settings(),
+                    "You are a data assistant. Use the tools to answer; never guess.",
                 List.of(ECHO_TOOL),
                 List.of(LlmMessage.user("What units are configured? Use the tool.")), ChatEffort.HIGH);
 

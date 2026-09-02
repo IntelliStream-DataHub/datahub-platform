@@ -114,6 +114,12 @@ vault kv put "$MOUNT/datahub-console" \
 # The whole registry is written as one JSON object piped on stdin (`... databases -`)
 # so each tenant value is a nested JSON OBJECT. Writing `foo={...}` instead would store
 # the value as a STRING, which TenantConfigService cannot deserialize into a Tenant.
+#
+# The asymmetric "llm-backends" block is deliberate: foo names its own model, bar names
+# none and therefore falls back to the deployment-wide default on the datahub-console
+# secret. That way the default dev stack exercises both halves of the precedence rule
+# without anyone having to edit Vault by hand first. A backend says which model and how
+# to reach it; how much to spend on it lives per agent, in the tenant's `agent` table.
 vault kv put "$MOUNT/tenant-resources" - <<JSON
 {
   "foo": {
@@ -125,7 +131,10 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
     "valkey":     { "host": "$VALKEY_HOST", "port": 6379, "user": "default", "password": "changeme" },
     "kvrocks":    { "host": "${KV_HOST%%:*}", "port": 6666 },
     "file-storage": { "host": "localhost", "root-path": "/tmp/datahub/foo/files", "trash-path": "/tmp/datahub/foo/trash" },
-    "tenant-config": { "files": true, "chat": true }
+    "tenant-config": { "files": true, "chat": true },
+    "llm-backends": {
+      "house": { "provider": "anthropic", "api-key": "${DATAHUB_CHAT_API_KEY:-changeme}", "model": "${DATAHUB_CHAT_MODEL:-claude-opus-5}" }
+    }
   },
   "bar": {
     "org-id": "$BAR_ID",

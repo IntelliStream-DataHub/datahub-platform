@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.controllers.api;
 
+import ai.intellistream.dhconsole.api.DatahubApi;
+import ai.intellistream.dhconsole.chat.agent.AgentRunner;
 import ai.intellistream.dhconsole.chat.agent.ChatReply;
-import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
+import ai.intellistream.dhconsole.chat.agent.ExecutionIdentity;
+import ai.intellistream.dhconsole.chat.config.AgentSettings;
+import ai.intellistream.dhconsole.chat.config.AgentSettingsResolver;
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
@@ -24,8 +28,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+import static ai.intellistream.dhconsole.chat.config.AgentSettingsFixture.anthropicAgent;
+import static ai.intellistream.dhconsole.chat.config.AgentSettingsFixture.readsEverything;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -45,13 +52,34 @@ class ChatApiControllerTest {
 
     private static final String CONVERSATION_ATTRIBUTE = "datahub.chat.conversation";
 
-    private ChatService chatService;
+    private AgentRunner agentRunner;
+    private AgentSettingsResolver settingsResolver;
     private ChatProperties properties;
     private MockMvc mockMvc;
 
+    /** The resolved agent the controller will hand to the loop, unless a test replaces it. */
+    private void agentAnswers(AgentSettings settings) {
+        when(settingsResolver.forConsoleAgent()).thenReturn(settings);
+    }
+
+    /** A copy of the fixture agent with a different starting effort or turn budget. */
+    private static AgentSettings agentWith(ChatEffort defaultEffort, java.time.Duration turnTimeout) {
+        AgentSettings base = anthropicAgent("dataset_list");
+        return new AgentSettings(base.agentId(), base.provider(), base.apiKey(), base.model(),
+                base.baseUrl(), base.reasoningEffort(), turnTimeout, base.instructions(),
+                base.toolAllowlist(), defaultEffort, base.maxOutputTokens(), base.maxIterations(),
+                base.maxMessages(), base.maxToolResultChars());
+    }
+
     @BeforeEach
     void setUp() {
-        chatService = mock(ChatService.class);
+        agentRunner = mock(AgentRunner.class);
+        settingsResolver = mock(AgentSettingsResolver.class);
+        agentAnswers(anthropicAgent("dataset_list"));
+
+        DatahubApi datahubApi = mock(DatahubApi.class);
+        when(datahubApi.getCallerPermissions()).thenReturn(readsEverything());
+
         AccessTokens accessTokens = mock(AccessTokens.class);
         when(accessTokens.token()).thenReturn("user-token");
 
@@ -64,14 +92,14 @@ class ChatApiControllerTest {
         ConsoleViews consoleViews = new ConsoleViews(JsonMapper.builder().build());
         properties = new ChatProperties();
         mockMvc = MockMvcBuilders
-                .standaloneSetup(new ChatApiController(chatService, accessTokens, messages,
-                        consoleViews, properties))
+                .standaloneSetup(new ChatApiController(agentRunner, settingsResolver, datahubApi,
+                        accessTokens, messages, consoleViews, properties))
                 .build();
     }
 
     @Test
     void returnsTheReplyAndTheToolTrace() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("You have 3 datasets.", List.of("dataset_list"), List.of(), false));
 
         mockMvc.perform(post("/api/chat")
@@ -85,7 +113,7 @@ class ChatApiControllerTest {
 
     @Test
     void forwardsTheSignedInUsersTokenToTheLoop() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
         mockMvc.perform(post("/api/chat")
@@ -93,13 +121,17 @@ class ChatApiControllerTest {
                         .content("{\"message\":\"hi\"}"))
                 .andExpect(status().isOk());
 
-        // Not a service account: every tool call downstream runs as this user.
-        verify(chatService).send(any(), eq("user-token"), eq("hi"), any(), any());
+        // Not a service account: every tool call downstream runs as this user. The token now
+        // travels inside the execution identity, which is what an autonomous agent would swap.
+        verify(agentRunner).send(any(),
+                any(),
+                argThat((ExecutionIdentity identity) -> "user-token".equals(identity.bearer())),
+                eq("hi"), any(), any());
     }
 
     @Test
     void forwardsTheEffortTheUserPickedForThisMessage() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
         mockMvc.perform(post("/api/chat")
@@ -107,13 +139,13 @@ class ChatApiControllerTest {
                         .content("{\"message\":\"dig into this\",\"effort\":\"max\"}"))
                 .andExpect(status().isOk());
 
-        verify(chatService).send(any(), anyString(), eq("dig into this"), any(), eq(ChatEffort.MAX));
+        verify(agentRunner).send(any(), any(), any(), eq("dig into this"), any(), eq(ChatEffort.MAX));
     }
 
     @Test
-    void anAbsentOrUnusableEffortFallsBackToTheConfiguredDefault() throws Exception {
-        properties.setEffort(ChatEffort.MEDIUM);
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+    void anAbsentOrUnusableEffortFallsBackToTheAgentsDefault() throws Exception {
+        agentAnswers(agentWith(ChatEffort.MEDIUM, java.time.Duration.ofMinutes(4)));
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
         // A panel cached from before the picker shipped sends no effort at all; one cached across a
@@ -127,13 +159,13 @@ class ChatApiControllerTest {
                         .content("{\"message\":\"hi\",\"effort\":\"ludicrous\"}"))
                 .andExpect(status().isOk());
 
-        verify(chatService, times(2))
-                .send(any(), anyString(), anyString(), any(), eq(ChatEffort.MEDIUM));
+        verify(agentRunner, times(2))
+                .send(any(), any(), any(), anyString(), any(), eq(ChatEffort.MEDIUM));
     }
 
     @Test
     void tellsThePanelWhichEffortToStartOn() throws Exception {
-        properties.setEffort(ChatEffort.XHIGH);
+        agentAnswers(agentWith(ChatEffort.XHIGH, java.time.Duration.ofMinutes(4)));
 
         mockMvc.perform(get("/api/chat"))
                 .andExpect(status().isOk())
@@ -145,7 +177,7 @@ class ChatApiControllerTest {
         // The panel cannot hardcode this: a self-hosted model on CPU needs minutes per turn where a
         // hosted one needs seconds, and the wrong number shows up as a dropped connection rather
         // than as anything the server logs.
-        properties.setTurnTimeout(java.time.Duration.ofMinutes(10));
+        agentAnswers(agentWith(ChatEffort.HIGH, java.time.Duration.ofMinutes(10)));
 
         mockMvc.perform(get("/api/chat"))
                 .andExpect(status().isOk())
@@ -154,7 +186,7 @@ class ChatApiControllerTest {
 
     @Test
     void keepsTheTranscriptInTheSessionAcrossRequests() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
         MockHttpSession session = new MockHttpSession();
 
@@ -177,7 +209,7 @@ class ChatApiControllerTest {
 
     @Test
     void anExpiredTokenIsReportedAsUnauthorisedNotAsAServerError() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenThrow(new McpException("401 from api", true));
 
         mockMvc.perform(post("/api/chat")
@@ -189,7 +221,7 @@ class ChatApiControllerTest {
 
     @Test
     void anApiFailureIsReportedAsBadGateway() throws Exception {
-        when(chatService.send(any(), anyString(), anyString(), any(), any()))
+        when(agentRunner.send(any(), any(), any(), anyString(), any(), any()))
                 .thenThrow(new McpException("connection refused", false));
 
         mockMvc.perform(post("/api/chat")

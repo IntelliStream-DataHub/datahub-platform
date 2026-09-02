@@ -75,7 +75,7 @@ class ConsoleViewsTest {
 
     @Test
     void survivesAResultTruncatedIntoInvalidJson() {
-        // ChatService caps tool results by characters, which can cut the JSON mid-object. The count
+        // AgentRunner caps tool results by characters, which can cut the JSON mid-object. The count
         // is cosmetic, so the view still stands.
         var view = consoleViews.from(
                 eventFilter(Map.of("type", "ALARM")),

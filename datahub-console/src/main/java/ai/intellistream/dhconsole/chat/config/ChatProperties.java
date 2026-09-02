@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.config;
 
+import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import lombok.Getter;
 import lombok.Setter;
@@ -10,7 +11,13 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Chat configuration.
+ * Deployment-wide chat configuration: the fallback layer beneath a tenant's own Vault backend and
+ * an agent's own row.
+ *
+ * <p>Every field here answers "what applies when nobody said otherwise". A tenant that names its
+ * own backend, or an agent that sets its own budget, overrides the matching field; anything left
+ * unset in both lands back here. That is why the values are still meaningful even in a deployment
+ * where every tenant is configured — they are what a <em>new</em> tenant gets.
  *
  * <p><strong>Defaults belong here, not in {@code application.properties}.</strong>
  * {@code VaultConfigurationLoader} registers its property source with {@code addLast}, i.e. lowest
@@ -26,8 +33,23 @@ public class ChatProperties {
     /** Master switch. Off means no panel is rendered and the endpoints refuse. */
     private boolean enabled = false;
 
-    /** Which {@code LlmClient} implementation to wire. */
-    private Provider provider = Provider.ANTHROPIC;
+    /**
+     * Which agent the console's chat panel runs. Names a row in the tenant's {@code agent} table,
+     * seeded by {@code V43__agents.sql}.
+     *
+     * <p>A property rather than a constant so a deployment can point the panel at a differently
+     * configured assistant without a code change — and so a tenant that has renamed or replaced
+     * the seeded row is a configuration problem with an obvious fix rather than a mystery.
+     */
+    private String agent = "console-assistant";
+
+    /**
+     * Which model wire to speak when a tenant names no backend of its own.
+     *
+     * <p>The enum lives in {@code datahub-commons} because two sources have to agree on it: this,
+     * bound by Spring's relaxed binding, and a tenant's Vault backend, deserialized by Jackson.
+     */
+    private LlmProvider provider = LlmProvider.ANTHROPIC;
 
     private String model = "claude-sonnet-5";
 
@@ -40,6 +62,10 @@ public class ChatProperties {
      * Standing instructions appended to the built-in system prompt — domain vocabulary, tag
      * conventions, what this customer cares about. Appended rather than replacing, so the tool
      * discipline and read-only framing cannot be configured away.
+     *
+     * <p>Deployment-wide, and therefore the wrong place for anything customer-specific now that an
+     * agent row carries its own {@code instructions}. Kept because a single-tenant deployment
+     * configured this way before agents existed, and its assistant must keep behaving the same.
      */
     private String instructions;
 
@@ -116,6 +142,4 @@ public class ChatProperties {
     public int maxOutputTokensFor(ChatEffort effort) {
         return maxOutputTokens != null ? maxOutputTokens : effort.defaultOutputTokens();
     }
-
-    public enum Provider {ANTHROPIC, OPENAI_COMPATIBLE}
 }

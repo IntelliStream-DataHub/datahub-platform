@@ -13,6 +13,8 @@ import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.resource.RelTypeForm;
 import ai.intellistream.datahub.resource.ResourceForm;
+import ai.intellistream.datahub.agent.AgentDefinition;
+import ai.intellistream.datahub.tenant.CallerPermissions;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
@@ -169,6 +171,19 @@ public interface DatahubApi {
     // TENANT
     @RequestLine("GET /tenant/features")
     TenantFeatures getTenantFeatures();
+
+    /**
+     * What the signed-in caller may do with data in their tenant. The console holds only realm
+     * roles; dataset grants are resolved in datahub-api from organization groups, so this is the
+     * only way to learn them. Used to narrow which tools an agent is offered — see
+     * {@code ToolPolicy}.
+     */
+    @RequestLine("GET /tenant/permissions")
+    CallerPermissions getCallerPermissions();
+
+    // AGENTS
+    @RequestLine("GET /agents/{externalId}")
+    AgentDefinition getAgent(@Param("externalId") String externalId);
 
     // FILES
     @RequestLine("GET /files/list{path}")

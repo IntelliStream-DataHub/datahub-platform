@@ -1,10 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.controllers.api;
 
+import ai.intellistream.datahub.tenant.CallerPermissions;
+import ai.intellistream.dhconsole.api.DatahubApi;
+import ai.intellistream.dhconsole.chat.agent.AgentRunner;
 import ai.intellistream.dhconsole.chat.agent.ChatReply;
-import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleView;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
+import ai.intellistream.dhconsole.chat.agent.ExecutionIdentity;
+import ai.intellistream.dhconsole.chat.config.AgentSettings;
+import ai.intellistream.dhconsole.chat.config.AgentSettingsResolver;
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
@@ -62,19 +67,24 @@ public class ChatApiController {
     /** Session attribute holding the transcript. Spring Session persists it to Valkey for us. */
     private static final String CONVERSATION_ATTRIBUTE = "datahub.chat.conversation";
 
-    /** More buttons than this under one answer is noise; mirrors ChatService's live cap. */
+    /** More buttons than this under one answer is noise; mirrors AgentRunner's live cap. */
     private static final int MAX_VIEWS = 3;
 
-    private final ChatService chatService;
+    private final AgentRunner agentRunner;
+    private final AgentSettingsResolver settingsResolver;
+    private final DatahubApi datahubApi;
     private final AccessTokens accessTokens;
     private final MessageSource messageSource;
     private final ConsoleViews consoleViews;
     private final ChatProperties properties;
 
-    public ChatApiController(ChatService chatService, AccessTokens accessTokens,
+    public ChatApiController(AgentRunner agentRunner, AgentSettingsResolver settingsResolver,
+                            DatahubApi datahubApi, AccessTokens accessTokens,
                             MessageSource messageSource, ConsoleViews consoleViews,
                             ChatProperties properties) {
-        this.chatService = chatService;
+        this.agentRunner = agentRunner;
+        this.settingsResolver = settingsResolver;
+        this.datahubApi = datahubApi;
         this.accessTokens = accessTokens;
         this.messageSource = messageSource;
         this.consoleViews = consoleViews;
@@ -123,8 +133,18 @@ public class ChatApiController {
         ChatConversation conversation = conversation(session);
         long startedAt = System.nanoTime();
         try {
-            ChatEffort effort = ChatEffort.parse(request.effort(), properties.getEffort());
-            ChatReply reply = chatService.send(conversation, bearer, request.message(), zoneOf(request), effort);
+            // Both resolved on the request thread, per turn: the agent because a tenant may have
+            // reconfigured it since the last one, and the permissions because a grant may have been
+            // revoked since — datahub-api caches them for well under a minute, so asking every turn
+            // is what makes a revocation take effect at conversational speed rather than at
+            // session-expiry speed.
+            AgentSettings settings = settingsResolver.forConsoleAgent();
+            CallerPermissions permissions = datahubApi.getCallerPermissions();
+            ExecutionIdentity identity = new ExecutionIdentity(bearer, permissions);
+
+            ChatEffort effort = ChatEffort.parse(request.effort(), settings.defaultEffort());
+            ChatReply reply = agentRunner.send(conversation, settings, identity, request.message(),
+                    zoneOf(request), effort);
             session.setAttribute(CONVERSATION_ATTRIBUTE, conversation); // re-set so Spring Session saves it
             // The only record that a turn finished. Everything else on this path logs on failure
             // only, which leaves the case that matters - the server answered but the browser never
@@ -208,8 +228,22 @@ public class ChatApiController {
             }
         }
         attachViews(turns, lastAnswer, exchangeViews);
-        return new ChatHistory(turns, properties.getEffort().wireName(),
-                properties.getTurnTimeout().toMillis());
+
+        // The panel needs the agent's effort default and turn budget before it can render, and it
+        // asks for them together with the transcript. Falling back to the deployment defaults if
+        // the agent cannot be fetched keeps a reachable-but-degraded api from blanking the panel
+        // entirely: the transcript is in the session and is still worth showing.
+        ChatEffort effort = properties.getEffort();
+        long turnTimeoutMs = properties.getTurnTimeout().toMillis();
+        try {
+            AgentSettings settings = settingsResolver.forConsoleAgent();
+            effort = settings.defaultEffort();
+            turnTimeoutMs = settings.turnTimeout().toMillis();
+        } catch (RuntimeException e) {
+            log.warn("Could not resolve agent '{}'; the panel gets deployment defaults",
+                    properties.getAgent(), e);
+        }
+        return new ChatHistory(turns, effort.wireName(), turnTimeoutMs);
     }
 
     private static void attachViews(List<ChatHistory.Turn> turns, int index, Set<ConsoleView> views) {
@@ -222,12 +256,13 @@ public class ChatApiController {
     }
 
     /**
-     * @param defaultEffort the level the picker starts on for a user who has never chosen one. Sent
-     *                      with the history rather than from its own endpoint because the panel
-     *                      already fetches this on open and has nothing to show before it lands.
-     * @param turnTimeoutMs how long the panel should wait for a turn. A self-hosted model needs
-     *                      minutes where a hosted one needs seconds, so the panel cannot hardcode
-     *                      it — see {@code datahub.chat.turn-timeout}.
+     * @param defaultEffort the level the picker starts on for a user who has never chosen one, from
+     *                      the agent's own {@code default_effort}. Sent with the history rather than
+     *                      from its own endpoint because the panel already fetches this on open and
+     *                      has nothing to show before it lands.
+     * @param turnTimeoutMs how long the panel should wait for a turn, from the agent's backend. A
+     *                      self-hosted model needs minutes where a hosted one needs seconds, so the
+     *                      panel cannot hardcode it.
      */
     public record ChatHistory(List<Turn> messages, String defaultEffort, long turnTimeoutMs) {
         public record Turn(String role, String text, List<ConsoleView> views) {

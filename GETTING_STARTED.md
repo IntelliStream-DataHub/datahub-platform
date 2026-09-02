@@ -498,9 +498,33 @@ layout the app uses after the master merge — three secrets, written by
 
 | Path | Read by | Contents |
 |------|---------|----------|
-| `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
+| `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, `tenant-config`, and the optional `llm-backends`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
-| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, and the Spring Session Valkey store (`http.session.valkey.*`). |
+| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the deployment-wide chat defaults (`llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url`, `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.turn-timeout`, `llm.instructions`). |
+
+### Per-tenant LLM backends
+
+`llm-backends` is an optional block in a tenant's `tenant-resources` entry, naming the models
+that tenant's agents may use. A backend says **which model and how to reach it**; how much to
+spend on it lives per agent, in that tenant's `agent` table.
+
+```json
+"acme": {
+  "tenant-config": { "files": true, "chat": true },
+  "llm-backends": {
+    "house":  { "provider": "anthropic", "api-key": "sk-ant-...", "model": "claude-opus-5" },
+    "onprem": { "provider": "openai-compatible", "base-url": "http://vllm.acme:8000/v1",
+                "model": "qwen3-32b", "reasoning-effort": "none", "turn-timeout": "10m" }
+  }
+}
+```
+
+Every field is optional, and an unset one falls back to the deployment-wide `llm.*` defaults on
+the `datahub-console` secret. A tenant with no `llm-backends` block at all uses those defaults
+entirely, which is what every tenant did before the block existed. An agent points at a backend
+by name through its `backend_ref`; a name that is not in the block falls back to the deployment
+default and logs, so deleting a backend degrades the agents using it rather than taking them off
+the air silently.
 
 Host fields in `tenant-resources` are bare (no port) — the code appends each store's
 port; `postgresql.uri` is a full JDBC URL. Each tenant value is a nested JSON **object**

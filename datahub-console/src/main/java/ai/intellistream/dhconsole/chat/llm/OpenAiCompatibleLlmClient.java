@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.AgentSettings;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -34,6 +34,17 @@ import java.util.Map;
  * <p>Requests are non-streaming, which is what makes this adapter simple: the fragmented
  * {@code delta.tool_calls[i].function.arguments} accumulation that streaming would require does
  * not arise.
+ *
+ * <h3>Why this one is still hand-written</h3>
+ * Its sibling {@link SpringAiAnthropicLlmClient} delegates to Spring AI, and the obvious tidiness
+ * argument says this should too. It must not. Spring AI 2.0's OpenAI module drives the official
+ * {@code openai-java} SDK, which deserializes responses into the shapes OpenAI documents — and the
+ * servers this class exists for do not implement those shapes, they approximate them. The two
+ * accommodations below are the evidence: {@code reasoning_effort} is opt-in because a server that
+ * validates its request model strictly rejects a field it does not know, and malformed tool
+ * arguments are handled as a tool error because small models emit them regularly. A generated
+ * client throws in both cases. Trading that for symmetry would break the airgapped deployments
+ * this path was written for, in a way no test here would catch.
  */
 @Slf4j
 public class OpenAiCompatibleLlmClient implements LlmClient {
@@ -43,37 +54,45 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
 
     private final HttpClient http;
     private final JsonMapper json;
-    private final ChatProperties properties;
     private final URI endpoint;
+    private final String apiKey;
 
-    public OpenAiCompatibleLlmClient(ChatProperties properties, JsonMapper json) {
-        this(properties, json, HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
+    /**
+     * The endpoint and the credential are instance state, not per-call arguments, because they are
+     * what one cached instance <em>is</em>: {@code LlmBackends} keys its cache on exactly this
+     * pair, so every turn reaching a given instance already agreed on them. Everything that varies
+     * per agent — model, budgets, effort — arrives with the call.
+     */
+    public OpenAiCompatibleLlmClient(String baseUrl, String apiKey, JsonMapper json) {
+        this(baseUrl, apiKey, json,
+                HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build());
     }
 
-    OpenAiCompatibleLlmClient(ChatProperties properties, JsonMapper json, HttpClient http) {
-        this.properties = properties;
+    OpenAiCompatibleLlmClient(String baseUrl, String apiKey, JsonMapper json, HttpClient http) {
         this.json = json;
         this.http = http;
-        String base = properties.getBaseUrl() == null ? "" : properties.getBaseUrl().replaceAll("/+$", "");
+        this.apiKey = apiKey;
+        String base = baseUrl == null ? "" : baseUrl.replaceAll("/+$", "");
         if (base.isBlank()) {
             throw new IllegalStateException(
-                    "datahub.chat.base-url must be set for provider=openai-compatible "
-                            + "(e.g. http://localhost:11434/v1 for Ollama)");
+                    "A base URL is required for provider=openai-compatible — set it on the tenant's "
+                            + "llm-backends entry, or as datahub.chat.base-url for the deployment "
+                            + "default (e.g. http://localhost:11434/v1 for Ollama).");
         }
         this.endpoint = URI.create(base + "/chat/completions");
     }
 
     @Override
-    public LlmTurn send(String systemPrompt, List<LlmToolDef> tools, List<LlmMessage> messages,
-                        ChatEffort effort) {
+    public LlmTurn send(AgentSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                        List<LlmMessage> messages, ChatEffort effort) {
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("model", properties.getModel());
+        body.put("model", settings.model());
         body.put("stream", false);
-        body.put("max_tokens", properties.maxOutputTokensFor(effort));
+        body.put("max_tokens", settings.maxOutputTokensFor(effort));
         // Opt-in: a server that validates its request model strictly rejects a field it does not
         // know, so an upgrade must not start sending one to a working deployment. See
         // ChatProperties#reasoningEffort for the three modes.
-        String reasoningEffort = properties.getReasoningEffort();
+        String reasoningEffort = settings.reasoningEffort();
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             body.put("reasoning_effort", MAPPED.equalsIgnoreCase(reasoningEffort.strip())
                     ? effort.openAiReasoningEffort()
@@ -85,7 +104,7 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             body.put("tool_choice", "auto");
         }
 
-        JsonNode message = post(body).path("choices").path(0).path("message");
+        JsonNode message = post(body, settings.turnTimeout()).path("choices").path(0).path("message");
 
         List<LlmBlock> blocks = new ArrayList<>();
         String content = message.path("content").asString("");
@@ -104,8 +123,8 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     @Override
-    public String providerId() {
-        return "openai-compatible/" + properties.getModel();
+    public String providerId(AgentSettings settings) {
+        return "openai-compatible/" + settings.model();
     }
 
     private List<Map<String, Object>> toWireMessages(String systemPrompt, List<LlmMessage> messages) {
@@ -182,18 +201,18 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         }
     }
 
-    private JsonNode post(Map<String, Object> body) {
+    private JsonNode post(Map<String, Object> body, Duration turnTimeout) {
         HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
                 // The turn budget, not a constant: a self-hosted model on CPU can spend minutes
                 // on one call, and whoever raised the budget meant this call too.
-                .timeout(properties.getTurnTimeout())
+                .timeout(turnTimeout)
                 .POST(HttpRequest.BodyPublishers.ofString(
                         json.writeValueAsString(body), StandardCharsets.UTF_8));
         // Ollama needs no key; vLLM behind a gateway usually does.
-        if (properties.getApiKey() != null && !properties.getApiKey().isBlank()) {
-            request.header("Authorization", "Bearer " + properties.getApiKey());
+        if (apiKey != null && !apiKey.isBlank()) {
+            request.header("Authorization", "Bearer " + apiKey);
         }
 
         HttpResponse<String> response;

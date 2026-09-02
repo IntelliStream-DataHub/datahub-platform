@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.agent;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -81,7 +80,6 @@ public class ChatPrompt {
             the user would do next. When a tool returns nothing, say so rather than inventing a \
             plausible result.""";
 
-    private final ChatProperties properties;
     private final Clock clock;
 
     /**
@@ -89,20 +87,24 @@ public class ChatPrompt {
      * falls back to a no-arg one that does not exist. The second exists only so tests can fix time.
      */
     @Autowired
-    public ChatPrompt(ChatProperties properties) {
-        this(properties, Clock.systemUTC());
+    public ChatPrompt() {
+        this(Clock.systemUTC());
     }
 
-    ChatPrompt(ChatProperties properties, Clock clock) {
-        this.properties = properties;
+    ChatPrompt(Clock clock) {
         this.clock = clock;
     }
 
     /**
-     * @param zone the user's time zone, so "this weekend" is resolved where they are rather than
-     *             where the server runs
+     * @param zone         the user's time zone, so "this weekend" is resolved where they are rather
+     *                     than where the server runs
+     * @param instructions the agent's own standing instructions, already merged with any
+     *                     deployment-wide ones by {@code AgentSettingsResolver}. A parameter rather
+     *                     than injected configuration because two agents in the same process are
+     *                     told different things — which is the entire point of an agent having a
+     *                     definition of its own.
      */
-    public String build(ZoneId zone) {
+    public String build(ZoneId zone, String instructions) {
         ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(zone)
                 .truncatedTo(ChronoUnit.HOURS);
 
@@ -113,12 +115,11 @@ public class ChatPrompt {
                 .append(". Resolve relative periods such as \"this weekend\", \"yesterday\" or ")
                 .append("\"last week\" against that.");
 
-        // Deployment-specific framing — domain vocabulary, tag conventions, what matters to this
+        // Agent-specific framing — domain vocabulary, tag conventions, what matters to this
         // customer. Appended rather than replacing the above so the tool discipline and the
         // read-only framing cannot be configured away by accident.
-        String extra = properties.getInstructions();
-        if (extra != null && !extra.isBlank()) {
-            prompt.append("\n\n").append(extra.strip());
+        if (instructions != null && !instructions.isBlank()) {
+            prompt.append("\n\n").append(instructions.strip());
         }
         return prompt.toString();
     }

@@ -5,6 +5,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.Map;
+
 @Data
 @NoArgsConstructor
 public class Tenant {
@@ -37,11 +39,24 @@ public class Tenant {
     @JsonProperty("tenant-config")
     private TenantFeatures features;
 
+    /**
+     * Named LLM backends this tenant's agents may point at, keyed by the name an agent's
+     * {@code backend_ref} names. Absent for every tenant that has not been given its own model,
+     * in which case agents fall back to the deployment-wide default.
+     */
+    @JsonProperty("llm-backends")
+    private Map<String, TenantLlmBackend> llmBackends;
+
     public TenantFeatures getFeatures() {
         if (features == null) {
             features = new TenantFeatures();
         }
         return features;
+    }
+
+    /** Never null, so callers can look a backend up without first checking for the block. */
+    public Map<String, TenantLlmBackend> getLlmBackends() {
+        return llmBackends == null ? Map.of() : llmBackends;
     }
 
 }

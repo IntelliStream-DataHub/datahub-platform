@@ -1,35 +1,48 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
+import ai.intellistream.dhconsole.chat.config.AgentSettings;
+
 import java.util.List;
 
 /**
- * The seam between the chat loop and whichever model is configured.
+ * The seam between the agent loop and whichever model is configured.
  *
- * <p>Deliberately one method and provider-neutral types: adding an airgapped OpenAI-compatible
- * backend later should be one new implementation plus a {@code switch} on
- * {@code datahub.chat.provider}, with no change to the loop, the transcript format, or anything
- * already stored in a user's session.
+ * <p>Deliberately one method and provider-neutral types. Two implementations sit behind it, and
+ * they are not symmetric on purpose:
+ * <ul>
+ *   <li>{@link SpringAiAnthropicLlmClient} talks to a service with a published, stable contract,
+ *       so it delegates to Spring AI and inherits its handling of effort, adaptive thinking and
+ *       prompt-cache breakpoints.</li>
+ *   <li>{@link OpenAiCompatibleLlmClient} talks to "OpenAI-compatible" servers, which are a family
+ *       rather than a specification, and is hand-written so it can be lenient where a generated
+ *       client would throw.</li>
+ * </ul>
+ * That asymmetry is the reason this interface exists rather than a single vendor SDK being used
+ * directly.
  *
- * <p>Implementations are responsible for translating {@link LlmMessage} into the provider's wire
- * shape — in particular the batched tool-result message, which Anthropic wants as one user message
- * with several {@code tool_result} blocks and OpenAI-compatible servers want as several
- * {@code role:"tool"} messages.
+ * <p>Implementations translate {@link LlmMessage} into the provider's wire shape — in particular
+ * the batched tool-result message, which Anthropic wants as one user message with several
+ * {@code tool_result} blocks and OpenAI-compatible servers want as several {@code role:"tool"}
+ * messages.
  */
 public interface LlmClient {
 
     /**
      * Run one turn. Implementations must not execute tools themselves — the loop owns that, so
-     * that policy and (later) user confirmation cannot be bypassed by a provider's convenience
+     * that policy and the caller's permissions cannot be bypassed by a provider's convenience
      * feature.
      *
-     * @param effort how hard to think about this particular message. A per-call argument rather
-     *               than client state because the user picks it per message, and because a client
-     *               is shared across concurrent turns.
+     * @param settings the resolved agent settings for this turn: model, budgets, and the
+     *                 credential this client was built for. A parameter rather than client state
+     *                 because one client instance is shared by every tenant on the same
+     *                 credential, and they do not share a model or a budget.
+     * @param effort   how hard to think about this particular message. Also per-call, because the
+     *                 user picks it per message and a client is shared across concurrent turns.
      */
-    LlmTurn send(String systemPrompt, List<LlmToolDef> tools, List<LlmMessage> messages,
-                 ChatEffort effort);
+    LlmTurn send(AgentSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                 List<LlmMessage> messages, ChatEffort effort);
 
     /** For logging and for the {@code /api/chat} response, so the UI can say what answered. */
-    String providerId();
+    String providerId(AgentSettings settings);
 }

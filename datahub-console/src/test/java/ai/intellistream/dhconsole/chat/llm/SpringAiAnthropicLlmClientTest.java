@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
-import com.anthropic.client.okhttp.AnthropicOkHttpClient;
+import ai.intellistream.datahub.tenant.LlmProvider;
+import ai.intellistream.dhconsole.chat.config.AgentSettings;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.springframework.ai.anthropic.AnthropicChatModel;
+import org.springframework.ai.anthropic.AnthropicChatOptions;
+import org.springframework.ai.anthropic.AnthropicSetup;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -19,10 +23,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Drives the adapter against a local server standing in for the Anthropic API, so the request
  * serialisation and response mapping are covered without a key or any spend. The shapes asserted
- * here — batched tool results, the cache breakpoint, schema pass-through — are the ones that fail
+ * here — batched tool results, the cache breakpoints, schema pass-through — are the ones that fail
  * as opaque 400s in production if they drift.
+ *
+ * <p>These are the same assertions the hand-written client had to pass. Keeping them unchanged
+ * across the move to Spring AI is the point: the wire is the contract, and a refactor of who
+ * builds the request should be invisible on it.
  */
-class AnthropicLlmClientTest {
+class SpringAiAnthropicLlmClientTest {
 
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -49,8 +57,8 @@ class AnthropicLlmClientTest {
 
     @Test
     void sendsToolSchemaThroughUnchanged() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             JsonNode tool = request.get().path("tools").path(0);
             assertThat(tool.path("name").asString()).isEqualTo("dataset_list");
@@ -64,8 +72,8 @@ class AnthropicLlmClientTest {
 
     @Test
     void marksTheStaticPrefixCacheable() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("You are a data assistant.",
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "You are a data assistant.",
                     List.of(DATASET_LIST, UNIT_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             // Two breakpoints — the system block and the LAST tool — so both static sections are
@@ -83,7 +91,7 @@ class AnthropicLlmClientTest {
 
     @Test
     void sendsAllToolResultsAsOneUserMessage() throws Exception {
-        withApi(textResponse("done"), (client, request) -> {
+        withApi(textResponse("done"), (client, settings, request) -> {
             List<LlmMessage> transcript = List.of(
                     LlmMessage.user("what do I have?"),
                     LlmMessage.assistant(List.of(
@@ -93,7 +101,7 @@ class AnthropicLlmClientTest {
                             new LlmBlock.ToolResult("t1", "{\"items\":[]}", false),
                             new LlmBlock.ToolResult("t2", "boom", true))));
 
-            client.send("system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
+            client.send(settings, "system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
 
             JsonNode messages = request.get().path("messages");
             assertThat(messages.size()).isEqualTo(3);
@@ -103,7 +111,12 @@ class AnthropicLlmClientTest {
             assertThat(results.path("content").size()).isEqualTo(2);
             assertThat(results.path("content").path(0).path("type").asString()).isEqualTo("tool_result");
             assertThat(results.path("content").path(0).path("tool_use_id").asString()).isEqualTo("t1");
-            assertThat(results.path("content").path(1).path("is_error").asBoolean()).isTrue();
+            // Anthropic's structured is_error flag has no equivalent on Spring AI's ToolResponse,
+            // so a failed result is marked in the text instead. The signal has to survive in some
+            // form or the model reasons over an error message as though it were data.
+            assertThat(results.path("content").path(1).path("content").asString())
+                    .startsWith("[tool error] ")
+                    .contains("boom");
 
             // The assistant turn must replay its tool_use blocks, arguments intact, or the results
             // have nothing to attach to.
@@ -121,8 +134,8 @@ class AnthropicLlmClientTest {
                              "input":{"limit":25,"query":"pumps"}}],
                  "stop_reason":"tool_use","stop_sequence":null,
                  "usage":{"input_tokens":10,"output_tokens":5}}""";
-        withApi(toolUse, (client, request) -> {
-            LlmTurn turn = client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(toolUse, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
             assertThat(turn.text()).isEqualTo("Let me look.");
@@ -141,10 +154,12 @@ class AnthropicLlmClientTest {
                 {"id":"msg_3","type":"message","role":"assistant","model":"claude-opus-5",
                  "content":[],"stop_reason":"refusal","stop_sequence":null,
                  "usage":{"input_tokens":10,"output_tokens":0}}""";
-        withApi(refusal, (client, request) -> {
-            LlmTurn turn = client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(refusal, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
-            // Reading content[0] unconditionally here would throw; the user gets a sentence instead.
+            // Reading content[0] unconditionally here would throw, and returning what Spring AI
+            // gives back — a response with no results at all — would surface as a blank reply. The
+            // user gets a sentence instead.
             assertThat(turn.wantsTools()).isFalse();
             assertThat(turn.text()).contains("can't help with that");
         });
@@ -152,8 +167,8 @@ class AnthropicLlmClientTest {
 
     @Test
     void sendsTheRequestedEffortAndAdaptiveThinking() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
 
             assertThat(request.get().path("output_config").path("effort").asString()).isEqualTo("low");
             // Stated rather than defaulted: on an older model omitting it means no thinking at all,
@@ -164,38 +179,39 @@ class AnthropicLlmClientTest {
 
     @Test
     void withNoRoofConfiguredTheDeepestLevelsGetMoreRoom() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(4096);
 
             // max_tokens caps thinking and answer together, so a turn told to think its hardest
             // under a 4096 ceiling would spend the budget reasoning and truncate the answer.
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(32_000);
         });
     }
 
     @Test
     void aConfiguredRoofIsSentEvenAtTheDeepestLevel() throws Exception {
-        withApi(textResponse("hello"), properties -> properties.setMaxOutputTokens(800),
-                (client, request) -> {
-                    client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
-                    assertThat(request.get().path("max_tokens").asInt()).isEqualTo(800);
-                });
+        withApi(textResponse("hello"), 800, (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            assertThat(request.get().path("max_tokens").asInt()).isEqualTo(800);
+        });
     }
 
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
-        void run(AnthropicLlmClient client, AtomicReference<JsonNode> request) throws Exception;
+        void run(SpringAiAnthropicLlmClient client, AgentSettings settings,
+                 AtomicReference<JsonNode> request) throws Exception;
     }
 
     private void withApi(String responseBody, Scenario scenario) throws Exception {
-        withApi(responseBody, properties -> { }, scenario);
+        withApi(responseBody, null, scenario);
     }
 
-    private void withApi(String responseBody, java.util.function.Consumer<ChatProperties> configure,
-                         Scenario scenario) throws Exception {
+    /** @param maxOutputTokens a configured roof, or null to let the effort level choose */
+    private void withApi(String responseBody, Integer maxOutputTokens, Scenario scenario)
+            throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicReference<JsonNode> lastRequest = new AtomicReference<>();
         server.createContext("/v1/messages", exchange -> {
@@ -209,17 +225,22 @@ class AnthropicLlmClientTest {
         });
         server.start();
         try {
-            ChatProperties properties = new ChatProperties();
-            properties.setModel("claude-opus-5");
-            configure.accept(properties);
-            AnthropicLlmClient client = new AnthropicLlmClient(
-                    AnthropicOkHttpClient.builder()
-                            .apiKey("test-key")
-                            .baseUrl("http://127.0.0.1:" + server.getAddress().getPort())
-                            .build(),
-                    properties,
-                    JSON);
-            scenario.run(client, lastRequest);
+            // Spring AI's own factory, pointed at the local stand-in. Zero retries so a shape the
+            // stub does not expect fails once and fast rather than three times slowly.
+            var sdk = AnthropicSetup.setupSyncClient(
+                    "http://127.0.0.1:" + server.getAddress().getPort(), "test-key",
+                    Duration.ofSeconds(10), 0, null, Map.of());
+            AnthropicChatModel model = AnthropicChatModel.builder()
+                    .anthropicClient(sdk)
+                    .options(AnthropicChatOptions.builder().build())
+                    .build();
+
+            AgentSettings settings = new AgentSettings("test-agent", LlmProvider.ANTHROPIC,
+                    "test-key", "claude-opus-5", null, null, Duration.ofMinutes(4), null,
+                    List.of("dataset_list", "unit_list"), ChatEffort.HIGH, maxOutputTokens,
+                    6, 40, 24_000);
+
+            scenario.run(new SpringAiAnthropicLlmClient(model, JSON), settings, lastRequest);
         } finally {
             server.stop(0);
         }

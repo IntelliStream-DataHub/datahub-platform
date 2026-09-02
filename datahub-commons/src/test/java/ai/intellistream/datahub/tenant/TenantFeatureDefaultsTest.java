@@ -23,6 +23,9 @@ class TenantFeatureDefaultsTest {
         service = new TenantConfigService(jsonMapper, null, VAULT);
         ReflectionTestUtils.setField(service, "policyFeatureDefault", true);
         ReflectionTestUtils.setField(service, "streamingFeatureDefault", true);
+        // Chat is a gated, billed add-on, so its application default is off. Stated explicitly
+        // rather than relying on the field's zero value, because that is the contract.
+        ReflectionTestUtils.setField(service, "chatFeatureDefault", false);
     }
 
     @Test
@@ -36,18 +39,21 @@ class TenantFeatureDefaultsTest {
         assertThat(tenant.getFeatures().isPolicyFeatureEnabled()).isTrue();
         assertThat(tenant.getFeatures().isStreamingFeatureEnabled()).isTrue();
         assertThat(tenant.getFeatures().isFilesEnabled()).isTrue();
+        assertThat(tenant.getFeatures().isChatFeatureEnabled()).isFalse();
     }
 
     @Test
     void explicitVaultValueWinsOverApplicationDefault() {
         Tenant tenant = jsonMapper.readValue("""
-                {"org-id": "t1", "tenant-config": {"policy": false, "streaming": true}}
+                {"org-id": "t1", "tenant-config": {"policy": false, "streaming": true, "chat": true}}
                 """, Tenant.class);
 
         service.applyFeatureDefaults(tenant.getFeatures());
 
         assertThat(tenant.getFeatures().isPolicyFeatureEnabled()).isFalse();
         assertThat(tenant.getFeatures().isStreamingFeatureEnabled()).isTrue();
+        // The one that buys a tenant a billed feature, so worth pinning on its own.
+        assertThat(tenant.getFeatures().isChatFeatureEnabled()).isTrue();
     }
 
     @Test
@@ -61,6 +67,7 @@ class TenantFeatureDefaultsTest {
         assertThat(tenant.getFeatures().isPolicyFeatureEnabled()).isTrue();
         assertThat(tenant.getFeatures().isStreamingFeatureEnabled()).isTrue();
         assertThat(tenant.getFeatures().isFilesEnabled()).isFalse();
+        assertThat(tenant.getFeatures().isChatFeatureEnabled()).isFalse();
     }
 
     @Test
@@ -69,11 +76,13 @@ class TenantFeatureDefaultsTest {
         features.setFilesEnabled(true);
         features.setPolicyFeatureEnabled(true);
         features.setStreamingFeatureEnabled(false);
+        features.setChatFeatureEnabled(true);
 
         String json = jsonMapper.writeValueAsString(features);
 
         assertThat(json).contains("\"files\":true")
                 .contains("\"policy\":true")
-                .contains("\"streaming\":false");
+                .contains("\"streaming\":false")
+                .contains("\"chat\":true");
     }
 }
