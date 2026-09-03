@@ -36,12 +36,12 @@ class LlmBackendsTest {
 
     private static ChatSettings anthropic(String apiKey, String model) {
         return new ChatSettings(LlmProvider.ANTHROPIC, apiKey, model, null, null,
-                Duration.ofMinutes(4), null);
+                Duration.ofMinutes(4), null, ChatEffort.DEFAULT, 6, null);
     }
 
     private static ChatSettings openAiCompatible(String baseUrl) {
         return new ChatSettings(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3-32b", baseUrl, null,
-                Duration.ofMinutes(4), null);
+                Duration.ofMinutes(4), null, ChatEffort.DEFAULT, 6, null);
     }
 
     @Test

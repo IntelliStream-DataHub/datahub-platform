@@ -18,9 +18,10 @@ import static org.mockito.Mockito.mock;
 /**
  * The model comes from the tenant; the budget comes from the deployment.
  *
- * <p>The property worth pinning is the absence of a fallback: there is no deployment credential, so
- * no arrangement of missing fields can end with one tenant's turn billed to the platform's own
- * account, or to another tenant's.
+ * <p>Two properties worth pinning, pulling opposite ways. There is no deployment credential, so no
+ * arrangement of missing fields can end with one tenant's turn billed to the platform's account or
+ * another tenant's. But everything about how that model is <em>run</em> is the tenant's to set,
+ * including choices that cost it a great deal of money.
  */
 class ChatSettingsResolverTest {
 
@@ -99,14 +100,45 @@ class ChatSettingsResolverTest {
     }
 
     @Test
-    void budgetsStayDeploymentWide() {
-        // A tenant chooses which model it talks to, not how much the deployment will spend on it.
+    void aTenantThatSaysNothingAboutSpendingGetsTheDeploymentDefaults() {
         properties.setMaxOutputTokens(800);
+        properties.setEffort(ChatEffort.LOW);
+        properties.setMaxIterations(3);
+        properties.setInstructions("House style.");
 
         ChatSettings settings = resolver.forTenant(llm(LlmProvider.ANTHROPIC, "k", "claude-opus-5"));
 
         assertThat(settings.maxOutputTokens()).isEqualTo(800);
-        assertThat(settings.maxOutputTokensFor(ChatEffort.MAX)).isEqualTo(800);
+        assertThat(settings.defaultEffort()).isEqualTo(ChatEffort.LOW);
+        assertThat(settings.maxIterations()).isEqualTo(3);
+        assertThat(settings.instructions()).isEqualTo("House style.");
+    }
+
+    @Test
+    void aTenantMaySpendAsMuchOfItsOwnMoneyAsItLikes() {
+        // The point of bring-your-own-model: the credential is theirs, so the bill is theirs, so
+        // the ceiling is theirs. A deployment default of 800 tokens does not cap a tenant that
+        // wants max effort with no roof at all.
+        properties.setMaxOutputTokens(800);
+        properties.setEffort(ChatEffort.LOW);
+        properties.setMaxIterations(3);
+
+        TenantLlm spendy = llm(LlmProvider.ANTHROPIC, "k", "claude-opus-5");
+        spendy.setEffort("max");
+        spendy.setMaxIterations("20");
+        spendy.setInstructions("We speak in ISO 14224 tags.");
+
+        ChatSettings settings = resolver.forTenant(spendy);
+
+        assertThat(settings.defaultEffort()).isEqualTo(ChatEffort.MAX);
+        assertThat(settings.maxIterations()).isEqualTo(20);
+        assertThat(settings.instructions()).isEqualTo("We speak in ISO 14224 tags.");
+        // Raising the roof takes an explicit number; there is no "unlimited" to write, and the
+        // deployment default still applies to a tenant that names none.
+        assertThat(settings.maxOutputTokens()).isEqualTo(800);
+
+        spendy.setMaxOutputTokens("64000");
+        assertThat(resolver.forTenant(spendy).maxOutputTokensFor(ChatEffort.LOW)).isEqualTo(64_000);
     }
 
     @Test
@@ -116,5 +148,23 @@ class ChatSettingsResolverTest {
         assertThat(settings.maxOutputTokens()).isNull();
         assertThat(settings.maxOutputTokensFor(ChatEffort.HIGH)).isEqualTo(4096);
         assertThat(settings.maxOutputTokensFor(ChatEffort.MAX)).isEqualTo(32_000);
+    }
+
+    @Test
+    void aTypoInABudgetCostsThatFieldAndNotTheAssistant() {
+        // With nothing to fall back to, treating a bad number as a bad entry would take the panel
+        // away over a stray character in an optional field.
+        properties.setMaxIterations(6);
+        TenantLlm typo = llm(LlmProvider.ANTHROPIC, "k", "claude-opus-5");
+        typo.setMaxIterations("six");
+        typo.setMaxOutputTokens("-1");
+        typo.setEffort("ludicrous");
+
+        ChatSettings settings = resolver.forTenant(typo);
+
+        assertThat(typo.isUsable()).isTrue();
+        assertThat(settings.maxIterations()).isEqualTo(6);
+        assertThat(settings.maxOutputTokens()).isNull();
+        assertThat(settings.defaultEffort()).isEqualTo(properties.getEffort());
     }
 }

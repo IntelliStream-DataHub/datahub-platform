@@ -70,7 +70,7 @@ public class ChatService {
      */
     public ChatReply send(ChatConversation conversation, ChatSettings settings, String bearer,
                           String userMessage, ZoneId zone, ChatEffort effort) {
-        String systemPrompt = prompt.build(zone);
+        String systemPrompt = prompt.build(zone, settings.instructions());
         conversation.append(LlmMessage.user(userMessage));
 
         // Mutating tools are filtered out here, so the model is never even aware they exist and
@@ -84,7 +84,7 @@ public class ChatService {
         Set<ConsoleView> views = new LinkedHashSet<>();
         LlmClient llm = backends.forSettings(settings);
 
-        for (int iteration = 0; iteration < properties.getMaxIterations(); iteration++) {
+        for (int iteration = 0; iteration < settings.maxIterations(); iteration++) {
             LlmTurn turn = llm.send(settings, systemPrompt, tools, conversation.messages(), effort);
             conversation.append(LlmMessage.assistant(turn.blocks()));
 
@@ -114,7 +114,7 @@ public class ChatService {
             conversation.append(LlmMessage.toolResults(results));
         }
 
-        log.warn("Chat turn hit the {}-iteration cap at effort {}", properties.getMaxIterations(), effort);
+        log.warn("Chat turn hit the {}-iteration cap at effort {}", settings.maxIterations(), effort);
         conversation.trimTo(properties.getMaxMessages());
         return new ChatReply(lastAssistantText(conversation), List.copyOf(toolsUsed), limited(views), true);
     }

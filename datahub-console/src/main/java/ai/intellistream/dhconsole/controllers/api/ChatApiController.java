@@ -5,7 +5,6 @@ import ai.intellistream.dhconsole.chat.agent.ChatReply;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleView;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
@@ -72,17 +71,15 @@ public class ChatApiController {
     private final AccessTokens accessTokens;
     private final MessageSource messageSource;
     private final ConsoleViews consoleViews;
-    private final ChatProperties properties;
 
     public ChatApiController(ChatService chatService, ChatSettingsResolver settingsResolver,
                             AccessTokens accessTokens, MessageSource messageSource,
-                            ConsoleViews consoleViews, ChatProperties properties) {
+                            ConsoleViews consoleViews) {
         this.chatService = chatService;
         this.settingsResolver = settingsResolver;
         this.accessTokens = accessTokens;
         this.messageSource = messageSource;
         this.consoleViews = consoleViews;
-        this.properties = properties;
     }
 
     /**
@@ -130,7 +127,7 @@ public class ChatApiController {
             // Resolved per turn, on the request thread: a tenant may have been reconfigured since
             // the last one, and TenantConfigService refreshes from Vault on its own schedule.
             ChatSettings settings = settingsResolver.forCurrentTenant();
-            ChatEffort effort = ChatEffort.parse(request.effort(), properties.getEffort());
+            ChatEffort effort = ChatEffort.parse(request.effort(), settings.defaultEffort());
             ChatReply reply = chatService.send(conversation, settings, bearer, request.message(),
                     zoneOf(request), effort);
             session.setAttribute(CONVERSATION_ATTRIBUTE, conversation); // re-set so Spring Session saves it
@@ -221,8 +218,9 @@ public class ChatApiController {
         // a slow self-hosted model raises it, and a panel still aborting at the deployment default
         // would show a network error while the server was still working. Effort is not per tenant,
         // so it keeps coming from the deployment configuration.
-        return new ChatHistory(turns, properties.getEffort().wireName(),
-                settingsResolver.forCurrentTenant().turnTimeout().toMillis());
+        ChatSettings settings = settingsResolver.forCurrentTenant();
+        return new ChatHistory(turns, settings.defaultEffort().wireName(),
+                settings.turnTimeout().toMillis());
     }
 
     private static void attachViews(List<ChatHistory.Turn> turns, int index, Set<ConsoleView> views) {

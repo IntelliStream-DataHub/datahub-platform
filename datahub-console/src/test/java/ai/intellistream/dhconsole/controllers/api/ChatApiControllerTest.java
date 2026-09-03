@@ -4,7 +4,6 @@ package ai.intellistream.dhconsole.controllers.api;
 import ai.intellistream.dhconsole.chat.agent.ChatReply;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
@@ -49,7 +48,6 @@ class ChatApiControllerTest {
 
     private ChatService chatService;
     private ChatSettingsResolver settingsResolver;
-    private ChatProperties properties;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -67,10 +65,9 @@ class ChatApiControllerTest {
         messages.setUseCodeAsDefaultMessage(true);
 
         ConsoleViews consoleViews = new ConsoleViews(JsonMapper.builder().build());
-        properties = new ChatProperties();
         mockMvc = MockMvcBuilders
                 .standaloneSetup(new ChatApiController(chatService, settingsResolver, accessTokens,
-                        messages, consoleViews, properties))
+                        messages, consoleViews))
                 .build();
     }
 
@@ -116,8 +113,8 @@ class ChatApiControllerTest {
     }
 
     @Test
-    void anAbsentOrUnusableEffortFallsBackToTheConfiguredDefault() throws Exception {
-        properties.setEffort(ChatEffort.MEDIUM);
+    void anAbsentOrUnusableEffortFallsBackToTheTenantsDefault() throws Exception {
+        when(settingsResolver.forCurrentTenant()).thenReturn(withDefaultEffort(ChatEffort.MEDIUM));
         when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
                 .thenReturn(new ChatReply("ok", List.of(), List.of(), false));
 
@@ -138,7 +135,9 @@ class ChatApiControllerTest {
 
     @Test
     void tellsThePanelWhichEffortToStartOn() throws Exception {
-        properties.setEffort(ChatEffort.XHIGH);
+        // The tenant's starting point, not the deployment's: a tenant paying for its own model
+        // decides how hard it wants that model to think by default.
+        when(settingsResolver.forCurrentTenant()).thenReturn(withDefaultEffort(ChatEffort.XHIGH));
 
         mockMvc.perform(get("/api/chat"))
                 .andExpect(status().isOk())
@@ -156,7 +155,8 @@ class ChatApiControllerTest {
                 new ai.intellistream.dhconsole.chat.config.ChatSettings(
                         ai.intellistream.datahub.tenant.LlmProvider.OPENAI_COMPATIBLE, null,
                         "qwen3-32b", "http://vllm:8000/v1", null,
-                        java.time.Duration.ofMinutes(10), null));
+                        java.time.Duration.ofMinutes(10), null,
+                        ai.intellistream.dhconsole.chat.llm.ChatEffort.DEFAULT, 6, null));
 
         mockMvc.perform(get("/api/chat"))
                 .andExpect(status().isOk())
@@ -293,5 +293,14 @@ class ChatApiControllerTest {
                 .andExpect(status().isNoContent());
 
         assertThat(session.getAttribute(CONVERSATION_ATTRIBUTE)).isNull();
+    }
+
+    private static ai.intellistream.dhconsole.chat.config.ChatSettings withDefaultEffort(
+            ChatEffort effort) {
+        ai.intellistream.dhconsole.chat.config.ChatSettings base = anthropic();
+        return new ai.intellistream.dhconsole.chat.config.ChatSettings(
+                base.provider(), base.apiKey(), base.model(), base.baseUrl(), base.reasoningEffort(),
+                base.turnTimeout(), base.maxOutputTokens(), effort, base.maxIterations(),
+                base.instructions());
     }
 }

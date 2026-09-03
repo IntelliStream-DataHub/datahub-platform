@@ -151,4 +151,30 @@ class TenantLlmTest {
         llm.setBaseUrl(baseUrl);
         return llm.isUsable();
     }
+
+    /**
+     * Vault stores strings, and these arrive hand-typed. Nothing here may throw: the entry is the
+     * tenant's only model, so treating a bad number as a bad entry would cost them the assistant
+     * over a stray character in an optional field.
+     */
+    @Test
+    void anUnreadableBudgetIsAnUnsetBudgetRatherThanAFailedEntry() {
+        TenantLlm llm = new TenantLlm();
+        llm.setProvider(LlmProvider.ANTHROPIC);
+        llm.setApiKey("sk-ant-x");
+        llm.setModel("claude-opus-5");
+
+        llm.setMaxOutputTokens("64000");
+        llm.setMaxIterations("20");
+        assertThat(llm.getMaxOutputTokensValue()).isEqualTo(64_000);
+        assertThat(llm.getMaxIterationsValue()).isEqualTo(20);
+
+        for (String bad : new String[] {"sixty", "", "  ", "0", "-5", "1e6"}) {
+            llm.setMaxOutputTokens(bad);
+            llm.setMaxIterations(bad);
+            assertThat(llm.getMaxOutputTokensValue()).as("max-output-tokens=%s", bad).isNull();
+            assertThat(llm.getMaxIterationsValue()).as("max-iterations=%s", bad).isNull();
+            assertThat(llm.isUsable()).as("still usable with max-iterations=%s", bad).isTrue();
+        }
+    }
 }

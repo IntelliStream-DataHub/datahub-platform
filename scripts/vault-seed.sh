@@ -156,6 +156,9 @@ JSON
 # Section-prefixed (llm.*) because the secret is tenant-config, not tenant-llm: other per-tenant
 # settings join it under their own prefix without another secret and another policy line.
 echo "==> Seeding per-tenant model config (foo only; bar gets no chat panel)"
+# Only the four model fields are seeded. How hard it thinks and how much it may spend
+# (llm.effort, llm.max-output-tokens, llm.max-iterations, llm.turn-timeout) are the tenant's
+# to set too; unset here so foo demonstrates the deployment defaults behind them.
 vault kv put "$MOUNT/tenant-config/foo" \
   llm.provider=anthropic \
   llm.api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \

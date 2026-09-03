@@ -20,8 +20,12 @@ import java.time.Duration;
  * <p>This is the <em>only</em> source of a model: there is no deployment-wide credential to inherit,
  * so a tenant that has not configured one has no assistant rather than one billed to whoever
  * deployed the platform. {@link #isUsable()} is that test, and {@code ChatAccess} hides the panel
- * when it fails. It says which model and how to reach it — how much a turn may spend stays
- * deployment-wide.
+ * when it fails.
+ *
+ * <p>The spend is theirs too. A tenant on its own credential pays its own bill, so it sets its own
+ * effort, token roof and iteration cap — running max effort with no roof is an expensive choice
+ * this deliberately does not prevent. Only the four fields identifying the model are required;
+ * anything else unset falls back to the deployment default in {@code ChatProperties}.
  */
 @Data
 @NoArgsConstructor
@@ -64,6 +68,30 @@ public class TenantLlm {
     @JsonProperty("turn-timeout")
     private String turnTimeout;
 
+    /** Where this tenant's effort picker starts. Users still override it per message. */
+    private String effort;
+
+    /**
+     * Hard ceiling on one call's output, or unset to let the effort level choose.
+     *
+     * <p>A string for the same reason the numbers below are: Vault stores strings, and a typo here
+     * must cost this field rather than the whole entry — which, with nothing to fall back to, would
+     * cost the tenant its assistant.
+     */
+    @JsonProperty("max-output-tokens")
+    private String maxOutputTokens;
+
+    /** Ceiling on model to tool to model round trips in one turn. */
+    @JsonProperty("max-iterations")
+    private String maxIterations;
+
+    /**
+     * Standing instructions appended to the built-in system prompt — this tenant's domain
+     * vocabulary, tag conventions, what it cares about. Appended rather than replacing, so the tool
+     * discipline and the read-only framing cannot be configured away.
+     */
+    private String instructions;
+
     /**
      * Whether this names a model that can actually be called: a provider, a model, and whichever of
      * credential or endpoint that provider reaches its model with.
@@ -83,6 +111,18 @@ public class TenantLlm {
         };
     }
 
+    /** The parsed {@link #maxOutputTokens}, or null when unset or unparseable. */
+    @JsonIgnore
+    public Integer getMaxOutputTokensValue() {
+        return positiveInt(maxOutputTokens);
+    }
+
+    /** The parsed {@link #maxIterations}, or null when unset or unparseable. */
+    @JsonIgnore
+    public Integer getMaxIterationsValue() {
+        return positiveInt(maxIterations);
+    }
+
     /** The parsed {@link #turnTimeout}, or null when unset or unparseable. */
     @JsonIgnore
     public Duration getTurnTimeoutDuration() {
@@ -93,6 +133,19 @@ public class TenantLlm {
             return DurationStyle.detectAndParse(turnTimeout.strip());
         } catch (IllegalArgumentException e) {
             // A typo in one optional field must not take a tenant's assistant down.
+            return null;
+        }
+    }
+
+    /** Null rather than an exception on anything unusable, including zero and negatives. */
+    private static Integer positiveInt(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        try {
+            int parsed = Integer.parseInt(value.strip());
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException e) {
             return null;
         }
     }

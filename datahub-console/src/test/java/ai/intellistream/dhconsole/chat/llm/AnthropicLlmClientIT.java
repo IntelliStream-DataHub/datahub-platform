@@ -85,7 +85,8 @@ class AnthropicLlmClientIT {
     /** A 1024-token roof, so a run of this test costs pennies rather than pounds. */
     private static ChatSettings settings() {
         return new ChatSettings(LlmProvider.ANTHROPIC, null, "claude-opus-5", null, null,
-                java.time.Duration.ofMinutes(4), 1024);
+                java.time.Duration.ofMinutes(4), 1024,
+                ai.intellistream.dhconsole.chat.llm.ChatEffort.DEFAULT, 6, null);
     }
 
     /**

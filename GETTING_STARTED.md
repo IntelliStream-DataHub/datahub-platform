@@ -500,8 +500,8 @@ layout the app uses after the master merge — three secrets, written by
 |------|---------|----------|
 | `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
-| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the chat limits every tenant runs inside (`llm.effort`, `llm.max-output-tokens`, `llm.turn-timeout`, `llm.instructions`). No model and no credential — those are per tenant. |
-| `tenant-config/<org-name>` | console | One secret per tenant, split into sections by key prefix. Today the only section is `llm.*` — `llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url`, `llm.reasoning-effort`, `llm.turn-timeout` — naming the model that tenant's chat runs on. Keyed by organization name, as `tenant-resources` is. A tenant without one has no chat panel. |
+| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the chat defaults a tenant lands on when it says nothing (`llm.effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions`). No model and no credential — those are per tenant, and none of these are ceilings. |
+| `tenant-config/<org-name>` | console | One secret per tenant, split into sections by key prefix. Today the only section is `llm.*`: `llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url` name the model, and `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions` say how to run it. Keyed by organization name, as `tenant-resources` is. A tenant without one has no chat panel. |
 
 ### The per-tenant model
 
@@ -528,11 +528,19 @@ model, and the one thing that provider needs to reach it: an `llm.api-key` for A
 `llm.base-url` for OpenAI-compatible (Ollama and some vLLM deployments take no key at all). So
 enabling chat is two steps — `datahub.chat.enabled` for the deployment, then a secret per tenant.
 
-How much a turn may spend (`llm.max-output-tokens`, `llm.effort`) stays on the `datahub-console`
-secret: a tenant chooses which model it talks to, not how much the platform will spend on a call,
-and nobody should be able to raise their own ceiling by editing their own secret. `llm.turn-timeout`
-sits on both — the deployment sets how long it is willing to wait, and a tenant on a slow
-self-hosted model may raise it.
+**The spend is theirs too.** A tenant on its own credential pays its own bill, so `llm.effort`,
+`llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout` and `llm.instructions` are all
+theirs to set — running max effort with no token roof is an expensive choice this deliberately does
+not prevent. The matching `llm.*` keys on the `datahub-console` secret are *defaults for a tenant
+that named none*, not ceilings.
+
+Only two limits stay with the deployment: `datahub.chat.max-tool-result-chars` and
+`datahub.chat.max-messages`, which bound the transcript the console serialises into its own Valkey
+session on every request. That is the platform's memory rather than the tenant's spend.
+
+A number that will not parse — `max-iterations=six`, a negative roof — is treated as unset and falls
+back to the default, rather than invalidating the entry. With no model to fall back to, the stricter
+reading would cost a tenant its assistant over a typo in an optional field.
 
 **Why its own secret rather than a block in `tenant-resources`.** That secret holds every tenant's
 database credentials, and this is the piece of tenant configuration a person will eventually edit

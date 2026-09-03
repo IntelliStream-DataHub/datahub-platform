@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic;
+import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropicWith;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -57,7 +58,7 @@ class ChatServiceTest {
     /** The lambda is the point of {@code LlmClients}: no Vault, no credential, no network. */
     private ChatService service() {
         return new ChatService(settings -> llm, mcp, new ToolPolicy(),
-                new ConsoleViews(JsonMapper.builder().build()), new ChatPrompt(properties), properties);
+                new ConsoleViews(JsonMapper.builder().build()), new ChatPrompt(), properties);
     }
 
     @Test
@@ -216,10 +217,11 @@ class ChatServiceTest {
 
     @Test
     void stopsAtTheIterationCapAndSaysSo() {
-        properties.setMaxIterations(3);
+        // The cap is the tenant's, off the settings, not the deployment's.
         llm.alwaysAsksFor(new LlmBlock.ToolUse("t", "dataset_list", Map.of()));
 
-        ChatReply reply = service().send(conversation, SETTINGS, "tok", "loop forever", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, anthropicWith(3, null), "tok", "loop forever",
+                ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(reply.truncated()).isTrue();
         verify(mcp, times(3)).callTool(anyString(), eq("dataset_list"), any());

@@ -63,8 +63,9 @@ public final class ConsoleVaultSecrets implements VaultSecretContributor {
         vaultMap.put("spring.data.redis.password", consoleData.get("http.session.valkey.password"));
 
         // Chat panel. Which model, and on whose credential, is not here: that is per tenant, in
-        // tenant-config/<org-name>. What is left is how much any tenant's assistant may spend, which
-        // stays with whoever runs the deployment and pays for it.
+        // tenant-config/<org-name>. These are the defaults a tenant lands on when it configures a
+        // model but says nothing about how to run it — not ceilings, since a tenant on its own
+        // credential pays its own bill and may override every one of them.
         //
         // Absent from the secret in deployments that have not enabled chat, in which case these bind
         // to null and ChatProperties keeps its own defaults. Do not give them defaults in
@@ -73,6 +74,8 @@ public final class ConsoleVaultSecrets implements VaultSecretContributor {
         putIfPresent(vaultMap, "datahub.chat.effort", consoleData.get("llm.effort"));
         putIfPresent(vaultMap, "datahub.chat.max-output-tokens",
                 consoleData.get("llm.max-output-tokens"));
+        putIfPresent(vaultMap, "datahub.chat.max-iterations",
+                consoleData.get("llm.max-iterations"));
         putIfPresent(vaultMap, "datahub.chat.turn-timeout", consoleData.get("llm.turn-timeout"));
         putIfPresent(vaultMap, "datahub.chat.instructions", consoleData.get("llm.instructions"));
     }

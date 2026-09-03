@@ -4,6 +4,7 @@ package ai.intellistream.dhconsole.chat.config;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantLlm;
+import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -14,8 +15,12 @@ import org.springframework.stereotype.Component;
  * <p>The model, the credential and the endpoint come from the tenant and nowhere else. There is no
  * deployment-wide model to inherit, so this cannot quietly hand a tenant someone else's credential;
  * an unconfigured tenant has no assistant, and {@link ChatAccess} has already said so before
- * anything here runs. What the deployment still supplies is the spend and patience every tenant
- * runs inside.
+ * anything here runs.
+ *
+ * <p>Everything else — effort, the token roof, the iteration cap, the timeout, the instructions —
+ * is the tenant's if it said something and the deployment's default if it did not. These are not
+ * ceilings the deployment imposes: a tenant on its own credential pays its own bill and may spend
+ * it however it likes.
  */
 @Component
 @ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
@@ -57,8 +62,13 @@ public class ChatSettingsResolver {
                 strip(llm.getReasoningEffort()),
                 llm.getTurnTimeoutDuration() != null
                         ? llm.getTurnTimeoutDuration() : properties.getTurnTimeout(),
-                // A tenant picks its model, not your spend per call.
-                properties.getMaxOutputTokens());
+                llm.getMaxOutputTokensValue() != null
+                        ? llm.getMaxOutputTokensValue() : properties.getMaxOutputTokens(),
+                ChatEffort.parse(llm.getEffort(), properties.getEffort()),
+                llm.getMaxIterationsValue() != null
+                        ? llm.getMaxIterationsValue() : properties.getMaxIterations(),
+                strip(llm.getInstructions()) != null
+                        ? llm.getInstructions().strip() : properties.getInstructions());
     }
 
     private TenantLlm tenantLlm() {
