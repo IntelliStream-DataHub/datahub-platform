@@ -217,8 +217,12 @@ public class ChatApiController {
             }
         }
         attachViews(turns, lastAnswer, exchangeViews);
+        // The turn timeout is per tenant, so the panel has to be told this tenant's — a tenant on
+        // a slow self-hosted model raises it, and a panel still aborting at the deployment default
+        // would show a network error while the server was still working. Effort is not per tenant,
+        // so it keeps coming from the deployment configuration.
         return new ChatHistory(turns, properties.getEffort().wireName(),
-                properties.getTurnTimeout().toMillis());
+                settingsResolver.forCurrentTenant().turnTimeout().toMillis());
     }
 
     private static void attachViews(List<ChatHistory.Turn> turns, int index, Set<ConsoleView> views) {
@@ -234,9 +238,9 @@ public class ChatApiController {
      * @param defaultEffort the level the picker starts on for a user who has never chosen one. Sent
      *                      with the history rather than from its own endpoint because the panel
      *                      already fetches this on open and has nothing to show before it lands.
-     * @param turnTimeoutMs how long the panel should wait for a turn. A self-hosted model needs
-     *                      minutes where a hosted one needs seconds, so the panel cannot hardcode
-     *                      it — see {@code datahub.chat.turn-timeout}.
+     * @param turnTimeoutMs how long the panel should wait for a turn, for this tenant. A
+     *                      self-hosted model needs minutes where a hosted one needs seconds, so the
+     *                      panel cannot hardcode it.
      */
     public record ChatHistory(List<Turn> messages, String defaultEffort, long turnTimeoutMs) {
         public record Turn(String role, String text, List<ConsoleView> views) {

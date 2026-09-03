@@ -48,13 +48,14 @@ class ChatApiControllerTest {
     private static final String CONVERSATION_ATTRIBUTE = "datahub.chat.conversation";
 
     private ChatService chatService;
+    private ChatSettingsResolver settingsResolver;
     private ChatProperties properties;
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         chatService = mock(ChatService.class);
-        ChatSettingsResolver settingsResolver = mock(ChatSettingsResolver.class);
+        settingsResolver = mock(ChatSettingsResolver.class);
         when(settingsResolver.forCurrentTenant()).thenReturn(anthropic());
         AccessTokens accessTokens = mock(AccessTokens.class);
         when(accessTokens.token()).thenReturn("user-token");
@@ -149,7 +150,13 @@ class ChatApiControllerTest {
         // The panel cannot hardcode this: a self-hosted model on CPU needs minutes per turn where a
         // hosted one needs seconds, and the wrong number shows up as a dropped connection rather
         // than as anything the server logs.
-        properties.setTurnTimeout(java.time.Duration.ofMinutes(10));
+        // A tenant on a slow self-hosted model: the panel must be told ITS budget, not the
+        // deployment's, or it aborts while the server is still working.
+        when(settingsResolver.forCurrentTenant()).thenReturn(
+                new ai.intellistream.dhconsole.chat.config.ChatSettings(
+                        ai.intellistream.datahub.tenant.LlmProvider.OPENAI_COMPATIBLE, null,
+                        "qwen3-32b", "http://vllm:8000/v1", null,
+                        java.time.Duration.ofMinutes(10), null));
 
         mockMvc.perform(get("/api/chat"))
                 .andExpect(status().isOk())
