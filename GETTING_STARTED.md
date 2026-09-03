@@ -505,6 +505,33 @@ layout the app uses after the master merge — three secrets, written by
 
 ### The per-tenant model
 
+`tenant-config` is a **folder in the KV tree**, not a secret, so per-tenant secrets nest inside it
+rather than piling up at the mount root. However many tenants there are, the root holds four
+entries:
+
+```
+intellistream-datahub/
+├── datahub-console          # deployment: OAuth2, Valkey session, chat defaults
+├── datahub-platform         # deployment: Pulsar, Keycloak issuer
+├── tenant-resources         # operator-owned: every tenant's connections + entitlements
+└── tenant-config/           # customer-owned, one secret per tenant
+    ├── acme
+    └── globex
+```
+
+```
+$ vault kv list intellistream-datahub/tenant-config/
+Keys
+----
+acme
+globex
+```
+
+A secret per tenant is what makes the folder useful rather than decorative: it is the unit a Vault
+policy can name, so acme's own administrator is granted `tenant-config/acme` and sees exactly that
+one secret. A single secret holding every tenant would have to be readable in full by anyone
+allowed to edit any part of it, which means every other tenant's API key.
+
 Each tenant's chat runs on its own model, in its own secret keyed by organization name — the same
 key `tenant-resources` uses:
 
