@@ -19,6 +19,7 @@ import io.swagger.v3.oas.models.PathItem;
 import io.swagger.v3.oas.models.Paths;
 import org.springdoc.core.customizers.OpenApiCustomizer;
 import org.springframework.boot.SpringApplication;
+import tools.jackson.core.StreamReadConstraints;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
@@ -119,7 +120,26 @@ import java.util.Map;
                               backoff; if it persists, contact support.
 
                             Every error body is safe to log and show to end users; it never contains
-                            credentials or internal stack traces."""
+                            credentials or internal stack traces.
+
+                            ## Limits
+
+                            Requests are bounded so no single caller can crowd out the rest. Going
+                            over any of these is a 4xx: the request never becomes acceptable by
+                            retrying it unchanged.
+
+                            - **Request body** — 4 MiB, or 16 MiB for `POST /timeseries/data`.
+                              Over that is a **413**; split the batch.
+                            - **Batch size** — 10 000 `items` per request (1000 nodes plus 1000
+                              relations for `/resources/create`).
+                            - **Data points** — 100 000 per collection, or 10 000 for a `TEXT`/
+                              `MIXED` series. A single value is at most 64 characters.
+                            - **Free-text fields** — `description` 10 000 characters; `metadata` 256
+                              entries, keys 128 and values 1024 characters; 64 labels of at most 512
+                              characters; 100 related resources.
+
+                            These bound one request. They are not a licence to send unlimited
+                            requests: sustained volume is what the 429 above is for."""
 
         ),
         servers = {@Server(url = "https://api-{project}.intellistream.ai", description = "The url is your api-{your-project-name}.intellistream.ai")},
@@ -137,6 +157,17 @@ import java.util.Map;
 public class ApiDatahubApplication {
 
     public static void main(String[] args) {
+        // Before the context starts, so every JSON factory built during autoconfiguration inherits
+        // it. A second line behind RequestBodySizeLimitFilter: the filter bounds a whole body, this
+        // bounds one absurd scalar or a pathological nesting depth within a legal one. Unlike
+        // unknown-field strictness (see StrictRequestBodyConfig), a generous size ceiling is safe to
+        // apply globally — it cannot reject any tenant registry a smaller document would parse.
+        StreamReadConstraints.overrideDefaultStreamReadConstraints(
+                StreamReadConstraints.builder()
+                        .maxStringLength(2_000_000)
+                        .maxDocumentLength(64L * 1024 * 1024)
+                        .build());
+
         SpringApplication app = new SpringApplication(ApiDatahubApplication.class);
         // Registered here, not in spring.factories, so @SpringBootTest contexts never reach Vault.
         app.addListeners(new VaultConfigurationLoader(

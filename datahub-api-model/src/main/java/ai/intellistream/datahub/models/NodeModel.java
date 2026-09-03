@@ -3,6 +3,8 @@ package ai.intellistream.datahub.models;
 
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.json.ToStringSerializer;
+import ai.intellistream.datahub.models.validation.BoundedMetadata;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -60,9 +62,11 @@ public abstract class NodeModel extends AbstractResource {
     @Schema(description = "The name of the object.", example = "klp pipe ws-a1212-dl")
     private String name;
 
+    @BoundedMetadata
     @Schema(description = "Entity specific metadata. A key-value store.", example = "{\"work_order\": \"wo-sap-12344\"}")
     private Map<String, String> metadata = new HashMap<>();
 
+    @Size(max = FieldLimits.DESCRIPTION_MAX)
     @Schema(description = "The description of the object.", example = "Water stream pipe")
     private String description;
 
@@ -101,8 +105,9 @@ public abstract class NodeModel extends AbstractResource {
      */
     @NotNull
     @Size(min = 1, message = "resource.needs.at.least.one.label")
+    @Size(max = FieldLimits.LABELS_MAX, message = "resource.too.many.labels")
     @Schema(description = "A list of the labels associated with this node.", example = "[\"resource\", \"PIPE\"]")
-    private List<String> labels = new ArrayList<>();
+    private List<@Size(max = FieldLimits.LABEL_LENGTH_MAX) String> labels = new ArrayList<>();
 
     /**
      * The unified node-centric relation encoding: the nodes this one is connected to, each with its
@@ -111,6 +116,7 @@ public abstract class NodeModel extends AbstractResource {
      * {@code relationsFrom}). Populated where the graph is loaded (see {@code ResourceNetwork}); empty
      * otherwise.
      */
+    @Size(max = FieldLimits.RELATED_RESOURCES_MAX)
     @Schema(description = "Nodes this node is connected to, with relationship type and direction.",
             example = "[{\"id\": 34, \"externalId\": \"sensor_abc\", \"relationshipType\": \"PUBLISHES_DATA_TO\", \"direction\": \"OUTBOUND\"}]")
     private List<RelatedNode> relatedResources = new ArrayList<>();

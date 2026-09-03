@@ -146,11 +146,12 @@ class SearchFilterNarrowingTest {
                 dataSecurity,
                 mock(SubscriptionRepository.class), mock(Validator.class),
                 mock(PolicyEnforcement.class), closure,
+                mock(IngestQuotaService.class), mock(TenantLimitsService.class),
                 new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
-            new ai.intellistream.datahub.api.services.node.NodeUpdateService(
-                    mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
-                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)),
-            mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
+                new ai.intellistream.datahub.api.services.node.NodeUpdateService(
+                        mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
+                        mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)),
+                mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
 
         private SearchBody<ResourceFilter> searchFor(String query, ResourceFilter filter) {
             SearchBody<ResourceFilter> form = new SearchBody<>();

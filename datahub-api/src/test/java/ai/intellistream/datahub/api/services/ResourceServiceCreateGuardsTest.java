@@ -71,6 +71,7 @@ class ResourceServiceCreateGuardsTest {
             mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class), dataSecurity,
             mock(SubscriptionRepository.class), validator, policyEnforcement,
             mock(DatasetClosureService.class),
+            mock(IngestQuotaService.class), mock(TenantLimitsService.class),
             new EdgeMapper(nodeRepository, relationshipTypeRepository, mock(RelationshipTypeService.class)),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),

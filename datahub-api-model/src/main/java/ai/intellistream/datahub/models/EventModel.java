@@ -6,6 +6,8 @@ import ai.intellistream.datahub.json.ToStringSerializer;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import com.fasterxml.jackson.annotation.*;
 import io.swagger.v3.oas.annotations.media.Schema;
+import ai.intellistream.datahub.models.validation.BoundedMetadata;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -53,12 +55,14 @@ public class EventModel extends AbstractResource{
     /**
      * Entity specific metadata. A key-value store.
      */
+    @BoundedMetadata
     @Schema(description = "Event metadata, additional fields you can bind information with.", example = "{\"definition\": \"SAP ORDER PLACED\"}")
     private Map<String, String> metadata = new HashMap<>();
 
     /**
      * The description of the event.
      */
+    @Size(max = FieldLimits.DESCRIPTION_MAX)
     @Schema(description = "The description of the event.", example = "This event was caused by....")
     private String description;
 
@@ -100,6 +104,7 @@ public class EventModel extends AbstractResource{
      * externalId, or both; the API resolves the missing side and always returns both. One list
      * rather than two parallel ones is deliberate — parallel id/externalId lists drift.
      */
+    @Size(max = FieldLimits.RELATED_RESOURCES_MAX)
     @Schema(description = "Resources that this event has a relation to. Supply id, externalId or both; both are returned.",
             example = "[{\"id\": 34, \"externalId\": \"sensor_abc\"}]")
     private List<IdCollection> relatedResources = new ArrayList<>();

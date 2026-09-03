@@ -2,9 +2,11 @@
 package ai.intellistream.datahub.api.responses.swaggerdto;
 
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -13,6 +15,7 @@ import java.util.Collection;
 public class DatapointsCollectionDataWrapper {
 
     @JacksonXmlElementWrapper(useWrapping = false)
+    @Size(max = FieldLimits.BATCH_ITEMS_MAX)
     private Collection<DatapointsCollection> items = new ArrayList<>();
 
     @JsonInclude(JsonInclude.Include.ALWAYS)

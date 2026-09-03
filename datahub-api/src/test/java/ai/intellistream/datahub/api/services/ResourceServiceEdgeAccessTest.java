@@ -102,7 +102,8 @@ class ResourceServiceEdgeAccessTest {
             relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
             dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
-                new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
+            mock(IngestQuotaService.class), mock(TenantLimitsService.class),
+            new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),
             mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));

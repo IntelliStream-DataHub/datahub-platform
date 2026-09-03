@@ -52,6 +52,8 @@ class EventServiceTest {
     @Mock private EventDimensionRepository eventDimensionRepository;
     @Mock private DataSetRepository dataSetRepository;
     @Mock private ai.intellistream.datahub.api.datasecurity.DatasetClosureService datasetClosureService;
+    // Charged on create, so it has to exist even where the test is not about quotas.
+    @Mock private IngestQuotaService ingestQuota;
 
     /**
      * By default a data set has no children, so the closure is the roots themselves — that keeps

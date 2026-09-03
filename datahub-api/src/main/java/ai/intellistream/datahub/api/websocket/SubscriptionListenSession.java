@@ -65,6 +65,11 @@ class SubscriptionListenSession {
         return streams.containsKey(externalId);
     }
 
+    /** How many subscriptions this one socket is currently multiplexing. */
+    int streamCount() {
+        return streams.size();
+    }
+
     /**
      * Attach a subscription's consumer and start streaming it. Returns false (and does NOT take
      * ownership of the consumer) if the connection is stopping or the subscription is already

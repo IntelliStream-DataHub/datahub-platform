@@ -9,6 +9,7 @@ import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.models.policy.PolicyWarning;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
+import ai.intellistream.datahub.api.controllers.errors.TenantLimitReachedException;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
@@ -109,6 +110,8 @@ public class ResourceService {
 
     /** The naming policy, applied to every create and update. See {@link PolicyEnforcement}. */
     private final PolicyEnforcement policyEnforcement;
+    private final IngestQuotaService ingestQuota;
+    private final TenantLimitsService tenantLimitsService;
 
     /** The one authority for "which data sets are beneath this one" — shared with the ACL. */
     private final DatasetClosureService datasetClosureService;
@@ -137,9 +140,13 @@ public class ResourceService {
             Validator validator,
             PolicyEnforcement policyEnforcement,
             DatasetClosureService datasetClosureService,
+            IngestQuotaService ingestQuota,
+            TenantLimitsService tenantLimitsService,
             EdgeMapper edgeMapper,
             NodeUpdateService nodeUpdateService,
             NamingPolicyResolver namingPolicyResolver){
+        this.ingestQuota = ingestQuota;
+        this.tenantLimitsService = tenantLimitsService;
         this.entityManager = entityManager;
         this.nodeRepository = nodeRepository;
         this.nodeService = nodeService;
@@ -157,6 +164,33 @@ public class ResourceService {
         this.edgeMapper = edgeMapper;
         this.nodeUpdateService = nodeUpdateService;
         this.namingPolicyResolver = namingPolicyResolver;
+    }
+
+    /**
+     * Refuse a batch that would take the tenant past its node ceiling.
+     *
+     * <p>Counted live rather than accumulated, so deleting frees room again — the friendly behaviour
+     * for a sandbox someone is experimenting in, and the reason this ceiling is not just another
+     * counter in {@link IngestQuotaService}. Only a capped tenant pays for the query, and a capped
+     * tenant is by definition one whose node table is small.
+     */
+    private void assertRoomForMoreNodes(int incoming) {
+        TenantLimits limits = tenantLimitsService.current();
+        // No answer means no ceiling, the same way an unreachable counter allows ingest: not knowing
+        // a limit is never a reason to refuse a write that is otherwise fine.
+        if (limits == null || incoming <= 0) {
+            return;
+        }
+        long limit = limits.maxResources();
+        if (TenantLimits.unlimited(limit)) {
+            return;
+        }
+        if (nodeRepository.count() + incoming > limit) {
+            // Every node type lives in one table, so one ceiling covers them all.
+            throw new TenantLimitReachedException(
+                    "objects (resources, time series, data sets, labels and policies share this limit)",
+                    limit);
+        }
     }
 
     /**
@@ -179,6 +213,14 @@ public class ResourceService {
         if (!violations.isEmpty()) {
             throw new ConstraintViolationException(violations);
         }
+
+        // Both charged here rather than in a filter: resource_create and dataset_create reach this
+        // method directly. The daily quota is the rate; the live count below is the ceiling.
+        ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.NODES, apiReqData.getNodes().size());
+        if (!apiReqData.getRelations().isEmpty()) {
+            ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.EDGES, apiReqData.getRelations().size());
+        }
+        assertRoomForMoreNodes(apiReqData.getNodes().size());
 
         // Create error list that can return missing nodes to user
         ResponseError<BadRequestError> errors = new ResponseError<>();
@@ -1215,6 +1257,30 @@ public class ResourceService {
         return neo4JService.fetchRelatedNodes(
                 form.getId(), form.getDepth(), form.getRelationshipTypes(),
                 form.getLimit(), form.getExcludedLabels());
+    }
+
+    /**
+     * Nearest-N from a start node given by <em>either</em> identifier.
+     *
+     * <p>{@link FetchNearestResourcesForm} declares {@code id} and {@code externalId} and its
+     * {@code @OneIdNotNull} validator accepts either, so a caller who sends only an external id has
+     * sent a valid request. Resolving it here is what makes that true in fact: without this the
+     * request reached {@code findById(null)} and failed as a 500, which reads as a server fault
+     * rather than as the perfectly good request it was. Mirrors {@link #fetchRelatedResources},
+     * which has always accepted both.
+     */
+    @Transactional(readOnly = true)
+    public ResourceNetwork fetchNearestRelatedResources(@Valid FetchNearestResourcesForm form) {
+        if (form.getId() == null) {
+            NodeEntity start = nodeRepository.findByExternalId(form.getExternalId());
+            if (start == null) {
+                throw new ObjectNotFoundException(
+                        "Resource with externalId: " + form.getExternalId() + " not found.");
+            }
+            form.setId(start.getId());
+        }
+        return fetchNearestRelatedResources(form.getId(), form.getEndLabels(), form.getLimit(),
+                form.getRelationshipTypes(), form.getExcludedLabels());
     }
 
     /**
