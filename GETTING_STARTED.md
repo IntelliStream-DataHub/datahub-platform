@@ -500,7 +500,108 @@ layout the app uses after the master merge — three secrets, written by
 |------|---------|----------|
 | `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
-| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, and the Spring Session Valkey store (`http.session.valkey.*`). |
+| `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the chat defaults a tenant lands on when it says nothing (`llm.effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions`). No model and no credential — those are per tenant, and none of these are ceilings. |
+| `tenant-config/<org-name>` | console | One secret per tenant, split into sections by key prefix. Today the only section is `llm.*`: `llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url` name the model, and `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions` say how to run it. Keyed by organization name, as `tenant-resources` is. A tenant without one has no chat panel. |
+
+### The per-tenant model
+
+`tenant-config` is a **folder in the KV tree**, not a secret, so per-tenant secrets nest inside it
+rather than piling up at the mount root. However many tenants there are, the root holds four
+entries:
+
+```
+intellistream-datahub/
+├── datahub-console          # deployment: OAuth2, Valkey session, chat defaults
+├── datahub-platform         # deployment: Pulsar, Keycloak issuer
+├── tenant-resources         # operator-owned: every tenant's connections + entitlements
+└── tenant-config/           # customer-owned, one secret per tenant
+    ├── acme
+    └── globex
+```
+
+```
+$ vault kv list intellistream-datahub/tenant-config/
+Keys
+----
+acme
+globex
+```
+
+There is no step that creates the folder, and nothing to create it with. KV paths are implicit —
+`tenant-config/` exists only because secrets sit under it, so `vault kv list` on it answers
+`No value found` until the first `vault kv put intellistream-datahub/tenant-config/<org-name>`,
+and works from then on. (Vault will also let a *secret* live at `tenant-config` itself, alongside
+the folder of the same name. It reads badly; do not put one there.)
+
+**Why a secret each rather than one holding every tenant.** Not isolation, today: there is a single
+AppRole with `read` on the whole mount, nothing writes these, and so nothing is being kept apart
+from anything. The reasons are about what writing them will look like.
+
+A shared secret makes every write a read-modify-write of the whole blob, so two tenants editing at
+once means one silently overwrites the other unless every writer gets `cas` right, and a bug on
+that path corrupts or leaks *every* tenant's credentials rather than one tenant's. Separate secrets
+cannot interact. Splitting later, once customers have written into it, is a data migration; the
+shape costs one `put` per tenant to choose now.
+
+It also leaves the door open to Vault enforcing the separation — a policy can name
+`tenant-config/acme` and nothing else. That is not the plan of record: self-service editing is
+expected to go through the console, which checks the caller's `settings/write` organization group
+and writes with the platform's own credential. Under that design the group check is the security
+boundary and the path split is not, so do not lean on the path for correctness.
+
+Each tenant's chat runs on its own model, in its own secret keyed by organization name — the same
+key `tenant-resources` uses:
+
+```
+vault kv put intellistream-datahub/tenant-config/acme \
+  llm.provider=anthropic llm.api-key=sk-ant-... llm.model=claude-opus-5
+```
+
+or, for a tenant running its own:
+
+```
+vault kv put intellistream-datahub/tenant-config/acme \
+  llm.provider=openai-compatible llm.base-url=http://vllm.acme:8000/v1 \
+  llm.model=qwen3-32b llm.reasoning-effort=none llm.turn-timeout=10m
+```
+
+**There is no deployment-wide model to fall back to.** A tenant that has not configured one — or
+has configured half of one — gets no chat panel and endpoints that refuse, rather than an assistant
+answering on whoever deployed the platform's account. What counts as configured is a provider, a
+model, and the one thing that provider needs to reach it: an `llm.api-key` for Anthropic, an
+`llm.base-url` for OpenAI-compatible (Ollama and some vLLM deployments take no key at all).
+
+There is no deployment switch to turn chat on. Writing this secret and setting the tenant's
+`tenant-config.chat` flag *is* turning it on, for that tenant; a deployment that writes none has no
+chat anywhere. Users also need the `DATAHUB_CHAT` Keycloak role, so both halves default to off.
+
+**The spend is theirs too.** A tenant on its own credential pays its own bill, so `llm.effort`,
+`llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout` and `llm.instructions` are all
+theirs to set — running max effort with no token roof is an expensive choice this deliberately does
+not prevent. The matching `llm.*` keys on the `datahub-console` secret are *defaults for a tenant
+that named none*, not ceilings.
+
+Only two limits stay with the deployment: `datahub.chat.max-tool-result-chars` and
+`datahub.chat.max-messages`, which bound the transcript the console serialises into its own Valkey
+session on every request. That is the platform's memory rather than the tenant's spend.
+
+A number that will not parse — `max-iterations=six`, a negative roof — is treated as unset and falls
+back to the default, rather than invalidating the entry. With no model to fall back to, the stricter
+reading would cost a tenant its assistant over a typo in an optional field.
+
+**Why its own secret rather than a block in `tenant-resources`.** That secret holds every tenant's
+database credentials, and this is the piece of tenant configuration a person will eventually edit
+from the console. Vault cannot narrow a write within a secret — ACL policies are path-based, and KV
+plugins do not support the `allowed_parameters` family at all — so a write path would have to grant
+far more than model settings. Nothing writes it yet, and reads need no policy change because the
+AppRole already reads the whole mount.
+
+> **The two are split by who may write them, and the feature flags stay where they are.**
+> `tenant-resources` is operator-owned — connection credentials, and the `tenant-config` block of
+> feature entitlements saying what a tenant has been given. A customer must not be able to grant
+> itself a feature. The `tenant-config/<org-name>` secret is the opposite: the customer's own
+> settings, which it should eventually edit for itself. The shared name is unfortunate; the rule for
+> deciding where a new setting goes is not the name but whether the customer may set it.
 
 Host fields in `tenant-resources` are bare (no port) — the code appends each store's
 port; `postgresql.uri` is a full JDBC URL. Each tenant value is a nested JSON **object**

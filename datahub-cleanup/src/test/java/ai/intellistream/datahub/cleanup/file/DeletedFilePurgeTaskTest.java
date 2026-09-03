@@ -44,7 +44,7 @@ class DeletedFilePurgeTaskTest {
     }
 
     private static TenantConfigService serviceWith(Tenant t) {
-        TenantConfigService svc = new TenantConfigService(null, null, VAULT);
+        TenantConfigService svc = new TenantConfigService(null, null, VAULT, null);
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }

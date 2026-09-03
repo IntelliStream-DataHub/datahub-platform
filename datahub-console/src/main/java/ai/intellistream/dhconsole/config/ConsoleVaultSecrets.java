@@ -62,23 +62,20 @@ public final class ConsoleVaultSecrets implements VaultSecretContributor {
         vaultMap.put("spring.data.redis.username", consoleData.get("http.session.valkey.user"));
         vaultMap.put("spring.data.redis.password", consoleData.get("http.session.valkey.password"));
 
-        // Chat panel. Absent from the secret in deployments that have not enabled chat, in which
-        // case these bind to null and ChatProperties keeps its own defaults. Do not give them
-        // defaults in application.properties instead, because this property source is registered
-        // with addLast and would be shadowed by them.
-        putIfPresent(vaultMap, "datahub.chat.provider", consoleData.get("llm.provider"));
-        putIfPresent(vaultMap, "datahub.chat.api-key", consoleData.get("llm.api-key"));
-        putIfPresent(vaultMap, "datahub.chat.model", consoleData.get("llm.model"));
-        putIfPresent(vaultMap, "datahub.chat.base-url", consoleData.get("llm.base-url"));
-
-        // How the assistant is allowed to spend. A self-hosted model wants a turn budget in minutes
-        // and reasoning turned off; a hosted one wants neither. Both are per-deployment facts, so
-        // they belong beside the credentials rather than in a properties file on one machine.
+        // Chat panel. Which model, and on whose credential, is not here: that is per tenant, in
+        // tenant-config/<org-name>. These are the defaults a tenant lands on when it configures a
+        // model but says nothing about how to run it — not ceilings, since a tenant on its own
+        // credential pays its own bill and may override every one of them.
+        //
+        // Absent from the secret in deployments that have not enabled chat, in which case these bind
+        // to null and ChatProperties keeps its own defaults. Do not give them defaults in
+        // application.properties instead, because this property source is registered with addLast
+        // and would be shadowed by them.
         putIfPresent(vaultMap, "datahub.chat.effort", consoleData.get("llm.effort"));
-        putIfPresent(vaultMap, "datahub.chat.reasoning-effort",
-                consoleData.get("llm.reasoning-effort"));
         putIfPresent(vaultMap, "datahub.chat.max-output-tokens",
                 consoleData.get("llm.max-output-tokens"));
+        putIfPresent(vaultMap, "datahub.chat.max-iterations",
+                consoleData.get("llm.max-iterations"));
         putIfPresent(vaultMap, "datahub.chat.turn-timeout", consoleData.get("llm.turn-timeout"));
         putIfPresent(vaultMap, "datahub.chat.instructions", consoleData.get("llm.instructions"));
     }

@@ -36,7 +36,6 @@ class ComponentScanCoverageTest {
         // Conditional components (e.g. the chat beans) are only candidates when their property is
         // set, so scan with an environment that satisfies them.
         MockEnvironment environment = new MockEnvironment();
-        environment.setProperty("datahub.chat.enabled", "true");
         var scanner = new ClassPathScanningCandidateComponentProvider(true);
         scanner.setEnvironment(environment);
 

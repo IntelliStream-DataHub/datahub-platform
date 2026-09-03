@@ -31,14 +31,12 @@ class ChatPropertiesVaultBindingTest {
     void theStringsVaultStoresConvertToTheirTypes() {
         Map<String, Object> vault = new HashMap<>();
         vault.put("datahub.chat.effort", "xhigh");
-        vault.put("datahub.chat.reasoning-effort", "none");
         vault.put("datahub.chat.max-output-tokens", "16000");
         vault.put("datahub.chat.turn-timeout", "10m");
 
         ChatProperties properties = bind(vault);
 
         assertThat(properties.getEffort()).isEqualTo(ChatEffort.XHIGH);
-        assertThat(properties.getReasoningEffort()).isEqualTo("none");
         assertThat(properties.getMaxOutputTokens()).isEqualTo(16_000);
         assertThat(properties.getTurnTimeout()).isEqualTo(Duration.ofMinutes(10));
     }
@@ -50,10 +48,9 @@ class ChatPropertiesVaultBindingTest {
      */
     @Test
     void aSecretThatMentionsNoneOfThemLeavesTheDefaults() {
-        ChatProperties properties = bind(Map.of("datahub.chat.model", "claude-opus-5"));
+        ChatProperties properties = bind(Map.of("datahub.chat.instructions", "irrelevant here"));
 
         assertThat(properties.getEffort()).isEqualTo(ChatEffort.DEFAULT);
-        assertThat(properties.getReasoningEffort()).isNull();
         assertThat(properties.getMaxOutputTokens()).isNull();
         assertThat(properties.getTurnTimeout()).isEqualTo(Duration.ofMinutes(4));
     }

@@ -20,7 +20,7 @@ class TenantFeatureDefaultsTest {
 
     @BeforeEach
     void setUp() {
-        service = new TenantConfigService(jsonMapper, null, VAULT);
+        service = new TenantConfigService(jsonMapper, null, VAULT, null);
         ReflectionTestUtils.setField(service, "policyFeatureDefault", true);
         ReflectionTestUtils.setField(service, "streamingFeatureDefault", true);
     }

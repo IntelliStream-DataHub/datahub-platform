@@ -36,7 +36,7 @@ class TempUploadCleanupTaskTest {
 
     private static TenantConfigService serviceWith(Tenant t) {
         // Construct directly (no Spring) so @PostConstruct/Vault never runs; populate the cache.
-        TenantConfigService svc = new TenantConfigService(null, null, VAULT);
+        TenantConfigService svc = new TenantConfigService(null, null, VAULT, null);
         svc.cachedTenants.put(t.getOrganizationId(), t);
         return svc;
     }

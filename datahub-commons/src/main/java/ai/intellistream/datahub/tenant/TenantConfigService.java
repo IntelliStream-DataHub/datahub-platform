@@ -28,6 +28,7 @@ public class TenantConfigService {
     private final JsonMapper jsonMapper;
     private final ApplicationEventPublisher eventPublisher;
     private final VaultProperties vault;
+    private final TenantLlmStore llmStore;
 
     // Application-wide defaults for feature flags a tenant's Vault `tenant-config` block
     // doesn't set explicitly. Vault wins per tenant; these fill the gaps.
@@ -52,10 +53,11 @@ public class TenantConfigService {
     public volatile Map<String, Tenant> cachedTenants = new ConcurrentHashMap<>();
 
     public TenantConfigService(JsonMapper jsonMapper, ApplicationEventPublisher eventPublisher,
-                               VaultProperties vault) {
+                               VaultProperties vault, TenantLlmStore llmStore) {
         this.jsonMapper = jsonMapper;
         this.eventPublisher = eventPublisher;
         this.vault = vault;
+        this.llmStore = llmStore;
         HttpClient.Builder builder = HttpClient.newBuilder();
         VaultClientFactory.sslContext(vault).ifPresent(builder::sslContext);
         this.httpClient = builder.build();
@@ -117,6 +119,12 @@ public class TenantConfigService {
                     applyFeatureDefaults(tenant.getFeatures());
                     refreshed.put(tenant.getOrganizationId(), tenant);
                 });
+
+                // Model configuration is its own secret per tenant, so it is fetched after the
+                // registry rather than arriving with it. Keyed by organization name, as this
+                // secret is; a tenant with none keeps a null and uses the deployment default.
+                Map<String, TenantLlm> models = llmStore.readAll(tenantData.keySet());
+                refreshed.values().forEach(t -> t.setLlm(models.get(t.getOrganizationName())));
                 cachedTenants = refreshed;
                 log.info("Loaded {} tenants.", refreshed.size());
 
