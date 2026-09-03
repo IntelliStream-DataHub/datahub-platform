@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Seed the 3W well fleet into a running DataHub. One-shot; safe to re-run.
 
 Replays the pre-generated payloads under data/ through the DataHub SDK: a Dataset per
