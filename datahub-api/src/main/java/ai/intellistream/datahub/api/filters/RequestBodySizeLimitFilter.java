@@ -106,7 +106,7 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
                 "metric":"%s",\
                 "limit":%d,\
                 "retryAfter":%d}"""
-                .formatted(e.getMessage(), e.getMetric(), e.getLimit(), e.getRetryAfterSeconds()));
+                .formatted(e.detail(), e.getMetric(), e.getLimit(), e.getRetryAfterSeconds()));
         response.getWriter().flush();
     }
 

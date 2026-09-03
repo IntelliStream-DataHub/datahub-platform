@@ -10,7 +10,19 @@ package ai.intellistream.datahub.api.controllers.errors;
  */
 public abstract class LimitException extends RuntimeException {
 
-    protected LimitException(String message) {
-        super(message);
+    private final String detail;
+
+    protected LimitException(String detail) {
+        super(detail);
+        this.detail = detail;
+    }
+
+    /**
+     * The sentence the caller is shown. The same text as the exception message, kept as its own
+     * field because it is composed here from the metric and the number, never from anything a
+     * request or a lower layer supplied: it is an answer, not an error report.
+     */
+    public String detail() {
+        return detail;
     }
 }

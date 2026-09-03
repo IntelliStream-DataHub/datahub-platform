@@ -31,7 +31,7 @@ public class LimitExceptionHandler {
     public ResponseEntity<ProblemDetail> handleQuotaExceeded(IngestQuotaExceededException ex) {
         log.info("Daily {} quota reached (limit {})", ex.getMetric(), ex.getLimit());
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.detail());
         problem.setTitle("Ingest quota exceeded");
         problem.setType(URI.create("https://intellistream.ai/errors/ingest-quota-exceeded"));
         problem.setProperty("metric", ex.getMetric());
@@ -52,7 +52,7 @@ public class LimitExceptionHandler {
     public ProblemDetail handleTenantLimitReached(TenantLimitReachedException ex) {
         log.info("Tenant limit reached for {} (limit {})", ex.getMetric(), ex.getLimit());
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.detail());
         problem.setTitle("Tenant limit reached");
         problem.setType(URI.create("https://intellistream.ai/errors/tenant-limit-reached"));
         problem.setProperty("metric", ex.getMetric());
