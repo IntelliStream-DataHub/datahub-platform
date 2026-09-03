@@ -11,6 +11,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -209,7 +210,15 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             response = http.send(request.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted calling " + endpoint, e);
+            // Not a model problem: something interrupted this thread, which in practice means the
+            // application is stopping — a restart, a redeploy, or devtools reloading a class.
+            throw new IllegalStateException(
+                    "Interrupted while waiting for " + endpoint + "; the application is shutting down", e);
+        } catch (HttpTimeoutException e) {
+            throw new IllegalStateException(
+                    "No response from " + endpoint + " within " + turnTimeout + ". Raise this tenant's "
+                            + "llm.turn-timeout if the model is simply slow; note a reverse proxy "
+                            + "and the browser each impose their own, lower ceiling.", e);
         } catch (Exception e) {
             throw new IllegalStateException("Could not reach the model server at " + endpoint, e);
         }

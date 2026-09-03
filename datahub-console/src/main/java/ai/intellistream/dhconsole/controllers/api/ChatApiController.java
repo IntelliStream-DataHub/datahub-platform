@@ -125,6 +125,13 @@ public class ChatApiController {
             // the last one, and TenantConfigService refreshes from Vault on its own schedule.
             ChatSettings settings = settingsResolver.forCurrentTenant();
             ChatEffort effort = ChatEffort.parse(request.effort(), settings.defaultEffort());
+            // Logged before the work, not only after: a turn can legitimately run for minutes, and
+            // the first thing to establish about one that never came back is that it arrived at all.
+            // The message itself is never logged - it is the user's data, and its length is enough.
+            log.info("Chat turn starting on {} at effort {}: {} chars in, {} in the transcript",
+                    settings.model(), effort.wireName(),
+                    request.message() == null ? 0 : request.message().length(),
+                    conversation.messages().size());
             ChatReply reply = chatService.send(conversation, settings, bearer, request.message(),
                     zoneOf(request), effort);
             session.setAttribute(CONVERSATION_ATTRIBUTE, conversation); // re-set so Spring Session saves it
@@ -145,6 +152,17 @@ public class ChatApiController {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(ChatResponse.error(message("chat.error.api.unreachable", locale)));
         } catch (RuntimeException e) {
+            if (wasInterrupted(e)) {
+                // Not a fault in the turn: this thread was interrupted, which in practice means the
+                // application is stopping - a restart, a redeploy, or devtools reloading a class
+                // mid-turn. Logged without a stack trace, because 160 frames of servlet plumbing
+                // say nothing that this sentence does not, and reading it as a chat bug costs an
+                // afternoon.
+                log.warn("Chat turn abandoned after {} ms: the thread was interrupted, which normally "
+                        + "means the application is shutting down or restarting", elapsedMs(startedAt));
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(ChatResponse.error(message("chat.error.generic", locale)));
+            }
             log.error("Chat turn failed after {} ms", elapsedMs(startedAt), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ChatResponse.error(message("chat.error.generic", locale)));
@@ -246,6 +264,24 @@ public class ChatApiController {
     public ResponseEntity<Void> reset(HttpSession session) {
         session.removeAttribute(CONVERSATION_ATTRIBUTE);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Whether this failed because the thread was interrupted rather than because anything went
+     * wrong. Both clients wrap it, so the cause chain is the only reliable signal; the interrupt
+     * flag itself is checked first because {@code Thread.interrupted()} may already have consumed
+     * it on the way up.
+     */
+    private static boolean wasInterrupted(Throwable failure) {
+        if (Thread.currentThread().isInterrupted()) {
+            return true;
+        }
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static long elapsedMs(long startedAt) {

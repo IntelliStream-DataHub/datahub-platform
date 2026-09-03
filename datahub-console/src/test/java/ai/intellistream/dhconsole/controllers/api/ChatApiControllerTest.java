@@ -295,6 +295,20 @@ class ChatApiControllerTest {
         assertThat(session.getAttribute(CONVERSATION_ATTRIBUTE)).isNull();
     }
 
+    @Test
+    void anInterruptedTurnIsNotReportedAsAFailedOne() throws Exception {
+        // A restart or redeploy interrupts in-flight turns. That is not a fault in the turn, and
+        // reporting it as one sends whoever reads the log looking for a bug that is not there.
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
+                .thenThrow(new IllegalStateException("Interrupted while waiting for the model",
+                        new InterruptedException()));
+
+        mockMvc.perform(post("/api/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hi\"}"))
+                .andExpect(status().isServiceUnavailable());
+    }
+
     private static ai.intellistream.dhconsole.chat.config.ChatSettings withDefaultEffort(
             ChatEffort effort) {
         ai.intellistream.dhconsole.chat.config.ChatSettings base = anthropic();

@@ -82,12 +82,23 @@ public class ChatService {
         Set<ConsoleView> views = new LinkedHashSet<>();
         LlmClient llm = backends.forSettings(settings);
 
+        // A turn is one HTTP request that can legitimately run for minutes, so it logs as it goes.
+        // Without this a slow model and a hung one look identical: silence either way.
+        long modelMs = 0;
+        long toolMs = 0;
         for (int iteration = 0; iteration < settings.maxIterations(); iteration++) {
+            long callStartedAt = System.nanoTime();
             LlmTurn turn = llm.send(settings, systemPrompt, tools, conversation.messages(), effort);
+            long callMs = millisSince(callStartedAt);
+            modelMs += callMs;
+            log.info("Chat turn: model call {}/{} took {} ms, {}", iteration + 1,
+                    settings.maxIterations(), callMs,
+                    turn.wantsTools() ? "wants " + toolNames(turn) : "answering");
             conversation.append(LlmMessage.assistant(turn.blocks()));
 
             if (!turn.wantsTools()) {
                 conversation.trimTo(properties.getMaxMessages());
+                logBreakdown(iteration + 1, modelMs, toolMs, "answered");
                 return new ChatReply(turn.text(), List.copyOf(toolsUsed), limited(views), false);
             }
 
@@ -103,7 +114,12 @@ public class ChatService {
                     continue;
                 }
                 toolsUsed.add(call.name());
+                long toolStartedAt = System.nanoTime();
                 LlmBlock.ToolResult result = execute(bearer, call);
+                long thisToolMs = millisSince(toolStartedAt);
+                toolMs += thisToolMs;
+                log.debug("Chat turn: tool {} took {} ms{}", call.name(), thisToolMs,
+                        result.isError() ? " (error)" : "");
                 results.add(result);
                 consoleViews.from(call, result).ifPresent(views::add);
             }
@@ -114,7 +130,21 @@ public class ChatService {
 
         log.warn("Chat turn hit the {}-iteration cap at effort {}", settings.maxIterations(), effort);
         conversation.trimTo(properties.getMaxMessages());
+        logBreakdown(settings.maxIterations(), modelMs, toolMs, "truncated at the iteration cap");
         return new ChatReply(lastAssistantText(conversation), List.copyOf(toolsUsed), limited(views), true);
+    }
+
+    /** Where a turn's wall-clock actually went, which is the first question a slow one raises. */
+    private static void logBreakdown(int iterations, long modelMs, long toolMs, String outcome) {
+        log.info("Chat turn {}: {} model call(s) {} ms, tools {} ms", outcome, iterations, modelMs, toolMs);
+    }
+
+    private static String toolNames(LlmTurn turn) {
+        return turn.toolUses().stream().map(LlmBlock.ToolUse::name).toList().toString();
+    }
+
+    private static long millisSince(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 
     private static List<ConsoleView> limited(Set<ConsoleView> views) {
