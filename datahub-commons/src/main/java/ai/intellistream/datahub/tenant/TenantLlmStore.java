@@ -9,17 +9,24 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Reads the {@code llm.*} section of each tenant's {@code <mount>/tenant-config/<org-name>} secret.
  *
- * <p>Its own secret rather than a block in {@code tenant-resources}, which holds every tenant's
- * database credentials: Vault policies are path-based and KV plugins do not support
- * {@code allowed_parameters}, so a future write path could not be narrowed to model settings if
- * this shared that secret. Nothing writes it yet, and reads need no policy change.
+ * <p>Its own secret rather than a block in {@code tenant-resources}, and the split is by who may
+ * write it. {@code tenant-resources} is what the operator provisions and a customer must not touch
+ * — every tenant's database credentials, and the {@code tenant-config} block of feature
+ * entitlements saying what that tenant has been given. This secret is the opposite: the customer's
+ * own settings, which it should eventually edit for itself from the console.
+ *
+ * <p>That split has to be by path, because Vault cannot enforce it any finer: policies are
+ * path-based and KV plugins do not support {@code allowed_parameters}, so a write grant on a secret
+ * is a write grant on every key in it. Nothing writes this yet, and reads need no policy change.
  *
  * <p>Keyed by organization name, matching how {@code tenant-resources} keys its entries — one
  * convention for tenant configuration rather than two, and an operator writing one of these should
@@ -69,12 +76,27 @@ public class TenantLlmStore {
         }
 
         Map<String, TenantLlm> configured = new HashMap<>();
+        List<String> withoutAModel = new ArrayList<>();
+        int usable = 0;
         for (String orgName : orgNames) {
             TenantLlm llm = read(client, orgName);
-            if (llm != null) {
-                configured.put(orgName, llm);
+            if (llm == null) {
+                withoutAModel.add(orgName);
+                continue;
+            }
+            configured.put(orgName, llm);
+            if (llm.isUsable()) {
+                usable++;
+            } else {
+                // Written but incomplete, which is worth separating from absent: whoever wrote it
+                // believes they configured something.
+                withoutAModel.add(orgName + " (incomplete)");
             }
         }
+        // Says outright why a tenant has no assistant. Without it the only symptom is a panel that
+        // does not render, and nothing tells an unwritten secret from a misspelled one.
+        log.info("Model configuration: {} of {} tenants have a usable one{}", usable, orgNames.size(),
+                withoutAModel.isEmpty() ? "" : ", without: " + String.join(", ", withoutAModel));
         return configured;
     }
 
@@ -96,7 +118,7 @@ public class TenantLlmStore {
         return section;
     }
 
-    /** Null if the tenant has no {@code llm.*} keys, which is the ordinary case, not an error. */
+    /** Null if the tenant has no {@code llm.*} keys, which is not an error — it has no assistant. */
     private TenantLlm read(Vault client, String orgName) {
         String path = vault.secretName() + "/tenant-config/" + orgName;
         try {

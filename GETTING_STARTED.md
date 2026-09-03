@@ -552,9 +552,12 @@ plugins do not support the `allowed_parameters` family at all — so a write pat
 far more than model settings. Nothing writes it yet, and reads need no policy change because the
 AppRole already reads the whole mount.
 
-> The name collides for now with the `tenant-config` **block inside** `tenant-resources`, which
-> holds the per-tenant feature flags. Those are the natural next section to move into this secret,
-> at which point the name means one thing again.
+> **The two are split by who may write them, and the feature flags stay where they are.**
+> `tenant-resources` is operator-owned — connection credentials, and the `tenant-config` block of
+> feature entitlements saying what a tenant has been given. A customer must not be able to grant
+> itself a feature. The `tenant-config/<org-name>` secret is the opposite: the customer's own
+> settings, which it should eventually edit for itself. The shared name is unfortunate; the rule for
+> deciding where a new setting goes is not the name but whether the customer may set it.
 
 Host fields in `tenant-resources` are bare (no port) — the code appends each store's
 port; `postgresql.uri` is a full JDBC URL. Each tenant value is a nested JSON **object**
