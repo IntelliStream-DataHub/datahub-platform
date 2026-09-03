@@ -20,8 +20,8 @@ import static org.mockito.Mockito.when;
 
 /**
  * The access rule is the security boundary (the UI hide is only cosmetic), so pin every combination:
- * chat is available only when the deployment, the tenant's Vault flag, the tenant's own model, and
- * the user's authority all agree.
+ * chat is available only when the tenant's Vault flag, the tenant's own model, and the user's
+ * authority all agree.
  *
  * <p>The model is part of the rule because there is no deployment credential behind it. A tenant
  * that has configured none must see no panel — the alternative was an assistant answering on
@@ -72,30 +72,24 @@ class ChatAccessTest {
     @Test
     void availableWhenDeploymentTenantAndUserAllAllow() {
         authenticateWith("DATAHUB_CONSOLE", "DATAHUB_CHAT");
-        assertThat(new ChatAccess(true, tenantWithChat(true), sessionFor(ORG)).available()).isTrue();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(ORG)).available()).isTrue();
     }
 
     @Test
     void deniedWhenTheUserLacksTheChatAuthority() {
         authenticateWith("DATAHUB_CONSOLE");
-        assertThat(new ChatAccess(true, tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
     void deniedWhenTheTenantFlagIsOff() {
         authenticateWith("DATAHUB_CHAT");
-        assertThat(new ChatAccess(true, tenantWithChat(false), sessionFor(ORG)).available()).isFalse();
-    }
-
-    @Test
-    void deniedWhenTheDeploymentHasChatDisabled() {
-        authenticateWith("DATAHUB_CHAT");
-        assertThat(new ChatAccess(false, tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(false), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
     void deniedWhenThereIsNoAuthenticatedUser() {
-        assertThat(new ChatAccess(true, tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
@@ -103,7 +97,7 @@ class ChatAccessTest {
         // The flag is on and the user is entitled, but there is no credential to run on and none to
         // borrow. Denied, not "denied later, mid-conversation".
         authenticateWith("DATAHUB_CHAT");
-        assertThat(new ChatAccess(true, tenantWith(true, null), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWith(true, null), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
@@ -112,12 +106,12 @@ class ChatAccessTest {
         TenantLlm noKey = usableModel();
         noKey.setApiKey(null);
 
-        assertThat(new ChatAccess(true, tenantWith(true, noKey), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWith(true, noKey), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
     void deniedWhenTheSessionHasNoOrganisation() {
         authenticateWith("DATAHUB_CHAT");
-        assertThat(new ChatAccess(true, tenantWithChat(true), sessionFor(null)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(null)).available()).isFalse();
     }
 }

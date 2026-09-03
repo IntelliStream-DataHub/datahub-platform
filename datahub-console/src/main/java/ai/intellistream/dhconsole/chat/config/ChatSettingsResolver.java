@@ -6,7 +6,6 @@ import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantLlm;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.security.UserSession;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
@@ -23,7 +22,6 @@ import org.springframework.stereotype.Component;
  * it however it likes.
  */
 @Component
-@ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
 public class ChatSettingsResolver {
 
     private final ChatProperties properties;

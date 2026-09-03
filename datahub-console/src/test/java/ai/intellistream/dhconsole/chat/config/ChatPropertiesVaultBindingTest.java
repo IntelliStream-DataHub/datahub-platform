@@ -48,7 +48,7 @@ class ChatPropertiesVaultBindingTest {
      */
     @Test
     void aSecretThatMentionsNoneOfThemLeavesTheDefaults() {
-        ChatProperties properties = bind(Map.of("datahub.chat.enabled", "true"));
+        ChatProperties properties = bind(Map.of("datahub.chat.instructions", "irrelevant here"));
 
         assertThat(properties.getEffort()).isEqualTo(ChatEffort.DEFAULT);
         assertThat(properties.getMaxOutputTokens()).isNull();

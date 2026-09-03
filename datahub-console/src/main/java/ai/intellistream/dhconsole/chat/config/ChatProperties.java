@@ -33,9 +33,6 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "datahub.chat")
 public class ChatProperties {
 
-    /** Master switch. Off means no panel is rendered and the endpoints refuse. */
-    private boolean enabled = false;
-
     /**
      * Standing instructions appended to the built-in system prompt, for tenants that supply none of
      * their own. Appended rather than replacing, so the tool discipline and read-only framing cannot

@@ -59,7 +59,6 @@ class ChatContextTest {
 
     private AnnotationConfigApplicationContext contextWith(Map<String, Object> properties) {
         Map<String, Object> all = new HashMap<>(properties);
-        all.put("datahub.chat.enabled", "true");
         all.put("datahub.url", "http://localhost:8081");
 
         var context = new AnnotationConfigApplicationContext();
@@ -99,23 +98,6 @@ class ChatContextTest {
                     .openAiCompatible("http://localhost:11434/v1", null);
             assertThat(backends.forSettings(settings).providerId(settings))
                     .isEqualTo("openai-compatible/qwen3.5:latest");
-        }
-    }
-
-    @Test
-    void nothingIsWiredWhenChatIsDisabled() {
-        var context = new AnnotationConfigApplicationContext();
-        context.getEnvironment().getPropertySources().addFirst(
-                new MapPropertySource("test", Map.of("datahub.chat.enabled", "false")));
-        context.register(Collaborators.class);
-        context.scan("ai.intellistream.dhconsole.chat");
-        context.refresh();
-
-        try (context) {
-            // The console must boot unchanged for deployments that have not enabled chat.
-            assertThat(context.getBeanNamesForType(ChatService.class)).isEmpty();
-            assertThat(context.getBeanNamesForType(LlmBackends.class)).isEmpty();
-            assertThat(context.getBeanNamesForType(ChatSettingsResolver.class)).isEmpty();
         }
     }
 }

@@ -15,7 +15,6 @@ import ai.intellistream.dhconsole.chat.mcp.McpToolResult;
 import ai.intellistream.dhconsole.chat.policy.ToolPolicy;
 import ai.intellistream.dhconsole.chat.state.ChatConversation;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneId;
@@ -33,7 +32,6 @@ import java.util.Set;
  */
 @Slf4j
 @Service
-@ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
 public class ChatService {
 
 

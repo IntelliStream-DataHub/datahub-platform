@@ -525,8 +525,11 @@ vault kv put intellistream-datahub/tenant-config/acme \
 has configured half of one — gets no chat panel and endpoints that refuse, rather than an assistant
 answering on whoever deployed the platform's account. What counts as configured is a provider, a
 model, and the one thing that provider needs to reach it: an `llm.api-key` for Anthropic, an
-`llm.base-url` for OpenAI-compatible (Ollama and some vLLM deployments take no key at all). So
-enabling chat is two steps — `datahub.chat.enabled` for the deployment, then a secret per tenant.
+`llm.base-url` for OpenAI-compatible (Ollama and some vLLM deployments take no key at all).
+
+There is no deployment switch to turn chat on. Writing this secret and setting the tenant's
+`tenant-config.chat` flag *is* turning it on, for that tenant; a deployment that writes none has no
+chat anywhere. Users also need the `DATAHUB_CHAT` Keycloak role, so both halves default to off.
 
 **The spend is theirs too.** A tenant on its own credential pays its own bill, so `llm.effort`,
 `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout` and `llm.instructions` are all

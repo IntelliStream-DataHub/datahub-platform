@@ -18,7 +18,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.MessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -53,8 +52,6 @@ import java.util.Set;
 @Slf4j
 @RestController
 @RequestMapping("/api/chat")
-@ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
-// Deployment gate is the @ConditionalOnProperty above (endpoint doesn't exist when chat is off).
 // Tenant + user gates are enforced per request: same rule the layout uses to hide the UI, so a user
 // without the Vault tenant flag or the DATAHUB_CHAT authority gets 403 even if they call directly.
 @PreAuthorize("@chatAccess.available()")
