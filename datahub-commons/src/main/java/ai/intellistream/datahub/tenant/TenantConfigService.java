@@ -120,11 +120,11 @@ public class TenantConfigService {
                     refreshed.put(tenant.getOrganizationId(), tenant);
                 });
 
-                // Model configuration lives in its own secret per tenant, so it is fetched after
-                // the registry rather than arriving with it. One batch, one Vault login; a tenant
-                // with none keeps a null and falls back to the deployment default.
-                Map<String, TenantLlm> models = llmStore.readAll(refreshed.keySet());
-                models.forEach((orgId, llm) -> refreshed.get(orgId).setLlm(llm));
+                // Model configuration is its own secret per tenant, so it is fetched after the
+                // registry rather than arriving with it. Keyed by organization name, as this
+                // secret is; a tenant with none keeps a null and uses the deployment default.
+                Map<String, TenantLlm> models = llmStore.readAll(tenantData.keySet());
+                refreshed.values().forEach(t -> t.setLlm(models.get(t.getOrganizationName())));
                 cachedTenants = refreshed;
                 log.info("Loaded {} tenants.", refreshed.size());
 

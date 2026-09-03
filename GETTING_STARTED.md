@@ -501,21 +501,22 @@ layout the app uses after the master merge — three secrets, written by
 | `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
 | `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the deployment-wide chat defaults (`llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url`, `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.turn-timeout`, `llm.instructions`). |
-| `tenant-llm/<org-id>` | console | One secret per tenant naming the model that tenant's chat uses: `provider`, `api-key`, `model`, `base-url`, `reasoning-effort`, `turn-timeout`. Optional — a tenant without one uses the `llm.*` defaults above. |
+| `tenant-llm/<org-name>` | console | One secret per tenant naming the model that tenant's chat uses: `provider`, `api-key`, `model`, `base-url`, `reasoning-effort`, `turn-timeout`. Keyed by organization name, as `tenant-resources` is. Optional — a tenant without one uses the `llm.*` defaults above. |
 
 ### The per-tenant model
 
-Each tenant's chat can run on its own model, configured in its own secret keyed by organization id:
+Each tenant's chat can run on its own model, configured in its own secret keyed by organization
+name — the same key `tenant-resources` uses:
 
 ```
-vault kv put intellistream-datahub/tenant-llm/$ORG_ID \
+vault kv put intellistream-datahub/tenant-llm/acme \
   provider=anthropic api-key=sk-ant-... model=claude-opus-5
 ```
 
 or, for a tenant running its own:
 
 ```
-vault kv put intellistream-datahub/tenant-llm/$ORG_ID \
+vault kv put intellistream-datahub/tenant-llm/acme \
   provider=openai-compatible base-url=http://vllm.acme:8000/v1 \
   model=qwen3-32b reasoning-effort=none turn-timeout=10m
 ```

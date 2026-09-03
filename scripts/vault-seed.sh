@@ -141,9 +141,9 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
 }
 JSON
 
-# Per-tenant model configuration, one secret per tenant keyed by ORG ID (not org name: every
-# request carries an id, and keying on it means renaming an organization does not strand its
-# configuration).
+# Per-tenant model configuration, one secret per tenant keyed by organization NAME, the same way
+# tenant-resources keys its entries — one convention for tenant config rather than two, and nobody
+# should have to look up a uuid to write one.
 #
 # Separate from tenant-resources on purpose. That secret holds every tenant's database credentials,
 # and this is the piece of tenant config a person will eventually edit from the console — Vault
@@ -155,7 +155,7 @@ JSON
 # defaults on the datahub-console secret, so the default dev stack exercises both halves of the
 # precedence rule without anyone having to edit Vault by hand first.
 echo "==> Seeding per-tenant model config (foo only; bar uses the deployment default)"
-vault kv put "$MOUNT/tenant-llm/$FOO_ID" \
+vault kv put "$MOUNT/tenant-llm/foo" \
   provider=anthropic \
   api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
   model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
