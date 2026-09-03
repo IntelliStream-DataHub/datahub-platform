@@ -3,20 +3,18 @@ package ai.intellistream.datahub.tenant;
 
 import ai.intellistream.datahub.config.VaultClientFactory;
 import ai.intellistream.datahub.config.VaultProperties;
+import io.github.jopenlibs.vault.Vault;
+import io.github.jopenlibs.vault.VaultException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Reads one tenant's model configuration, from {@code <mount>/tenant-llm/<org-id>}.
+ * Reads each tenant's model configuration from {@code <mount>/tenant-llm/<org-id>}.
  *
  * <h3>Why not a block inside {@code tenant-resources}</h3>
  * Because this is the one piece of tenant configuration a person will eventually edit, and
@@ -33,8 +31,7 @@ import java.util.Map;
  * <h3>Keyed by org id, not org name</h3>
  * {@code tenant-resources} is keyed by organization <em>name</em>, which only this package ever
  * sees. Every request instead carries an org id — {@code TenantContext}, {@code UserSession} — so
- * keying on that means the write path needs no name lookup, and renaming an organization does not
- * strand its configuration.
+ * keying on that means renaming an organization does not strand its configuration.
  */
 @Slf4j
 @Service
@@ -42,94 +39,68 @@ public class TenantLlmStore {
 
     private final JsonMapper jsonMapper;
     private final VaultProperties vault;
-    private final HttpClient httpClient;
 
     public TenantLlmStore(JsonMapper jsonMapper, VaultProperties vault) {
         this.jsonMapper = jsonMapper;
         this.vault = vault;
-        // Shares the keystore/truststore the startup loader used, so a Vault listener requiring
-        // mutual TLS keeps accepting these calls after boot — same reasoning as TenantConfigService.
-        HttpClient.Builder builder = HttpClient.newBuilder();
-        VaultClientFactory.sslContext(vault).ifPresent(builder::sslContext);
-        this.httpClient = builder.build();
     }
 
     /**
-     * A tenant's model configuration, or null if it has none.
+     * The model configuration for each of these tenants, omitting those that have none.
      *
-     * <p>Absent is the ordinary case, not an error: a tenant without its own model uses the
-     * deployment default, which is what every tenant did before any of this existed. A Vault
-     * failure is logged and also returns null — falling back to the deployment default is a far
-     * better outcome than failing every turn for that tenant.
+     * <p>A batch rather than one call per tenant so the whole refresh costs a single AppRole login.
+     * {@link VaultClientFactory#login} hands back a client that is already authenticated and set to
+     * KV v2, so the token, the mutual-TLS settings and the {@code data.data} unwrapping are all
+     * somebody else's problem — the same client every {@code VaultSecretContributor} uses.
+     *
+     * <p>A Vault failure yields an empty map rather than an exception. Every tenant then falls back
+     * to the deployment default, which is a far better outcome than a refresh that throws and
+     * leaves the whole tenant registry stale.
      */
-    public TenantLlm read(String orgId) {
-        if (orgId == null || orgId.isBlank()) {
-            return null;
+    public Map<String, TenantLlm> readAll(Collection<String> orgIds) {
+        if (orgIds == null || orgIds.isEmpty()) {
+            return Map.of();
         }
+        Vault client;
         try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(dataUrl(orgId)))
-                    .header("X-Vault-Token", token())
-                    .GET()
-                    .build();
-            HttpResponse<String> response =
-                    httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() == 404) {
+            client = VaultClientFactory.login(vault);
+        } catch (RuntimeException e) {
+            log.warn("Could not log in to Vault to read model configuration: {}", e.getMessage());
+            return Map.of();
+        }
+
+        Map<String, TenantLlm> configured = new HashMap<>();
+        for (String orgId : orgIds) {
+            TenantLlm llm = read(client, orgId);
+            if (llm != null) {
+                configured.put(orgId, llm);
+            }
+        }
+        return configured;
+    }
+
+    /**
+     * One tenant's configuration, or null if it has none.
+     *
+     * <p>Absent is the ordinary case rather than an error: a tenant without its own model uses the
+     * deployment default, which is what every tenant did before this existed.
+     */
+    private TenantLlm read(Vault client, String orgId) {
+        String path = vault.secretName() + "/tenant-llm/" + orgId;
+        try {
+            Map<String, String> data = client.logical().read(path).getData();
+            return data == null || data.isEmpty() ? null : jsonMapper.convertValue(data, TenantLlm.class);
+        } catch (VaultException e) {
+            if (e.getHttpStatusCode() == 404) {
                 return null; // never configured, or deleted
             }
-            if (response.statusCode() != 200) {
-                log.warn("Vault returned HTTP {} reading the model config for tenant {}",
-                        response.statusCode(), orgId);
-                return null;
-            }
-            Map<String, Object> body =
-                    jsonMapper.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
-            // KV v2 nests the secret at data.data.
-            if (body.get("data") instanceof Map<?, ?> outer
-                    && outer.get("data") instanceof Map<?, ?> inner) {
-                return jsonMapper.convertValue(inner, TenantLlm.class);
-            }
+            log.warn("Could not read the model configuration for tenant {}: {}", orgId, e.getMessage());
             return null;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return null;
-        } catch (Exception e) {
-            log.warn("Could not read the model config for tenant {}: {}", orgId, e.getMessage());
+        } catch (RuntimeException e) {
+            // A malformed secret — an unparseable provider, say. One tenant's typo must not cost
+            // every other tenant its configuration, so this is caught per tenant, not per pass.
+            log.warn("Ignoring unusable model configuration for tenant {}: {}", orgId, e.getMessage());
             return null;
         }
-    }
-
-
-    private String dataUrl(String orgId) {
-        return vault.address() + "/v1/" + vault.secretName() + "/data/tenant-llm/" + orgId;
-    }
-
-    /**
-     * An AppRole login per call.
-     *
-     * <p>Not cached, and that is a deliberate trade rather than an oversight: reads happen once per
-     * tenant on the five-minute refresh and writes happen when a person saves a form, so the login
-     * is never in a hot path. Caching a token means owning its TTL and its renewal, which is real
-     * machinery to get subtly wrong for no measurable gain here.
-     */
-    private String token() throws Exception {
-        Map<String, String> login = new HashMap<>();
-        login.put("role_id", vault.roleId());
-        login.put("secret_id", vault.secretId());
-
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(vault.address() + "/v1/auth/approle/login"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(jsonMapper.writeValueAsString(login)))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        Map<String, Object> body =
-                jsonMapper.readValue(response.body(), new TypeReference<Map<String, Object>>() {});
-        if (body.get("auth") instanceof Map<?, ?> auth && auth.get("client_token") instanceof String token) {
-            return token;
-        }
-        throw new IllegalStateException("Vault AppRole login did not return a token (HTTP "
-                + response.statusCode() + ")");
     }
 }
