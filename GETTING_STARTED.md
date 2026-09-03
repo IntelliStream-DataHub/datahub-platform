@@ -527,10 +527,27 @@ acme
 globex
 ```
 
-A secret per tenant is what makes the folder useful rather than decorative: it is the unit a Vault
-policy can name, so acme's own administrator is granted `tenant-config/acme` and sees exactly that
-one secret. A single secret holding every tenant would have to be readable in full by anyone
-allowed to edit any part of it, which means every other tenant's API key.
+There is no step that creates the folder, and nothing to create it with. KV paths are implicit —
+`tenant-config/` exists only because secrets sit under it, so `vault kv list` on it answers
+`No value found` until the first `vault kv put intellistream-datahub/tenant-config/<org-name>`,
+and works from then on. (Vault will also let a *secret* live at `tenant-config` itself, alongside
+the folder of the same name. It reads badly; do not put one there.)
+
+**Why a secret each rather than one holding every tenant.** Not isolation, today: there is a single
+AppRole with `read` on the whole mount, nothing writes these, and so nothing is being kept apart
+from anything. The reasons are about what writing them will look like.
+
+A shared secret makes every write a read-modify-write of the whole blob, so two tenants editing at
+once means one silently overwrites the other unless every writer gets `cas` right, and a bug on
+that path corrupts or leaks *every* tenant's credentials rather than one tenant's. Separate secrets
+cannot interact. Splitting later, once customers have written into it, is a data migration; the
+shape costs one `put` per tenant to choose now.
+
+It also leaves the door open to Vault enforcing the separation — a policy can name
+`tenant-config/acme` and nothing else. That is not the plan of record: self-service editing is
+expected to go through the console, which checks the caller's `settings/write` organization group
+and writes with the platform's own credential. Under that design the group check is the security
+boundary and the path split is not, so do not lean on the path for correctness.
 
 Each tenant's chat runs on its own model, in its own secret keyed by organization name — the same
 key `tenant-resources` uses:

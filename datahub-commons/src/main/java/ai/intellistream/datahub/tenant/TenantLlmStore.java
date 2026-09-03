@@ -24,9 +24,17 @@ import java.util.Map;
  * entitlements saying what that tenant has been given. This secret is the opposite: the customer's
  * own settings, which it should eventually edit for itself from the console.
  *
- * <p>That split has to be by path, because Vault cannot enforce it any finer: policies are
- * path-based and KV plugins do not support {@code allowed_parameters}, so a write grant on a secret
- * is a write grant on every key in it. Nothing writes this yet, and reads need no policy change.
+ * <p>A secret per tenant rather than one holding them all, though not for isolation as things
+ * stand: there is a single AppRole with read on the whole mount and nothing writes these yet. It is
+ * about what writing them will look like. One shared secret makes every write a read-modify-write
+ * of the whole blob, so concurrent edits lose each other without careful {@code cas} and one bug
+ * reaches every tenant's credentials; separate secrets cannot interact. Splitting later, after
+ * customers have written into it, would be a data migration.
+ *
+ * <p>It also leaves room for Vault to enforce the split, since a policy can name one path — but
+ * that is not assumed. The expectation is that the console checks the caller's
+ * {@code settings/write} organization group and writes with the platform's own credential, which
+ * makes the group check the boundary and not this path.
  *
  * <p>Keyed by organization name, matching how {@code tenant-resources} keys its entries — one
  * convention for tenant configuration rather than two, and an operator writing one of these should
