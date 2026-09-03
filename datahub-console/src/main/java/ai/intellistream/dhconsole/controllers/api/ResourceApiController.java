@@ -63,16 +63,6 @@ public class ResourceApiController {
         return new ResponseEntity<>(resourceNetwork, HttpStatus.OK);
     }
 
-    @RequestMapping(value = {"/byids"},
-            method = RequestMethod.POST,
-            produces = {MediaType.APPLICATION_JSON_VALUE},
-            consumes = {MediaType.APPLICATION_JSON_VALUE}
-    )
-    public ResponseEntity<?> byIds(@RequestBody DataWrapper<IdCollection> apiReqData){
-        DataWrapper<NodeModel> resources = this.datahubApi.byIds(apiReqData);
-        return new ResponseEntity<>(resources, HttpStatus.OK);
-    }
-
     @RequestMapping(value = {"/save"},
             method = RequestMethod.POST,
             produces = {MediaType.APPLICATION_JSON_VALUE},

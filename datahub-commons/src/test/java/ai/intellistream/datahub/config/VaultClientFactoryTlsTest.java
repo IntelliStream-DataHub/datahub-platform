@@ -13,6 +13,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.TrustManagerFactory;
 import java.io.IOException;
 import java.io.InputStream;
@@ -136,14 +137,23 @@ class VaultClientFactoryTlsTest {
         assertThat(health.getSealed()).isFalse();
     }
 
+    /**
+     * A client with no certificate gets nothing back, however the rejection is delivered.
+     *
+     * <p>The assertion is deliberately only "it failed". Under TLS 1.3 the client finishes its side
+     * of the handshake before the server has looked at the client certificate it never sent, so the
+     * refusal usually arrives on the first read, as {@code IOException: HTTP/1.1 header parser
+     * received no bytes}, rather than as an {@link SSLHandshakeException}. Both happen, and which
+     * one the client sees is a race: requiring the SSL-specific shape failed this test in roughly
+     * nine runs out of ten. What the mutual-TLS setting has to guarantee is that an uncertificated
+     * client is refused, and {@link #keystoreAndTruststoreCompleteTheMutualTlsHandshake()} on the
+     * same server proves the failure here is the missing certificate rather than an unreachable
+     * server.
+     */
     @Test
     void withoutAClientCertificateTheServerRejectsTheHandshake() {
         var ssl = VaultClientFactory.sslContext(tls(null, trustStore)).orElseThrow();
 
-        // The shape of the failure depends on the TLS version: 1.2 rejects the handshake itself,
-        // while 1.3 sends the client certificate after the handshake completes, so the server's
-        // refusal arrives as an ordinary IOException on the response read. Either way the request
-        // does not succeed, which is what this asserts.
         assertThatThrownBy(() -> health(ssl)).isInstanceOf(IOException.class);
     }
 

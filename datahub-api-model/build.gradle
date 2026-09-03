@@ -52,6 +52,11 @@ dependencies {
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
+
+    // Test-only: the module ships the constraint annotations but no provider, so a test that
+    // asserts a constraint actually fires needs an implementation to run them. testImplementation,
+    // so nothing framework-shaped reaches the published artifact.
+    testImplementation 'org.springframework.boot:spring-boot-starter-validation'
 }
 
 // Library module: no main class, so don't build an executable boot jar.

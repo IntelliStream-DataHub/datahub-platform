@@ -54,7 +54,8 @@ final class BatchExecutor {
                     } catch (RuntimeException e) {
                         failed.addAndGet(task.count());
                         int status = (e instanceof DatahubApiException de) ? de.statusCode() : 0;
-                        errors.add(new IngestResult.BatchError(task.count(), status, e.getMessage()));
+                        String body = (e instanceof DatahubApiException de) ? de.body() : null;
+                        errors.add(new IngestResult.BatchError(task.count(), status, e.getMessage(), body));
                     } finally {
                         gate.release();
                     }

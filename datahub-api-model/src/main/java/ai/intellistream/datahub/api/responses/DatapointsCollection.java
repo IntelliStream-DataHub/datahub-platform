@@ -3,7 +3,10 @@ package ai.intellistream.datahub.api.responses;
 import tools.jackson.databind.annotation.JsonSerialize;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
@@ -24,6 +27,10 @@ public class DatapointsCollection {
             example = "a4545_well_pump_pressure_a")
     private String externalId;
 
+    // @Valid so the per-datapoint constraints actually cascade: without it neither @NotBlank nor the
+    // value-length cap on DatapointString was ever evaluated on an insert.
+    @Valid
+    @Size(max = FieldLimits.DATAPOINTS_PER_COLLECTION_MAX)
     private List<DatapointString> datapoints;
 
     @Schema(description = "If more than 100 000 datapoints are returned, a cursor hash value will be returned",

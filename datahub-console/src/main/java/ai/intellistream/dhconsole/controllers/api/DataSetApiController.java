@@ -68,10 +68,4 @@ public class DataSetApiController {
         }
         return ResponseEntity.noContent().build();
     }
-
-    @RequestMapping(value = {"/policies"}, method = RequestMethod.GET)
-    public ResponseEntity<?> policies(){
-        DataWrapper<Policy> data = datahubApi.getPolicies();
-        return new ResponseEntity<>(data, HttpStatus.OK);
-    }
 }

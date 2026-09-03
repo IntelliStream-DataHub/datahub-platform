@@ -135,6 +135,74 @@ datahub:
     # an explicit `policy`/`streaming` value in Vault overrides these per tenant.
     policy: true
     streaming: true
+  limits:
+    # Largest accepted request body, in bytes. This is the application's own ceiling, independent of
+    # nginx: anything that can reach the service port would otherwise be unbounded. Over the limit is
+    # a 413, which the SDK treats as terminal rather than retrying.
+    # Kept under Pulsar's 5 MB per-message default — an event create batch is published as one
+    # message, so this is what keeps that message legal.
+    # 0 or negative disables the check.
+    max-body-bytes: 4194304
+    # POST /timeseries/data only. Higher because a full 100 000-point numeric batch is around 5 MB of
+    # JSON by itself, and a maxed-out text batch around 11 MB.
+    max-body-bytes-datapoints: 16777216
+    # How long a tenant's tenant_limits row is cached in-process. Also the propagation delay: an
+    # UPDATE to that table takes effect across every instance within this window, no restart needed.
+    cache-ttl: 5m
+    rate:
+      # Requests per minute, counted in a fixed window per tenant and per user. Over the budget is a
+      # 429 with Retry-After; the SDK already treats that as retryable and backs off.
+      # A tenant's tenant_limits row overrides any of these. 0 or negative disables one.
+      # If Valkey is unreachable the limiter allows traffic through rather than refusing it.
+      enabled: true
+      # The tenant is the real budget — a public signup gets an organization of its own. The
+      # per-user figures stop a single identity inside a tenant spending all of it.
+      write-per-minute-per-tenant: 2000
+      read-per-minute-per-tenant: 6000
+      write-per-minute-per-user: 600
+      read-per-minute-per-user: 1200
+    quota:
+      # Daily ingest allowance per tenant, reset at 00:00 UTC. Over it is a 429 with Retry-After
+      # pointing at midnight, which the SDK spools and replays. Counted in memory and flushed to
+      # Valkey every couple of seconds, so a tenant can overshoot slightly across instances — these
+      # are ceilings, not invoices.
+      enabled: true
+      events-per-day: 100000
+      # Resources, time series, data sets, labels, policies and functions are all rows in the node
+      # table, so they share one allowance.
+      nodes-per-day: 50000
+      edges-per-day: 100000
+      datapoints-per-day: 10000000
+      # Bytes of write-request body. The one quota that really bounds storage growth: an entity
+      # count does not, because a single legal entity can be a few hundred KB.
+      ingest-bytes-per-day: 1073741824
+    lifetime:
+      # How large a tenant may grow, rather than how fast. Over one of these is a 403 saying how it
+      # is raised: waiting will not clear it, so it is not a 429.
+      #
+      # OFF by default, unlike the rate limits and daily quotas, because these numbers size a free
+      # playground rather than a real deployment. Switching this on applies them to every tenant
+      # that has no tenant_limits override, so a tenant already holding more than max-resources
+      # would start refusing writes the moment the api restarted. Give the tenants that should keep
+      # growing a 0 in their tenant_limits row FIRST, then enable this.
+      enabled: false
+      # Counted live against the node table, so deleting frees room again.
+      max-resources: 1000
+      max-events-total: 25000
+      max-datapoints-total: 1000000000
+      # Text and mixed series are the expensive kind to store and query, so they are capped well
+      # below the numeric total.
+      max-text-datapoints-total: 100000
+    websocket:
+      # Concurrent sockets, and subscriptions multiplexed over one of them. Capped separately from
+      # requests because a socket's cost is what follows the handshake: a durable subscription holds
+      # broker resources whether or not anyone reads it, so an idle hoard costs as much as a busy one
+      # and the per-minute rate limit never sees it. Over the cap gets an error frame naming the
+      # limit and a 1008 close. The socket counts are per-tenant overridable via tenant_limits.
+      enabled: true
+      max-sockets-per-tenant: 10
+      max-sockets-per-user: 10
+      max-subscriptions-per-socket: 10
   files:
     checksum:
       # Checksum algorithm applied to every uploaded file.

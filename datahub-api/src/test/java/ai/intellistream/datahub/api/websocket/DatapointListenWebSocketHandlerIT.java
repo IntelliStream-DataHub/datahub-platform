@@ -51,7 +51,19 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
         TopicNames topicNames = topicNames();
         StreamAccessAuthorizer authorizer = new StreamAccessAuthorizer(
                 mock(TimeseriesRepository.class), mock(SubscriptionRepository.class), testGroupsResolver());
-        handler = new DatapointListenWebSocketHandler(pulsarClient, topicNames, jwtDecoder, JSON, authorizer);
+        handler = new DatapointListenWebSocketHandler(pulsarClient, topicNames, jwtDecoder, JSON,
+                authorizer, allowAllLimiter());
+    }
+
+    /**
+     * A limiter that allows every connection: its limits service answers null, which the limiter
+     * treats as "no ceiling known". These tests are about the streaming protocol, not the caps.
+     */
+    private static WebSocketConnectionLimiter allowAllLimiter() {
+        return new WebSocketConnectionLimiter(
+                mock(ai.intellistream.datahub.api.services.TenantLimitsService.class),
+                mock(ai.intellistream.datahub.services.ValkeyService.class),
+                new ai.intellistream.datahub.api.config.LimitsProperties());
     }
 
     @AfterEach

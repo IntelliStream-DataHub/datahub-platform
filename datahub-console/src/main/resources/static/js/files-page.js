@@ -366,7 +366,7 @@
 			Flash.error($L('target.already.exists'));
 		} else {
 			reenable();
-			Flash.error($L('update.failed'));
+			Flash.error(window.LimitErrors.fromStatus(resp.status) || $L('update.failed'));
 		}
 	}
 
@@ -503,7 +503,12 @@
 					return;
 				}
 				btn.disabled = false;
-				return r.text().then(msg => flashErr(i18n.restoreFail + (msg ? ': ' + msg : '')));
+				// A limit refusal is a whole sentence of its own; anything else keeps the old
+				// "could not restore: <server text>" shape.
+				return r.text().then(msg => {
+					const limit = window.LimitErrors.fromStatus(r.status, msg);
+					flashErr(limit || (i18n.restoreFail + (msg ? ': ' + msg : '')));
+				});
 			});
 		}).catch(() => { btn.disabled = false; flashErr(i18n.restoreFail); });
 	}

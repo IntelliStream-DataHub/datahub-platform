@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Keep the seeded 3W wells moving: append live datapoints forever.
 
 The seed lays down history ending at "now"; this continues from there, replaying the same

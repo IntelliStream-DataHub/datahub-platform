@@ -19,6 +19,8 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.lettuce.core.KeyValue;
+import io.lettuce.core.Range;
+import io.lettuce.core.ScriptOutputType;
 import io.lettuce.core.SetArgs;
 import io.lettuce.core.api.StatefulRedisConnection;
 import io.lettuce.core.api.async.RedisAsyncCommands;
@@ -33,6 +35,7 @@ import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Collection;
@@ -503,6 +506,69 @@ public class ValkeyService {
      */
     public long increment(String key, long delta) {
         return valkeyConnections.connection().sync().incrby(key, delta);
+    }
+
+    /**
+     * INCRBY plus an expiry set only when this call created the key, and the new value returned.
+     *
+     * <p>The expiry has to be applied in the same command as the increment. Sent as two, a crash in
+     * between leaves a counter that never expires, and for a windowed counter (a rate-limit bucket, a
+     * per-day quota) an immortal key means the window never rolls: the tenant stays refused until
+     * someone deletes it by hand.
+     *
+     * <p>One EVAL is one auto-flushed command, so this stays inside what the shared per-tenant
+     * connection allows — unlike MULTI/EXEC, which would need a connection of its own.
+     */
+    public long incrementAndExpireIfNew(String key, long delta, long ttlSeconds) {
+        Object result = valkeyConnections.connection().sync().eval(
+                INCR_AND_EXPIRE_IF_NEW,
+                ScriptOutputType.INTEGER,
+                new String[]{key},
+                String.valueOf(delta), String.valueOf(ttlSeconds));
+        return result instanceof Number n ? n.longValue() : 0L;
+    }
+
+    /**
+     * Sets the TTL only when the increment created the key: comparing the result against the delta
+     * is what distinguishes "first write in this window" from "another instance got here first", and
+     * it avoids pushing the expiry out on every hit, which would keep a busy key alive forever.
+     */
+    private static final String INCR_AND_EXPIRE_IF_NEW = """
+            local total = redis.call('INCRBY', KEYS[1], ARGV[1])
+            if total == tonumber(ARGV[1]) then
+              redis.call('EXPIRE', KEYS[1], ARGV[2])
+            end
+            return total""";
+
+    /**
+     * Record {@code member} as alive right now, in the sorted set at {@code key}.
+     *
+     * <p>A heartbeat-scored set rather than a plain counter, so entries left behind by an instance
+     * that died mid-connection age out by themselves instead of occupying a budget forever. The key
+     * carries an expiry a few multiples of the staleness window, so a set nobody refreshes
+     * disappears rather than lingering empty.
+     */
+    public void touchMember(String key, String member, long staleAfterSeconds) {
+        RedisCommands<String, String> client = valkeyConnections.connection().sync();
+        client.zadd(key, (double) Instant.now().getEpochSecond(), member);
+        client.expire(key, staleAfterSeconds * 4);
+    }
+
+    /** Remove a member from the sorted set at {@code key}. */
+    public void removeMember(String key, String member) {
+        valkeyConnections.connection().sync().zrem(key, member);
+    }
+
+    /**
+     * How many members of {@code key} have been seen within {@code staleAfterSeconds}, dropping the
+     * ones that have not. The prune runs here rather than on a timer because this is the only place
+     * that has to be right, and it keeps the set from growing without bound.
+     */
+    public long countLiveMembers(String key, long staleAfterSeconds) {
+        RedisCommands<String, String> client = valkeyConnections.connection().sync();
+        long cutoff = Instant.now().getEpochSecond() - staleAfterSeconds;
+        client.zremrangebyscore(key, Range.create(Double.NEGATIVE_INFINITY, (double) cutoff));
+        return client.zcard(key);
     }
 
     /**

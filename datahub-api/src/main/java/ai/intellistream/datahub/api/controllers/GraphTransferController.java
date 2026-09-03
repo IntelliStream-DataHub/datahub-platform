@@ -137,6 +137,8 @@ public class GraphTransferController {
 
                     Limits: at most 2,000,000 nodes and 2,000,000 relationships per file, and
                     the upload may not exceed 512 MB. Files over a limit are rejected with `413`.
+                    The upload is exempt from the general request-body cap, since it is consumed
+                    as it arrives rather than buffered.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Summary of what was created and what was skipped.",

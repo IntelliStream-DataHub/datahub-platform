@@ -25,6 +25,7 @@ import ai.intellistream.datahub.clickhouse.ClickHouseDatapointService;
 import ai.intellistream.datahub.clickhouse.DatapointBinaryConverter;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.errors.ResponseError;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
@@ -143,6 +144,8 @@ public class TimeseriesService {
      * method. Spring Boot auto-configures this from the single {@code PlatformTransactionManager}.
      */
     private final TransactionTemplate transactionTemplate;
+
+    private final IngestQuotaService ingestQuota;
 
     // Bounded executor for ClickHouse datapoint queries. Replaces the previous `new Thread(...)`
     // per filter, which let any caller fan out unlimited threads. Sized off the host CPU count
@@ -776,6 +779,13 @@ public class TimeseriesService {
     public DataWrapper<?> insertDatapoints(DataWrapper<DatapointsCollection> data)
             throws PulsarClientException {
 
+        // Validate here too, not only at the controller: the timeseries_send_datapoint MCP tool calls
+        // this method directly and would otherwise bypass the batch and value-size constraints.
+        Set<ConstraintViolation<DataWrapper<DatapointsCollection>>> violations = validator.validate(data);
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
+
         // Phase 1: resolve, authorise and validate. Needs the persistence context; no I/O.
         PreparedDatapointInsert prepared = transactionTemplate.execute(status -> prepareDatapointInsert(data));
 
@@ -829,6 +839,21 @@ public class TimeseriesService {
 
             // Writing data-points is a write to the timeseries' dataset.
             dataSecurity.assertCanWrite(ts);
+
+            // A text batch is the one shape that can approach Pulsar's per-message ceiling, so it is
+            // capped tighter than a numeric one. Checked here rather than on the DTO because the cap
+            // depends on the value type, which is only known once the series has been resolved.
+            assertTextBatchWithinLimit(ts, entry);
+
+            // Charged per collection, once the series is known, so a text batch can also be counted
+            // against its own tighter ceiling. Before anything is built, so a refused batch publishes
+            // nothing.
+            int datapointCount = entry.getDatapoints() == null ? 0 : entry.getDatapoints().size();
+            ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.DATAPOINTS, datapointCount);
+            int valueTypeId = ts.getValueType().getId();
+            if (valueTypeId == TEXT || valueTypeId == MIXED) {
+                ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, datapointCount);
+            }
 
             // Define message type and actions
             DataWrapperMessage insertData = new DataWrapperMessage(
@@ -897,6 +922,29 @@ public class TimeseriesService {
             }
         }
         return new PreparedDatapointInsert(responseData, pending);
+    }
+
+    /**
+     * Reject a TEXT/MIXED collection larger than {@link FieldLimits#TEXT_DATAPOINTS_PER_COLLECTION_MAX}.
+     * Numeric series keep the larger {@code DATAPOINTS_PER_COLLECTION_MAX} enforced on the DTO.
+     */
+    private static void assertTextBatchWithinLimit(TimeseriesEntity ts, DatapointsCollection entry) {
+        int valueType = ts.getValueType().getId();
+        if (valueType != TEXT && valueType != MIXED) {
+            return;
+        }
+        List<DatapointString> datapoints = entry.getDatapoints();
+        if (datapoints == null || datapoints.size() <= FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX) {
+            return;
+        }
+        ResponseError<BadRequestError> error = new ResponseError<>();
+        BadRequestError badRequestError = new BadRequestError();
+        badRequestError.setMessage((
+                "A %s time series accepts at most %d data points per request, got %d. "
+                        + "Split the batch into smaller requests."
+        ).formatted(ts.getValueType().getName(), FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX, datapoints.size()));
+        error.setError(badRequestError);
+        throw new BadRequestException(error);
     }
 
     private static void addData(

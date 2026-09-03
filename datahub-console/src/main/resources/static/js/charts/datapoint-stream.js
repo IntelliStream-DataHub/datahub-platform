@@ -10,7 +10,8 @@
  * Usage:
  *   const stream = new DatapointStream({
  *     onData: points => { ... },          // points: [{externalId, valueType, timestamp, value}]
- *     onStatus: state => { ... }          // state: 'connecting' | 'open' | 'closed'
+ *     onStatus: (state, info) => { ... }  // state: 'connecting' | 'open' | 'closed' | 'refused'
+ *                                         // info: {message} on 'refused'
  *   });
  *   stream.setInterest(['tsA', 'tsB']);   // which timeseries to receive
  *   stream.connect();
@@ -32,6 +33,9 @@ class DatapointStream {
 		this.ws = null;
 		this.active = false;        // true between connect() and close()
 		this._reconnectTimer = null;
+		// Set when the server refused the connection for a limit. Reconnecting on that would hammer
+		// an endpoint that will refuse every attempt, so the stream stops until the caller retries.
+		this._refused = false;
 	}
 
 	// Turn the http(s) api base URL into a ws(s) WebSocket URL for the listen endpoint.
@@ -50,6 +54,7 @@ class DatapointStream {
 
 	connect(){
 		this.active = true;
+		this._refused = false;
 		this._open();
 	}
 
@@ -70,11 +75,25 @@ class DatapointStream {
 				ws.onmessage = ev => {
 					let msg;
 					try { msg = JSON.parse(ev.data); } catch(e){ return; }
+					// A refusal arrives as one frame and is followed immediately by a close. Record
+					// it here so onclose knows not to reconnect into the same wall.
+					if(msg && msg.error && msg.reason === 'websocket-limit-reached'){
+						this._refused = true;
+						this.onStatus('refused', {
+							message: (window.LimitErrors && window.LimitErrors.fromStatus(429))
+								|| msg.message
+						});
+						return;
+					}
 					if(msg && Array.isArray(msg.datapoints) && msg.datapoints.length){
 						this.onData(msg.datapoints);
 					}
 				};
 				ws.onclose = () => {
+					if(this._refused){
+						this.onStatus('closed');
+						return;
+					}
 					this.onStatus('closed');
 					if(this.active) this._scheduleReconnect();
 				};
