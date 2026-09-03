@@ -20,8 +20,10 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   active segment, gzip-seal at ~50 MiB rollover, stream sealed segments in fixed-size chunks on
   flush — a multi-gigabyte spool never loads into memory. Buffer only retryable failures:
   unreachable (network error, 429, 5xx) and auth (401/403). Terminal errors such as 400 are
-  surfaced, never buffered. Bounded by `bufferRetention` (time) and `bufferMaxBytes` (size);
-  off by default.
+  surfaced, never buffered. The one 403 that is **not** buffered is a tenant that has reached a
+  permanent ceiling (`type` ends `/errors/tenant-limit-reached`): replaying it can never succeed,
+  so buffering would fill the spool with refused data and bury the message saying the limit is
+  raised by asking. Bounded by `bufferRetention` (time) and `bufferMaxBytes` (size); off by default.
 
 ## Layout (`ai.intellistream.datahub.sdk`)
 

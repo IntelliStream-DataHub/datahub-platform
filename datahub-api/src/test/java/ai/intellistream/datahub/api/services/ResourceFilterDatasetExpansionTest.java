@@ -56,6 +56,7 @@ class ResourceFilterDatasetExpansionTest {
             mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
             mock(PolicyEnforcement.class), closure,
+            mock(IngestQuotaService.class), mock(TenantLimitsService.class),
             new ai.intellistream.datahub.api.edge.EdgeMapper(mock(NodeRepository.class), mock(RelationshipTypeRepository.class), mock(RelationshipTypeService.class)),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),

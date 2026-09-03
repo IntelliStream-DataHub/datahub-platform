@@ -94,8 +94,4 @@ public class LabelApiController {
                 .orElseGet(() -> new ResponseEntity<>(form, HttpStatus.BAD_REQUEST));
     }
 
-    @RequestMapping(value = {"/delete"}, method = {RequestMethod.POST, RequestMethod.DELETE})
-    public ResponseEntity<?> delete(){
-        return ResponseEntity.noContent().build();
-    }
 }

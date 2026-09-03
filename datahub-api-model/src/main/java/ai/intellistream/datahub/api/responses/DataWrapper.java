@@ -2,9 +2,11 @@
 package ai.intellistream.datahub.api.responses;
 
 import ai.intellistream.datahub.models.policy.PolicyWarning;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonRootName;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import tools.jackson.dataformat.xml.annotation.JacksonXmlElementWrapper;
 import io.swagger.v3.oas.annotations.media.Schema;
 
@@ -15,8 +17,12 @@ import java.util.Collection;
 @Schema(name="DataWrapper", description="DataWrapper with items")
 public class DataWrapper<T> {
 
+    // Bounded on the request side: every create/update/delete endpoint that is not GraphDataWrapper
+    // binds this envelope, and an unbounded items[] is how a caller turns many small entities into
+    // bulk storage. Responses are never bean-validated, so paging is unaffected.
     @JacksonXmlElementWrapper(useWrapping = false)
     @Valid
+    @Size(max = FieldLimits.BATCH_ITEMS_MAX)
     private Collection<T> items = new ArrayList<>();
 
     /**

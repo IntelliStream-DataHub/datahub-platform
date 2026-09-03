@@ -13,8 +13,11 @@ import lombok.Setter;
 import ai.intellistream.datahub.validation.FieldValidationError;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.stream.Stream;
 
 /**
  * Resource fields mapping for updating the object
@@ -84,6 +87,9 @@ public class ResourceFields {
             }
         }
 
+        SizeRules.checkLength("Resource", "resource.description.max.length.error", "Description",
+                this.description.getSet(), FieldLimits.DESCRIPTION_MAX, errors);
+
         if(this.metadata.getSet() != null){
             Map<String, String> metadata = this.metadata.getSet();
             if(metadata.containsKey("")){
@@ -91,6 +97,19 @@ public class ResourceFields {
                 this.metadata.getSet().remove("");
             }
         }
+
+        SizeRules.checkMetadata("Resource", "resource", this.metadata, errors);
+
+        SizeRules.checkCount("Resource", "resource.too.many.labels", "Labels",
+                this.labels.getSet(), FieldLimits.LABELS_MAX, errors);
+        SizeRules.checkCount("Resource", "resource.too.many.labels", "Labels",
+                this.labels.getAdd(), FieldLimits.LABELS_MAX, errors);
+
+        Stream.of(this.labels.getSet(), this.labels.getAdd())
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .forEach(label -> SizeRules.checkLength("Resource", "resource.label.max.length.error",
+                        "Label", label, FieldLimits.LABEL_LENGTH_MAX, errors));
 
         if(this.geoLocation.getSet() != null && !this.geoLocation.getSet().isValidGeoJson()){
             errors.add(

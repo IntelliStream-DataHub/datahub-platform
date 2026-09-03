@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.config;
 
+import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.filters.CachingBodyFilter;
+import ai.intellistream.datahub.api.filters.RequestBodySizeLimitFilter;
 import ai.intellistream.datahub.api.filters.RequestLogFilter;
 import ai.intellistream.datahub.api.filters.RequestStateCleanupFilter;
+import ai.intellistream.datahub.api.services.IngestQuotaService;
 import jakarta.servlet.Filter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -31,6 +34,19 @@ public class FilterConfig {
         //rlf.setOrder(Ordered.HIGHEST_PRECEDENCE);
         rlf.setOrder(1);
         return rlf;
+    }
+
+    @Bean
+    public FilterRegistrationBean<Filter> requestBodySizeLimitFilter(LimitsProperties limits,
+                                                                     IngestQuotaService ingestQuota) {
+        final FilterRegistrationBean<Filter> f =
+                new FilterRegistrationBean<>(new RequestBodySizeLimitFilter(limits, ingestQuota));
+        f.addUrlPatterns("/*");
+        // Before the body cache (0), so an oversized body is refused rather than buffered; after the
+        // security chain (-100), so an unauthenticated caller still gets 401 rather than a hint about
+        // what the limits are.
+        f.setOrder(-1);
+        return f;
     }
 
     @Bean

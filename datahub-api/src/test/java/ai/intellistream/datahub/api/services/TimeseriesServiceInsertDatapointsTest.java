@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.api.responses.DataWrapperBin;
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -11,6 +13,9 @@ import ai.intellistream.datahub.jpa.domains.TimeseriesValueType;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.services.ValkeyService;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Validator;
 import org.apache.pulsar.client.api.Producer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,6 +41,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -66,6 +72,10 @@ class TimeseriesServiceInsertDatapointsTest {
     @Mock private Producer<DataWrapperBin> allDatapointProducer;
     @Mock private LiveIngestCounter datapointIngestCounter;
     @Mock private TransactionTemplate transactionTemplate;
+    @Mock private IngestQuotaService ingestQuota;
+    // insertDatapoints re-validates, because the timeseries_send_datapoint MCP tool reaches it
+    // without passing a controller. A mock returns no violations, so it waves the fixtures through.
+    @Mock private Validator validator;
 
     @InjectMocks private TimeseriesService timeseriesService;
 
@@ -282,5 +292,56 @@ class TimeseriesServiceInsertDatapointsTest {
         // It used to be called with a null datapoint here, which either wrote a null or threw a
         // NullPointerException depending on whether the key already had a value.
         verify(valkeyService, never()).setLatestDatapoint(anyString(), any(DatapointString.class));
+    }
+
+    // ---- limits -----------------------------------------------------------
+
+    @Test
+    @DisplayName("Bean constraints are enforced here, not only at the controller (the MCP path)")
+    @SuppressWarnings("unchecked")
+    void constraintViolationsRefuseTheRequestBeforeAnythingIsPublished() throws Exception {
+        // timeseries_send_datapoint calls this method directly, so a caller that never touches a
+        // controller would otherwise face no size limits at all.
+        ConstraintViolation<DataWrapper> violation = mock(ConstraintViolation.class);
+        when(validator.validate(any(DataWrapper.class))).thenReturn(java.util.Set.of(violation));
+
+        assertThrows(ConstraintViolationException.class, () -> timeseriesService.insertDatapoints(
+                request(collection("pump-1", point("2026-08-21T10:00:00Z", "1.5")))));
+
+        verify(allDatapointProducer, never()).send(any(DataWrapperBin.class));
+    }
+
+    @Test
+    @DisplayName("A TEXT series takes a smaller batch than a numeric one")
+    void textCollectionsAreCappedTighterThanNumericOnes() throws Exception {
+        known("status-1", 1L, "MIXED");
+
+        DatapointString[] tooMany = new DatapointString[FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX + 1];
+        for (int i = 0; i < tooMany.length; i++) {
+            tooMany[i] = point("2026-08-21T10:00:00Z", "1.0");
+        }
+
+        // A text batch is the one shape that can approach Pulsar's per-message ceiling. The cap
+        // cannot live on the DTO: it depends on the value type, which is only known once the
+        // series has been resolved.
+        assertThrows(BadRequestException.class,
+                () -> timeseriesService.insertDatapoints(request(collection("status-1", tooMany))));
+
+        verify(allDatapointProducer, never()).send(any(DataWrapperBin.class));
+    }
+
+    @Test
+    @DisplayName("A numeric series still takes a batch larger than the text cap")
+    void numericCollectionsKeepTheLargerCap() throws Exception {
+        known("pump-1", 1L, "FLOAT");
+
+        DatapointString[] points = new DatapointString[FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX + 1];
+        for (int i = 0; i < points.length; i++) {
+            points[i] = point("2026-08-21T10:00:00Z", "1.0");
+        }
+
+        timeseriesService.insertDatapoints(request(collection("pump-1", points)));
+
+        verify(allDatapointProducer).send(any(DataWrapperBin.class));
     }
 }
