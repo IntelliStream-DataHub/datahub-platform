@@ -27,7 +27,7 @@ class EdgeProxyTransformerTest {
         edge.setEnd(2L);
         edge.setRelationshipType(type);
         // Postgres edge_metadata rows are plain, unprefixed keys — not "metadata_"-prefixed like the
-        // Neo4j relationship properties built by GraphEventNeo4jListener.
+        // Neo4j relationship properties built by GraphNodeProperties.
         edge.setMetadata(Map.of("unit", "kWh", "source", "manual"));
 
         EdgeProxy proxy = EdgeProxyTransformer.fromEdgeEntity(edge);

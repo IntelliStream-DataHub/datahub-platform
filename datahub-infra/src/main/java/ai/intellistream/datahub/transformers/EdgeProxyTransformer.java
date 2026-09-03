@@ -15,7 +15,7 @@ import java.util.stream.Collectors;
 public class EdgeProxyTransformer {
 
     /** Metadata is persisted on graph nodes and relationships with a "metadata_" key prefix (see
-     *  GraphEventNeo4jListener), so it can live alongside the structural properties
+     *  GraphNodeProperties), so it can live alongside the structural properties
      *  (id/start/end/typeId/description). Shared with ResourceTransformer, which reads the same
      *  convention off nodes. */
     static final String METADATA_PREFIX = "metadata_";
@@ -61,7 +61,7 @@ public class EdgeProxyTransformer {
         e.setRelationshipTypeId(edge.getRelationshipType().getId());
         // EdgeEntity.metadata is the Postgres edge_metadata table: plain, unprefixed user keys
         // already (the "metadata_" prefix only exists on the Neo4j relationship properties built by
-        // GraphEventNeo4jListener). Stripping it here — as if this were Neo4j-sourced like from(Relationship)
+        // GraphNodeProperties). Stripping it here — as if this were Neo4j-sourced like from(Relationship)
         // below — matched nothing and silently emptied every edge's metadata before it reached Neo4j.
         e.setMetadata(edge.getMetadata() != null ? new HashMap<>(edge.getMetadata()) : new HashMap<>());
         e.setDescription(edge.getDescription());
