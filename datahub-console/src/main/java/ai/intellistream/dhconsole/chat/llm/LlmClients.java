@@ -3,19 +3,13 @@ package ai.intellistream.dhconsole.chat.llm;
 
 import ai.intellistream.dhconsole.chat.config.ChatSettings;
 
-/**
- * Resolves the model client for a turn.
- *
- * <p>One method, because that is all the loop needs to know about where clients come from.
- * {@link LlmBackends} is the implementation that caches one per credential; a test supplies a stub
- * without standing up a Vault-backed cache to do it.
- */
+/** Resolves the model client for a turn. An interface so a test can supply a stub. */
 @FunctionalInterface
 public interface LlmClients {
 
     /**
-     * @throws IllegalStateException if the settings name a backend that cannot be used — a missing
-     *                               credential or endpoint. The message names what to configure.
+     * @throws IllegalStateException if the settings name a backend that cannot be used, with a
+     *                               message naming what to configure
      */
     LlmClient forSettings(ChatSettings settings);
 }

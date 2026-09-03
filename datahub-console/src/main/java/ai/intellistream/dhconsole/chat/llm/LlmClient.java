@@ -24,11 +24,8 @@ public interface LlmClient {
      * that policy and (later) user confirmation cannot be bypassed by a provider's convenience
      * feature.
      *
-     * @param settings the resolved model configuration for this turn: which model, and what it may
-     *                 spend. A parameter rather than client state because one client instance is
-     *                 shared by every tenant on the same credential, and they do not share a model.
-     * @param effort   how hard to think about this particular message. Also per-call, because the
-     *                 user picks it per message and a client is shared across concurrent turns.
+     * <p>{@code settings} and {@code effort} are per-call because one client instance is shared by
+     * every tenant on the same credential, and they share neither a model nor a message.
      */
     LlmTurn send(ChatSettings settings, String systemPrompt, List<LlmToolDef> tools,
                  List<LlmMessage> messages, ChatEffort effort);

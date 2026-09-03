@@ -6,33 +6,25 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import java.util.Locale;
 
 /**
- * Which LLM wire protocol a backend speaks.
+ * Which LLM wire protocol a model speaks.
  *
- * <p>Lives here rather than in the console because two sources have to agree on it: the
- * deployment-wide default, bound by Spring from {@code datahub.chat.provider}, and a tenant's
- * own backend, deserialized by Jackson from Vault. Spring's relaxed binding accepts
- * {@code openai-compatible} for {@link #OPENAI_COMPATIBLE} on its own; Jackson does not, hence
- * {@link #parse}.
+ * <p>Shared because two sources must agree on it: the deployment default, bound by Spring's
+ * relaxed binding, and a tenant's Vault entry, deserialized by Jackson — which is why {@link #parse}
+ * exists, since only the former accepts {@code openai-compatible} on its own.
  */
 public enum LlmProvider {
 
     /** The Anthropic Messages API. */
     ANTHROPIC,
 
-    /**
-     * Any server speaking the OpenAI chat-completions API — Ollama, vLLM, llama.cpp, LM Studio.
-     * This is the airgapped path: a {@code base-url} is required, an api key is not.
-     */
+    /** Ollama, vLLM, llama.cpp — the airgapped path. Needs a base-url, not a key. */
     OPENAI_COMPATIBLE;
 
     /**
-     * Lenient parse, so a Vault secret may say {@code anthropic}, {@code openai-compatible} or
-     * {@code OPENAI_COMPATIBLE} interchangeably. Hyphens and spaces read as underscores, matching
-     * what Spring's relaxed binding already accepts for the deployment default.
+     * Lenient, because these are hand-written into Vault.
      *
-     * @throws IllegalArgumentException on an unrecognised name — a misconfigured provider must be
-     *                                  loud, since the alternative is silently answering from the
-     *                                  wrong model or none at all
+     * @throws IllegalArgumentException on an unrecognised name: the alternative is silently
+     *                                  answering from the wrong model
      */
     @JsonCreator
     public static LlmProvider parse(String value) {

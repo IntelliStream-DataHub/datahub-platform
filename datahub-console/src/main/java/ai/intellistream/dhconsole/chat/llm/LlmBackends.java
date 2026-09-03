@@ -20,31 +20,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * One model client per credential, shared by every tenant that uses it.
+ * One model client per credential, built on first use.
  *
- * <h3>Why a cache and not a bean</h3>
- * There used to be one {@code LlmClient} bean, chosen by a {@code switch} on
- * {@code datahub.chat.provider} and built with the deployment's api key. That is exactly one client
- * for the whole process, which stopped being expressible the moment a tenant could bring its own
- * provider, key and endpoint: the Anthropic SDK binds the credential when the client is
- * constructed, so "which client" became a runtime lookup and something had to own the instances.
+ * <p>A cache rather than a bean because the Anthropic SDK binds the credential at construction, so
+ * "which client" is a runtime question once tenants have their own keys. Keyed on the connection
+ * identity and not the model, so tenants sharing a credential share a connection pool.
  *
- * <p>The key is the connection identity — provider, key, endpoint — and deliberately not the model
- * name, which is a per-request parameter. Two tenants pointed at the same credential but different
- * models therefore share one instance, and with it one connection pool, which is the expensive part.
- *
- * <h3>Rotation and eviction</h3>
- * A rotated key produces a different key and therefore a new entry, with no invalidation step to
- * get wrong. What that leaves behind is the old entry, so {@link #evictUnusedBackends()} sweeps
- * anything no live tenant configuration names any more and closes it. {@code TenantConfigService}
- * publishes no event for a configuration <em>change</em> — consumers are expected to re-read the
- * swapped map — so this is a sweep rather than a listener.
- *
- * <h3>Failure is per tenant</h3>
- * A tenant whose configuration is unusable (Anthropic with no key, an OpenAI-compatible entry with
- * no endpoint) fails its own turn with an operator-facing message. It does not prevent the
- * application starting and it does not affect any other tenant — which is why the credential check
- * that used to run at bean-creation time now runs here.
+ * <p>A rotated key is simply a new entry; {@link #evictUnusedBackends()} sweeps what nothing names
+ * any more. An unusable configuration fails that tenant's turn, not the application's startup.
  */
 @Slf4j
 public class LlmBackends implements LlmClients {
@@ -62,13 +45,6 @@ public class LlmBackends implements LlmClients {
         this.json = json;
     }
 
-    /**
-     * The client for these settings, built on first use.
-     *
-     * @throws IllegalStateException if the resolved configuration cannot be used at all. The
-     *                               message is aimed at whoever configured it, since nobody else
-     *                               can fix it.
-     */
     @Override
     public LlmClient forSettings(ChatSettings settings) {
         return clients.computeIfAbsent(settings.backendKey(), this::build).client();
@@ -96,13 +72,7 @@ public class LlmBackends implements LlmClients {
         };
     }
 
-    /**
-     * Drop clients no configuration names any more, so a rotated or removed credential does not
-     * keep a connection pool alive for the life of the process.
-     *
-     * <p>This is hygiene, not correctness — correctness is that a new credential is a new entry,
-     * which happens on the next turn whether this ever runs or not.
-     */
+    /** Hygiene, not correctness: a new credential is a new entry whether this ever runs or not. */
     public void evictUnusedBackends() {
         Set<BackendKey> live = liveKeys();
         Iterator<Map.Entry<BackendKey, Entry>> it = clients.entrySet().iterator();
@@ -126,8 +96,8 @@ public class LlmBackends implements LlmClients {
             if (llm == null) {
                 continue;
             }
-            // Mirrors how ChatSettingsResolver fills the gaps, so a tenant that inherits the
-            // deployment credential maps to the same key here as it does there.
+            // Must fill gaps exactly as ChatSettingsResolver does, or an inherited credential
+            // keys differently here and gets swept while in use.
             live.add(new BackendKey(
                     llm.getProvider() == null ? properties.getProvider() : llm.getProvider(),
                     llm.getApiKey() == null ? properties.getApiKey() : llm.getApiKey(),
@@ -141,10 +111,7 @@ public class LlmBackends implements LlmClients {
         return clients.size();
     }
 
-    /**
-     * A cached client and, where the SDK has one, the closeable underneath it. The
-     * OpenAI-compatible client is built on the JDK's {@code HttpClient}, which needs no closing.
-     */
+    /** The OpenAI-compatible client is on the JDK HttpClient, which needs no closing — hence null. */
     private record Entry(LlmClient client, AnthropicClient closeable) {
         void close() {
             if (closeable != null) {

@@ -11,12 +11,8 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Deployment-wide chat configuration: the fallback beneath a tenant's own model.
- *
- * <p>Every field here answers "what applies when the tenant said nothing". A tenant that names its
- * own provider, key or model overrides the matching field; anything it leaves unset lands back
- * here, which is why these values stay meaningful even where every tenant is configured — they are
- * what a <em>new</em> tenant gets.
+ * Deployment-wide chat configuration: what applies when a tenant has said nothing, and therefore
+ * what a new tenant gets.
  *
  * <p><strong>Defaults belong here, not in {@code application.properties}.</strong>
  * {@code VaultConfigurationLoader} registers its property source with {@code addLast}, i.e. lowest
@@ -32,12 +28,7 @@ public class ChatProperties {
     /** Master switch. Off means no panel is rendered and the endpoints refuse. */
     private boolean enabled = false;
 
-    /**
-     * Which model wire to speak when a tenant has no configuration of its own.
-     *
-     * <p>The enum lives in {@code datahub-commons} because two sources have to agree on it: this,
-     * bound by Spring's relaxed binding, and a tenant's Vault entry, deserialized by Jackson.
-     */
+    /** Shared with {@code TenantLlm}, since both sources have to agree on the vocabulary. */
     private LlmProvider provider = LlmProvider.ANTHROPIC;
 
     private String model = "claude-sonnet-5";

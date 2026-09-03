@@ -16,22 +16,13 @@ import java.util.Map;
 /**
  * Reads each tenant's model configuration from {@code <mount>/tenant-llm/<org-id>}.
  *
- * <h3>Why not a block inside {@code tenant-resources}</h3>
- * Because this is the one piece of tenant configuration a person will eventually edit, and
- * {@code tenant-resources} is a single secret holding every tenant's database credentials. Vault
- * cannot narrow a write within a secret — ACL policies are path-based, and KV plugins do not
- * support the {@code allowed_parameters} family at all — so "may update
- * {@code tenant-resources.acme.llm} and nothing else" is not expressible however it is phrased.
- * Its own path is the only shape in which Vault could ever enforce that boundary.
+ * <p>Its own secret rather than a block in {@code tenant-resources}, which holds every tenant's
+ * database credentials: Vault policies are path-based and KV plugins do not support
+ * {@code allowed_parameters}, so a future write path could not be narrowed to model settings if
+ * this shared that secret. Nothing writes it yet, and reads need no policy change.
  *
- * <p>Nothing writes it yet: today it is placed by an operator, and reads need no policy change
- * because the AppRole already reads the whole mount. Putting it in the right place now means the
- * write path is a policy line rather than a data migration for everyone who configured it early.
- *
- * <h3>Keyed by org id, not org name</h3>
- * {@code tenant-resources} is keyed by organization <em>name</em>, which only this package ever
- * sees. Every request instead carries an org id — {@code TenantContext}, {@code UserSession} — so
- * keying on that means renaming an organization does not strand its configuration.
+ * <p>Keyed by org id because that is what a request carries; the name is a {@code tenant-resources}
+ * map key nobody outside this package sees.
  */
 @Slf4j
 @Service
@@ -46,16 +37,11 @@ public class TenantLlmStore {
     }
 
     /**
-     * The model configuration for each of these tenants, omitting those that have none.
+     * The configuration for each of these tenants, omitting those with none. Batched so a refresh
+     * costs one AppRole login.
      *
-     * <p>A batch rather than one call per tenant so the whole refresh costs a single AppRole login.
-     * {@link VaultClientFactory#login} hands back a client that is already authenticated and set to
-     * KV v2, so the token, the mutual-TLS settings and the {@code data.data} unwrapping are all
-     * somebody else's problem — the same client every {@code VaultSecretContributor} uses.
-     *
-     * <p>A Vault failure yields an empty map rather than an exception. Every tenant then falls back
-     * to the deployment default, which is a far better outcome than a refresh that throws and
-     * leaves the whole tenant registry stale.
+     * <p>A Vault failure yields an empty map: every tenant falling back to the deployment default
+     * beats a refresh that throws and leaves the whole tenant registry stale.
      */
     public Map<String, TenantLlm> readAll(Collection<String> orgIds) {
         if (orgIds == null || orgIds.isEmpty()) {
@@ -79,12 +65,7 @@ public class TenantLlmStore {
         return configured;
     }
 
-    /**
-     * One tenant's configuration, or null if it has none.
-     *
-     * <p>Absent is the ordinary case rather than an error: a tenant without its own model uses the
-     * deployment default, which is what every tenant did before this existed.
-     */
+    /** Null if the tenant has none, which is the ordinary case rather than an error. */
     private TenantLlm read(Vault client, String orgId) {
         String path = vault.secretName() + "/tenant-llm/" + orgId;
         try {
@@ -97,8 +78,7 @@ public class TenantLlmStore {
             log.warn("Could not read the model configuration for tenant {}: {}", orgId, e.getMessage());
             return null;
         } catch (RuntimeException e) {
-            // A malformed secret — an unparseable provider, say. One tenant's typo must not cost
-            // every other tenant its configuration, so this is caught per tenant, not per pass.
+            // Per tenant, not per pass: one tenant's typo must not cost the others theirs.
             log.warn("Ignoring unusable model configuration for tenant {}: {}", orgId, e.getMessage());
             return null;
         }

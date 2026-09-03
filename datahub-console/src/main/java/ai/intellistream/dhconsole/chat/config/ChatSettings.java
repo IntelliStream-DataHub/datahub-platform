@@ -7,48 +7,35 @@ import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import java.time.Duration;
 
 /**
- * The model configuration for one turn, resolved.
- *
- * <p>An immutable value rather than injected configuration, because it now differs per tenant and
- * is assembled on the request thread. Passing it as a value is what keeps the loop and the model
- * clients from reaching back for request-scoped state on a thread that may no longer be the
- * request's.
- *
- * <p>Assembled from two layers: the tenant's own entry where it has one, and the deployment-wide
- * {@link ChatProperties} for everything it leaves unset. See {@code ChatSettingsResolver}.
+ * The model configuration for one turn: the tenant's own where it has one, the deployment default
+ * elsewhere. See {@code ChatSettingsResolver}.
  */
 public record ChatSettings(LlmProvider provider,
                            String apiKey,
                            String model,
 
-                           /** Only meaningful for {@link LlmProvider#OPENAI_COMPATIBLE}. */
+                           /** OpenAI-compatible only. */
                            String baseUrl,
 
-                           /** Only meaningful for {@link LlmProvider#OPENAI_COMPATIBLE}. */
+                           /** OpenAI-compatible only. */
                            String reasoningEffort,
 
                            Duration turnTimeout,
 
-                           /** Configured output roof, or null to let the effort level decide. */
+                           /** A configured roof, or null to let the effort level choose. */
                            Integer maxOutputTokens) {
 
     /**
-     * The output ceiling for one call at this effort: what was configured, else what the level
-     * wants.
-     *
-     * <p>The asymmetry is deliberate. A configured roof is a statement about money — at Opus
-     * pricing one {@code max}-effort turn can run to several large calls — and the effort picker is
-     * a per-message UI control. The setting someone wrote down wins over the one a user clicked;
-     * the cost of that is truncation, which is visible, rather than a surprising bill, which is not.
+     * A configured roof beats the level the user picked, deliberately: it is a statement about
+     * money, and truncation is visible where a surprising bill is not.
      */
     public int maxOutputTokensFor(ChatEffort effort) {
         return maxOutputTokens != null ? maxOutputTokens : effort.defaultOutputTokens();
     }
 
     /**
-     * What identifies the underlying connection, and therefore what a cached client may be shared
-     * across. The model is deliberately absent: it is a per-request parameter, so two tenants on
-     * the same credential share one client and one connection pool.
+     * What a cached client may be shared across. The model is absent on purpose — it is a
+     * per-request parameter, so tenants on one credential share a connection pool.
      */
     public BackendKey backendKey() {
         return new BackendKey(provider, apiKey, baseUrl);

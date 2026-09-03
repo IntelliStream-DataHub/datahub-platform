@@ -47,9 +47,7 @@ public class ChatSettingsResolver {
                 pickText(llm == null ? null : llm.getBaseUrl(), properties.getBaseUrl()),
                 pickText(llm == null ? null : llm.getReasoningEffort(), properties.getReasoningEffort()),
                 pick(llm == null ? null : llm.getTurnTimeoutDuration(), properties.getTurnTimeout()),
-                // Budgets stay deployment-wide: a tenant chooses which model it talks to, not how
-                // much the deployment is willing to spend per call. Worth revisiting when someone
-                // actually wants a different roof per tenant.
+                // Budgets stay deployment-wide: a tenant picks its model, not your spend per call.
                 properties.getMaxOutputTokens());
     }
 
@@ -71,7 +69,7 @@ public class ChatSettingsResolver {
         return narrower == null || narrower.isBlank() ? fallback : narrower.strip();
     }
 
-    /** Kept for the overload above to resolve unambiguously against the generic one. */
+    /** Overload so the generic {@link #pick} is not ambiguous at the call site. */
     private static Duration pick(Duration narrower, Duration fallback) {
         return narrower != null ? narrower : fallback;
     }
