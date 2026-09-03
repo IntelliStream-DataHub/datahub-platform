@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantLlm;
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.config.ChatSettings.BackendKey;
 import com.anthropic.client.AnthropicClient;
@@ -27,20 +25,18 @@ import java.util.concurrent.ConcurrentHashMap;
  * identity and not the model, so tenants sharing a credential share a connection pool.
  *
  * <p>A rotated key is simply a new entry; {@link #evictUnusedBackends()} sweeps what nothing names
- * any more. An unusable configuration fails that tenant's turn, not the application's startup.
+ * any more. Every credential here belongs to a tenant — there is no deployment-wide one — so a
+ * tenant that removes its configuration has its client swept along with its panel.
  */
 @Slf4j
 public class LlmBackends implements LlmClients {
 
-    private final ChatProperties properties;
     private final TenantConfigService tenantConfigService;
     private final JsonMapper json;
 
     private final Map<BackendKey, Entry> clients = new ConcurrentHashMap<>();
 
-    public LlmBackends(ChatProperties properties, TenantConfigService tenantConfigService,
-                       JsonMapper json) {
-        this.properties = properties;
+    public LlmBackends(TenantConfigService tenantConfigService, JsonMapper json) {
         this.tenantConfigService = tenantConfigService;
         this.json = json;
     }
@@ -51,15 +47,12 @@ public class LlmBackends implements LlmClients {
     }
 
     private Entry build(BackendKey key) {
-        LlmProvider provider = key.provider() == null ? properties.getProvider() : key.provider();
-        return switch (provider) {
+        return switch (key.provider()) {
             case ANTHROPIC -> {
                 if (key.apiKey() == null || key.apiKey().isBlank()) {
                     throw new IllegalStateException(
-                            "No Anthropic API key is configured. Set it on the tenant's tenant-llm "
-                                    + "entry in Vault, or as the llm.api-key field of the "
-                                    + "intellistream-datahub/datahub-console secret for the "
-                                    + "deployment default.");
+                            "No Anthropic API key is configured. Set llm.api-key on this tenant's "
+                                    + "tenant-config/<org-name> secret.");
                 }
                 AnthropicClient sdk = AnthropicOkHttpClient.builder().apiKey(key.apiKey()).build();
                 log.info("Chat backend ready: anthropic");
@@ -87,23 +80,25 @@ public class LlmBackends implements LlmClients {
         }
     }
 
-    /** Every credential some tenant, or the deployment default, currently names. */
+    /**
+     * Every credential some tenant currently names.
+     *
+     * <p>Must key exactly as {@link ChatSettings#backendKey()} does, or a client in use keys
+     * differently here and gets swept out from under a live turn.
+     */
     private Set<BackendKey> liveKeys() {
         Set<BackendKey> live = new HashSet<>();
-        live.add(new BackendKey(properties.getProvider(), properties.getApiKey(), properties.getBaseUrl()));
         for (Tenant tenant : tenantConfigService.cachedTenants.values()) {
             TenantLlm llm = tenant.getLlm();
-            if (llm == null) {
-                continue;
+            if (llm != null && llm.isUsable()) {
+                live.add(new BackendKey(llm.getProvider(), strip(llm.getApiKey()), strip(llm.getBaseUrl())));
             }
-            // Must fill gaps exactly as ChatSettingsResolver does, or an inherited credential
-            // keys differently here and gets swept while in use.
-            live.add(new BackendKey(
-                    llm.getProvider() == null ? properties.getProvider() : llm.getProvider(),
-                    llm.getApiKey() == null ? properties.getApiKey() : llm.getApiKey(),
-                    llm.getBaseUrl() == null ? properties.getBaseUrl() : llm.getBaseUrl()));
         }
         return live;
+    }
+
+    private static String strip(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 
     /** Visible for tests: how many distinct backends are currently held. */

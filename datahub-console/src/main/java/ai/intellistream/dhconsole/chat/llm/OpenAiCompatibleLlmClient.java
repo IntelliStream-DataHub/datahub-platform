@@ -38,7 +38,7 @@ import java.util.Map;
 @Slf4j
 public class OpenAiCompatibleLlmClient implements LlmClient {
 
-    /** The one value of {@code datahub.chat.reasoning-effort} that is not sent verbatim. */
+    /** The one value of the tenant's {@code llm.reasoning-effort} not sent verbatim. */
     private static final String MAPPED = "mapped";
 
     private final HttpClient http;
@@ -64,9 +64,9 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
         String base = baseUrl == null ? "" : baseUrl.replaceAll("/+$", "");
         if (base.isBlank()) {
             throw new IllegalStateException(
-                    "A base URL is required for provider=openai-compatible — set it on the tenant's "
-                            + "tenant-llm entry, or as datahub.chat.base-url for the deployment "
-                            + "default (e.g. http://localhost:11434/v1 for Ollama).");
+                    "A base URL is required for provider=openai-compatible — set llm.base-url on "
+                            + "this tenant's tenant-config/<org-name> secret "
+                            + "(e.g. http://localhost:11434/v1 for Ollama).");
         }
         this.endpoint = URI.create(base + "/chat/completions");
     }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.config;
 
-import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import lombok.Getter;
 import lombok.Setter;
@@ -11,8 +10,14 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 
 /**
- * Deployment-wide chat configuration: what applies when a tenant has said nothing, and therefore
- * what a new tenant gets.
+ * Deployment-wide chat configuration: the limits every tenant runs inside, and the standing
+ * instructions every tenant's assistant carries.
+ *
+ * <p><strong>Which model, and on whose credential, is not here.</strong> That comes only from the
+ * tenant's own {@code tenant-config} secret ({@code TenantLlm}) — there is no house key to fall back
+ * to, so a tenant that configures nothing gets no assistant instead of one billed to the deployment.
+ * What stays deployment-wide is spend and safety: nobody should be able to raise their own ceiling
+ * by editing their own secret.
  *
  * <p><strong>Defaults belong here, not in {@code application.properties}.</strong>
  * {@code VaultConfigurationLoader} registers its property source with {@code addLast}, i.e. lowest
@@ -28,16 +33,6 @@ public class ChatProperties {
     /** Master switch. Off means no panel is rendered and the endpoints refuse. */
     private boolean enabled = false;
 
-    /** Shared with {@code TenantLlm}, since both sources have to agree on the vocabulary. */
-    private LlmProvider provider = LlmProvider.ANTHROPIC;
-
-    private String model = "claude-sonnet-5";
-
-    private String apiKey;
-
-    /** Only used by the OpenAI-compatible provider (vLLM, Ollama, …). */
-    private String baseUrl;
-
     /**
      * Standing instructions appended to the built-in system prompt — domain vocabulary, tag
      * conventions, what this customer cares about. Appended rather than replacing, so the tool
@@ -52,33 +47,13 @@ public class ChatProperties {
     private ChatEffort effort = ChatEffort.DEFAULT;
 
     /**
-     * What to send as {@code reasoning_effort} on the OpenAI-compatible path.
-     *
-     * <ul>
-     *   <li><b>blank</b> (the default) — send nothing. "OpenAI-compatible" is a family, not a
-     *       specification, and a server that validates its request model strictly rejects a field it
-     *       does not know, so this cannot be on by default.</li>
-     *   <li><b>{@code mapped}</b> — send the level the user picked, narrowed by
-     *       {@link ChatEffort#openAiReasoningEffort()} onto the three values that wire defines. For
-     *       a server whose reasoning is genuinely graded — OpenAI, Grok, and others.</li>
-     *   <li><b>anything else</b> — sent verbatim. This is how {@code none} is reachable: no effort
-     *       level maps to it, because no Anthropic level means "do not think", and a self-hosted
-     *       thinking model that spends its budget reasoning returns an empty answer, since this
-     *       client reads only {@code content} and {@code tool_calls}.</li>
-     * </ul>
-     *
-     * <p>One property rather than an on/off switch plus a value: with two, setting only the value
-     * silently did nothing, which is exactly what someone reaching for {@code none} would try first.
-     */
-    private String reasoningEffort;
-
-    /**
      * How long one user turn may take, end to end.
      *
      * <p>The panel gives up on the request after this, and the OpenAI-compatible client waits this
      * long for a single call: a call cannot legitimately outlast the turn it belongs to.
      *
-     * <p>Four minutes is generous for a hosted model and far too tight for a self-hosted one. A
+     * <p>A tenant may raise or lower it for its own model; this is where one that says nothing
+     * lands. Four minutes is generous for a hosted model and far too tight for a self-hosted one. A
      * thinking model on CPU spends 30s to 3min per call and the loop makes several, so a turn there
      * runs for minutes; raise this rather than cutting {@code maxIterations} down to where the
      * assistant cannot finish its work. Note the browser has its own response timeout, which caps

@@ -12,13 +12,15 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 
 /**
- * Two layers: the tenant's own model, and the deployment default for whatever it leaves unset.
+ * The model comes from the tenant; the budget comes from the deployment.
  *
- * <p>What matters is not the arithmetic but that a missing layer degrades rather than fails — a
- * tenant that has configured nothing must behave exactly as it did before any of this existed.
+ * <p>The property worth pinning is the absence of a fallback: there is no deployment credential, so
+ * no arrangement of missing fields can end with one tenant's turn billed to the platform's own
+ * account, or to another tenant's.
  */
 class ChatSettingsResolverTest {
 
@@ -28,9 +30,6 @@ class ChatSettingsResolverTest {
     @BeforeEach
     void setUp() {
         properties = new ChatProperties();
-        properties.setProvider(LlmProvider.ANTHROPIC);
-        properties.setApiKey("deployment-key");
-        properties.setModel("claude-sonnet-5");
         properties.setTurnTimeout(Duration.ofMinutes(4));
 
         resolver = new ChatSettingsResolver(properties, mock(TenantConfigService.class),
@@ -46,28 +45,17 @@ class ChatSettingsResolverTest {
     }
 
     @Test
-    void aTenantWithNoModelOfItsOwnGetsTheDeploymentDefault() {
-        // The upgrade path: every tenant is in this state on the day this ships, and every one of
-        // them must keep answering exactly as before.
-        ChatSettings settings = resolver.forTenant(null);
-
-        assertThat(settings.provider()).isEqualTo(LlmProvider.ANTHROPIC);
-        assertThat(settings.apiKey()).isEqualTo("deployment-key");
-        assertThat(settings.model()).isEqualTo("claude-sonnet-5");
-        assertThat(settings.turnTimeout()).isEqualTo(Duration.ofMinutes(4));
-    }
-
-    @Test
-    void aTenantsOwnModelOverridesTheDefault() {
+    void theTenantsOwnModelIsWhatGetsUsed() {
         ChatSettings settings =
                 resolver.forTenant(llm(LlmProvider.ANTHROPIC, "tenant-key", "claude-opus-5"));
 
+        assertThat(settings.provider()).isEqualTo(LlmProvider.ANTHROPIC);
         assertThat(settings.apiKey()).isEqualTo("tenant-key");
         assertThat(settings.model()).isEqualTo("claude-opus-5");
     }
 
     @Test
-    void aTenantMayRunAnAirgappedModelWhileTheDefaultIsHosted() {
+    void aTenantMayRunAnAirgappedModelOnNoCredentialAtAll() {
         TenantLlm onprem = llm(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3-32b");
         onprem.setBaseUrl("http://vllm.acme:8000/v1");
         onprem.setReasoningEffort("none");
@@ -79,19 +67,35 @@ class ChatSettingsResolverTest {
         assertThat(settings.baseUrl()).isEqualTo("http://vllm.acme:8000/v1");
         assertThat(settings.reasoningEffort()).isEqualTo("none");
         assertThat(settings.turnTimeout()).isEqualTo(Duration.ofMinutes(10));
-        // No key of its own, and the deployment's would be meaningless to a local server — but
-        // falling back is harmless because the client only sends it if it is set.
-        assertThat(settings.apiKey()).isEqualTo("deployment-key");
+        // The key stays absent rather than inheriting one: a self-hosted server would reject it,
+        // and there is nothing to inherit from anyway.
+        assertThat(settings.apiKey()).isNull();
     }
 
     @Test
-    void fieldsTheTenantLeavesUnsetStillFallThrough() {
-        // An entry naming only a model must not blank out the credential with it.
-        ChatSettings settings = resolver.forTenant(llm(null, null, "claude-opus-5"));
+    void aTenantWithNoModelOfItsOwnGetsNoSettingsRatherThanSomeoneElses() {
+        // ChatAccess has already hidden the panel by here, so this is the race — the secret emptied
+        // mid-session — and it must fail rather than quietly find a credential somewhere.
+        assertThatThrownBy(() -> resolver.forCurrentTenant())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("tenant-config");
+    }
 
-        assertThat(settings.model()).isEqualTo("claude-opus-5");
-        assertThat(settings.apiKey()).isEqualTo("deployment-key");
-        assertThat(settings.provider()).isEqualTo(LlmProvider.ANTHROPIC);
+    @Test
+    void aHalfWrittenEntryIsNoModel() {
+        // Naming a model but no credential is the shape a half-finished edit leaves behind.
+        assertThat(llm(LlmProvider.ANTHROPIC, null, "claude-opus-5").isUsable()).isFalse();
+        assertThat(llm(LlmProvider.ANTHROPIC, "k", null).isUsable()).isFalse();
+        assertThat(llm(null, "k", "claude-opus-5").isUsable()).isFalse();
+    }
+
+    @Test
+    void theTurnTimeoutFallsBackBecauseItIsNotACredential() {
+        // The one thing still inherited: how long the deployment is willing to wait. A tenant may
+        // raise it for a slow model, but saying nothing lands on the deployment's patience.
+        ChatSettings settings = resolver.forTenant(llm(LlmProvider.ANTHROPIC, "k", "claude-opus-5"));
+
+        assertThat(settings.turnTimeout()).isEqualTo(Duration.ofMinutes(4));
     }
 
     @Test
@@ -107,17 +111,10 @@ class ChatSettingsResolverTest {
 
     @Test
     void anUnsetRoofLetsTheEffortLevelDecide() {
-        ChatSettings settings = resolver.forTenant(null);
+        ChatSettings settings = resolver.forTenant(llm(LlmProvider.ANTHROPIC, "k", "claude-opus-5"));
 
         assertThat(settings.maxOutputTokens()).isNull();
         assertThat(settings.maxOutputTokensFor(ChatEffort.HIGH)).isEqualTo(4096);
         assertThat(settings.maxOutputTokensFor(ChatEffort.MAX)).isEqualTo(32_000);
-    }
-
-    @Test
-    void aSessionWithNoOrganizationFallsBackRatherThanThrowing() {
-        // An error dispatch can reach here with a half-built session. Losing the tenant's model is
-        // survivable; failing the request is not.
-        assertThat(resolver.forCurrentTenant().apiKey()).isEqualTo("deployment-key");
     }
 }

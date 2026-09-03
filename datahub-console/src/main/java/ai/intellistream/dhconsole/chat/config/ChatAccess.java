@@ -67,12 +67,23 @@ public class ChatAccess {
         return false;
     }
 
+    /**
+     * The tenant has switched chat on <em>and</em> configured a model of its own.
+     *
+     * <p>Both, because they answer different questions: the feature flag is whether this tenant is
+     * meant to have an assistant, and the model is whether one can be built. There is no house
+     * credential to fall back on, so a tenant that has configured nothing sees no panel rather than
+     * one that fails on its first message — and never runs on the deployment's own key.
+     */
     private boolean tenantHasChat() {
         String orgId = userSession.getOrganizationId();
         if (orgId == null) {
             return false;
         }
         Tenant tenant = tenantConfigService.getConfig(orgId);
-        return tenant != null && tenant.getFeatures().isChatFeatureEnabled();
+        return tenant != null
+                && tenant.getFeatures().isChatFeatureEnabled()
+                && tenant.getLlm() != null
+                && tenant.getLlm().isUsable();
     }
 }

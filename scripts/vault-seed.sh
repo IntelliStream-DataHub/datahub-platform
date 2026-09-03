@@ -96,9 +96,7 @@ vault kv put "$MOUNT/datahub-console" \
   http.session.valkey.host="$VALKEY_HOST" \
   http.session.valkey.port=6379 \
   http.session.valkey.user=default \
-  http.session.valkey.password=changeme \
-  llm.api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
-  llm.model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+  http.session.valkey.password=changeme
 
 # Per-tenant connection registry — the source of truth for PostgreSQL, ClickHouse,
 # Neo4j, Valkey and KVRocks connections. Two demo tenants keyed by org-name (foo, bar);
@@ -151,14 +149,17 @@ JSON
 # model settings. Nothing writes it yet; putting it in the right place now means the write is a
 # policy line later rather than a data migration for everyone who configured it early.
 #
-# Seeded for foo only. bar deliberately has none and falls back to the deployment-wide llm.*
-# defaults on the datahub-console secret, so the default dev stack exercises both halves of the
-# precedence rule without anyone having to edit Vault by hand first.
-echo "==> Seeding per-tenant model config (foo only; bar uses the deployment default)"
-vault kv put "$MOUNT/tenant-llm/foo" \
-  provider=anthropic \
-  api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
-  model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+# Seeded for foo only. bar deliberately has none, so the dev stack shows both outcomes: foo gets
+# a chat panel and bar does not. There is no deployment-wide model to fall back to — a tenant that
+# has not named one has no assistant, rather than one billed to whoever runs the platform.
+#
+# Section-prefixed (llm.*) because the secret is tenant-config, not tenant-llm: other per-tenant
+# settings join it under their own prefix without another secret and another policy line.
+echo "==> Seeding per-tenant model config (foo only; bar gets no chat panel)"
+vault kv put "$MOUNT/tenant-config/foo" \
+  llm.provider=anthropic \
+  llm.api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
+  llm.model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
 
 echo "==> Enabling AppRole auth + datahub policy"
 vault auth enable approle 2>/dev/null || echo "    (already enabled)"

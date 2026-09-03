@@ -14,9 +14,9 @@ import tools.jackson.databind.json.JsonMapper;
  * Wires the chat backend, gated on {@code datahub.chat.enabled} so a deployment with no model
  * configured boots exactly as before.
  *
- * <p>There is no {@code LlmClient} bean: clients are per credential and resolved per turn, so
- * {@link LlmBackends} owns them. A missing key is therefore one tenant's failed turn rather than a
- * context that will not start.
+ * <p>There is no {@code LlmClient} bean: every credential belongs to a tenant and is resolved per
+ * turn, so {@link LlmBackends} owns them. Enabling chat here only makes it possible — each tenant
+ * still has to configure a model before it has one.
  */
 @Slf4j
 @Configuration
@@ -25,13 +25,9 @@ public class ChatConfig {
 
     private final LlmBackends backends;
 
-    public ChatConfig(ChatProperties properties, TenantConfigService tenantConfigService,
-                      JsonMapper json) {
-        // Worth logging: VaultConfigurationLoader registers its source with addLast, so a stray
-        // line in application-dev.properties shadows the Vault value silently.
-        log.info("Chat enabled. Default backend: {} ({})",
-                properties.getProvider(), properties.getModel());
-        this.backends = new LlmBackends(properties, tenantConfigService, json);
+    public ChatConfig(TenantConfigService tenantConfigService, JsonMapper json) {
+        log.info("Chat enabled. Each tenant supplies its own model via tenant-config/<org-name>.");
+        this.backends = new LlmBackends(tenantConfigService, json);
     }
 
     @Bean

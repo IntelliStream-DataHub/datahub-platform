@@ -4,8 +4,8 @@ package ai.intellistream.dhconsole.chat.llm;
 import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantLlm;
 import ai.intellistream.dhconsole.chat.config.ChatSettings;
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -29,16 +29,9 @@ class LlmBackendsTest {
     private final JsonMapper json = JsonMapper.builder().build();
     private final TenantConfigService tenants = mock(TenantConfigService.class);
 
-    private LlmBackends backends(ChatProperties properties) {
-        tenants.cachedTenants = new ConcurrentHashMap<>();
-        return new LlmBackends(properties, tenants, json);
-    }
-
     private LlmBackends backends() {
-        ChatProperties properties = new ChatProperties();
-        properties.setProvider(LlmProvider.ANTHROPIC);
-        properties.setApiKey("deployment-key");
-        return backends(properties);
+        tenants.cachedTenants = new ConcurrentHashMap<>();
+        return new LlmBackends(tenants, json);
     }
 
     private static ChatSettings anthropic(String apiKey, String model) {
@@ -98,11 +91,10 @@ class LlmBackendsTest {
 
     @Test
     void anAnthropicBackendWithNoKeySaysWhatToConfigure() {
-        // Whoever hits this cannot fix it from the UI, so the message is aimed at the operator and
-        // names both places the key can live.
+        // Whoever hits this cannot fix it from the UI, so the message names the secret to edit.
         assertThatThrownBy(() -> backends().forSettings(anthropic(null, "claude-opus-5")))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("tenant-llm")
+                .hasMessageContaining("tenant-config")
                 .hasMessageContaining("llm.api-key");
     }
 
@@ -114,25 +106,8 @@ class LlmBackendsTest {
     }
 
     @Test
-    void evictionKeepsWhatTheDeploymentDefaultNames() {
-        ChatProperties properties = new ChatProperties();
-        properties.setProvider(LlmProvider.ANTHROPIC);
-        properties.setApiKey("deployment-key");
-        LlmBackends backends = backends(properties);
-
-        backends.forSettings(anthropic("deployment-key", "claude-opus-5"));
-        backends.evictUnusedBackends();
-
-        // A deployment with no tenant backends at all still needs its own client after a sweep.
-        assertThat(backends.size()).isEqualTo(1);
-    }
-
-    @Test
     void evictionKeepsWhatATenantStillNames() {
-        ChatProperties properties = new ChatProperties();
-        properties.setProvider(LlmProvider.ANTHROPIC);
-        properties.setApiKey("deployment-key");
-        LlmBackends backends = backends(properties);
+        LlmBackends backends = backends();
         tenants.cachedTenants.put("t1", tenantWithKey("tenant-key"));
 
         backends.forSettings(anthropic("tenant-key", "claude-opus-5"));
@@ -147,8 +122,8 @@ class LlmBackendsTest {
         backends.forSettings(anthropic("rotated-away", "claude-opus-5"));
         assertThat(backends.size()).isEqualTo(1);
 
-        // No tenant and no deployment default names it now, so the connection pool it holds is
-        // dead weight for the life of the process unless something drops it.
+        // No tenant names it now, so the connection pool it holds is dead weight for the life of
+        // the process unless something drops it.
         backends.evictUnusedBackends();
 
         assertThat(backends.size()).isZero();
@@ -157,9 +132,11 @@ class LlmBackendsTest {
     private static Tenant tenantWithKey(String apiKey) {
         Tenant tenant = new Tenant();
         tenant.setOrganizationId("t1");
-        var backend = new ai.intellistream.datahub.tenant.TenantLlm();
+        TenantLlm backend = new TenantLlm();
         backend.setProvider(LlmProvider.ANTHROPIC);
         backend.setApiKey(apiKey);
+        // Without a model the entry is not usable, and eviction would sweep a client still in use.
+        backend.setModel("claude-opus-5");
         tenant.setLlm(backend);
         return tenant;
     }

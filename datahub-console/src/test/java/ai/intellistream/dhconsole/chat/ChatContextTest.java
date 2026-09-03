@@ -73,9 +73,7 @@ class ChatContextTest {
 
     @Test
     void theAnthropicProviderWiresEndToEnd() {
-        try (var context = contextWith(Map.of(
-                "datahub.chat.provider", "anthropic",
-                "datahub.chat.api-key", "sk-ant-test"))) {
+        try (var context = contextWith(Map.of())) {
 
             assertThat(context.getBean(ChatService.class)).isNotNull();
             assertThat(context.getBean(McpBridge.class)).isNotNull();
@@ -92,10 +90,7 @@ class ChatContextTest {
 
     @Test
     void theOpenAiCompatibleProviderWiresEndToEnd() {
-        try (var context = contextWith(Map.of(
-                "datahub.chat.provider", "openai-compatible",
-                "datahub.chat.model", "qwen3.5:latest",
-                "datahub.chat.base-url", "http://localhost:11434/v1"))) {
+        try (var context = contextWith(Map.of())) {
 
             assertThat(context.getBean(ChatService.class)).isNotNull();
 

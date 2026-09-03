@@ -43,7 +43,7 @@ public class Tenant {
      * which case the deployment-wide default applies.
      *
      * <p>{@code @JsonIgnore} because it does <strong>not</strong> come from this secret: it lives
-     * at {@code tenant-llm/<org-id>}, and {@code TenantConfigService} fills it in after
+     * in the tenant's own {@code tenant-config} secret, and {@code TenantConfigService} fills it in after
      * deserializing the rest. See {@link TenantLlmStore} for why it is separate.
      */
     @JsonIgnore

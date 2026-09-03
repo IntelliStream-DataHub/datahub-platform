@@ -10,16 +10,18 @@ import org.springframework.boot.convert.DurationStyle;
 import java.time.Duration;
 
 /**
- * A tenant's model configuration, from its {@code tenant-llm/<org-id>} secret:
+ * A tenant's model configuration, from the {@code llm.*} keys of its {@code tenant-config/<org-name>} secret:
  *
  * <pre>
  * provider=anthropic api-key=sk-ant-... model=claude-opus-5
  * provider=openai-compatible base-url=http://vllm.acme:8000/v1 model=qwen3-32b turn-timeout=10m
  * </pre>
  *
- * <p>Every field is optional; an unset one falls back to the deployment-wide {@code llm.*} defaults
- * on the {@code datahub-console} secret. It says which model and how to reach it — how much a turn
- * may spend stays deployment-wide.
+ * <p>This is the <em>only</em> source of a model: there is no deployment-wide credential to inherit,
+ * so a tenant that has not configured one has no assistant rather than one billed to whoever
+ * deployed the platform. {@link #isUsable()} is that test, and {@code ChatAccess} hides the panel
+ * when it fails. It says which model and how to reach it — how much a turn may spend stays
+ * deployment-wide.
  */
 @Data
 @NoArgsConstructor
@@ -27,7 +29,7 @@ public class TenantLlm {
 
     private LlmProvider provider;
 
-    /** Required for Anthropic; optional for a self-hosted server, which may need none. */
+    /** Required for Anthropic; a self-hosted server may need none. */
     @JsonProperty("api-key")
     private String apiKey;
 
@@ -37,7 +39,21 @@ public class TenantLlm {
     @JsonProperty("base-url")
     private String baseUrl;
 
-    /** OpenAI-compatible only. See {@code ChatProperties#reasoningEffort} for the three modes. */
+    /**
+     * OpenAI-compatible only: what to send as {@code reasoning_effort}.
+     *
+     * <ul>
+     *   <li><b>unset</b> — send nothing. "OpenAI-compatible" is a family, not a specification, and a
+     *       server that validates its request model strictly rejects a field it does not know, so
+     *       this cannot be on by default.</li>
+     *   <li><b>{@code mapped}</b> — send the level the user picked, narrowed onto the three values
+     *       that wire defines. For a server whose reasoning is genuinely graded.</li>
+     *   <li><b>anything else</b> — sent verbatim. This is how {@code none} is reachable: no effort
+     *       level maps to it, because no Anthropic level means "do not think", and a self-hosted
+     *       thinking model that spends its budget reasoning returns an empty answer, since the
+     *       client reads only {@code content} and {@code tool_calls}.</li>
+     * </ul>
+     */
     @JsonProperty("reasoning-effort")
     private String reasoningEffort;
 
@@ -48,10 +64,29 @@ public class TenantLlm {
     @JsonProperty("turn-timeout")
     private String turnTimeout;
 
+    /**
+     * Whether this names a model that can actually be called: a provider, a model, and whichever of
+     * credential or endpoint that provider reaches its model with.
+     *
+     * <p>Checked before the panel renders rather than on the first turn, so a half-written secret
+     * shows as no assistant instead of one that greets the user and then fails.
+     */
+    @JsonIgnore
+    public boolean isUsable() {
+        if (provider == null || isBlank(model)) {
+            return false;
+        }
+        return switch (provider) {
+            case ANTHROPIC -> !isBlank(apiKey);
+            // No key: Ollama and some vLLM deployments authenticate at the network edge, or not at all.
+            case OPENAI_COMPATIBLE -> !isBlank(baseUrl);
+        };
+    }
+
     /** The parsed {@link #turnTimeout}, or null when unset or unparseable. */
     @JsonIgnore
     public Duration getTurnTimeoutDuration() {
-        if (turnTimeout == null || turnTimeout.isBlank()) {
+        if (isBlank(turnTimeout)) {
             return null;
         }
         try {
@@ -60,5 +95,9 @@ public class TenantLlm {
             // A typo in one optional field must not take a tenant's assistant down.
             return null;
         }
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

@@ -124,4 +124,31 @@ class TenantLlmTest {
                 {"turn-timeout": "%s"}
                 """.formatted(value));
     }
+
+    /**
+     * The gate {@code ChatAccess} reads. There is no deployment credential behind it, so "not quite
+     * configured" has to mean no assistant — not an assistant on someone else's account.
+     */
+    @Test
+    void anEntryIsUsableOnlyOnceItNamesAModelSomethingCanReach() {
+        assertThat(usable(LlmProvider.ANTHROPIC, "sk-ant-x", "claude-opus-5", null)).isTrue();
+        // Ollama and some vLLM deployments take no key at all.
+        assertThat(usable(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3-32b", "http://x:8000/v1")).isTrue();
+
+        assertThat(usable(null, "sk-ant-x", "claude-opus-5", null)).isFalse();
+        assertThat(usable(LlmProvider.ANTHROPIC, null, "claude-opus-5", null)).isFalse();
+        assertThat(usable(LlmProvider.ANTHROPIC, "sk-ant-x", null, null)).isFalse();
+        assertThat(usable(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3-32b", null)).isFalse();
+        // A key blanked out in Vault reads as an empty string, not as an absent field.
+        assertThat(usable(LlmProvider.ANTHROPIC, "   ", "claude-opus-5", null)).isFalse();
+    }
+
+    private static boolean usable(LlmProvider provider, String apiKey, String model, String baseUrl) {
+        TenantLlm llm = new TenantLlm();
+        llm.setProvider(provider);
+        llm.setApiKey(apiKey);
+        llm.setModel(model);
+        llm.setBaseUrl(baseUrl);
+        return llm.isUsable();
+    }
 }

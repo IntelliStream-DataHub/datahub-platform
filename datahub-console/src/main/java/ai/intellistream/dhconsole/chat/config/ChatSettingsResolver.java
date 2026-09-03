@@ -8,16 +8,14 @@ import ai.intellistream.dhconsole.security.UserSession;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.time.Duration;
-
 /**
  * Resolves the model configuration for the signed-in user's tenant.
  *
- * <p>Two layers, narrower first: the tenant's own entry — which model, and how to reach it — then
- * the deployment-wide defaults for anything it leaves unset, plus the budgets, which stay
- * deployment-wide. Nothing here fails for a missing layer — a tenant with no entry uses
- * the deployment default, which is what every tenant did before this existed, and a half-built
- * session on an error dispatch does the same rather than throwing.
+ * <p>The model, the credential and the endpoint come from the tenant and nowhere else. There is no
+ * deployment-wide model to inherit, so this cannot quietly hand a tenant someone else's credential;
+ * an unconfigured tenant has no assistant, and {@link ChatAccess} has already said so before
+ * anything here runs. What the deployment still supplies is the spend and patience every tenant
+ * runs inside.
  */
 @Component
 @ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
@@ -34,20 +32,32 @@ public class ChatSettingsResolver {
         this.userSession = userSession;
     }
 
+    /**
+     * @throws IllegalStateException if the tenant has no usable model. Reachable only if the secret
+     *         is emptied between {@link ChatAccess#available()} and the turn, which is why it is an
+     *         exception and not a return value the callers would have to keep re-checking.
+     */
     public ChatSettings forCurrentTenant() {
-        return forTenant(tenantLlm());
+        TenantLlm llm = tenantLlm();
+        if (llm == null || !llm.isUsable()) {
+            throw new IllegalStateException(
+                    "This tenant has no model configured. Set llm.provider, llm.model and either "
+                            + "llm.api-key or llm.base-url on its tenant-config/<org-name> secret.");
+        }
+        return forTenant(llm);
     }
 
     /** Visible for tests, and the seam a caller with its own tenant would reuse. */
     ChatSettings forTenant(TenantLlm llm) {
         return new ChatSettings(
-                pick(llm == null ? null : llm.getProvider(), properties.getProvider()),
-                pickText(llm == null ? null : llm.getApiKey(), properties.getApiKey()),
-                pickText(llm == null ? null : llm.getModel(), properties.getModel()),
-                pickText(llm == null ? null : llm.getBaseUrl(), properties.getBaseUrl()),
-                pickText(llm == null ? null : llm.getReasoningEffort(), properties.getReasoningEffort()),
-                pick(llm == null ? null : llm.getTurnTimeoutDuration(), properties.getTurnTimeout()),
-                // Budgets stay deployment-wide: a tenant picks its model, not your spend per call.
+                llm.getProvider(),
+                strip(llm.getApiKey()),
+                strip(llm.getModel()),
+                strip(llm.getBaseUrl()),
+                strip(llm.getReasoningEffort()),
+                llm.getTurnTimeoutDuration() != null
+                        ? llm.getTurnTimeoutDuration() : properties.getTurnTimeout(),
+                // A tenant picks its model, not your spend per call.
                 properties.getMaxOutputTokens());
     }
 
@@ -60,17 +70,8 @@ public class ChatSettingsResolver {
         return tenant == null ? null : tenant.getLlm();
     }
 
-    private static <T> T pick(T narrower, T fallback) {
-        return narrower != null ? narrower : fallback;
-    }
-
-    /** As {@link #pick}, but a blank string counts as unset — Vault fields are hand-written. */
-    private static String pickText(String narrower, String fallback) {
-        return narrower == null || narrower.isBlank() ? fallback : narrower.strip();
-    }
-
-    /** Overload so the generic {@link #pick} is not ambiguous at the call site. */
-    private static Duration pick(Duration narrower, Duration fallback) {
-        return narrower != null ? narrower : fallback;
+    /** Vault fields are hand-written, so a stray space is not a different credential. */
+    private static String strip(String value) {
+        return value == null || value.isBlank() ? null : value.strip();
     }
 }
