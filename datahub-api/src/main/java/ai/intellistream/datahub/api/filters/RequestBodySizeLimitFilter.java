@@ -47,8 +47,9 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
 
-        // The upload streams to disk and the download has no request body worth counting.
-        if (StreamingFileEndpoints.matches(request)) {
+        // File uploads stream to disk and graph imports are committed segment by segment as they
+        // arrive; the downloads and exports have no request body worth counting.
+        if (StreamingEndpoints.matches(request)) {
             chain.doFilter(request, response);
             return;
         }

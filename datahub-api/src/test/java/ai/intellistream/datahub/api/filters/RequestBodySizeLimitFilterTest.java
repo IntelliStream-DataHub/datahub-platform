@@ -146,6 +146,31 @@ class RequestBodySizeLimitFilterTest {
     }
 
     @Test
+    void graphImportIsExemptSoLargeFilesStillStream() throws Exception {
+        limits.setMaxBodyBytes(64);
+        MockHttpServletRequest upload = new MockHttpServletRequest("POST", "/resources/import");
+        upload.setContent("x".repeat(4096).getBytes(StandardCharsets.UTF_8));
+        upload.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+
+        filter.doFilter(upload, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+        assertThat(chain.getRequest()).isNotNull();
+    }
+
+    @Test
+    void graphExportIsExempt() throws Exception {
+        limits.setMaxBodyBytes(64);
+        MockHttpServletRequest export = new MockHttpServletRequest("GET", "/resources/export/42");
+        export.setContent("x".repeat(4096).getBytes(StandardCharsets.UTF_8));
+
+        filter.doFilter(export, response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
+        assertThat(chain.getRequest()).isNotNull();
+    }
+
+    @Test
     void aZeroLimitDisablesTheCheck() throws Exception {
         limits.setMaxBodyBytes(0);
         filter.doFilter(post("/events/create", 8192), response, chain);

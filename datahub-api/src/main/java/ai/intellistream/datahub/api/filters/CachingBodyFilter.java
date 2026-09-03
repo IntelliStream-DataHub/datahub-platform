@@ -19,16 +19,17 @@ public class CachingBodyFilter implements Filter {
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
 
-        // Streaming file endpoints must NOT be wrapped: the download response can be many GB and
-        // ContentCachingResponseWrapper buffers the whole body in memory and rejects a
-        // Content-Length above 2 GB (Integer.MAX_VALUE); the upload request body is large and we
-        // parse it straight off the raw stream. ReqLogService only logs bodies when these wrappers
-        // are present, so passing the raw request/response through simply skips body logging here.
-        if (StreamingFileEndpoints.matches(httpRequest)) {
+        // Streaming endpoints must NOT be wrapped: a file download or graph export response can be
+        // many GB and ContentCachingResponseWrapper buffers the whole body in memory and rejects a
+        // Content-Length above 2 GB (Integer.MAX_VALUE); a file upload or graph import body is large
+        // and is parsed straight off the raw stream. ReqLogService only logs bodies when these
+        // wrappers are present, so passing the raw request/response through simply skips body
+        // logging here.
+        if (StreamingEndpoints.matches(httpRequest)) {
             try {
                 chain.doFilter(request, response);
             } catch (IOException | ServletException e) {
-                log.error("Error in streaming file request", e);
+                log.error("Error in streaming request", e);
             }
             return;
         }
