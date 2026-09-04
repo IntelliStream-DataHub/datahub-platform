@@ -15,14 +15,32 @@
             that IntelliStream DataHub recognises. Without a registered organization, we
             can't resolve a tenant for you, and you won't be able to access any data or
             features.</p>
-        <p>This usually means one of two things:</p>
-        <ul>
-            <li>Your identity provider issued a token without an organization claim — your
-                account may not yet be assigned to an organization in the directory.</li>
-            <li>Your token carries an organization that isn't registered as a tenant in this
-                environment — this can happen if you've signed in to the wrong environment,
-                or if the tenant hasn't been provisioned yet.</li>
-        </ul>
+        <!-- The reason comes from the failure handler. Both branches were shown to everyone
+             before, which meant nobody could tell which had happened; the generic list is kept
+             only for the case where the page is reached without one. -->
+        <div th:if="${param.reason != null and param.reason[0] == 'no_organization'}">
+            <p><strong>Your sign-in carried no organization.</strong> The identity provider
+                issued a valid token, but it named no organization at all, which means your
+                account is not a member of one in the directory. An administrator needs to add
+                you to the organization for your tenant.</p>
+        </div>
+        <div th:if="${param.reason != null and param.reason[0] == 'unknown_organization'}">
+            <p><strong>Your organization is not registered here.</strong> Your token named an
+                organization, but this environment has no tenant with that id. Either you have
+                signed in to the wrong environment, or the tenant has not been provisioned in
+                this one. An administrator can check the tenant registry; the id is in the
+                server log next to this refusal.</p>
+        </div>
+        <div th:if="${param.reason == null}">
+            <p>This usually means one of two things:</p>
+            <ul>
+                <li>Your identity provider issued a token without an organization claim — your
+                    account may not yet be assigned to an organization in the directory.</li>
+                <li>Your token carries an organization that isn't registered as a tenant in this
+                    environment — this can happen if you've signed in to the wrong environment,
+                    or if the tenant hasn't been provisioned yet.</li>
+            </ul>
+        </div>
         <p>Please contact your administrator. If you believe this is a mistake, sign out
             and try again.</p>
     </div>

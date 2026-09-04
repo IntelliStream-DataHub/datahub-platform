@@ -127,7 +127,12 @@ public class WebSecurityConfig {
                     if (session != null) {
                         session.invalidate();
                     }
-                    response.sendRedirect(request.getContextPath() + "/error/no-organization");
+                    // The two causes need different things done about them - one is a directory
+                    // membership, the other a missing tenant - and the page had no way to tell
+                    // them apart, so it listed both and left the reader guessing. Only the code
+                    // travels; the description names an organization id and belongs in the log.
+                    response.sendRedirect(request.getContextPath()
+                            + "/error/no-organization?reason=" + code);
                     return;
                 }
             }
