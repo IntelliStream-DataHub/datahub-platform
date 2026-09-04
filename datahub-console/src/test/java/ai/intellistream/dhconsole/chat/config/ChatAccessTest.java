@@ -4,9 +4,7 @@ package ai.intellistream.dhconsole.chat.config;
 import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
-import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.tenant.TenantLlm;
-import ai.intellistream.dhconsole.config.TenantFeaturesResolver;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -44,25 +42,17 @@ class ChatAccessTest {
                 new UsernamePasswordAuthenticationToken("user", "n/a", granted));
     }
 
-    private static TenantConfigService registryWith(TenantLlm llm) {
+    private static TenantConfigService tenantWithChat(boolean chatEnabled) {
+        return tenantWith(chatEnabled, usableModel());
+    }
+
+    private static TenantConfigService tenantWith(boolean chatEnabled, TenantLlm llm) {
         Tenant tenant = new Tenant();
+        tenant.getFeatures().setChatFeatureEnabled(chatEnabled);
         tenant.setLlm(llm);
         TenantConfigService service = mock(TenantConfigService.class);
         when(service.getConfig(ORG)).thenReturn(tenant);
         return service;
-    }
-
-    private static TenantFeaturesResolver features(boolean chatEnabled) {
-        TenantFeatures flags = new TenantFeatures();
-        flags.setChatFeatureEnabled(chatEnabled);
-        TenantFeaturesResolver resolver = mock(TenantFeaturesResolver.class);
-        when(resolver.get()).thenReturn(flags);
-        return resolver;
-    }
-
-    /** The ordinary case: flag on, model configured. */
-    private static ChatAccess access(boolean chatEnabled, String orgId) {
-        return new ChatAccess(registryWith(usableModel()), features(chatEnabled), sessionFor(orgId));
     }
 
     private static TenantLlm usableModel() {
@@ -82,24 +72,24 @@ class ChatAccessTest {
     @Test
     void availableWhenDeploymentTenantAndUserAllAllow() {
         authenticateWith("DATAHUB_CONSOLE", "DATAHUB_CHAT");
-        assertThat(access(true, ORG).available()).isTrue();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(ORG)).available()).isTrue();
     }
 
     @Test
     void deniedWhenTheUserLacksTheChatAuthority() {
         authenticateWith("DATAHUB_CONSOLE");
-        assertThat(access(true, ORG).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
     void deniedWhenTheTenantFlagIsOff() {
         authenticateWith("DATAHUB_CHAT");
-        assertThat(access(false, ORG).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(false), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
     void deniedWhenThereIsNoAuthenticatedUser() {
-        assertThat(access(true, ORG).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
@@ -107,7 +97,7 @@ class ChatAccessTest {
         // The flag is on and the user is entitled, but there is no credential to run on and none to
         // borrow. Denied, not "denied later, mid-conversation".
         authenticateWith("DATAHUB_CHAT");
-        assertThat(new ChatAccess(registryWith(null), features(true), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWith(true, null), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
@@ -116,12 +106,12 @@ class ChatAccessTest {
         TenantLlm noKey = usableModel();
         noKey.setApiKey(null);
 
-        assertThat(new ChatAccess(registryWith(noKey), features(true), sessionFor(ORG)).available()).isFalse();
+        assertThat(new ChatAccess(tenantWith(true, noKey), sessionFor(ORG)).available()).isFalse();
     }
 
     @Test
     void deniedWhenTheSessionHasNoOrganisation() {
         authenticateWith("DATAHUB_CHAT");
-        assertThat(access(true, null).available()).isFalse();
+        assertThat(new ChatAccess(tenantWithChat(true), sessionFor(null)).available()).isFalse();
     }
 }

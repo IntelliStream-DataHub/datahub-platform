@@ -3,7 +3,6 @@ package ai.intellistream.dhconsole.chat.config;
 
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
-import ai.intellistream.dhconsole.config.TenantFeaturesResolver;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -38,13 +37,10 @@ public class ChatAccess {
     static final String CHAT_AUTHORITY = "DATAHUB_CHAT";
 
     private final TenantConfigService tenantConfigService;
-    private final TenantFeaturesResolver tenantFeatures;
     private final UserSession userSession;
 
-    public ChatAccess(TenantConfigService tenantConfigService, TenantFeaturesResolver tenantFeatures,
-                      UserSession userSession) {
+    public ChatAccess(TenantConfigService tenantConfigService, UserSession userSession) {
         this.tenantConfigService = tenantConfigService;
-        this.tenantFeatures = tenantFeatures;
         this.userSession = userSession;
     }
 
@@ -84,14 +80,10 @@ public class ChatAccess {
         if (orgId == null) {
             return false;
         }
-        // The flag comes from datahub-api, which is authoritative for it and answers with the
-        // current value rather than this process's five-minute-old copy. The model still comes from
-        // Vault: the console needs the credential itself to call the model, and an endpoint that
-        // served it would serve it to whoever holds a user's token.
-        if (!tenantFeatures.get().isChatFeatureEnabled()) {
-            return false;
-        }
         Tenant tenant = tenantConfigService.getConfig(orgId);
-        return tenant != null && tenant.getLlm() != null && tenant.getLlm().isUsable();
+        return tenant != null
+                && tenant.getFeatures().isChatFeatureEnabled()
+                && tenant.getLlm() != null
+                && tenant.getLlm().isUsable();
     }
 }

@@ -45,12 +45,6 @@ class ChatContextTest {
             return JsonMapper.builder().build();
         }
 
-        /** Chat reads the tenant's feature flags from datahub-api, not from the Vault registry. */
-        @Bean
-        ai.intellistream.dhconsole.config.TenantFeaturesResolver tenantFeaturesResolver() {
-            return Mockito.mock(ai.intellistream.dhconsole.config.TenantFeaturesResolver.class);
-        }
-
         /** Collaborators ChatAccess needs, which live outside the chat package in the real app. */
         @Bean
         TenantConfigService tenantConfigService() {
