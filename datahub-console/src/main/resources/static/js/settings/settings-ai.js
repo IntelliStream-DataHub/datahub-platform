@@ -32,6 +32,10 @@
 	// omitting the field. Reset after a successful save.
 	var clearApiKey = false;
 
+	// Whether the server says a credential is stored. The key itself is never sent here, so this
+	// is the only way to know an empty key field still amounts to a configured provider.
+	var apiKeyOnFile = false;
+
 	/** Nothing on this page applies, so the whole column goes and the message stands alone. */
 	function showDenied() {
 		loading.hidden = true;
@@ -124,13 +128,37 @@
 		setValue("instructions", settings.instructions);
 		setValue("apiKey", "");
 		clearApiKey = false;
+		apiKeyOnFile = settings.apiKeySet === true;
 		renderApiKeyHelp(settings.apiKeySet);
 		applyProviderVisibility();
 
+		refreshUnconfiguredBanner();
+	}
+
+	/**
+	 * Whether the fields as they stand name a model that can be called - the same rule the server
+	 * applies, deliberately duplicated.
+	 *
+	 * The server also sends `configured`, but that is computed from its own cached copy of the
+	 * tenant registry, which refreshes on a timer. Reading it left the banner able to contradict
+	 * the fields printed directly beneath it: a complete, working configuration under a warning
+	 * saying it was not one. Deriving the banner from what is actually on screen cannot disagree
+	 * with what is on screen.
+	 */
+	function looksConfigured() {
+		if (trimmedValue("model") === null) {
+			return false;
+		}
+		if (providerSelect.value === "openai-compatible") {
+			return trimmedValue("baseUrl") !== null;
+		}
+		// Anthropic. An empty key field means the stored one is kept, so a key on file counts.
+		return trimmedValue("apiKey") !== null || (apiKeyOnFile && !clearApiKey);
+	}
+
+	function refreshUnconfiguredBanner() {
 		if (unconfiguredBanner) {
-			// The one piece of state a user cannot infer from the form: everything can look filled
-			// in and still not amount to a callable model.
-			unconfiguredBanner.hidden = settings.configured === true;
+			unconfiguredBanner.hidden = looksConfigured();
 		}
 	}
 
@@ -202,13 +230,19 @@
 			});
 	});
 
-	providerSelect.addEventListener("change", applyProviderVisibility);
+	// Live, so fixing what is missing clears the warning as you type rather than on the next save.
+	providerSelect.addEventListener("change", function () {
+		applyProviderVisibility();
+		refreshUnconfiguredBanner();
+	});
+	form.addEventListener("input", refreshUnconfiguredBanner);
 
 	if (clearKeyButton) {
 		clearKeyButton.addEventListener("click", function () {
 			clearApiKey = true;
 			setValue("apiKey", "");
 			renderApiKeyHelp(false);
+			refreshUnconfiguredBanner();
 		});
 	}
 
