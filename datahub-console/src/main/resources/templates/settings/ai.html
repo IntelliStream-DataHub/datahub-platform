@@ -10,6 +10,11 @@
 <main class="layout-body">
 	<nav th:replace="~{settings/nav :: navbar('ai')}"></nav>
 
+	<div class="settings-empty" data-type="settings-denied" hidden>
+		<i class="fa-solid fa-lock settings-empty-icon"></i>
+		<p th:text="#{settings.denied}"></p>
+	</div>
+
 	<div class="settings-page pad20">
 		<header class="settings-header">
 			<h2 th:text="#{settings.ai.title}"></h2>
@@ -20,27 +25,11 @@
 		     the form stays hidden rather than flashing empty fields that look like "not configured". -->
 		<div class="settings-state" data-type="settings-loading" th:text="#{loading}"></div>
 
-		<!-- A denial the reader cannot act on themselves, so it says who can and exactly what to
-		     ask for. The group path is shown verbatim because that is the string an administrator
-		     has to type into Keycloak. -->
-		<div class="settings-empty" data-type="settings-denied" hidden>
-			<i class="fa-solid fa-lock settings-empty-icon"></i>
-			<h3 th:text="#{settings.denied.title}"></h3>
-			<p th:text="#{settings.denied.body}"></p>
-			<p class="settings-empty-ask">
-				<span th:text="#{settings.denied.ask}"></span>
-				<code>/settings/llm/read</code>
-			</p>
-		</div>
-
 		<form class="datahub-form-fields settings-form" data-type="ai-settings-form" hidden novalidate>
 
 			<div class="settings-banner" data-type="settings-readonly" hidden>
 				<i class="fa-regular fa-eye"></i>
-				<span>
-					<span th:text="#{settings.readonly}"></span>
-					<code>/settings/llm/write</code>
-				</span>
+				<span th:text="#{settings.readonly}"></span>
 			</div>
 
 			<div class="settings-banner settings-banner-warn" data-type="settings-unconfigured" hidden>

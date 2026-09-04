@@ -21,49 +21,25 @@
 	color: var(--text-muted, #6b7280);
 }
 
-/* A denial the reader cannot act on. Given room and a heading rather than a one-line aside,
-   because the useful part is the group name at the bottom and nobody scans past an inline
-   sentence to find it. */
+/* Sits outside .settings-page, which is a left-aligned 720px column - centring inside that
+   column still leaves the message in the left third of a wide screen. */
 .settings-empty {
-	max-width: 520px;
-	margin: 32px auto;
-	padding: 32px 24px;
+	max-width: 420px;
+	margin: 12vh auto;
 	text-align: center;
-	border: 1px solid var(--border, #e5e7eb);
-	border-radius: 8px;
-	background: var(--surface-2, #f9fafb);
+	color: var(--text-muted, #6b7280);
 }
 
 .settings-empty-icon {
-	font-size: 1.75rem;
-	color: var(--text-muted, #9ca3af);
+	display: block;
+	font-size: 1.5rem;
 	margin-bottom: 12px;
-}
-
-.settings-empty h3 {
-	margin: 0 0 8px;
+	color: var(--text-muted, #9ca3af);
 }
 
 .settings-empty p {
-	color: var(--text-muted, #6b7280);
-	margin: 0 0 12px;
+	margin: 0;
 	line-height: 1.5;
-}
-
-.settings-empty-ask {
-	margin-top: 16px;
-}
-
-.settings-empty code,
-.settings-banner code {
-	display: inline-block;
-	padding: 2px 8px;
-	border-radius: 4px;
-	background: var(--surface-3, #e5e7eb);
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-	font-size: 0.8125rem;
-	color: var(--text, #1f2937);
-	user-select: all;
 }
 
 .settings-banner {

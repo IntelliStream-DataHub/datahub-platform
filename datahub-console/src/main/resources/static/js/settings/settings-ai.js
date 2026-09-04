@@ -32,6 +32,18 @@
 	// omitting the field. Reset after a successful save.
 	var clearApiKey = false;
 
+	/** Nothing on this page applies, so the whole column goes and the message stands alone. */
+	function showDenied() {
+		loading.hidden = true;
+		var page = document.querySelector(".settings-page");
+		if (page) {
+			page.hidden = true;
+		}
+		if (denied) {
+			denied.hidden = false;
+		}
+	}
+
 	function field(name) {
 		return form.querySelector('[name="' + name + '"]');
 	}
@@ -146,7 +158,7 @@
 
 	function reportFailure(error, fallbackKey) {
 		if (error && error.status === 403) {
-			Flash.error($L("settings.denied.body"));
+			Flash.error($L("settings.denied"));
 			return;
 		}
 		if (error && error.status === 401) {
@@ -212,8 +224,7 @@
 		if (!llm.read) {
 			// Asking for the settings would only 403. Say so from what we already know rather than
 			// spending a round trip to be told.
-			loading.hidden = true;
-			denied.hidden = false;
+			showDenied();
 			return;
 		}
 		return SettingsApi.get("/tenant/settings/llm").then(function (settings) {
@@ -223,11 +234,11 @@
 			setEditable(llm.write === true);
 		});
 	}).catch(function (error) {
-		loading.hidden = true;
 		if (error && error.status === 403 && denied) {
-			denied.hidden = false;
+			showDenied();
 			return;
 		}
+		loading.hidden = true;
 		reportFailure(error, "settings.load.failed");
 	});
 })();
