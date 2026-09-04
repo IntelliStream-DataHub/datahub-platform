@@ -1,0 +1,109 @@
+/* Settings pages. Deliberately narrow: a form read left-to-right across a wide monitor is hard to
+   scan, and none of these fields benefit from the width. */
+
+.settings-page {
+	max-width: 720px;
+}
+
+.settings-header h2 {
+	margin-bottom: 4px;
+}
+
+.settings-intro,
+.field-help {
+	color: var(--text-muted, #6b7280);
+	font-size: 0.875rem;
+	margin: 4px 0 12px;
+}
+
+.settings-state {
+	padding: 24px 0;
+	color: var(--text-muted, #6b7280);
+}
+
+.settings-denied {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.settings-banner {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 10px 12px;
+	margin-bottom: 16px;
+	border-radius: 6px;
+	background: var(--surface-2, #f3f4f6);
+	font-size: 0.875rem;
+}
+
+.settings-banner-warn {
+	background: #fef3c7;
+	color: #92400e;
+}
+
+.settings-group {
+	border: 1px solid var(--border, #e5e7eb);
+	border-radius: 8px;
+	padding: 16px;
+	margin-bottom: 20px;
+}
+
+.settings-group legend {
+	padding: 0 6px;
+	font-weight: 600;
+}
+
+.settings-secret {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.settings-secret input {
+	flex: 1;
+}
+
+.field-error {
+	color: var(--danger, #b91c1c);
+	font-size: 0.875rem;
+	margin: 4px 0 12px;
+}
+
+.settings-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	margin-bottom: 32px;
+}
+
+.settings-lag {
+	color: var(--text-muted, #6b7280);
+	font-size: 0.8125rem;
+}
+
+.settings-facts dt {
+	font-weight: 600;
+	margin-top: 8px;
+}
+
+.settings-facts dd {
+	margin: 0 0 8px;
+}
+
+.settings-features {
+	list-style: none;
+	padding: 0;
+}
+
+.settings-features .feature {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 0;
+}
+
+.settings-features .feature.off {
+	color: var(--text-muted, #6b7280);
+}

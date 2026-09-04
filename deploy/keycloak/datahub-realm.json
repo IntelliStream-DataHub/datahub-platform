@@ -218,6 +218,17 @@
               "name": "tenant-admin"
             }
           ]
+        },
+        {
+          "name": "settings",
+          "subGroups": [
+            {
+              "name": "read"
+            },
+            {
+              "name": "write"
+            }
+          ]
         }
       ]
     },
@@ -274,6 +285,17 @@
           "subGroups": [
             {
               "name": "tenant-admin"
+            }
+          ]
+        },
+        {
+          "name": "settings",
+          "subGroups": [
+            {
+              "name": "read"
+            },
+            {
+              "name": "write"
             }
           ]
         }

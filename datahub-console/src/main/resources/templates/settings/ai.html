@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{settings.ai}"></title>
+	<th:block th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/settings.css}" />
+</head>
+
+<body th:replace="~{layout/main :: htmlbody(~{::main}, null)}">
+<main class="layout-body">
+	<nav th:replace="~{settings/nav :: navbar('ai')}"></nav>
+
+	<div class="settings-page pad20">
+		<header class="settings-header">
+			<h2 th:text="#{settings.ai.title}"></h2>
+			<p class="settings-intro" th:text="#{settings.ai.intro}"></p>
+		</header>
+
+		<!-- Everything below is filled in by settings-ai.js from datahub-api. Until it answers,
+		     the form stays hidden rather than flashing empty fields that look like "not configured". -->
+		<div class="settings-state" data-type="settings-loading" th:text="#{loading}"></div>
+
+		<div class="settings-state settings-denied" data-type="settings-denied" hidden>
+			<i class="fa-solid fa-lock"></i>
+			<span th:text="#{settings.denied}"></span>
+		</div>
+
+		<form class="datahub-form-fields settings-form" data-type="ai-settings-form" hidden novalidate>
+
+			<div class="settings-banner" data-type="settings-readonly" hidden>
+				<i class="fa-regular fa-eye"></i>
+				<span th:text="#{settings.readonly}"></span>
+			</div>
+
+			<div class="settings-banner settings-banner-warn" data-type="settings-unconfigured" hidden>
+				<i class="fa-solid fa-triangle-exclamation"></i>
+				<span th:text="#{settings.ai.unconfigured}"></span>
+			</div>
+
+			<fieldset class="settings-group">
+				<legend th:text="#{settings.ai.model.group}"></legend>
+
+				<label for="provider" th:text="#{settings.ai.provider}"></label>
+				<select id="provider" name="provider" class="w100">
+					<option value="anthropic" th:text="#{settings.ai.provider.anthropic}"></option>
+					<option value="openai-compatible" th:text="#{settings.ai.provider.openai}"></option>
+				</select>
+				<p class="field-help" th:text="#{settings.ai.provider.help}"></p>
+
+				<label for="model" th:text="#{settings.ai.model}"></label>
+				<input id="model" name="model" type="text" class="w100" autocomplete="off"
+				       th:attr="placeholder=#{settings.ai.model.placeholder}"/>
+				<p class="field-error" data-error-for="model" hidden></p>
+
+				<!-- Anthropic only -->
+				<div data-when-provider="anthropic">
+					<label for="apiKey" th:text="#{settings.ai.apikey}"></label>
+					<div class="settings-secret">
+						<input id="apiKey" name="apiKey" type="password" class="w100" autocomplete="off"
+						       th:attr="placeholder=#{settings.ai.apikey.placeholder}"/>
+						<button type="button" class="dh-btn small" data-type="clear-api-key"
+						        th:text="#{settings.ai.apikey.clear}"></button>
+					</div>
+					<p class="field-help" data-type="apikey-help" th:text="#{settings.ai.apikey.help}"></p>
+					<p class="field-error" data-error-for="apiKey" hidden></p>
+				</div>
+
+				<!-- OpenAI-compatible only -->
+				<div data-when-provider="openai-compatible">
+					<label for="baseUrl" th:text="#{settings.ai.baseurl}"></label>
+					<input id="baseUrl" name="baseUrl" type="text" class="w100" autocomplete="off"
+					       th:attr="placeholder=#{settings.ai.baseurl.placeholder}"/>
+					<p class="field-help" th:text="#{settings.ai.baseurl.help}"></p>
+					<p class="field-error" data-error-for="baseUrl" hidden></p>
+
+					<label for="reasoningEffort" th:text="#{settings.ai.reasoning}"></label>
+					<input id="reasoningEffort" name="reasoningEffort" type="text" class="w100" autocomplete="off"
+					       th:attr="placeholder=#{settings.ai.reasoning.placeholder}"/>
+					<p class="field-help" th:text="#{settings.ai.reasoning.help}"></p>
+				</div>
+			</fieldset>
+
+			<fieldset class="settings-group">
+				<legend th:text="#{settings.ai.budget.group}"></legend>
+				<p class="settings-intro" th:text="#{settings.ai.budget.intro}"></p>
+
+				<label for="effort" th:text="#{settings.ai.effort}"></label>
+				<select id="effort" name="effort" class="w100">
+					<option value="" th:text="#{settings.ai.default}"></option>
+					<option value="low">low</option>
+					<option value="medium">medium</option>
+					<option value="high">high</option>
+					<option value="xhigh">xhigh</option>
+					<option value="max">max</option>
+				</select>
+				<p class="field-help" th:text="#{settings.ai.effort.help}"></p>
+				<p class="field-error" data-error-for="effort" hidden></p>
+
+				<label for="maxOutputTokens" th:text="#{settings.ai.maxtokens}"></label>
+				<input id="maxOutputTokens" name="maxOutputTokens" type="number" min="1" class="w100"
+				       th:attr="placeholder=#{settings.ai.default}"/>
+				<p class="field-help" th:text="#{settings.ai.maxtokens.help}"></p>
+				<p class="field-error" data-error-for="maxOutputTokens" hidden></p>
+
+				<label for="maxIterations" th:text="#{settings.ai.maxiterations}"></label>
+				<input id="maxIterations" name="maxIterations" type="number" min="1" class="w100"
+				       th:attr="placeholder=#{settings.ai.default}"/>
+				<p class="field-help" th:text="#{settings.ai.maxiterations.help}"></p>
+				<p class="field-error" data-error-for="maxIterations" hidden></p>
+
+				<label for="turnTimeout" th:text="#{settings.ai.timeout}"></label>
+				<input id="turnTimeout" name="turnTimeout" type="text" class="w100" autocomplete="off"
+				       th:attr="placeholder=#{settings.ai.default}"/>
+				<p class="field-help" th:text="#{settings.ai.timeout.help}"></p>
+				<p class="field-error" data-error-for="turnTimeout" hidden></p>
+			</fieldset>
+
+			<fieldset class="settings-group">
+				<legend th:text="#{settings.ai.instructions.group}"></legend>
+				<label for="instructions" th:text="#{settings.ai.instructions}"></label>
+				<textarea id="instructions" name="instructions" class="w100" rows="5"
+				          th:attr="placeholder=#{settings.ai.instructions.placeholder}"></textarea>
+				<p class="field-help" th:text="#{settings.ai.instructions.help}"></p>
+			</fieldset>
+
+			<div class="settings-actions">
+				<button type="submit" class="dh-btn primary" data-type="save"
+				        th:text="#{datahub.save}"></button>
+				<span class="settings-lag" th:text="#{settings.ai.lag}"></span>
+			</div>
+		</form>
+	</div>
+
+	<th:block th:replace="~{settings/i18n :: i18nMessages}"></th:block>
+	<th:block th:replace="~{fragments/assets :: js('settings')}"></th:block>
+</main>
+</body>
+</html>

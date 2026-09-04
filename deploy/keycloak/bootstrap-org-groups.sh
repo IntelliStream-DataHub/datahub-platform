@@ -126,6 +126,11 @@ fi
 # DATAHUB_ADMIN operator role. The tenant manager creates this group for every real tenant and
 # joins the tenant's first user to it, so the dev realm mirrors that shape. Nothing reads it yet
 # (DatasetGrants ignores paths outside /datasets/).
+#
+# /settings/read and /settings/write are what SettingsGrants reads: who may see and who may change
+# the tenant's own settings, which today means the model its AI assistant runs on. Separate grants
+# on purpose - write does not imply read - and both go to the tenant's human user only. A service
+# account has no business rewriting the credential its own tenant is billed on.
 
 grant() {
   local alias=$1 username=$2 group_path=$3
@@ -171,6 +176,8 @@ for tenant in foo bar; do
   # does with a real tenant's first user. The service account is deliberately left out: it is a
   # machine identity for data access, not a person who administers anyone.
   grant "$tenant" "$tenant" "/datahub/tenant-admin"
+  grant "$tenant" "$tenant" "/settings/read"
+  grant "$tenant" "$tenant" "/settings/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/read"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/data_set_demo/write"

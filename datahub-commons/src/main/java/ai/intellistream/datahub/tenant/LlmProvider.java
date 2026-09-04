@@ -34,4 +34,12 @@ public enum LlmProvider {
         String normalized = value.strip().toUpperCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
         return LlmProvider.valueOf(normalized);
     }
+
+    /**
+     * The spelling written to Vault and shown to a client: lower case with hyphens, the form
+     * {@link #parse} is most likely to be handed back.
+     */
+    public String wireName() {
+        return name().toLowerCase(Locale.ROOT).replace('_', '-');
+    }
 }
