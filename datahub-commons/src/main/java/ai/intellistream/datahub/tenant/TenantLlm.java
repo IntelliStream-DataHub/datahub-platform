@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 import org.springframework.boot.convert.DurationStyle;
 
 import java.time.Duration;
@@ -33,7 +34,13 @@ public class TenantLlm {
 
     private LlmProvider provider;
 
-    /** Required for Anthropic; a self-hosted server may need none. */
+    /**
+     * Required for Anthropic; a self-hosted server may need none.
+     *
+     * <p>Excluded from {@code toString()}: Lombok prints every field, so without this any
+     * {@code log.debug("...{}", tenant)} anywhere would put the credential in the log.
+     */
+    @ToString.Exclude
     @JsonProperty("api-key")
     private String apiKey;
 
