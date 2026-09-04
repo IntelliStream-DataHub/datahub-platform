@@ -126,6 +126,14 @@ fi
 # DATAHUB_ADMIN operator role. The tenant manager creates this group for every real tenant and
 # joins the tenant's first user to it, so the dev realm mirrors that shape. Nothing reads it yet
 # (DatasetGrants ignores paths outside /datasets/).
+#
+# /settings/<scope>/read|write is what SettingsGrants reads, sharing the dataset grammar and its
+# parser: who may see and who may change one of the tenant's own settings. Today the only scope is
+# llm, the model its AI assistant runs on; /settings/*/read|write covers every scope including ones
+# added later. Separate grants on purpose - write does not imply read - and both go to the tenant's
+# human user only. A service account has no business rewriting the credential its tenant is billed
+# on. The dev grant is the named scope rather than the wildcard, so the ordinary path is the one
+# being exercised.
 
 grant() {
   local alias=$1 username=$2 group_path=$3
@@ -171,6 +179,8 @@ for tenant in foo bar; do
   # does with a real tenant's first user. The service account is deliberately left out: it is a
   # machine identity for data access, not a person who administers anyone.
   grant "$tenant" "$tenant" "/datahub/tenant-admin"
+  grant "$tenant" "$tenant" "/settings/llm/read"
+  grant "$tenant" "$tenant" "/settings/llm/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/read"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/data_set_demo/write"

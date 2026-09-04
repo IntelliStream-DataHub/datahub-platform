@@ -221,6 +221,33 @@
               "name": "tenant-admin"
             }
           ]
+        },
+        {
+          "name": "settings",
+          "subGroups": [
+            {
+              "name": "llm",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            },
+            {
+              "name": "*",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -277,6 +304,33 @@
           "subGroups": [
             {
               "name": "tenant-admin"
+            }
+          ]
+        },
+        {
+          "name": "settings",
+          "subGroups": [
+            {
+              "name": "llm",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            },
+            {
+              "name": "*",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
             }
           ]
         }

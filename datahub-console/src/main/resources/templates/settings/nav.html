@@ -1,0 +1,5 @@
+<nav class="sub-nav" th:fragment="navbar (pageSelected)">
+	<a th:href="@{/settings/ai}" th:classappend="${pageSelected} == 'ai' ? 'selected' : ''">
+		<span th:text="#{settings.ai}"></span>
+	</a>
+</nav>

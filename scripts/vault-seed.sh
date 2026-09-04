@@ -166,9 +166,19 @@ vault kv put "$MOUNT/tenant-config/foo" \
 
 echo "==> Enabling AppRole auth + datahub policy"
 vault auth enable approle 2>/dev/null || echo "    (already enabled)"
+# Read on the whole mount, and write on exactly one subtree. datahub-api writes tenant-config
+# when a tenant edits its own settings in the console; nothing else in the platform writes to
+# Vault at all, so the grant is narrowed to the path that needs it rather than the mount.
+# "create" as well as "update" because a tenant configuring itself for the first time has no
+# secret there yet.
 vault policy write datahub - <<EOF
 path "$MOUNT/*"      { capabilities = ["read", "list"] }
 path "$MOUNT/data/*" { capabilities = ["read", "list"] }
+
+path "$MOUNT/tenant-config/*"      { capabilities = ["read", "create", "update"] }
+path "$MOUNT/data/tenant-config/*" { capabilities = ["read", "create", "update"] }
+# The version metadata the compare-and-set write reads before merging.
+path "$MOUNT/metadata/tenant-config/*" { capabilities = ["read", "list"] }
 EOF
 vault write auth/approle/role/datahub \
   token_policies=datahub token_ttl=1h token_max_ttl=4h secret_id_num_uses=0 secret_id_ttl=0

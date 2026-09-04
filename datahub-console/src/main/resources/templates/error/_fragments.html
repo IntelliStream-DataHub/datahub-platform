@@ -13,15 +13,41 @@
          <style>:root { --error-accent: #b45309; }</style> -->
 <th:block th:fragment="styles">
     <style>
-        body { font-family: system-ui, Arial, sans-serif; margin: 2rem; color: #1f2937; }
-        .wrap { max-width: 720px; margin: auto; }
-        h1 { font-size: 2rem; margin-bottom: .5rem; color: var(--error-accent, #b91c1c); }
+        /* Centred in the viewport, not stranded at the top of it. These pages carry one short
+           message and nothing else, so anchoring that to the top left of a wide screen leaves it
+           looking like a fragment of a page that failed to load - which is exactly the wrong
+           impression for a page explaining a failure. */
+        body {
+            font-family: system-ui, Arial, sans-serif;
+            margin: 0;
+            padding: 2rem;
+            min-height: 100vh;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #1f2937;
+            background: #f9fafb;
+        }
+        .wrap {
+            max-width: 640px;
+            width: 100%;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 2rem 2.25rem;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, .06);
+        }
+        h1 { font-size: 1.5rem; margin: 0 0 .5rem; color: var(--error-accent, #b91c1c); }
         p { margin: .5rem 0; line-height: 1.5; }
         a { color: #2563eb; text-decoration: none; }
         a:hover { text-decoration: underline; }
         a.button { display: inline-block; padding: .5rem 1rem; background-color: #2563eb; color: white; border-radius: 4px; margin-top: 1rem; }
         a.button:hover { background-color: #1d4ed8; text-decoration: none; }
-        .notice { background: #fffbeb; border-left: 4px solid var(--error-accent, #b91c1c); padding: 1rem; border-radius: 4px; margin: 1.5rem 0; }
+        .notice { background: #fffbeb; border-left: 4px solid var(--error-accent, #b91c1c); padding: 1rem; border-radius: 4px; margin: 1.25rem 0; }
+        .notice > :first-child { margin-top: 0; }
+        .notice > :last-child { margin-bottom: 0; }
+        ul { margin: .5rem 0; padding-left: 1.25rem; line-height: 1.5; }
     </style>
 </th:block>
 

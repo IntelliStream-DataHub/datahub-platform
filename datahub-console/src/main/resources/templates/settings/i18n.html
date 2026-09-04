@@ -1,0 +1,12 @@
+<script th:inline="javascript" th:fragment="i18nMessages">
+	document.addEventListener("DOMContentLoaded", () => {
+		$L('settings.denied', /*[[#{settings.denied}]]*/);
+		$L('settings.saved', /*[[#{settings.saved}]]*/);
+		$L('settings.save.failed', /*[[#{settings.save.failed}]]*/);
+		$L('settings.load.failed', /*[[#{settings.load.failed}]]*/);
+		$L('settings.ai.apikey.stored', /*[[#{settings.ai.apikey.stored}]]*/);
+		$L('settings.ai.apikey.none', /*[[#{settings.ai.apikey.none}]]*/);
+		$L('settings.ai.apikey.cleared', /*[[#{settings.ai.apikey.cleared}]]*/);
+		$L('settings.session.expired', /*[[#{settings.session.expired}]]*/);
+	});
+</script>
