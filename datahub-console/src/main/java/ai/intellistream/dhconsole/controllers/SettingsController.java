@@ -32,9 +32,4 @@ public class SettingsController {
     public String ai() {
         return "settings/ai";
     }
-
-    @GetMapping("/organization")
-    public String organization() {
-        return "settings/organization";
-    }
 }
