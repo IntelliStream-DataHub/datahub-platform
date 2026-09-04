@@ -9,16 +9,16 @@
 	margin-bottom: 4px;
 }
 
-.settings-intro,
-.field-help {
-	color: var(--text-muted, #6b7280);
-	font-size: 0.875rem;
-	margin: 4px 0 12px;
+.settings-intro {
+	color: var(--text-muted);
+	font-size: 13px;
+	line-height: 1.5;
+	margin: var(--space-xs) 0 var(--space-xl);
 }
 
 .settings-state {
 	padding: 24px 0;
-	color: var(--text-muted, #6b7280);
+	color: var(--text-muted);
 }
 
 /* Sits outside .settings-page, which is a left-aligned 720px column - centring inside that
@@ -27,14 +27,14 @@
 	max-width: 420px;
 	margin: 12vh auto;
 	text-align: center;
-	color: var(--text-muted, #6b7280);
+	color: var(--text-muted);
 }
 
 .settings-empty-icon {
 	display: block;
 	font-size: 1.5rem;
 	margin-bottom: 12px;
-	color: var(--text-muted, #9ca3af);
+	color: var(--text-muted);
 }
 
 .settings-empty p {
@@ -45,80 +45,103 @@
 .settings-banner {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 10px 12px;
-	margin-bottom: 16px;
-	border-radius: 6px;
-	background: var(--surface-2, #f3f4f6);
-	font-size: 0.875rem;
+	gap: var(--space);
+	padding: var(--space-lg) var(--space-xl);
+	margin-bottom: var(--space-xl);
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	background: var(--policy-surface);
+	color: var(--text-muted);
+	font-size: 13px;
 }
 
 .settings-banner-warn {
-	background: #fef3c7;
-	color: #92400e;
+	border-color: var(--limit);
+	color: var(--text);
 }
 
+.settings-banner-warn i {
+	color: var(--limit);
+}
+
+/* A section rather than a card-in-a-card: the page is already a narrow column, so boxing every
+   group inside it just adds edges. A rule under the title is enough to separate them. */
 .settings-group {
-	border: 1px solid var(--border, #e5e7eb);
-	border-radius: 8px;
-	padding: 16px;
-	margin-bottom: 20px;
+	margin-bottom: 28px;
 }
 
-.settings-group legend {
-	padding: 0 6px;
-	font-weight: 600;
+.settings-group-title {
+	margin: 0 0 var(--space-lg);
+	padding-bottom: var(--space);
+	border-bottom: 1px solid var(--border);
+	font-size: 14px;
+}
+
+.settings-group-intro {
+	margin: -4px 0 var(--space-xl);
+	color: var(--text-muted);
+	font-size: 13px;
+}
+
+/* The field owns its own bottom spacing, so the input can drop the 14px margin it carries from
+   .datahub-form-fields and sit tight against its own help text instead of the next label. */
+.settings-field {
+	margin-bottom: var(--space-xl);
+	min-width: 0;
+}
+
+.settings-field input,
+.settings-field select,
+.settings-field textarea {
+	width: 100%;
+	margin-bottom: 0;
+}
+
+/* Two per row on anything wider than a phone. These values are short - a number, a duration, a
+   word - and stacked they made the form far longer than it has any right to be. */
+.settings-row {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+	gap: 0 var(--space-xl);
+}
+
+.field-help {
+	margin: var(--space-sm) 0 0;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.45;
+}
+
+.field-error {
+	margin: var(--space-sm) 0 0;
+	color: var(--input-error-fg);
+	font-size: 12px;
 }
 
 .settings-secret {
 	display: flex;
-	gap: 8px;
+	gap: var(--space);
 	align-items: center;
 }
 
 .settings-secret input {
-	flex: 1;
+	flex: 1 1 auto;
 }
 
-.field-error {
-	color: var(--danger, #b91c1c);
-	font-size: 0.875rem;
-	margin: 4px 0 12px;
+.settings-secret .dh-btn {
+	flex: 0 0 auto;
 }
 
 .settings-actions {
 	display: flex;
 	align-items: center;
-	gap: 12px;
-	margin-bottom: 32px;
+	gap: var(--space-xl);
+	padding-top: var(--space-xl);
+	border-top: 1px solid var(--border);
+	margin-bottom: 40px;
 }
 
 .settings-lag {
-	color: var(--text-muted, #6b7280);
-	font-size: 0.8125rem;
-}
-
-.settings-facts dt {
-	font-weight: 600;
-	margin-top: 8px;
-}
-
-.settings-facts dd {
-	margin: 0 0 8px;
-}
-
-.settings-features {
-	list-style: none;
-	padding: 0;
-}
-
-.settings-features .feature {
-	display: flex;
-	align-items: center;
-	gap: 8px;
-	padding: 6px 0;
-}
-
-.settings-features .feature.off {
-	color: var(--text-muted, #6b7280);
+	color: var(--text-muted);
+	font-size: 12px;
 }
