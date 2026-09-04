@@ -52,8 +52,8 @@ class SettingsGrantsTest {
         // reading as a settings grant. An all-datasets wildcard is the broadest thing a caller can
         // hold and still must reach nothing here.
         assertThat(SettingsGrants.from(List.of("/datasets/*/read", "/datasets/*/write"))
-                .scoped().isEmpty()).isTrue();
-        assertThat(SettingsGrants.from(List.of("/datahub/tenant-admin")).scoped().isEmpty()).isTrue();
+                .isEmpty()).isTrue();
+        assertThat(SettingsGrants.from(List.of("/datahub/tenant-admin")).isEmpty()).isTrue();
     }
 
     @Test
@@ -65,7 +65,7 @@ class SettingsGrantsTest {
         }
         // "/settings/read" parses as scope "read" with permission... nothing, so it is ignored
         // rather than granting a scope literally named read.
-        assertThat(SettingsGrants.from(List.of("/settings/read")).scoped().isEmpty()).isTrue();
+        assertThat(SettingsGrants.from(List.of("/settings/read")).isEmpty()).isTrue();
     }
 
     @Test
@@ -86,7 +86,7 @@ class SettingsGrantsTest {
 
     @Test
     void noGroupsIsNoGrants() {
-        assertThat(SettingsGrants.from(null).scoped().isEmpty()).isTrue();
-        assertThat(SettingsGrants.from(List.of()).scoped().isEmpty()).isTrue();
+        assertThat(SettingsGrants.from(null).isEmpty()).isTrue();
+        assertThat(SettingsGrants.from(List.of()).isEmpty()).isTrue();
     }
 }
