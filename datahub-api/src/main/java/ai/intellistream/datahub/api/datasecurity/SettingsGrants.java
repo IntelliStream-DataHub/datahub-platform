@@ -1,54 +1,63 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.datasecurity;
 
+import ai.intellistream.datahub.models.tenant.SettingsPermission;
+import ai.intellistream.datahub.models.tenant.SettingsScopes;
+
 import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
- * Who may see and change a tenant's own settings, from that tenant's Keycloak organization groups.
+ * Who may see and change each of a tenant's own settings.
  *
- * <p>Two paths, no hierarchy and no wildcards: {@code /settings/read} and {@code /settings/write}.
- * Dataset grants need a tree because datasets form one; settings are a single object per tenant, so
- * a grant is simply held or not.
+ * <pre>
+ *   /settings/llm/read      /settings/llm/write
+ *   /settings/*&#47;read       /settings/*&#47;write      (every scope, present and future)
+ * </pre>
  *
- * <p>Write does <strong>not</strong> imply read. They are separate group memberships and a
- * deployment that grants only one gets only one — {@link #canWrite()} is asked before a save and
- * {@link #canRead()} before a load, and nothing infers either from the other. Granting both is the
- * ordinary case and is what the bootstrap script sets up.
+ * <p>The same grammar as dataset grants, and the same parser — {@link ScopedGrants}. Settings were
+ * briefly a flat {@code /settings/read|write} pair, which does not survive a second scope: whoever
+ * may change which model your assistant runs on, and what it costs you, is not automatically
+ * whoever may change anything else that ends up under settings.
  *
- * @see DatasetGrants for the same idea over datasets, where the hierarchy does matter
+ * @see SettingsScopes for the scopes that exist
  */
-public record SettingsGrants(boolean canRead, boolean canWrite) {
+public record SettingsGrants(ScopedGrants scoped) {
 
-    private static final String READ = "/settings/read";
-    private static final String WRITE = "/settings/write";
+    private static final String PREFIX = "settings";
 
     public static SettingsGrants none() {
-        return new SettingsGrants(false, false);
+        return new SettingsGrants(ScopedGrants.none());
     }
 
-    /** Both, for {@code DATAHUB_ADMIN} — the cross-tenant operator escape hatch. */
+    /** Every scope, for {@code DATAHUB_ADMIN} — the cross-tenant operator escape hatch. */
     public static SettingsGrants all() {
-        return new SettingsGrants(true, true);
+        return new SettingsGrants(new ScopedGrants(true, true, java.util.Set.of(), java.util.Set.of()));
+    }
+
+    public static SettingsGrants from(Collection<String> groupPaths) {
+        return new SettingsGrants(ScopedGrants.from(groupPaths, PREFIX));
+    }
+
+    public boolean canRead(String scope) {
+        return scoped.canRead(scope);
+    }
+
+    public boolean canWrite(String scope) {
+        return scoped.canWrite(scope);
     }
 
     /**
-     * Reads the two paths out of a caller's group list. Paths are matched exactly and
-     * case-sensitively, as Keycloak stores them; anything else in the list belongs to another
-     * grant and is ignored.
+     * These grants over every scope the platform knows, which is the shape a client needs: the
+     * wildcard is already resolved, so a caller holding {@code /settings/*&#47;read} sees read on
+     * each scope by name rather than a wildcard it would have to expand itself.
      */
-    public static SettingsGrants from(Collection<String> groupPaths) {
-        if (groupPaths == null || groupPaths.isEmpty()) {
-            return none();
+    public Map<String, SettingsPermission> byScope() {
+        Map<String, SettingsPermission> permissions = new LinkedHashMap<>();
+        for (String scope : SettingsScopes.ALL) {
+            permissions.put(scope, new SettingsPermission(canRead(scope), canWrite(scope)));
         }
-        boolean read = false;
-        boolean write = false;
-        for (String path : groupPaths) {
-            if (READ.equals(path)) {
-                read = true;
-            } else if (WRITE.equals(path)) {
-                write = true;
-            }
-        }
-        return new SettingsGrants(read, write);
+        return permissions;
     }
 }

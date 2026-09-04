@@ -34,15 +34,17 @@ public class SettingsSecurity {
         return SettingsGrants.from(orgGroupResolver.groupsForCurrentCaller());
     }
 
-    public void assertCanRead() {
-        if (!grants().canRead()) {
-            throw new SettingsAccessDeniedException("read");
+    /** @param scope one of {@link ai.intellistream.datahub.models.tenant.SettingsScopes} */
+    public void assertCanRead(String scope) {
+        if (!grants().canRead(scope)) {
+            throw new SettingsAccessDeniedException(scope, "read");
         }
     }
 
-    public void assertCanWrite() {
-        if (!grants().canWrite()) {
-            throw new SettingsAccessDeniedException("write");
+    /** @param scope one of {@link ai.intellistream.datahub.models.tenant.SettingsScopes} */
+    public void assertCanWrite(String scope) {
+        if (!grants().canWrite(scope)) {
+            throw new SettingsAccessDeniedException(scope, "write");
         }
     }
 }

@@ -223,10 +223,26 @@
           "name": "settings",
           "subGroups": [
             {
-              "name": "read"
+              "name": "llm",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
             },
             {
-              "name": "write"
+              "name": "*",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
             }
           ]
         }
@@ -292,10 +308,26 @@
           "name": "settings",
           "subGroups": [
             {
-              "name": "read"
+              "name": "llm",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
             },
             {
-              "name": "write"
+              "name": "*",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
             }
           ]
         }

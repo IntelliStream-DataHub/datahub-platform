@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
-import ai.intellistream.datahub.api.datasecurity.SettingsGrants;
 import ai.intellistream.datahub.api.datasecurity.SettingsSecurity;
 import ai.intellistream.datahub.api.services.TenantSettingsService;
+import ai.intellistream.datahub.models.tenant.SettingsPermission;
+import ai.intellistream.datahub.models.tenant.SettingsScopes;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +15,8 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Map;
 
 /**
  * The settings a tenant administers for itself, as opposed to the entitlements an operator grants
@@ -26,9 +29,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/tenant/settings")
 @Tag(name = "Tenant settings", description = """
-        Settings your organization administers for itself. Requires the /settings/read or
-        /settings/write group in your Keycloak organization; these are separate grants and
-        write does not imply read.""")
+        Settings your organization administers for itself, granted per scope: the
+        /settings/<scope>/read and /settings/<scope>/write groups in your Keycloak
+        organization, or /settings/*/read and /settings/*/write for every scope. Read and
+        write are separate grants and write does not imply read.""")
 public class TenantSettingsController {
 
     private final TenantSettingsService settingsService;
@@ -42,16 +46,17 @@ public class TenantSettingsController {
 
     @Operation(summary = "What this caller may do with settings",
             description = """
-                    Whether you may read and whether you may change this organization's settings.
-                    Intended for gating UI: a client should use this to decide between showing a
-                    form, showing it read-only, or not showing it at all. It is not the security
-                    boundary — the endpoints below enforce the same grants regardless.
+                    What you may read and change, per settings scope. Wildcard grants are already
+                    resolved, so every scope this platform knows is listed by name. Intended for
+                    gating UI: a client should use this to decide between showing a form, showing
+                    it read-only, or not showing it at all. It is not the security boundary — the
+                    endpoints below enforce the same grants regardless.
                     """)
     @GetMapping("/permissions")
-    public ResponseEntity<SettingsGrants> permissions() {
+    public ResponseEntity<Map<String, SettingsPermission>> permissions() {
         // Deliberately ungated: answering "you may do nothing" is not a disclosure, and a client
         // that must call a 403-ing endpoint to discover it may not call it has learned nothing.
-        return ResponseEntity.ok(settingsSecurity.grants());
+        return ResponseEntity.ok(settingsSecurity.grants().byScope());
     }
 
     @Operation(summary = "Get your organization's model configuration",
@@ -62,7 +67,7 @@ public class TenantSettingsController {
                     """)
     @GetMapping("/llm")
     public ResponseEntity<TenantLlmSettings> getLlm() {
-        settingsSecurity.assertCanRead();
+        settingsSecurity.assertCanRead(SettingsScopes.LLM);
         return ResponseEntity.ok(settingsService.readLlm());
     }
 
@@ -77,7 +82,7 @@ public class TenantSettingsController {
                     """)
     @PutMapping("/llm")
     public ResponseEntity<TenantLlmSettings> updateLlm(@RequestBody TenantLlmSettingsForm form) {
-        settingsSecurity.assertCanWrite();
+        settingsSecurity.assertCanWrite(SettingsScopes.LLM);
         return ResponseEntity.ok(settingsService.updateLlm(form));
     }
 }

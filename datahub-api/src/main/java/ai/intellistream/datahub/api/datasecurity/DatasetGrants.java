@@ -70,74 +70,20 @@ public record DatasetGrants(boolean readAll, boolean writeAll,
         return !readAll && !writeAll && readExternalIds.isEmpty() && writeExternalIds.isEmpty();
     }
 
-    /** Parse organization group paths into the dataset access they grant. */
+    /**
+     * Parse organization group paths into the dataset access they grant.
+     *
+     * <p>The grammar and its edge cases live in {@link ScopedGrants}, which settings grants share.
+     * What stays here is the meaning: the subject segment is a dataset external id, and {@code *}
+     * cannot collide with one because external ids are restricted to {@code [A-Za-z0-9._:+=-]+},
+     * which does not admit an asterisk.
+     */
     public static DatasetGrants from(Collection<String> groupPaths) {
-        if (groupPaths == null || groupPaths.isEmpty()) {
+        ScopedGrants grants = ScopedGrants.from(groupPaths, "datasets");
+        if (grants.isEmpty()) {
             return NONE;
         }
-        boolean readAll = false;
-        boolean writeAll = false;
-        // TreeSet with a case-insensitive comparator, not a LinkedHashSet: external ids are unique
-        // ignoring case, so "/datasets/data_set_sap/read" and "/datasets/Data_Set_SAP/read" name the
-        // same data set and must collapse to one grant. They would otherwise both survive, resolve
-        // to the same dataset anyway, and only differ in producing two closure cache entries for one
-        // grant set. Sorted order also makes the cache fingerprint stable regardless of the order
-        // the identity provider returns the groups in.
-        Set<String> read = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        Set<String> write = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-
-        for (String path : groupPaths) {
-            if (path == null || !path.startsWith(PREFIX)) {
-                continue;
-            }
-            String remainder = path.substring(PREFIX.length());
-            int split = remainder.lastIndexOf('/');
-            if (split <= 0 || split == remainder.length() - 1) {
-                // "/datasets/foo" (a container group, no permission) or a trailing slash.
-                log.debug("Ignoring organization group with no permission segment: {}", path);
-                continue;
-            }
-            String externalId = remainder.substring(0, split);
-            String permission = remainder.substring(split + 1);
-
-            if (externalId.indexOf('/') >= 0) {
-                // Deeper than the grammar allows, e.g. /datasets/a/b/read. Refusing rather than
-                // guessing keeps an unintended nesting from silently granting something.
-                log.debug("Ignoring organization group nested deeper than the grant grammar: {}", path);
-                continue;
-            }
-
-            if (ALL_DATASETS.equals(externalId)) {
-                switch (permission.toLowerCase()) {
-                    case READ -> readAll = true;
-                    case WRITE -> writeAll = true;
-                    default -> log.debug("Ignoring organization group with unknown permission '{}': {}",
-                            permission, path);
-                }
-                continue;
-            }
-
-            // Taken verbatim. This used to snake_case the segment, which was invisible while every
-            // dataset external id was snake_case anyway — and became a silent access bug the moment
-            // ids were stored verbatim: a group "/datasets/COM-99-PT-1034/read" would be rewritten
-            // to "com_99_pt_1034", match no dataset, and deny access that had been granted. Case is
-            // still not significant here, because the lookup hashes through ExternalIds.hash().
-            if (externalId.isBlank()) {
-                continue;
-            }
-
-            switch (permission.toLowerCase()) {
-                case READ -> read.add(externalId);
-                case WRITE -> write.add(externalId);
-                default -> log.debug("Ignoring organization group with unknown permission '{}': {}",
-                        permission, path);
-            }
-        }
-
-        if (!readAll && !writeAll && read.isEmpty() && write.isEmpty()) {
-            return NONE;
-        }
-        return new DatasetGrants(readAll, writeAll,
-                Collections.unmodifiableSet(read), Collections.unmodifiableSet(write));
+        return new DatasetGrants(grants.readAll(), grants.writeAll(),
+                grants.readSubjects(), grants.writeSubjects());
     }
 }

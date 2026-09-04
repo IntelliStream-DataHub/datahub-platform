@@ -146,7 +146,7 @@
 
 	function reportFailure(error, fallbackKey) {
 		if (error && error.status === 403) {
-			Flash.error($L("settings.denied"));
+			Flash.error($L("settings.denied.body"));
 			return;
 		}
 		if (error && error.status === 401) {
@@ -200,16 +200,28 @@
 		});
 	}
 
-	// Permissions first: a caller with read but not write gets the form disabled rather than a
-	// form that looks editable and 403s on save.
-	Promise.all([
-		SettingsApi.get("/tenant/settings/permissions"),
-		SettingsApi.get("/tenant/settings/llm")
-	]).then(function (results) {
-		render(results[1]);
-		loading.hidden = true;
-		form.hidden = false;
-		setEditable(results[0] && results[0].canWrite === true);
+	// Permissions are per scope, keyed by scope name, with wildcard grants already resolved by the
+	// server. A caller with read but not write gets the form disabled rather than one that looks
+	// editable and 403s on save.
+	function llmPermission(permissions) {
+		return (permissions && permissions.llm) || { read: false, write: false };
+	}
+
+	SettingsApi.get("/tenant/settings/permissions").then(function (permissions) {
+		var llm = llmPermission(permissions);
+		if (!llm.read) {
+			// Asking for the settings would only 403. Say so from what we already know rather than
+			// spending a round trip to be told.
+			loading.hidden = true;
+			denied.hidden = false;
+			return;
+		}
+		return SettingsApi.get("/tenant/settings/llm").then(function (settings) {
+			render(settings);
+			loading.hidden = true;
+			form.hidden = false;
+			setEditable(llm.write === true);
+		});
 	}).catch(function (error) {
 		loading.hidden = true;
 		if (error && error.status === 403 && denied) {
