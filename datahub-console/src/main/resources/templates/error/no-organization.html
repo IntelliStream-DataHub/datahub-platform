@@ -26,7 +26,10 @@
         <p>Please contact your administrator. If you believe this is a mistake, sign out
             and try again.</p>
     </div>
-    <p><a class="button" th:href="@{/datahub-logout}">Sign out</a></p>
+    <!-- /error/sign-out, not /datahub-logout: there is no session to log out of here, and
+         only ending the session at the identity provider stops it signing the user
+         straight back in. See ProviderSignOutController. -->
+    <p><a class="button" th:href="@{/error/sign-out}">Sign out</a></p>
 </div>
 </body>
 </html>
