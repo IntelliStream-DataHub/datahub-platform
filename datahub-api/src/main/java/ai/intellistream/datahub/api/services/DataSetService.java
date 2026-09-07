@@ -182,9 +182,9 @@ public class DataSetService {
      * retriever's limit.
      *
      * <p>Unlike the resource and timeseries filters this applies no dataset-ACL narrowing, because
-     * the other dataset reads ({@code /datasets/list}, {@code /byids}, {@code /search}) do not
+     * the other dataset reads ({@code GET /datasets}, {@code /byids}, {@code /search}) do not
      * either — a dataset is the unit access is granted *on*, and its own row has no dataSetId to
-     * narrow by. Filtering therefore exposes nothing that {@code /datasets/list} did not already.
+     * narrow by. Filtering therefore exposes nothing the plain listing did not already.
      */
     /**
      * Fetch a single dataset by its numeric id.
@@ -192,7 +192,7 @@ public class DataSetService {
      * <p>Missing ids throw {@link ObjectNotFoundException} → 404 via the shared advice, matching
      * every other single-item GET. No ACL narrowing, for the reason given on {@link #filter}: a
      * dataset is the unit access is granted on, so its own row is not scoped by a dataset grant —
-     * this returns nothing {@code /datasets/list} did not already.
+     * this returns nothing {@code GET /datasets} did not already.
      */
     @Transactional(readOnly = true)
     public DataWrapper<DataSetModel> get(Long id) {

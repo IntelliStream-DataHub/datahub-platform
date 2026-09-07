@@ -12,6 +12,7 @@ import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.DataSetDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.DataSetFormDataWrapper;
@@ -53,6 +54,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -165,46 +167,52 @@ public class DataSetController {
     @Operation(
             summary = "List all datasets",
             description = """
-                    List the datasets in your tenant, newest first.
+                    The first `limit` datasets in your tenant, newest created first. No body, no
+                    criteria — the cheap read for "what have I got", the same shape
+                    `GET /timeseries` and `GET /labels` have.
 
-                    Datasets are a small, slow-changing set per tenant (typically one per
-                    ingestion pipeline), so listing them all is cheap — send an empty body
-                    (`{}`) and you get the lot, up to `limit`.
+                    Datasets are a small, slow-changing set per tenant (typically one per ingestion
+                    pipeline), so this is usually the whole lot. `limit` defaults to 1000 and may not
+                    exceed 10 000.
 
-                    This takes the same body as `POST /datasets/filter` and behaves identically;
-                    `/filter` is the name the resource, timeseries and event endpoints use for
-                    the same operation.
+                    This replaced `POST /datasets/list`, which took the very same body as
+                    `POST /datasets/filter` and called the very same handler — two names for one
+                    operation, and the only endpoint in the API that had them. Criteria, ordering and
+                    paging all live on `/filter`; a walk needs a `sort` and a `cursor` to continue
+                    and both belong in a body, so this endpoint is the first page and says so — it
+                    never returns a `nextCursor`.
                     """
     )
-    @ApiResponse(responseCode = "200", description = "The datasets in your tenant, capped at `limit`.", content = @Content(
+    @ApiResponse(responseCode = "200", description = "The first `limit` datasets, newest first.", content = @Content(
             mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = DataSetDataWrapper.class)
     ))
-    @ApiResponse(responseCode = "400", description = "The request failed validation — typically a `limit` above 10000.",
+    @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
             ))
-    @RequestMapping(value = {"/list"}, method = RequestMethod.POST, produces = { "application/json", "application/xml" })
+    @GetMapping(produces = { "application/json", "application/xml" })
     public ResponseEntity<?> list(
-            @io.swagger.v3.oas.annotations.parameters.RequestBody(
-                    required = true,
-                    description = "Optional filter criteria and limit. An empty object lists everything.",
-                    content = @Content(
-                            mediaType = MediaType.APPLICATION_JSON_VALUE,
-                            schema = @Schema(implementation = DataSetRetreiver.class),
-                            examples = @ExampleObject(value = """
-                                    {
-                                      "limit": 100
-                                    }
-                                    """)
-                    )
-            )
-            @RequestBody
-            @Schema(implementation = DataSetRetreiver.class)
-            DataSetRetreiver form
+            @Parameter(description = "Maximum number of datasets to return. A positive integer up to 10000.",
+                    example = "1000")
+            @RequestParam(name = "limit", required = false) Integer limit
     ){
-        return filter(form);
+        if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
+            return new ResponseEntity<>("limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT,
+                    HttpStatus.BAD_REQUEST);
+        }
+        DataSetRetreiver form = new DataSetRetreiver();
+        // The retriever's own setter is what turns an absent, zero or negative limit into the shared
+        // default, so this endpoint cannot disagree with /filter about what "you decide" means.
+        if (limit != null) {
+            form.setLimit(limit);
+        }
+        DataWrapper<DataSetModel> data = dataSetService.filter(form);
+        // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that cannot
+        // accept it invites a paging loop that silently never advances.
+        data.setNextCursor(null);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Data sets")
@@ -213,7 +221,8 @@ public class DataSetController {
             description = """
                     Structured filtering over datasets. Every criterion is optional and they
                     AND together, so an empty `filter` returns every dataset — the same thing
-                    `POST /datasets/list` does.
+                    `GET /datasets` does, which is the shorthand for exactly this call with no
+                    criteria.
 
                     * `id` — datasets named directly by id. An empty list places no restriction.
                     * `externalId` / `name` / `source` — pattern lists, OR-ed within each list.

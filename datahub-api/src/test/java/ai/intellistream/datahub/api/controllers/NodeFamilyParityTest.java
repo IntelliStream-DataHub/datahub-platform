@@ -77,6 +77,34 @@ class NodeFamilyParityTest {
     }
 
     /**
+     * One query operation, one name.
+     *
+     * <p>{@code POST /datasets/list} and {@code POST /datasets/filter} took the same
+     * {@code DataSetRetreiver} body and ran the same handler — {@code list} was a one-line delegate
+     * to {@code filter} — so the API had two names for one operation on exactly one of its
+     * collections. Callers split across both: the console's Feign client and the Java SDK reached
+     * for {@code /list}, the docs described {@code /filter}, and neither name was wrong.
+     *
+     * <p>A plain listing is a real and separate thing, but it is a {@code GET} with no body
+     * ({@code GET /datasets}, {@code GET /timeseries}, {@code GET /labels}, {@code GET /units}), not
+     * a second POST taking the filter's own request body.
+     */
+    @ParameterizedTest(name = "{0} does not expose both POST /list and POST /filter")
+    @MethodSource("nodeFamilyControllers")
+    @DisplayName("a POST /list must not shadow POST /filter")
+    void noControllerHasBothAPostListAndAPostFilter(Class<?> controller) {
+        Set<String> posts = pathsFor(controller, RequestMethod.POST);
+        boolean hasFilter = posts.stream().anyMatch(p -> p.endsWith("/filter"));
+        boolean hasList = posts.stream().anyMatch(p -> p.equals("/list"));
+
+        assertThat(hasFilter && hasList)
+                .as("%s exposes both POST /list and POST /filter. If they take the same body they are "
+                        + "one operation under two names; a no-body listing belongs on GET.",
+                        controller.getSimpleName())
+                .isFalse();
+    }
+
+    /**
      * F9: a duplicate external id must reach the caller as the pipeline's 409, on every create.
      *
      * <p>Structural rather than behavioural, and it reads the source because a catch block is not

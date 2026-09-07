@@ -1,0 +1,59 @@
+# The no-criteria listing: the first `limit`, newest first.
+GET {{hostname}}/datasets?limit=100
+Authorization: Bearer {{token}}
+Accept: application/json
+
+###
+# Everything the filter can narrow by. Every criterion is optional and they AND together.
+POST {{hostname}}/datasets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+###
+POST {{hostname}}/datasets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"limit": 100,
+	"filter": {
+		"externalId": ["power_data_*"]
+	}
+}
+
+###
+POST {{hostname}}/datasets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"externalId": ["power_data_*"],
+		"metadata": { "property2": "string" }
+	}
+}
+
+###
+POST {{hostname}}/datasets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"filter": {
+		"metadata": { "property2": "string" }
+	}
+}
+
+###
+# Ordered and paged. Send `nextCursor` back as `cursor`, with the sort it came from.
+POST {{hostname}}/datasets/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+	"limit": 100,
+	"filter": { "name": ["SAP*"] },
+	"sort": { "property": ["name"], "order": "asc" }
+}

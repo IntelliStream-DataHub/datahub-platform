@@ -34,9 +34,19 @@ public final class DatasetService {
         return http.get("/datasets/" + id, datasets);
     }
 
-    /** POST /datasets/list */
-    public DataWrapper<DataSetModel> list(DataSetRetreiver retriever) {
-        return http.post("/datasets/list", retriever, datasets);
+
+    /**
+     * GET /datasets — the first {@code limit} data sets, newest created first, with no criteria.
+     *
+     * <p>The cheap "what have I got" read. Anything narrower — criteria, a different order, or a
+     * walk past the first page — is {@link #filter(DataSetRetreiver)}.
+     *
+     * <p>This replaced {@code list(DataSetRetreiver)}, which posted to {@code /datasets/list}: that
+     * endpoint took the very same body as {@code /datasets/filter} and ran the very same handler,
+     * so the method was {@link #filter(DataSetRetreiver)} under a second name.
+     */
+    public DataWrapper<DataSetModel> list(int limit) {
+        return http.get("/datasets?limit=" + limit, datasets);
     }
 
     /** POST /datasets/search */

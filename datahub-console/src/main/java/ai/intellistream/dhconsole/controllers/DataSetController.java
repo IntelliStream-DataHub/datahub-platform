@@ -3,7 +3,6 @@ package ai.intellistream.dhconsole.controllers;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.DataSetModel;
-import ai.intellistream.datahub.models.DataSetRetreiver;
 import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.PolicyType;
 import ai.intellistream.dhconsole.api.DatahubApi;
@@ -29,9 +28,7 @@ public class DataSetController {
 
     @RequestMapping(value = {"", "/", "/index"}, method = RequestMethod.GET)
     public String index(Model model, Locale locale){
-        DataSetRetreiver retreiver = new DataSetRetreiver();
-        retreiver.setLimit(100);
-        DataWrapper<DataSetModel> datasets = datahubApi.listDataSets(retreiver);
+        DataWrapper<DataSetModel> datasets = datahubApi.listDataSets(100);
 
         model.addAttribute("datasets", datasets.getItems());
 
@@ -51,9 +48,7 @@ public class DataSetController {
 
         // The left menu splits the policies by scope, and each data set policy names the data set it
         // is attached to, so the page needs a id -> name lookup as well as the policies themselves.
-        DataSetRetreiver policyDataSets = new DataSetRetreiver();
-        policyDataSets.setLimit(100);
-        var dataSets = datahubApi.listDataSets(policyDataSets).getItems();
+        var dataSets = datahubApi.listDataSets(100).getItems();
         model.addAttribute("datasets", dataSets);
         model.addAttribute("dataSetNames", dataSets.stream()
                 .filter(d -> d.getId() != null)
@@ -90,18 +85,14 @@ public class DataSetController {
 
         model.addAttribute("policies", datahubApi.getPolicies().getItems());
 
-        DataSetRetreiver retreiver = new DataSetRetreiver();
-        retreiver.setLimit(100);
-        model.addAttribute("datasets", datahubApi.listDataSets(retreiver).getItems());
+        model.addAttribute("datasets", datahubApi.listDataSets(100).getItems());
 
         return "datasets/findings";
     }
 
     @RequestMapping(value = {"/timeseries"}, method = RequestMethod.GET)
     public String timeseries(Model model, Locale locale){
-        DataSetRetreiver retreiver = new DataSetRetreiver();
-        retreiver.setLimit(100);
-        DataWrapper<DataSetModel> datasets = datahubApi.listDataSets(retreiver);
+        DataWrapper<DataSetModel> datasets = datahubApi.listDataSets(100);
 
         model.addAttribute("datasets", datasets.getItems());
 
