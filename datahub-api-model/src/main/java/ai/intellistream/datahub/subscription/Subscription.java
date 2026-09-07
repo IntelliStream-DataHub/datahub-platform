@@ -53,9 +53,10 @@ public class Subscription {
 
     @JsonAlias({"system_managed"})
     @JsonProperty("systemManaged")
-    @Schema(description = "True when this subscription was auto-provisioned by the function-binding " +
-            "lifecycle. Server-controlled — read-only on the wire. System-managed subscriptions are " +
-            "hidden from /subscriptions/list by default and refuse manual deletes.",
+    @Schema(description = "True when this subscription was auto-provisioned by the system rather " +
+            "than by a user. Server-controlled — read-only on the wire, and always false today: " +
+            "nothing in the platform provisions such a subscription yet. System-managed " +
+            "subscriptions are never returned by /subscriptions/filter and refuse manual deletes.",
             accessMode = Schema.AccessMode.READ_ONLY)
     private Boolean systemManaged;
 

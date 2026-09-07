@@ -30,9 +30,13 @@ public final class SubscriptionService {
         return http.post("/subscriptions/create", new DataWrapper<Subscription>().setItems(subs), subscriptions);
     }
 
-    /** POST /subscriptions/list */
-    public DataWrapper<Subscription> list(SubscriptionRetriever retriever) {
-        return http.post("/subscriptions/list", retriever, subscriptions);
+    /**
+     * POST /subscriptions/filter — subscriptions matching the retriever's criteria, one keyset page
+     * at a time. Named and shaped like {@code datasets().filter} and the rest of the family; page
+     * with {@code nextCursor} the same way.
+     */
+    public DataWrapper<Subscription> filter(SubscriptionRetriever retriever) {
+        return http.post("/subscriptions/filter", retriever, subscriptions);
     }
 
     /** POST /subscriptions/delete */

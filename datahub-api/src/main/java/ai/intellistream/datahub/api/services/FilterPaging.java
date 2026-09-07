@@ -2,15 +2,20 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
+import ai.intellistream.datahub.jpa.domains.SubscriptionEntity;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.repositories.node.NodePredicateBuilder;
 import ai.intellistream.datahub.repositories.node.NodeSort;
+import ai.intellistream.datahub.repositories.subscription.SubscriptionPredicateBuilder;
+import ai.intellistream.datahub.repositories.subscription.SubscriptionSort;
 
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
- * Keyset paging, shared by the three node filter endpoints.
+ * Keyset paging, shared by the JPA-backed filter endpoints — the three node ones and
+ * {@code /subscriptions/filter}.
  *
  * <p>Here rather than per service because the two rules worth getting right are the same for all of
  * them, and neither fails loudly when it is wrong: continuing a cursor under a different sort
@@ -18,10 +23,13 @@ import java.util.List;
  * the walk. The events path answers the same questions against ClickHouse, which cannot share this
  * code, so {@code EventService} states them again — {@code PageCursor} is what keeps the two
  * honest.
+ *
+ * <p>It was {@code NodePaging} while nodes were the only things it paged. Subscriptions are not
+ * nodes but page identically, so the name went with the job rather than with the first caller.
  */
-final class NodePaging {
+final class FilterPaging {
 
-    private NodePaging() {
+    private FilterPaging() {
     }
 
     /**
@@ -39,11 +47,21 @@ final class NodePaging {
      *                                  in that order — a page that looks fine and is not.
      */
     static PageCursor validated(String rawCursor, NodeSort sort) {
+        return validated(rawCursor, sort.property(), sort.descending(), sort::canReadBoundary);
+    }
+
+    /** @see #validated(String, NodeSort) */
+    static PageCursor validated(String rawCursor, SubscriptionSort sort) {
+        return validated(rawCursor, sort.property(), sort.descending(), sort::canReadBoundary);
+    }
+
+    private static PageCursor validated(String rawCursor, String property, boolean descending,
+                                        Predicate<String> canReadBoundary) {
         PageCursor cursor = PageCursor.decode(rawCursor);
         if (cursor == null) {
             return null; // none supplied: the start of a walk, not an error in one
         }
-        if (!sort.canReadBoundary(cursor.value())) {
+        if (!canReadBoundary.test(cursor.value())) {
             // Well-formed encoding, unusable contents — a forged or truncated cursor. Rejected like
             // any other unreadable one; letting the parse fail downstream was a caller-triggered
             // 500, and ignoring it would loop a paging client on the first page forever.
@@ -53,14 +71,14 @@ final class NodePaging {
             // already holds the cursor, so naming the field it failed on tells them everything
             // quoting it would.
             throw new MalformedCursorException(
-                    "The cursor's position cannot be read as a %s. ".formatted(sort.property())
+                    "The cursor's position cannot be read as a %s. ".formatted(property)
                     + "Send back a nextCursor exactly as it was returned, or omit it to start again.");
         }
-        if (!cursor.matches(sort.property(), sort.descending())) {
+        if (!cursor.matches(property, descending)) {
             throw new MalformedCursorException(
                     "This cursor was produced by a different sort (%s %s) than the one requested (%s %s). "
                             .formatted(cursor.property(), cursor.descending() ? "desc" : "asc",
-                                    sort.property(), sort.descending() ? "desc" : "asc")
+                                    property, descending ? "desc" : "asc")
                             + "Send the cursor with the sort it came from, or start a new walk without it.");
         }
         return cursor;
@@ -79,11 +97,25 @@ final class NodePaging {
      * difference.
      */
     static String nextCursor(List<? extends NodeEntity> page, int limit, NodeSort sort) {
-        if (page.isEmpty() || page.size() < limit) {
+        if (isLastPage(page, limit)) {
             return null;
         }
         NodeEntity last = page.get(page.size() - 1);
         return new PageCursor(sort.property(), sort.descending(),
                 NodePredicateBuilder.cursorValue(last, sort), String.valueOf(last.getId())).encode();
+    }
+
+    /** @see #nextCursor(List, int, NodeSort) */
+    static String nextCursor(List<SubscriptionEntity> page, int limit, SubscriptionSort sort) {
+        if (isLastPage(page, limit)) {
+            return null;
+        }
+        SubscriptionEntity last = page.get(page.size() - 1);
+        return new PageCursor(sort.property(), sort.descending(),
+                SubscriptionPredicateBuilder.cursorValue(last, sort), String.valueOf(last.getId())).encode();
+    }
+
+    private static boolean isLastPage(List<?> page, int limit) {
+        return page.isEmpty() || page.size() < limit;
     }
 }
