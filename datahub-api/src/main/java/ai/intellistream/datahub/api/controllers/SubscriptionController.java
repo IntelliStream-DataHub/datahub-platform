@@ -9,11 +9,13 @@ import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper
 import ai.intellistream.datahub.api.responses.swaggerdto.SubscriptionDataWrapper;
 import ai.intellistream.datahub.api.services.SubscriptionService;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -225,6 +227,58 @@ public class SubscriptionController {
             throw mce;
         } catch (RuntimeException e) {
             log.error("Subscription filter failed: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @Tag(name = "Subscriptions")
+    @Operation(
+            summary = "List subscriptions",
+            description = """
+                    The first `limit` subscriptions in your tenant, newest created first. No body,
+                    no criteria — the cheap read for "what have I got", the same shape
+                    `GET /timeseries` and `GET /labels` have.
+
+                    `limit` defaults to 1000 and may not exceed 10 000. There is no paging here: a
+                    walk needs a `sort` and a `cursor` to continue, and both belong in a request
+                    body, so `POST /subscriptions/filter` is where it lives. This endpoint is the
+                    first page and says so — it never returns a `nextCursor`.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The first `limit` subscriptions, newest first.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = SubscriptionDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+            ))
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> listSubscriptions(
+            @Parameter(description = "Maximum number of subscriptions to return. A positive integer up to 10000.",
+                    example = "1000")
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
+            return new ResponseEntity<>("limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT,
+                    HttpStatus.BAD_REQUEST);
+        }
+        var retriever = new SubscriptionRetriever();
+        // The setter is what turns an absent, zero or negative limit into the shared default, so
+        // this endpoint cannot disagree with /filter about what "you decide" means.
+        if (limit != null) {
+            retriever.setLimit(limit);
+        }
+        try {
+            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+            // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
+            // cannot accept it invites a paging loop that silently never advances.
+            data.setNextCursor(null);
+            return ResponseEntity.ok(data);
+        } catch (RuntimeException e) {
+            log.error("Subscription list failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }

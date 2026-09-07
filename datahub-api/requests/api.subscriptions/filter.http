@@ -11,3 +11,9 @@ Accept: application/json
 	"limit": 500,
 	"sort": { "property": ["name"], "order": "asc" }
 }
+
+###
+# The no-body listing: the first `limit`, newest first, no criteria.
+GET {{hostname}}/subscriptions?limit=100
+Authorization: Bearer {{token}}
+Accept: application/json
