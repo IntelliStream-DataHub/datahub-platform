@@ -68,7 +68,7 @@ git commit --amend --signoff
 For a range of commits on a branch:
 
 ```
-git rebase --signoff master
+git rebase --signoff main
 ```
 
 Then force-push the branch.
@@ -82,7 +82,7 @@ Every commit must carry a valid `Signed-off-by:` trailer whose name and email ma
 1. Fork the repository and create a feature branch.
 2. Make your changes. Keep commits focused and readable.
 3. Sign off on every commit (`git commit -s`).
-4. Open a pull request against `master` with a clear description of what the change does and why.
+4. Open a pull request against `main` with a clear description of what the change does and why.
 
 ## Questions
 
