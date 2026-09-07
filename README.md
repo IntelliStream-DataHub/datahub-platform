@@ -65,6 +65,26 @@ container-backed suites are separate and opt-in, and need Podman or Docker runni
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the sign-off policy,
 [GETTING_STARTED.md](GETTING_STARTED.md) the full development workflow.
 
+### What CI runs on a pull request
+
+Three checks, in increasing order of what they can catch:
+
+| Workflow | Runs |
+|---|---|
+| `Build` | `./gradlew build` — the hermetic unit suite, no containers |
+| `Build / Testcontainers integration tests` | the `@Tag("integration")` suites, which start real Postgres, ClickHouse, Neo4j and Pulsar containers |
+| `E2E` | boots the platform and runs the Java, Rust and Python SDK suites against it |
+
+The last one exists because `datahub-api` rejects unknown request-body fields with a 400, so
+removing a field from a request DTO breaks every out-of-tree SDK that still sends it — and
+nothing in this repository compiles against them, so a grep looks clean either way. `E2E` checks
+out [dataplatform-rust-sdk](https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk) and
+runs its Rust and Python suites, plus this repository's own Java SDK, against a live stack. To
+reproduce it locally, see the comments in
+[.github/workflows/e2e.yml](.github/workflows/e2e.yml); the two pieces it relies on are
+`scripts/ci-stage-images.sh` (build the app images from jars already compiled on the host) and
+`scripts/ci-wait-ready.sh` (block until the platform can serve a tenant-scoped request).
+
 ## The ontological layer
 
 At the core of DataHub is a knowledge graph that models three kinds of resources:

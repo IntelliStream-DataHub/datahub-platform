@@ -1,0 +1,313 @@
+name: E2E
+
+# Boot a real platform and run every SDK suite against it, so a change to the wire
+# contract fails here rather than in someone else's repository.
+#
+# The gap this closes: datahub-api rejects unknown request-body fields with a 400
+# (StrictRequestBodyConfig), so DELETING a field from a request DTO breaks every
+# out-of-tree SDK that still serializes it — while a grep in this repo looks clean,
+# because nothing here compiles against them. The Rust/Python SDK's own CI is
+# compile-only (`cargo test --no-run`), so before this workflow no live-backend
+# test ran anywhere, in either repository.
+#
+# NOT covered here: datahub-console and datahub-analysis are not booted, so the
+# console's backend-for-frontend and the analysis service's JWT-forwarding path
+# have no end-to-end coverage. Neither is called by any SDK.
+
+# pull_request ONLY, deliberately — do not add push, workflow_dispatch, schedule or
+# workflow_run here. This job checks out another repository and EXECUTES it (cargo
+# test, run_python_tests.sh, maturin develop) while setup-gradle, rust-cache and pip
+# caching all write to the Actions cache. Under any privileged trigger those writes
+# land in the default branch's cache scope, which every later run restores from — so
+# untrusted code execution becomes persistent CI compromise (CodeQL: "Cache poisoning
+# via execution of untrusted code"). A pull_request run is unprivileged and its cache
+# writes are scoped to the PR ref, so they cannot reach main.
+#
+# This is also why there is no `sdk_ref` input: letting a caller name the ref is what
+# made the checked-out code arbitrary rather than merely third-party. To test against
+# a specific SDK revision, push a branch here that pins it.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+
+    env:
+      # Named explicitly rather than relying on the default: the default ALSO loads
+      # docker-compose.override.yml, which pulls in the console, the analysis
+      # service and the 3W demo. The demo alone budgets 600s for its own readiness.
+      COMPOSE_FILES: -f docker-compose.yml -f docker-compose.apps.yml
+
+      # The service list IS the minimal stack — no CI-only compose file needed.
+      # Compose starts these plus their depends_on closure, which brings postgres,
+      # pulsar, keycloak and clickhouse along, and vault + vault-init via
+      # vault-seed. Four have to be named explicitly because nothing declares a
+      # depends_on for them, and all four are required at request time:
+      #   neo4j   — datahub-api applies the graph itself now, draining
+      #             resource_outbox (there is no stateful consumer any more), so
+      #             nothing in compose expresses the dependency.
+      #   valkey  — OrgGroupResolver and DatasetPermissionsResolver cache dataset
+      #             grants there on every authenticated request. Only the console,
+      #             not started here, declares a depends_on for it.
+      #   kvrocks — EventService registers events in KVRocks before anything else.
+      # Left out: datahub-console, datahub-analysis and datahub-cleanup. No SDK
+      # calls any of them.
+      COMPOSE_SERVICES: >-
+        neo4j valkey kvrocks vault-seed pulsar-init keycloak-bootstrap
+        datahub-api datahub-stateless-consumer
+
+      # The config contract all three SDKs share (DatahubConfig.fromEnv() in Java,
+      # DataHubConfig::from_env() in Rust). Set at job level so they reach the test
+      # processes as REAL environment variables, which matters — see the .env step.
+      BASE_URL: http://datahub-api:8081
+      TOKEN_URI: http://keycloak:8090/realms/datahub/protocol/openid-connect/token
+      CLIENT_ID: datahub-service-foo
+      CLIENT_SECRET: changeme-foo
+      # NOT 'openid organization:*'. The SDKs prepend `openid` themselves
+      # (OAuthConfig::effective_scope), and the selector is mandatory for this
+      # realm: without it the token carries no `organization` claim and every call
+      # fails 401 invalid_token, which looks like bad credentials and is not.
+      SCOPE: 'organization:*'
+      # Must be a real process env var, NOT a line in sdk/.env:
+      # python_tests/test_subscriptions.py evaluates it at module scope during
+      # pytest collection, long before conftest.py loads the .env file.
+      RUN_LISTEN_TESTS: '1'
+
+    steps:
+      # --- sources ------------------------------------------------------------
+      - uses: actions/checkout@v7
+
+      # No token: both repositories are public, so this works on fork pull
+      # requests too. If dataplatform-rust-sdk is ever made private, this needs a
+      # token AND a guard skipping the job on forks (where secrets are empty).
+      # No `ref:` — always the SDK's default branch. See the trigger comment above.
+      - name: Check out the Rust/Python SDK
+        uses: actions/checkout@v7
+        with:
+          repository: IntelliStream-DataHub/dataplatform-rust-sdk
+          path: sdk
+
+      # A green run here says nothing useful unless you can tell WHICH SDK
+      # revision it was green against.
+      - name: Record the SDK revision under test
+        run: |
+          echo "### SDK under test" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          git -C sdk log -1 --format='%H%n%s%n%an, %ad' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      # --- toolchains ---------------------------------------------------------
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'sdk -> target'
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: sdk/python_tests/requirements.txt
+
+      # --- compile before booting anything ------------------------------------
+      # Deliberate ordering. rustc peaks at 1-2 GB, and paying that while eleven
+      # containers are up is what would tip a smaller runner over. It also fails
+      # fast on an SDK that does not compile, before spending four minutes on a
+      # stack nobody is going to use.
+      # Only these two modules are deployed here, so this is deliberately not
+      # `./gradlew bootJar` — that would also run the console's asset pipeline for
+      # an image nothing here starts. The Gradle cache restored by setup-gradle
+      # makes this cheap. (Taking the jars from the Build workflow's artifact
+      # instead is not possible: separate workflows do not share artifacts.)
+      - name: Build the boot jars
+        run: |
+          ./gradlew --no-daemon \
+            :datahub-api:bootJar \
+            :datahub-stateless-consumer:bootJar
+
+      - name: Compile the Java SDK tests
+        run: ./gradlew :datahub-java-sdk:testClasses
+
+      - name: Compile the Rust test binaries
+        working-directory: sdk
+        run: cargo test --no-run --all-features
+
+      - name: Release the Gradle daemon before the stack comes up
+        run: ./gradlew --stop || true
+
+      # --- one issuer string, valid from both sides ---------------------------
+      # The runner talks to published ports; the containers talk over compose DNS.
+      # datahub-api validates `iss` against exactly the issuer vault-seed wrote, so
+      # minting a token at a different host:port 401s with correct credentials.
+      # These four services publish 1:1 (8090, 8081, 8200, 6379) and Keycloak runs
+      # on 8090 inside the container too, so one hosts entry makes a single URL
+      # correct from the runner AND from inside the network — no host-IP detection,
+      # no KC_ADDR. (scripts/up.sh needs that dance only because a developer's
+      # browser cannot resolve compose DNS; CI has no browser.)
+      - name: Map the compose service names to localhost
+        run: echo "127.0.0.1  keycloak datahub-api vault valkey" | sudo tee -a /etc/hosts
+
+      # --- boot ---------------------------------------------------------------
+      # Tags the images as datahub-*:local, which is exactly what
+      # docker-compose.apps.yml already declares. Compose builds a service only
+      # when its image is missing, so this is what keeps `up` out of
+      # deploy/app/Dockerfile's in-image Gradle build.
+      - name: Build the app images from the jars
+        env:
+          CONTAINER_CLI: docker
+        run: ./scripts/ci-stage-images.sh
+
+      # neo4j is the one started service that is genuinely built rather than
+      # pulled — deploy/neo4j/Dockerfile adds the APOC plugin jar on top of the
+      # stock image, and datahub-neo4j:local exists in no registry. Building it
+      # explicitly is what lets `up` below keep --no-build.
+      - name: Build the neo4j image
+        run: docker compose $COMPOSE_FILES build neo4j
+
+      # --no-build is a safety net, not an optimisation: every other started
+      # service is either pulled or already tagged by the step above, so if an app
+      # tag ever fails to match, this fails immediately instead of silently
+      # starting a ten-minute in-container Gradle build of every module.
+      - name: Start the stack
+        run: docker compose $COMPOSE_FILES up -d --no-build $COMPOSE_SERVICES
+
+      - name: Wait until the platform can serve a tenant-scoped request
+        env:
+          CONTAINER_CLI: docker
+        run: ./scripts/ci-wait-ready.sh
+
+      # --- the SDK env contract ------------------------------------------------
+      # Rust tolerates a missing .env (`dotenv().ok()` then from_env()), and the
+      # Java SDK reads real env vars. The PYTHON bindings do not: fixtures.py calls
+      # from_envfile(ENV_FILE), which is from_path(...).expect(...) — a missing file
+      # panics rather than falling back. Hence writing it.
+      - name: Write sdk/.env
+        run: |
+          cat > sdk/.env <<EOF
+          BASE_URL=$BASE_URL
+          TOKEN_URI=$TOKEN_URI
+          CLIENT_ID=$CLIENT_ID
+          CLIENT_SECRET=$CLIENT_SECRET
+          SCOPE=$SCOPE
+          EOF
+
+      # --- the suites, cheapest first ------------------------------------------
+      # Sequential, all against tenant `foo`. cargo test is already internally
+      # parallel against the backend; adding pytest concurrently would make the
+      # paging and sorting suites, which assert on whole result sets,
+      # non-deterministic in a way that reads as a flaky test. Boot dominates the
+      # wall clock anyway. The suites' entity prefixes do not collide
+      # (rust_sdk_*/sdk_* vs pytest_*), so no suite needs changing.
+
+      # Only the one live test: the other 19 in this module are hermetic (they run
+      # a local HttpServer) and already ran in the Build workflow.
+      - name: Java SDK — live subscription listen
+        run: ./gradlew :datahub-java-sdk:test --tests '*SubscriptionListenIT*'
+
+      # SubscriptionListenIT is gated by @EnabledIfEnvironmentVariable, not by a
+      # tag, so if RUN_LISTEN_TESTS ever fails to reach the forked test JVM the
+      # test is SKIPPED and Gradle still exits 0 — a green step that tested
+      # nothing. Assert it actually ran.
+      - name: Assert the live Java test was not skipped
+        run: |
+          set -euo pipefail
+          report=$(find datahub-java-sdk/build/test-results/test \
+                     -name 'TEST-*SubscriptionListenIT.xml' -print -quit)
+          if [ -z "$report" ]; then
+            echo "::error::no test report for SubscriptionListenIT — it never ran"
+            exit 1
+          fi
+          python3 - "$report" <<'PYEOF'
+          import sys, xml.etree.ElementTree as ET
+          r = ET.parse(sys.argv[1]).getroot()
+          tests = int(r.get("tests", 0)); skipped = int(r.get("skipped", 0))
+          print(f"SubscriptionListenIT: tests={tests} skipped={skipped}")
+          if tests == 0 or skipped >= tests:
+              print("::error::SubscriptionListenIT was skipped — RUN_LISTEN_TESTS "
+                    "did not reach the test JVM, so the live path was not exercised")
+              sys.exit(1)
+          PYEOF
+
+      - name: Rust SDK — default suite
+        working-directory: sdk
+        run: cargo test
+
+      - name: 'Rust SDK — the #[ignore]d live suite'
+        working-directory: sdk
+        run: cargo test -- --ignored --test-threads=1
+
+      # Builds the bindings (maturin develop) then runs pytest. Not hoisted above
+      # the boot like the Rust compile: it needs the venv the script itself
+      # creates, and replicating that here would be a second copy of the setup to
+      # keep in sync. -ra so skips are reported rather than silently passing.
+      - name: Python SDK — pytest suite
+        working-directory: sdk
+        run: ./run_python_tests.sh -- -ra
+
+      # Post-traffic assertion the readiness probe cannot make: published ==
+      # delivered + backlog on the Pulsar topics, i.e. nothing was accepted and
+      # then quietly lost. Non-blocking for now — both SDK suites clean up after
+      # themselves, so the Neo4j node-count check can legitimately see an empty
+      # graph. Promote to blocking once it has proven stable.
+      - name: Smoke test the stack end to end
+        continue-on-error: true
+        env:
+          CONTAINER_CLI: docker
+          KC_ADDR: keycloak
+          COMPOSE_PROJECT: datahub
+        run: ./scripts/smoke-test.sh
+
+      # --- always --------------------------------------------------------------
+      - name: Note the multi-tenant coverage gap
+        if: always()
+        run: |
+          {
+            echo "### Not covered by this run"
+            echo "- Multi-tenant ACL suites (\`src/multi_tenant_integration.rs\`,"
+            echo "  \`python_tests/test_multi_tenant_acl.py\`) **skip**: the dev realm ships"
+            echo "  only the foo/bar service clients, so no \`MT_*\` fixtures are configured."
+            echo "- \`datahub-console\` and \`datahub-analysis\` are not booted."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Collect compose logs
+        if: always()
+        run: |
+          mkdir -p ci-logs
+          docker compose $COMPOSE_FILES ps -a > ci-logs/compose-ps.txt 2>&1 || true
+          for s in $(docker compose $COMPOSE_FILES ps --services 2>/dev/null); do
+            docker compose $COMPOSE_FILES logs --no-color --timestamps "$s" \
+              > "ci-logs/$s.log" 2>&1 || true
+          done
+
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: e2e-diagnostics
+          retention-days: 7
+          path: |
+            ci-logs/**
+            **/build/reports/tests/**
+            **/build/test-results/**
+            sdk/python_tests/**/*.log
+
+      - name: Tear down
+        if: always()
+        run: docker compose $COMPOSE_FILES down -v --remove-orphans || true

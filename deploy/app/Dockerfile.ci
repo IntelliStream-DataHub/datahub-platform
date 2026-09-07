@@ -1,0 +1,40 @@
+# Runtime image for a DataHub service, from a boot jar ALREADY BUILT on the host.
+#
+# Contrast deploy/app/Dockerfile, which compiles every boot jar in a JDK build
+# stage. That is the right trade for `./scripts/up.sh --build` on a laptop with no
+# JDK, but it is the wrong one in CI, for two reasons:
+#
+#   1. Waste. The CI job has already run `./gradlew build` with a warm Gradle
+#      cache. Recompiling all eleven modules inside a container — including the
+#      console's asset pipeline, which no image here even needs — throws that away
+#      on every run. Only three modules produce a jar that gets deployed.
+#   2. Memory. That build stage does not reference ARG MODULE, so it is identical
+#      for every app service. BuildKit deduplicates it; podman-compose does not,
+#      and runs four concurrent Gradle builds whose JVMs each size their heap from
+#      host RAM with no container limit. That is the compose build OOM.
+#
+# The build context is build/ci-images/<module>/, NOT the repository root. That is
+# load-bearing: the root .dockerignore excludes **/build, so copying
+# <module>/build/libs/*.jar from a root context fails with "file not found". A
+# staging directory has no .dockerignore of its own, so everything in it is sent.
+# scripts/ci-stage-images.sh builds those directories.
+#
+# The entrypoint is deploy/app/entrypoint.sh, unchanged and shared with the
+# regular image — so CI exercises the same startup contract (wait for Vault to be
+# seeded, Postgres to accept connections, the Pulsar namespaces to exist and
+# Keycloak to serve its discovery document) that a real deployment does.
+FROM docker.io/library/eclipse-temurin:25-jre
+
+# curl: used by the entrypoint to poll Vault, Pulsar and Keycloak.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY app.jar /app/app.jar
+COPY entrypoint.sh /usr/local/bin/entrypoint
+RUN chmod +x /usr/local/bin/entrypoint
+
+ENTRYPOINT ["/usr/local/bin/entrypoint"]
+CMD ["java", "-jar", "/app/app.jar"]
