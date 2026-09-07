@@ -65,7 +65,7 @@ dependencies {
     runtimeOnly 'org.bouncycastle:bcprov-jdk18on:1.85.2'
     runtimeOnly 'org.bouncycastle:bcpkix-jdk18on:1.85'
 
-    implementation 'org.apache.tika:tika-core:3.3.2'
+    implementation 'org.apache.tika:tika-core:4.0.0'
     // Apache Commons Hashing
     implementation 'commons-codec:commons-codec:1.22.1'
 
