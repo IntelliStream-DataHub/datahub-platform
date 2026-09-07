@@ -51,10 +51,15 @@ public class SubscriptionEntity {
     private Set<TimeseriesEntity> timeseries = new LinkedHashSet<>();
 
     /**
-     * True for system-provisioned subscriptions whose lifecycle is not owned by the user.
-     * System-managed subscriptions are excluded from the user-facing list endpoint by default
-     * and refuse manual deletes. No code currently provisions such subscriptions; the column
-     * and its handling are retained as a general-purpose mechanism.
+     * True for system-provisioned subscriptions whose lifecycle is not owned by the user. Such a
+     * subscription is never returned by {@code /subscriptions/filter}, refuses a manual delete, and
+     * is not a candidate for the cleanup sweep's orphan pruning.
+     *
+     * <p><b>Nothing sets it.</b> {@code SubscriptionTransformer.toEntity} does not, no other code
+     * path builds one of these, and the column defaults to false — so every row in every tenant is
+     * user-managed and the three behaviours above are dormant guards. The column and its handling
+     * are retained as a general-purpose mechanism; the filter endpoint deliberately has no opt-in
+     * to see these rows, because there are none to see.
      */
     @Column(name = "system_managed", nullable = false)
     private boolean systemManaged = false;

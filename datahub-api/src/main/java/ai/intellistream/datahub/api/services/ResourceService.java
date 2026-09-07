@@ -817,7 +817,7 @@ public class ResourceService {
 
         ResourceFilter filter = apiReqData.getFilter();
         NodeSort sort = NodeSort.resolve(apiReqData.getSort());
-        PageCursor cursor = NodePaging.validated(apiReqData.getCursor(), sort);
+        PageCursor cursor = FilterPaging.validated(apiReqData.getCursor(), sort);
 
         // Resolve the data set scope before building anything: both of these can end the request,
         // and there is no point assembling a query we are about to throw away.
@@ -893,7 +893,7 @@ public class ResourceService {
         query.setMaxResults(apiReqData.getLimit());
         List<NodeEntity> nodes = query.getResultList();
         data.setItems(NodeReadMapper.from(nodes));
-        data.setNextCursor(NodePaging.nextCursor(nodes, apiReqData.getLimit(), sort));
+        data.setNextCursor(FilterPaging.nextCursor(nodes, apiReqData.getLimit(), sort));
 
         return data;
     }

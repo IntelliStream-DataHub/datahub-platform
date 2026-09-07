@@ -163,7 +163,7 @@ public class EventService {
         if (!ClickHouseEventService.canReadBoundary(sort, cursor.value())) {
             // Well-formed encoding, unusable contents — forged or truncated. Rejected like any
             // other unreadable cursor rather than restarting, which would loop a paging client.
-            // Not quoting the value back; see NodePaging.validated.
+            // Not quoting the value back; see FilterPaging.validated.
             throw new MalformedCursorException(
                     "The cursor's position cannot be read as a %s. ".formatted(sort.property())
                     + "Send back a nextCursor exactly as it was returned, or omit it to start again.");

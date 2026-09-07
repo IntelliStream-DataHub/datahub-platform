@@ -1491,14 +1491,14 @@ public class TimeseriesService {
         }
 
         NodeSort sort = NodeSort.resolve(apiReqData.getSort());
-        PageCursor cursor = NodePaging.validated(apiReqData.getCursor(), sort);
+        PageCursor cursor = FilterPaging.validated(apiReqData.getCursor(), sort);
 
         List<TimeseriesEntity> entities = timeseriesRepository.filter(
                 apiReqData.getLimit(), dataSetIds, filter, sort, cursor);
         List<Long> nodeIds = entities.stream().map(TimeseriesEntity::getId).collect(Collectors.toList());
         Collection<EdgeEntity> edgeEntities = edgeRepository.findAllByEndIn(nodeIds, EdgeEntity.class);
         data.setItems(TimeseriesTransformer.from(entities, edgeEntities));
-        data.setNextCursor(NodePaging.nextCursor(entities, apiReqData.getLimit(), sort));
+        data.setNextCursor(FilterPaging.nextCursor(entities, apiReqData.getLimit(), sort));
         return data;
     }
 

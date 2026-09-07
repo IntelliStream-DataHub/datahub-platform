@@ -21,10 +21,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class SubscriptionServiceTest {
 
     @Test
-    void listReturnsSubscriptions() throws Exception {
+    void filterReturnsSubscriptions() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         String body = "{\"items\":[{\"id\":\"5\",\"externalId\":\"sub-1\",\"name\":\"My Sub\"}]}";
-        server.createContext("/subscriptions/list", exchange -> {
+        server.createContext("/subscriptions/filter", exchange -> {
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, bytes.length);
@@ -39,7 +39,7 @@ class SubscriptionServiceTest {
                     .token("test-token")
                     .build());
 
-            DataWrapper<Subscription> result = client.subscriptions().list(new SubscriptionRetriever());
+            DataWrapper<Subscription> result = client.subscriptions().filter(new SubscriptionRetriever());
 
             assertEquals(1, result.getItems().size());
             Subscription subscription = result.getItems().iterator().next();

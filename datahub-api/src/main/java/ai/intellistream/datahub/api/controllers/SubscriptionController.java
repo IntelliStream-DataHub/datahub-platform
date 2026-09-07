@@ -9,6 +9,7 @@ import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper
 import ai.intellistream.datahub.api.responses.swaggerdto.SubscriptionDataWrapper;
 import ai.intellistream.datahub.api.services.SubscriptionService;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
@@ -19,6 +20,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -133,36 +135,51 @@ public class SubscriptionController {
 
     @Tag(name = "Subscriptions")
     @Operation(
-            summary = "List subscriptions",
+            summary = "Filter subscriptions",
             description = """
-                    List subscriptions in your tenant.
+                    Structured filtering over subscriptions. Every criterion is optional and they
+                    AND together, so an empty `filter` returns every subscription.
 
-                    Leave the body empty (or omit `filter`) to list every subscription. Provide
-                    a `filter.timeseries[]` list to return only subscriptions that include at
-                    least one of the named timeseries.
+                    * `id` — subscriptions named directly by id. An empty list places no restriction.
+                    * `externalId` / `name` — pattern lists, OR-ed within each list. `*` and `%` are
+                      both wildcards, so `["fleet_dashboard", "plant_a_*"]` mixes an exact id with a
+                      prefix search. `_` is literal, and both match case-insensitively.
+                    * `timeseries` — subscriptions bound to at least one of these timeseries. Each
+                      entry can name a timeseries by `id`, `externalId`, or both.
+                    * `createdTime` / `lastUpdatedTime` — inclusive `min`/`max` instants.
 
-                    `limit` caps the result size (default 100, max 10 000). `sort` controls the
-                    order; default is `dateCreated` descending (newest first).
+                    Results come newest created first, capped by `limit` (default 1000, max 10 000).
+
+                    `sort` takes one property — `id`, `externalId`, `name`, `createdTime` or
+                    `lastUpdatedTime` — with `order` of `asc` or `desc`; `id` is always appended so
+                    the order is total. The response carries `nextCursor` when there may be more:
+                    send it back as `cursor`, with the same `sort` it came from, and keep going
+                    while it is present. Keyset paging, not `OFFSET`, so a deep page costs what a
+                    shallow one does.
                     """
     )
-    @ApiResponse(responseCode = "200", description = "Subscriptions matching the filter, ordered per `sort` (default newest first).",
+    @ApiResponse(responseCode = "200", description = "Subscriptions matching every supplied criterion, ordered per `sort` (default newest first).",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = SubscriptionDataWrapper.class)
             ))
+    @ApiResponse(responseCode = "400", description = "The request failed validation — typically a `limit` above 10000, "
+            + "or a `cursor` that cannot be read under the requested `sort`.")
     @PostMapping(
-            path = "/list",
+            path = "/filter",
             produces = MediaType.APPLICATION_JSON_VALUE,
             consumes = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<?> listSubscriptions(
+    public ResponseEntity<?> filterSubscriptions(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = false,
+                    description = "Filter criteria and optional limit. An empty object returns everything.",
                     content = @Content(
                             mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = SubscriptionRetriever.class),
                             examples = {
                                     @ExampleObject(
-                                            name = "List all (default)",
+                                            name = "Everything (default)",
                                             value = "{}"
                                     ),
                                     @ExampleObject(
@@ -177,18 +194,37 @@ public class SubscriptionController {
                                                       }
                                                     }
                                                     """
+                                    ),
+                                    @ExampleObject(
+                                            name = "By name and external id, oldest first",
+                                            value = """
+                                                    {
+                                                      "limit": 100,
+                                                      "filter": {
+                                                        "externalId": ["plant_a_*"],
+                                                        "name": ["*dashboard*"],
+                                                        "createdTime": { "min": "2026-01-01T00:00:00Z" }
+                                                      },
+                                                      "sort": { "property": ["createdTime"], "order": "asc" }
+                                                    }
+                                                    """
                                     )
                             }
                     )
             )
-            @RequestBody(required = false)
+            @Valid @RequestBody(required = false)
             SubscriptionRetriever retriever
     ) {
         try {
-            DataWrapper<Subscription> data = subscriptionService.list(retriever);
+            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
             return ResponseEntity.ok(data);
+        }
+        // Let a bad cursor reach MalformedCursorExceptionHandler — the broad RuntimeException catch
+        // below would otherwise report a caller mistake as a 500.
+        catch (MalformedCursorException mce) {
+            throw mce;
         } catch (RuntimeException e) {
-            log.error("Subscription list failed: {}", e.getMessage(), e);
+            log.error("Subscription filter failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
         }
     }
