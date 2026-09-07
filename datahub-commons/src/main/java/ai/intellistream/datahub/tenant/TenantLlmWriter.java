@@ -30,6 +30,10 @@ import java.util.Map;
  * A lost update here is somebody's credential silently reverting, which nothing downstream would
  * report — the assistant would simply start failing.
  *
+ * <p>Which is why {@code keepStoredApiKey} is a flag rather than a value the caller passes in: the
+ * credential it preserves is read here, inside the window compare-and-set guards. A caller holding
+ * its own copy would be writing back something read before that window opened.
+ *
  * <p>The caller is expected to have checked that this tenant may be written by whoever asked; this
  * class enforces nothing about identity. It holds the platform's own Vault credential, so it must
  * never be reachable from a request path that has not made that check.
@@ -39,6 +43,7 @@ import java.util.Map;
 public class TenantLlmWriter {
 
     private static final String LLM_PREFIX = "llm.";
+    private static final String API_KEY = "api-key";
 
     private final VaultProperties vault;
 
@@ -52,15 +57,17 @@ public class TenantLlmWriter {
      *
      * @param orgName organization name, as {@code tenant-resources} keys it
      * @param section the new section, unprefixed — {@code provider}, {@code api-key}, and so on
+     * @param keepStoredApiKey carry the stored credential across rather than taking one from
+     *                         {@code section}, for a save that did not supply one
      * @throws IllegalStateException if Vault is unreachable, refuses, or the secret changed while
      *                               this change was being prepared
      */
-    public void writeLlmSection(String orgName, Map<String, String> section) {
+    public void writeLlmSection(String orgName, Map<String, String> section, boolean keepStoredApiKey) {
         Vault client = VaultClientFactory.login(vault);
         String path = vault.secretName() + "/tenant-config/" + orgName;
 
         Existing existing = read(client, path);
-        Map<String, String> merged = merge(existing.data(), section);
+        Map<String, String> merged = merge(existing.data(), section, keepStoredApiKey);
 
         try {
             WriteOptions options = new WriteOptions();
@@ -83,7 +90,8 @@ public class TenantLlmWriter {
             }
             throw new IllegalStateException("Could not write " + path + ": " + e.getMessage(), e);
         }
-        log.info("Model configuration updated for tenant {} ({} llm keys)", orgName, section.size());
+        long llmKeys = merged.keySet().stream().filter(key -> key.startsWith(LLM_PREFIX)).count();
+        log.info("Model configuration updated for tenant {} ({} llm keys)", orgName, llmKeys);
     }
 
     /**
@@ -91,19 +99,28 @@ public class TenantLlmWriter {
      * under the prefix.
      *
      * <p>Package-private and static so the one part of this class with rules of its own can be
-     * tested without a Vault. Two of those rules are load-bearing. Keys outside the prefix are
+     * tested without a Vault. Three of those rules are load-bearing. Keys outside the prefix are
      * carried across untouched, or another section arriving later would be erased by someone saving
-     * their model settings. And a prefixed key the section does not carry is dropped rather than
-     * kept, so removing a setting removes it — which is also why the caller must pass through any
-     * value it means to preserve, the credential included.
+     * their model settings. A prefixed key the section does not carry is dropped rather than kept,
+     * so removing a setting removes it, which is why the caller must pass through any value it
+     * means to preserve. And the credential is the one exception to that: under
+     * {@code keepStoredApiKey} it is taken from {@code existing}, so a save that did not supply one
+     * preserves what the secret holds now rather than whatever the caller last saw.
      */
-    static Map<String, String> merge(Map<String, String> existing, Map<String, String> section) {
+    static Map<String, String> merge(Map<String, String> existing, Map<String, String> section,
+                                     boolean keepStoredApiKey) {
         Map<String, String> merged = new LinkedHashMap<>();
         existing.forEach((key, value) -> {
             if (!key.startsWith(LLM_PREFIX)) {
                 merged.put(key, value);
             }
         });
+        if (keepStoredApiKey) {
+            String stored = existing.get(LLM_PREFIX + API_KEY);
+            if (stored != null && !stored.isBlank()) {
+                merged.put(LLM_PREFIX + API_KEY, stored);
+            }
+        }
         section.forEach((key, value) -> {
             if (value != null && !value.isBlank()) {
                 merged.put(LLM_PREFIX + key, value);

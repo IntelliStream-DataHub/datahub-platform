@@ -71,8 +71,17 @@ class TenantSettingsServiceTest {
     private Map<String, String> written() {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, String>> section = ArgumentCaptor.forClass(Map.class);
-        verify(writer).writeLlmSection(org.mockito.ArgumentMatchers.eq("acme"), section.capture());
+        verify(writer).writeLlmSection(org.mockito.ArgumentMatchers.eq("acme"), section.capture(),
+                org.mockito.ArgumentMatchers.anyBoolean());
         return section.getValue();
+    }
+
+    /** Whether the write was told to carry the stored credential across. */
+    private boolean keptStoredKey() {
+        ArgumentCaptor<Boolean> keep = ArgumentCaptor.forClass(Boolean.class);
+        verify(writer).writeLlmSection(org.mockito.ArgumentMatchers.eq("acme"),
+                org.mockito.ArgumentMatchers.anyMap(), keep.capture());
+        return keep.getValue();
     }
 
     @Test
@@ -100,11 +109,14 @@ class TenantSettingsServiceTest {
      * The credential survives a save that does not mention it, whatever "does not mention it"
      * looks like on the wire.
      *
-     * <p>This is the property the whole three-way apiKey handling exists to protect, and the one
-     * that is silently destructive when it breaks. The key is never sent back to a client, so the
-     * field is rendered empty every time the form loads; if empty meant "clear", then changing the
-     * model — or the timeout, or anything else — would delete the credential as a side effect, and
-     * the only symptom would be an assistant that stopped answering.
+     * <p>This is the property the apiKey handling exists to protect, and the one that is silently
+     * destructive when it breaks. The key is never sent back to a client, so the field is rendered
+     * empty every time the form loads; if empty meant "clear", then changing the model — or the
+     * timeout, or anything else — would delete the credential as a side effect, and the only
+     * symptom would be an assistant that stopped answering.
+     *
+     * <p>Preserved by asking the writer to keep what the secret holds, never by sending a key: see
+     * {@link #theCachedCredentialIsNeverWrittenBack}.
      */
     @Test
     void aSaveThatDoesNotSupplyAKeyLeavesTheStoredOneAlone() {
@@ -115,11 +127,31 @@ class TenantSettingsServiceTest {
             service.updateLlm(new TenantLlmSettingsForm("anthropic", "claude-sonnet-5", submitted,
                     null, null, null, null, null, null, null));
 
-            assertThat(written())
+            assertThat(keptStoredKey())
                     .as("apiKey=%s must not disturb the stored credential", describe(submitted))
-                    .containsEntry("api-key", "sk-ant-stored")
-                    .containsEntry("model", "claude-sonnet-5");
+                    .isTrue();
+            assertThat(written()).containsEntry("model", "claude-sonnet-5");
         }
+    }
+
+    /**
+     * The stale copy in the tenant cache never reaches Vault.
+     *
+     * <p>The registry this reads is refreshed on a five-minute timer, so its key can be older than
+     * the secret's. Writing it back would revert a key rotated in between, whether from another api
+     * instance or by hand, and compare-and-set could not catch it: the version would not have moved
+     * between the writer's own read and its write. So the service sends no key at all and the
+     * writer carries the current one across.
+     */
+    @Test
+    void theCachedCredentialIsNeverWrittenBack() {
+        tenant.setLlm(anthropic("sk-ant-stale"));
+
+        service.updateLlm(new TenantLlmSettingsForm("anthropic", "claude-sonnet-5", null,
+                null, null, null, null, null, null, null));
+
+        assertThat(written()).doesNotContainValue("sk-ant-stale");
+        assertThat(keptStoredKey()).isTrue();
     }
 
     /** The same, for a provider whose key is optional — an absent key must not delete a stored one. */
@@ -135,7 +167,8 @@ class TenantSettingsServiceTest {
         service.updateLlm(new TenantLlmSettingsForm("openai-compatible", "qwen3-32b", "",
                 "http://vllm:8000/v1", null, null, null, null, null, null));
 
-        assertThat(written()).containsEntry("api-key", "gateway-token");
+        assertThat(keptStoredKey()).isTrue();
+        assertThat(written()).doesNotContainValue("gateway-token");
     }
 
     @Test
@@ -146,6 +179,7 @@ class TenantSettingsServiceTest {
                 null, null, null, null, null, null, null));
 
         assertThat(written()).containsEntry("api-key", "sk-ant-new");
+        assertThat(keptStoredKey()).isFalse();
     }
 
     private static String describe(String value) {
@@ -163,7 +197,8 @@ class TenantSettingsServiceTest {
                 "openai-compatible", "qwen3-32b", null, null, null, null, null, null, null, null)))
                 .isInstanceOf(BadRequestException.class);
 
-        verify(writer, never()).writeLlmSection(anyString(), org.mockito.ArgumentMatchers.anyMap());
+        verify(writer, never()).writeLlmSection(anyString(), org.mockito.ArgumentMatchers.anyMap(),
+                org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test

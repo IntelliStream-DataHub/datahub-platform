@@ -8,8 +8,8 @@
  *    from the payload entirely, which the API reads as "keep what you have". That is why the
  *    payload is built by omission rather than by sending every field.
  *
- *  - Clearing a key is a separate action, because "empty" already means "unchanged". The Clear
- *    button arms an explicit empty string for the next save.
+ *  - There is no way to clear a key from here, because "empty" already means "unchanged". A
+ *    credential is replaced, or left behind by saving a provider that does not need one.
  */
 (function () {
 	"use strict";
@@ -170,9 +170,9 @@
 		if (typedKey !== null) {
 			body.apiKey = typedKey;
 		}
-		// Otherwise apiKey is absent, which the API reads as "keep the stored one". The form offers
-		// no way to send it empty, so a stored key can be replaced but not removed from here — the
-		// API still accepts an empty string, and switching provider is how you stop using one.
+		// Otherwise apiKey is absent, which the API reads as "keep the stored one". Empty means the
+		// same thing there, so a stored key can be replaced but not removed: you stop using one by
+		// saving a provider that needs none.
 		return body;
 	}
 

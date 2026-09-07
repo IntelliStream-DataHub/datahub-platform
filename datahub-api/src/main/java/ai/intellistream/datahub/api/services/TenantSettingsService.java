@@ -74,9 +74,10 @@ public class TenantSettingsService {
     public TenantLlmSettings updateLlm(TenantLlmSettingsForm form) {
         Tenant tenant = currentTenant();
         TenantLlm existing = tenant.getLlm();
-        Map<String, String> section = validated(form, existing);
+        LlmSection section = validated(form, existing);
 
-        llmWriter.writeLlmSection(tenant.getOrganizationName(), section);
+        llmWriter.writeLlmSection(tenant.getOrganizationName(), section.keys(),
+                section.keepStoredApiKey());
         tenantConfigService.refreshCache();
         return readLlm();
     }
@@ -87,7 +88,7 @@ public class TenantSettingsService {
      * <p>All problems are collected rather than thrown on the first, so a half-filled form comes
      * back marked up once instead of one field at a time.
      */
-    private Map<String, String> validated(TenantLlmSettingsForm form, TenantLlm existing) {
+    private LlmSection validated(TenantLlmSettingsForm form, TenantLlm existing) {
         ResponseError<BadRequestError> errors = new ResponseError<>();
         errors.setError(new BadRequestError());
         boolean[] failed = {false};
@@ -118,11 +119,17 @@ public class TenantSettingsService {
         // it. Empty used to clear it, which made an untouched form field a destructive act — the
         // field is rendered empty because the key is never sent back, so saving any other change
         // would have wiped it.
+        //
+        // The stored key is not read here. This tenant comes from a cache up to five minutes old,
+        // so writing its copy back would revert a key rotated since. The writer carries it across
+        // from the secret it is about to replace instead.
         String submittedKey = trimmed(form.apiKey());
-        String apiKey = submittedKey != null ? submittedKey : keyOf(existing);
+        boolean keepStoredApiKey = submittedKey == null;
         String baseUrl = trimmed(form.baseUrl());
 
-        if (provider == LlmProvider.ANTHROPIC && apiKey == null) {
+        // The cache is good enough to decide whether a key exists at all: wrong, it costs a
+        // needless "needs an API key" or an incomplete config, never a credential.
+        if (provider == LlmProvider.ANTHROPIC && submittedKey == null && keyOf(existing) == null) {
             failed[0] = true;
             errors.getError().addFieldError("apiKey", "Anthropic needs an API key.");
         }
@@ -166,7 +173,7 @@ public class TenantSettingsService {
         Map<String, String> section = new LinkedHashMap<>();
         section.put("provider", provider.wireName());
         section.put("model", model);
-        section.put("api-key", apiKey);
+        section.put("api-key", submittedKey);
         section.put("base-url", baseUrl);
         section.put("reasoning-effort", trimmed(form.reasoningEffort()));
         section.put("effort", effort == null ? null : effort.toLowerCase());
@@ -174,7 +181,11 @@ public class TenantSettingsService {
         section.put("max-output-tokens", asString(form.maxOutputTokens()));
         section.put("max-iterations", asString(form.maxIterations()));
         section.put("instructions", trimmed(form.instructions()));
-        return section;
+        return new LlmSection(section, keepStoredApiKey);
+    }
+
+    /** The section to write, and whether the writer must carry the stored credential across. */
+    private record LlmSection(Map<String, String> keys, boolean keepStoredApiKey) {
     }
 
     private static String keyOf(TenantLlm existing) {
