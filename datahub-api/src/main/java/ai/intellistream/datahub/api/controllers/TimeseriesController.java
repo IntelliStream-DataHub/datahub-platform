@@ -145,9 +145,16 @@ public class TimeseriesController {
         return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
+    /**
+     * {@code GET /timeseries/} — the same listing, for a caller that typed the trailing slash.
+     * Boot stopped matching it to the slashless route by default, so it is mapped explicitly.
+     *
+     * <p>Its default limit used to be 100 where the route it delegates to defaults to 1000, so the
+     * page size depended on whether the caller typed a slash. Same default now.
+     */
     @Hidden
     @RequestMapping(value = {"/"}, method = RequestMethod.GET, produces = { "application/json", "application/xml" })
-    public ResponseEntity<?> listWithSlash(@Parameter(description = "Maximum number of timeseries to return. Must be a positive integer up to 10000.", example = "100") @RequestParam(name="limit", defaultValue = "100") String limit,
+    public ResponseEntity<?> listWithSlash(@Parameter(description = "Maximum number of timeseries to return. Must be a positive integer up to 10000.", example = "1000") @RequestParam(name="limit", defaultValue = "1000") String limit,
                                            @Parameter(description = "Restrict results to this dataset and every dataset beneath it.", example = "5677892") @RequestParam(name="dataSetId", required = false) String dataSetId){
         return list(limit, dataSetId);
     }

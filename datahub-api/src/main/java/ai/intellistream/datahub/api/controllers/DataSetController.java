@@ -12,7 +12,6 @@ import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
-import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.DataSetDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.DataSetFormDataWrapper;
@@ -198,9 +197,9 @@ public class DataSetController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ){
-        if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
-            return new ResponseEntity<>("limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT,
-                    HttpStatus.BAD_REQUEST);
+        String rejection = ListingLimit.rejection(limit);
+        if (rejection != null) {
+            return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
         DataSetRetreiver form = new DataSetRetreiver();
         // The retriever's own setter is what turns an absent, zero or negative limit into the shared

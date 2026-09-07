@@ -61,21 +61,41 @@ public class PolicyController {
     private final PolicyCheckService policyCheckService;
 
     // 1. LIST ALL POLICY NODES
-    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(
-            summary = "List all Policy nodes",
-            description = "Returns all Policy nodes currently stored in the system."
+            summary = "List policies",
+            description = """
+                    The first `limit` policies in your tenant, newest created first. No body, no
+                    criteria — the cheap read for "what have I got", the shape every collection in
+                    this API answers to.
+
+                    `limit` defaults to 1000 and may not exceed 10 000. It used to return every
+                    policy in the tenant, unordered and uncapped.
+                    """
     )
     @ApiResponse(
             responseCode = "200",
-            description = "List of all Policy nodes.",
+            description = "The first `limit` policies, newest first.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = PolicyDataWrapper.class)
             )
     )
-    public ResponseEntity<DataWrapper<Policy>> listPolicies() {
-        List<Policy> policies = policyService.listAllPolicies();
+    @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+            ))
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> listPolicies(
+            @Parameter(description = "Maximum number of policies to return. A positive integer up to 10000.",
+                    example = "1000")
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        String rejection = ListingLimit.rejection(limit);
+        if (rejection != null) {
+            return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
+        }
+        List<Policy> policies = policyService.listAllPolicies(ListingLimit.resolve(limit));
 
         DataWrapper<Policy> wrapper = new DataWrapper<>();
         wrapper.getItems().addAll(policies);

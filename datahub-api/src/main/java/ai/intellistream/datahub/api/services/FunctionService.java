@@ -18,6 +18,7 @@ import ai.intellistream.datahub.repositories.node.FunctionRepository;
 import ai.intellistream.datahub.transformers.FunctionTransformer;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -104,12 +105,24 @@ public class FunctionService {
     }
 
     /**
-     * List all functions for the current tenant. No filtering for v1 — function inventory
-     * is expected to be small.
+     * The newest {@code limit} functions the caller may read. No criteria for v1 — function
+     * inventory is expected to be small.
+     *
+     * <p>Capped since it grew a {@code limit}: it used to return every row in the tenant, which is
+     * a response whose size the caller cannot bound and the server cannot predict. Small-by-design
+     * is not the same as small, and the two node types with no cap were the two nobody had
+     * revisited.
+     *
+     * <p>The cap is applied <em>after</em> the dataset ACL, not in the query. Truncating first
+     * would let a caller with narrow grants see fewer functions than they are entitled to while
+     * more readable ones sat past the cut — the ordering is by creation, not by grant. Filtering
+     * the whole (small) inventory and then taking the newest {@code limit} keeps "the newest N you
+     * may read" true.
      */
     @Transactional(readOnly = true)
-    public DataWrapper<Function> list() {
-        List<FunctionEntity> entities = functionRepository.findAll();
+    public DataWrapper<Function> list(int limit) {
+        List<FunctionEntity> entities =
+                functionRepository.findAll(Sort.by(Sort.Direction.DESC, "dateCreated"));
 
         // Narrow to what the caller may read, like every other node read. Create/update/delete get
         // their dataset ACL from the shared ResourceService pipeline, but list() queries the
@@ -121,6 +134,10 @@ public class FunctionService {
             entities = entities.stream()
                     .filter(e -> e.getDataSet() == null || readable.contains(e.getDataSet().getId()))
                     .toList();
+        }
+
+        if (entities.size() > limit) {
+            entities = entities.subList(0, limit);
         }
 
         var results = new DataWrapper<Function>();

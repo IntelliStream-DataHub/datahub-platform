@@ -47,6 +47,16 @@ public final class EventService {
     }
 
     /**
+     * GET /events — the first {@code limit} events, newest created first, with no criteria.
+     *
+     * <p>The cheap "what have I got" read that every collection answers. Anything narrower — real
+     * criteria, a different order, or a walk past the first page — is {@code filter}.
+     */
+    public DataWrapper<EventModel> list(int limit) {
+        return http.get("/events?limit=" + limit, eventWrapper);
+    }
+
+    /**
      * POST /events/filter — structured filtering. Criteria AND together; within a list field the
      * entries OR: {@code externalId}, {@code source}, {@code type}, {@code subType},
      * {@code status}, {@code dataSetId}, {@code relatedResources}, {@code metadata}, and the
