@@ -114,8 +114,12 @@ public class TenantSettingsService {
             errors.getError().addFieldError("model", "A model name is required.");
         }
 
-        // Three-valued: absent keeps what is stored, empty clears it, a value replaces it.
-        String apiKey = form.apiKey() == null ? keyOf(existing) : trimmed(form.apiKey());
+        // Absent and empty both mean "leave the stored credential alone"; only a value replaces
+        // it. Empty used to clear it, which made an untouched form field a destructive act — the
+        // field is rendered empty because the key is never sent back, so saving any other change
+        // would have wiped it.
+        String submittedKey = trimmed(form.apiKey());
+        String apiKey = submittedKey != null ? submittedKey : keyOf(existing);
         String baseUrl = trimmed(form.baseUrl());
 
         if (provider == LlmProvider.ANTHROPIC && apiKey == null) {

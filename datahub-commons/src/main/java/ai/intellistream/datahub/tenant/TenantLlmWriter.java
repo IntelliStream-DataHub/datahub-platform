@@ -60,17 +60,7 @@ public class TenantLlmWriter {
         String path = vault.secretName() + "/tenant-config/" + orgName;
 
         Existing existing = read(client, path);
-        Map<String, String> merged = new LinkedHashMap<>();
-        existing.data().forEach((key, value) -> {
-            if (!key.startsWith(LLM_PREFIX)) {
-                merged.put(key, value);
-            }
-        });
-        section.forEach((key, value) -> {
-            if (value != null && !value.isBlank()) {
-                merged.put(LLM_PREFIX + key, value);
-            }
-        });
+        Map<String, String> merged = merge(existing.data(), section);
 
         try {
             WriteOptions options = new WriteOptions();
@@ -94,6 +84,32 @@ public class TenantLlmWriter {
             throw new IllegalStateException("Could not write " + path + ": " + e.getMessage(), e);
         }
         log.info("Model configuration updated for tenant {} ({} llm keys)", orgName, section.size());
+    }
+
+    /**
+     * The secret to write: every key outside the {@code llm.} prefix as it was, plus this section
+     * under the prefix.
+     *
+     * <p>Package-private and static so the one part of this class with rules of its own can be
+     * tested without a Vault. Two of those rules are load-bearing. Keys outside the prefix are
+     * carried across untouched, or another section arriving later would be erased by someone saving
+     * their model settings. And a prefixed key the section does not carry is dropped rather than
+     * kept, so removing a setting removes it — which is also why the caller must pass through any
+     * value it means to preserve, the credential included.
+     */
+    static Map<String, String> merge(Map<String, String> existing, Map<String, String> section) {
+        Map<String, String> merged = new LinkedHashMap<>();
+        existing.forEach((key, value) -> {
+            if (!key.startsWith(LLM_PREFIX)) {
+                merged.put(key, value);
+            }
+        });
+        section.forEach((key, value) -> {
+            if (value != null && !value.isBlank()) {
+                merged.put(LLM_PREFIX + key, value);
+            }
+        });
+        return merged;
     }
 
     /**

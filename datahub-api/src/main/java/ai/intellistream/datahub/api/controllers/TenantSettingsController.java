@@ -73,9 +73,10 @@ public class TenantSettingsController {
 
     @Operation(summary = "Change your organization's model configuration",
             description = """
-                    Replaces the model configuration and returns it as stored. Omit `apiKey` to keep
-                    the stored credential, send it empty to remove it, or send a value to replace
-                    it — so a form showing a masked key can be saved without retyping it.
+                    Replaces the model configuration and returns it as stored. `apiKey` is the one
+                    exception: absent or empty leaves the stored credential untouched, and only a
+                    non-blank value replaces it. The credential is never returned, so a form renders
+                    that field empty and must be savable without retyping it.
 
                     Takes effect for this API immediately. Other services cache the tenant registry
                     and pick the change up within five minutes.

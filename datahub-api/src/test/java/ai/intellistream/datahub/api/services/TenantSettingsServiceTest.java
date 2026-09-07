@@ -96,34 +96,60 @@ class TenantSettingsServiceTest {
         assertThat(service.readLlm()).isEqualTo(TenantLlmSettings.none());
     }
 
+    /**
+     * The credential survives a save that does not mention it, whatever "does not mention it"
+     * looks like on the wire.
+     *
+     * <p>This is the property the whole three-way apiKey handling exists to protect, and the one
+     * that is silently destructive when it breaks. The key is never sent back to a client, so the
+     * field is rendered empty every time the form loads; if empty meant "clear", then changing the
+     * model — or the timeout, or anything else — would delete the credential as a side effect, and
+     * the only symptom would be an assistant that stopped answering.
+     */
     @Test
-    void anAbsentKeyKeepsTheStoredOne() {
-        // The form shows the key masked, so a save that does not retype it must not wipe it. This
-        // is the difference between "unchanged" and "cleared", and getting it backwards silently
-        // breaks the assistant for a tenant that only meant to change its model.
-        tenant.setLlm(anthropic("sk-ant-stored"));
+    void aSaveThatDoesNotSupplyAKeyLeavesTheStoredOneAlone() {
+        for (String submitted : new String[] {null, "", "   ", "\t"}) {
+            org.mockito.Mockito.reset(writer);
+            tenant.setLlm(anthropic("sk-ant-stored"));
 
-        service.updateLlm(new TenantLlmSettingsForm("anthropic", "claude-sonnet-5", null,
-                null, null, null, null, null, null, null));
+            service.updateLlm(new TenantLlmSettingsForm("anthropic", "claude-sonnet-5", submitted,
+                    null, null, null, null, null, null, null));
 
-        assertThat(written()).containsEntry("api-key", "sk-ant-stored")
-                .containsEntry("model", "claude-sonnet-5");
+            assertThat(written())
+                    .as("apiKey=%s must not disturb the stored credential", describe(submitted))
+                    .containsEntry("api-key", "sk-ant-stored")
+                    .containsEntry("model", "claude-sonnet-5");
+        }
     }
 
+    /** The same, for a provider whose key is optional — an absent key must not delete a stored one. */
     @Test
-    void anEmptyKeyClearsIt() {
-        tenant.setLlm(anthropic("sk-ant-stored"));
-
-        // Anthropic with no key is not usable, so clearing it is rejected — which is the point:
-        // the only way to end up with a broken configuration is to change provider too.
-        assertThatThrownBy(() -> service.updateLlm(new TenantLlmSettingsForm(
-                "anthropic", "claude-sonnet-5", "", null, null, null, null, null, null, null)))
-                .isInstanceOf(BadRequestException.class);
+    void anOptionalKeyIsAlsoLeftAloneWhenNotSupplied() {
+        TenantLlm onprem = new TenantLlm();
+        onprem.setProvider(LlmProvider.OPENAI_COMPATIBLE);
+        onprem.setModel("qwen3-32b");
+        onprem.setBaseUrl("http://vllm:8000/v1");
+        onprem.setApiKey("gateway-token");
+        tenant.setLlm(onprem);
 
         service.updateLlm(new TenantLlmSettingsForm("openai-compatible", "qwen3-32b", "",
                 "http://vllm:8000/v1", null, null, null, null, null, null));
 
-        assertThat(written().get("api-key")).isNull();
+        assertThat(written()).containsEntry("api-key", "gateway-token");
+    }
+
+    @Test
+    void aSuppliedKeyReplacesTheStoredOne() {
+        tenant.setLlm(anthropic("sk-ant-old"));
+
+        service.updateLlm(new TenantLlmSettingsForm("anthropic", "claude-opus-5", "  sk-ant-new  ",
+                null, null, null, null, null, null, null));
+
+        assertThat(written()).containsEntry("api-key", "sk-ant-new");
+    }
+
+    private static String describe(String value) {
+        return value == null ? "absent" : "\"" + value + "\"";
     }
 
     @Test
