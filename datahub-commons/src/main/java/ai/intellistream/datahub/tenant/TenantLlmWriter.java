@@ -73,9 +73,17 @@ public class TenantLlmWriter {
         });
 
         try {
-            client.logical().write(path, Map.copyOf(merged), null,
-                    new WriteOptions().checkAndSet(existing.version()).build());
+            WriteOptions options = new WriteOptions();
+            if (existing.version() != null) {
+                options = options.checkAndSet(existing.version());
+            }
+            client.logical().write(path, Map.copyOf(merged), null, options.build());
         } catch (VaultException e) {
+            if (e.getHttpStatusCode() == 403) {
+                throw new IllegalStateException("Vault refused the write to " + path
+                        + ". The AppRole policy needs create and update on this path"
+                        + " (KV v2 writes go to <mount>/data/...). (" + e.getMessage() + ")", e);
+            }
             if (e.getHttpStatusCode() == 400) {
                 // Vault answers 400, not 409, when a check-and-set fails. Saying "conflict" would
                 // be a guess — a genuinely malformed write lands here too — so name both.
@@ -91,17 +99,34 @@ public class TenantLlmWriter {
     /**
      * The secret as it stands, and the version to check against.
      *
-     * <p>Version 0 is Vault's "must not exist yet", which is the right check for a tenant being
-     * configured for the first time: if another writer creates it in between, this one fails
-     * rather than overwriting them.
+     * <p>Three states, and conflating any two of them breaks the write:
+     *
+     * <ul>
+     *   <li><b>0</b> — no secret here. In KV v2 {@code cas=0} means "only if this key does not
+     *       exist", which is exactly the check a first-time write wants: if another writer creates
+     *       it in between, this one fails rather than overwriting them.</li>
+     *   <li><b>a version</b> — the secret exists and this is what the merge was based on.</li>
+     *   <li><b>null</b> — it exists but the response carried no version. Then there is no check to
+     *       make, and the write goes without one. It must <em>not</em> fall back to 0, which asserts
+     *       the secret does not exist and so fails every single time against one that does.</li>
+     * </ul>
      */
     private Existing read(Vault client, String path) {
         try {
             LogicalResponse response = client.logical().read(path);
             Map<String, String> data = response.getData();
+            if (data == null || data.isEmpty()) {
+                // Vault answers 200 with an empty body for a soft-deleted secret, so this is
+                // "nothing here" rather than "unreadable".
+                return new Existing(Map.of(), 0L);
+            }
             var metadata = response.getDataMetadata();
-            long version = metadata == null || metadata.getVersion() == null ? 0L : metadata.getVersion();
-            return new Existing(data == null ? Map.of() : data, version);
+            Long version = metadata == null ? null : metadata.getVersion();
+            if (version == null) {
+                log.warn("No version in the Vault response for {}; writing without check-and-set,"
+                        + " so a concurrent edit could be overwritten", path);
+            }
+            return new Existing(data, version);
         } catch (VaultException e) {
             if (e.getHttpStatusCode() == 404) {
                 return new Existing(Map.of(), 0L);
@@ -111,6 +136,7 @@ public class TenantLlmWriter {
         }
     }
 
-    private record Existing(Map<String, String> data, long version) {
+    /** @param version null when the secret exists but its version is unknown — see {@link #read} */
+    private record Existing(Map<String, String> data, Long version) {
     }
 }
