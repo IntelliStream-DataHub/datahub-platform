@@ -59,12 +59,8 @@
 
 				<div class="settings-field" data-when-provider="anthropic">
 					<label for="apiKey" th:text="#{settings.ai.apikey}"></label>
-					<div class="settings-secret">
-						<input id="apiKey" name="apiKey" type="password" autocomplete="off"
-						       th:attr="placeholder=#{settings.ai.apikey.placeholder}"/>
-						<button type="button" class="dh-btn small" data-type="clear-api-key"
-						        th:text="#{settings.ai.apikey.clear}"></button>
-					</div>
+					<input id="apiKey" name="apiKey" type="password" autocomplete="off"
+					       th:attr="placeholder=#{settings.ai.apikey.placeholder}"/>
 					<p class="field-help" data-type="apikey-help" th:text="#{settings.ai.apikey.help}"></p>
 					<p class="field-error" data-error-for="apiKey" hidden></p>
 				</div>

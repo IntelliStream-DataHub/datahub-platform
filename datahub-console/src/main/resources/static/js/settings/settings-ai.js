@@ -24,13 +24,8 @@
 	var readOnlyBanner = document.querySelector('[data-type="settings-readonly"]');
 	var unconfiguredBanner = document.querySelector('[data-type="settings-unconfigured"]');
 	var apiKeyHelp = document.querySelector('[data-type="apikey-help"]');
-	var clearKeyButton = document.querySelector('[data-type="clear-api-key"]');
 	var saveButton = document.querySelector('[data-type="save"]');
 	var providerSelect = form.querySelector('[name="provider"]');
-
-	// Set when the user asks to remove the stored key, so the next save sends "" rather than
-	// omitting the field. Reset after a successful save.
-	var clearApiKey = false;
 
 	// Whether the server says a credential is stored. The key itself is never sent here, so this
 	// is the only way to know an empty key field still amounts to a configured provider.
@@ -107,9 +102,7 @@
 		if (!apiKeyHelp) {
 			return;
 		}
-		if (clearApiKey) {
-			apiKeyHelp.textContent = $L("settings.ai.apikey.cleared");
-		} else if (stored) {
+		if (stored) {
 			apiKeyHelp.textContent = $L("settings.ai.apikey.stored");
 		} else {
 			apiKeyHelp.textContent = $L("settings.ai.apikey.none");
@@ -127,7 +120,6 @@
 		setValue("turnTimeout", settings.turnTimeout);
 		setValue("instructions", settings.instructions);
 		setValue("apiKey", "");
-		clearApiKey = false;
 		apiKeyOnFile = settings.apiKeySet === true;
 		renderApiKeyHelp(settings.apiKeySet);
 		applyProviderVisibility();
@@ -153,7 +145,7 @@
 			return trimmedValue("baseUrl") !== null;
 		}
 		// Anthropic. An empty key field means the stored one is kept, so a key on file counts.
-		return trimmedValue("apiKey") !== null || (apiKeyOnFile && !clearApiKey);
+		return trimmedValue("apiKey") !== null || apiKeyOnFile;
 	}
 
 	function refreshUnconfiguredBanner() {
@@ -177,10 +169,10 @@
 		var typedKey = trimmedValue("apiKey");
 		if (typedKey !== null) {
 			body.apiKey = typedKey;
-		} else if (clearApiKey) {
-			body.apiKey = "";
 		}
-		// Otherwise apiKey is absent, which the API reads as "keep the stored one".
+		// Otherwise apiKey is absent, which the API reads as "keep the stored one". The form offers
+		// no way to send it empty, so a stored key can be replaced but not removed from here — the
+		// API still accepts an empty string, and switching provider is how you stop using one.
 		return body;
 	}
 
@@ -236,15 +228,6 @@
 		refreshUnconfiguredBanner();
 	});
 	form.addEventListener("input", refreshUnconfiguredBanner);
-
-	if (clearKeyButton) {
-		clearKeyButton.addEventListener("click", function () {
-			clearApiKey = true;
-			setValue("apiKey", "");
-			renderApiKeyHelp(false);
-			refreshUnconfiguredBanner();
-		});
-	}
 
 	// Permissions are per scope, keyed by scope name, with wildcard grants already resolved by the
 	// server. A caller with read but not write gets the form disabled rather than one that looks

@@ -118,20 +118,6 @@
 	font-size: 12px;
 }
 
-.settings-secret {
-	display: flex;
-	gap: var(--space);
-	align-items: center;
-}
-
-.settings-secret input {
-	flex: 1 1 auto;
-}
-
-.settings-secret .dh-btn {
-	flex: 0 0 auto;
-}
-
 .settings-actions {
 	display: flex;
 	align-items: center;
