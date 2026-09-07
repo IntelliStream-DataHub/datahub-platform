@@ -128,9 +128,8 @@ public class SubscriptionService {
         SubscriptionEntity saved = subscriptionRepository.save(entity);
         createPulsarSubscription(saved.getExternalId());
         publishNotifyMessage(EventAction.CREATE, saved);
-        log.info("Created subscription id={} externalId={} systemManaged={} bound to {} timeseries",
-                saved.getId(), saved.getExternalId(), saved.isSystemManaged(),
-                saved.getTimeseries().size());
+        log.info("Created subscription id={} externalId={} bound to {} timeseries",
+                saved.getId(), saved.getExternalId(), saved.getTimeseries().size());
         return saved;
     }
 
@@ -210,19 +209,6 @@ public class SubscriptionService {
             if (entity.getTimeseries() != null) {
                 entity.getTimeseries().forEach(dataSecurity::assertCanRead);
             }
-        }
-
-        // Reject system-managed subscriptions up front — their lifecycle is owned by the
-        // system, not the user, so they can't be deleted through this endpoint. No code
-        // currently provisions such subscriptions, so this is a defensive guard.
-        List<String> systemManaged = entities.stream()
-                .filter(SubscriptionEntity::isSystemManaged)
-                .map(SubscriptionEntity::getExternalId)
-                .collect(Collectors.toList());
-        if (!systemManaged.isEmpty()) {
-            throw badRequest(
-                    "Cannot delete system-managed subscription(s).",
-                    Map.of("externalIds", String.join(",", systemManaged)));
         }
 
         // Pre-flight: reject the whole batch if any Pulsar subscription still has clients

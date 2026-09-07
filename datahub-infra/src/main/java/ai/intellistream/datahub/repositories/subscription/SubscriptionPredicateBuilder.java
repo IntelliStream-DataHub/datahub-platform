@@ -62,11 +62,6 @@ public final class SubscriptionPredicateBuilder {
             SubscriptionFilter filter
     ) {
         List<Predicate> predicates = new ArrayList<>();
-        // Unconditional, and outside the null check so a null filter cannot widen it: a
-        // system-managed subscription is one the user does not own the lifecycle of, and this
-        // endpoint is the user-facing one. There is no opt-in — see SubscriptionFilter on why.
-        predicates.add(cb.isFalse(root.get("systemManaged")));
-
         if (filter == null) {
             return predicates;
         }

@@ -2,7 +2,6 @@
 package ai.intellistream.datahub.repositories.subscription;
 
 import ai.intellistream.datahub.jpa.domains.SubscriptionEntity;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,13 +17,6 @@ public interface SubscriptionRepository extends JpaRepository<SubscriptionEntity
     Optional<SubscriptionEntity> findByExternalIdHash(Long externalIdHash);
 
     Set<SubscriptionEntity> findAllByIdInOrExternalIdHashIn(Set<Long> ids, Set<Long> externalIdHashes);
-
-    /**
-     * Every user-managed subscription. The cleanup sweep's whole-table read — the filter endpoint
-     * asks its questions through {@link SubscriptionCustomRepo#filter} instead, which is where the
-     * pair of derived timeseries queries that used to sit alongside this one went.
-     */
-    List<SubscriptionEntity> findAllBySystemManagedFalse(Pageable pageable);
 
     @Query("SELECT DISTINCT s FROM SubscriptionEntity s JOIN s.timeseries t WHERE t.id IN :ids")
     List<SubscriptionEntity> findAllByTimeseriesIdIn(@Param("ids") Set<Long> timeseriesIds);

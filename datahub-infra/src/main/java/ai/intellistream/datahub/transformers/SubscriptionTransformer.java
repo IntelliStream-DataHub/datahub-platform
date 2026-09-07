@@ -20,7 +20,6 @@ public class SubscriptionTransformer {
         s.setId(entity.getId());
         s.setExternalId(entity.getExternalId());
         s.setName(entity.getName());
-        s.setSystemManaged(entity.isSystemManaged());
         s.setDateCreated(entity.getDateCreated());
         s.setLastUpdated(entity.getLastUpdated());
 

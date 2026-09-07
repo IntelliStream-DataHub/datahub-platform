@@ -33,14 +33,6 @@ import java.util.List;
  *
  * <p>Every supplied field is combined with AND; within a list field the entries OR together, and an
  * empty list places no restriction. Same rules as the rest of the family.
- *
- * <p>There is deliberately no {@code includeSystemManaged}. The {@code system_managed} column
- * exists, and the delete guard and the cleanup sweep both honour it, but nothing in the platform
- * ever sets it: {@code SubscriptionTransformer.toEntity} does not, no other code path builds a
- * {@code SubscriptionEntity}, and the column defaults to false. A knob selecting between "the rows"
- * and "the rows plus a set that cannot exist" is not worth a field in a public contract; the query
- * hides system-managed rows unconditionally, which is what every caller got in practice anyway.
- * Bring the field back when something provisions such a subscription.
  */
 @Schema(name = "Subscription Query Filter", description = "Subscription Query Filter Object")
 @Data

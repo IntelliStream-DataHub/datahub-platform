@@ -94,13 +94,6 @@ class SubscriptionFilterIT {
         return subscription(externalId, externalId, bound);
     }
 
-    private SubscriptionEntity systemManaged(String externalId, TimeseriesEntity... bound) {
-        SubscriptionEntity sub = subscription(externalId, bound);
-        sub.setSystemManaged(true);
-        em.flush();
-        return sub;
-    }
-
     /** {@code date_created} is a @CreationTimestamp, so it can only be pinned after the insert. */
     private void createdAt(SubscriptionEntity sub, OffsetDateTime when) {
         em.createNativeQuery("UPDATE subscription SET date_created = :when WHERE id = :id")
@@ -136,24 +129,13 @@ class SubscriptionFilterIT {
                 .containsExactlyInAnyOrder("fleet_dashboard", "plant_a_feed");
     }
 
-    /**
-     * There is no opt-in to see these, so the guard has to hold for every body — including the null
-     * one, which is why the predicate sits outside the null check rather than inside it.
-     */
     @Test
-    @DisplayName("A system-managed subscription is never returned, whatever the filter says")
-    void systemManagedRowsAreNeverReturned() {
+    @DisplayName("A null filter is treated as an empty one rather than throwing")
+    void nullFilterIsTreatedAsEmpty() {
         TimeseriesEntity ts = timeseries("sensor_temp_room_a");
         subscription("fleet_dashboard", ts);
-        systemManaged("fn_binding_7", ts);
 
         assertThat(filter(null)).containsExactly("fleet_dashboard");
-        assertThat(filter(new SubscriptionFilter())).containsExactly("fleet_dashboard");
-
-        // Not even when named outright.
-        SubscriptionFilter byName = new SubscriptionFilter();
-        byName.setExternalId(List.of("fn_binding_7"));
-        assertThat(filter(byName)).isEmpty();
     }
 
     @Test

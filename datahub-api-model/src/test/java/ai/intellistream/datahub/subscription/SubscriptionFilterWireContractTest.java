@@ -61,10 +61,6 @@ class SubscriptionFilterWireContractTest {
         assertEquals(List.of(Map.of("id", "29")), m.get("timeseries"));
         assertTrue(m.containsKey("createdTime"));
 
-        assertFalse(m.containsKey("includeSystemManaged"),
-                "nothing in the platform sets system_managed, so a knob to include those rows is a "
-                        + "field in a public contract selecting between the rows and the same rows");
-
         // Derived, not part of the request contract — they must not leak onto the wire.
         assertFalse(m.containsKey("externalIdHashes"), "derivation helper, @JsonIgnore'd");
         assertFalse(m.containsKey("externalIdPatterns"), "derivation helper, @JsonIgnore'd");
