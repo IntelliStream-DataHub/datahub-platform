@@ -55,17 +55,24 @@ public record NodeSort(String property, String attribute, boolean descending) {
      * Resolve a request's sort. An unrecognised property falls back to the default rather than
      * failing, matching how the rest of the filter treats what it does not recognise — so a
      * misspelling returns the default order, which is visibly not what was asked for.
+     *
+     * <p>Surrounding whitespace is not what makes a property unrecognised. {@code "createdTime "}
+     * is the same request as {@code "createdTime"}, and it used to sort a subscription query —
+     * {@code SubscriptionSort.resolve} trims — while defaulting a node one, a difference the caller
+     * cannot see in their own payload. This class already carried {@link #normaliseProperty} for
+     * {@link #isSortable}; the lookup here simply was not using it.
      */
     public static NodeSort resolve(DataSort sort) {
         if (sort == null || sort.getProperty() == null || sort.getProperty().isEmpty()) {
             return DEFAULT;
         }
         for (String property : sort.getProperty()) {
-            String attribute = SORTABLE.get(property);
+            String normalised = normaliseProperty(property);
+            String attribute = SORTABLE.get(normalised);
             if (attribute != null) {
                 // Anything that is not an explicit "desc" is ascending, so a malformed order
                 // degrades predictably instead of silently reversing the results.
-                return new NodeSort(property, attribute, "desc".equalsIgnoreCase(sort.getOrder()));
+                return new NodeSort(normalised, attribute, "desc".equalsIgnoreCase(sort.getOrder()));
             }
         }
         return DEFAULT;

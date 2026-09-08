@@ -55,6 +55,20 @@ class NodeSortResolutionTest {
         assertEquals("name", NodeSort.resolve(sortBy("asc", "'; DROP TABLE node; --", "name")).property());
     }
 
+    /**
+     * Surrounding whitespace does not make a property unrecognised, and the trimmed name is what
+     * the cursor is then minted under. {@code SubscriptionSort.resolve} trimmed from the start, so
+     * the same body sorted a subscription query and silently defaulted a node one.
+     */
+    @Test
+    void surroundingWhitespaceIsNotWhatMakesAPropertyUnrecognised() {
+        NodeSort resolved = NodeSort.resolve(sortBy("desc", " createdTime "));
+
+        assertEquals("createdTime", resolved.property());
+        assertEquals("dateCreated", resolved.attribute());
+        assertTrue(resolved.descending());
+    }
+
     @Test
     void everyWhitelistedPropertyMapsToAnEntityAttribute() {
         for (String property : List.of("id", "externalId", "name", "source", "description",
