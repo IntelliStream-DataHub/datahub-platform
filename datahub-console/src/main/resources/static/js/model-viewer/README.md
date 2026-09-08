@@ -45,6 +45,19 @@ other change made to any of them.
 Everything else (OBJ, STL, PLY, 3MF, glTF/GLB, FBX, DAE, OFF, WRL, AMF, 3DS) is parsed by the
 bundle with no extra request at all.
 
+## envmap/
+
+A cube map, six JPEGs, ~460 KB, taken from the `envmaps/fishermans_bastion` folder of the same
+release zip. It is not decoration.
+
+The viewer shades a model carrying PBR materials, which every CAD import does, with **Physical**
+shading: ambient light is set to zero and `scene.environment` becomes the only source. With no
+environment map that leaves almost nothing, and a converted plant model renders as barely visible
+dark shapes. Loading the map turns the same model into legible steel.
+
+It is passed with `backgroundIsEnvMap` false, so it lights the model without replacing the dialog's
+own background, and it loads only when a model is opened.
+
 ## Upgrading
 
 1. Take `o3dv.zip` from the new release and replace `o3dv.min.js`.
