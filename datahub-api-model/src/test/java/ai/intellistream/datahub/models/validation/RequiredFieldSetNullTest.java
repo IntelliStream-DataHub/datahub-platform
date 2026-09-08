@@ -112,13 +112,6 @@ class RequiredFieldSetNullTest {
         assertTrue(mentions(fields.getErrors(), "event.type.null.error"));
     }
 
-    @Test
-    void event_setNullOnExternalId_isRejected() {
-        EventFields fields = mapper.readValue("{\"externalId\": {\"setNull\": true}}", EventFields.class);
-        assertFalse(fields.validateFields());
-        assertTrue(mentions(fields.getErrors(), "event.external.id.null.error"));
-    }
-
     /**
      * Event time is no longer clearable because it is no longer settable: it cannot be changed after
      * creation at all — the ClickHouse events table is partitioned by it, so the mutation is refused
@@ -129,6 +122,17 @@ class RequiredFieldSetNullTest {
     void event_eventTimeIsNotPartOfTheUpdateContract() {
         assertFalse(propertyNamesOf(EventFields.class).contains("eventTime"),
                 "event time is immutable after creation, so it is not part of the update form");
+    }
+
+    /**
+     * The externalId went the same way as eventTime: it identifies the event rather than describes
+     * it (events sharing an externalId are one logical event's lifecycle in KVRocks), so it cannot
+     * be set or cleared. Absent from the form, a caller sending it gets a 400 naming the field.
+     */
+    @Test
+    void event_externalIdIsNotPartOfTheUpdateContract() {
+        assertFalse(propertyNamesOf(EventFields.class).contains("externalId"),
+                "an event's externalId is immutable, so it is not part of the update form");
     }
 
     private static java.util.List<String> propertyNamesOf(Class<?> type) {

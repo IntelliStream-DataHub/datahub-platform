@@ -92,16 +92,18 @@ class StrictJacksonJsonHttpMessageConverterTest {
     /**
      * The hint lists what the rejecting type actually accepts, which is how a caller spots their own
      * typo. Deliberately asserted against fields that exist today: {@code eventTime} was removed from
-     * the update form in #325 (an event's time is immutable), so naming it here would be asserting
-     * the hint offers a field the API would then reject.
+     * the update form in #325 (an event's time is immutable) and {@code externalId} went the same
+     * way (an event's identity is immutable), so naming either here would be asserting the hint
+     * offers a field the API would then reject.
      */
     @Test
     void theAllowedFieldsComeFromTheRejectingPosition() {
-        assertThat(rejectionFor(EventFields.class, "{\"externlaId\":1}").getUnknownFields())
+        assertThat(rejectionFor(EventFields.class, "{\"descriptoin\":1}").getUnknownFields())
                 .singleElement()
                 .extracting(UnknownField::allowed).asInstanceOf(
                         org.assertj.core.api.InstanceOfAssertFactories.collection(String.class))
-                .contains("externalId", "description", "metadata");
+                .contains("type", "description", "metadata")
+                .doesNotContain("externalId", "eventTime");
     }
 
     /** A nested offender is located by path, not by a bare name that could be either level. */
