@@ -98,8 +98,8 @@ Two things this exposed, both about presentation rather than data:
 
 ## Calling it from Java
 
-`datahub-rvm-converter` wraps this binary as `RvmConverter`, which is the piece the eventual
-conversion service is built around:
+`datahub-rvm-converter` wraps this binary as `RvmConverter`, the piece the service below is built
+around:
 
 ```java
 RvmConversion result = new RvmConverter(binary, Duration.ofMinutes(5))
@@ -133,3 +133,21 @@ token, works in-process and returns the result, called from the browser with COR
 Two things would reopen it, on their own merits rather than by analogy: wanting the GLB **stored**
 rather than recomputed per view, once models are large enough that 35 ms becomes 30 seconds, or
 **bulk conversion** of a whole model library, which is a batch tool and not the interactive path.
+
+## The service around it
+
+`datahub-rvm-converter` is the service, on the `datahub-analysis` shape: stateless, no database, an
+OAuth2 resource server validating the caller's own JWT and forwarding it to the api through the SDK,
+so the api's per-dataset ACLs decide what may be converted. Port 8083.
+
+```
+GET /models/gltf?rvm=<externalId>&attributes=<externalId>   ->  model/gltf-binary
+```
+
+`attributes` is the `.att` / `.txt` sidecar and is optional, but pass it whenever the upload had
+one: without it the geometry is identical and every node loses its tag, discipline and material.
+The caller names it rather than the service hunting for it, because the console already lists a
+model's folder to find its companions.
+
+Point `rvm.converter.binary` at the binary built here. It is statically linked, so the image needs
+nothing else to run it.
