@@ -102,22 +102,35 @@ public class FileController {
     }
 
     @RequestMapping(value = {"/download/{id}"}, method = {RequestMethod.HEAD, RequestMethod.GET})
-    public void download(@PathVariable String id, HttpServletResponse response) {
+    public void download(@PathVariable String id, HttpServletRequest req, HttpServletResponse response) {
 
         final String downloadUrl = datahubUrl + "/files/download/" + id;
         log.debug("Downloading file from: {}", downloadUrl);
 
         try(HttpClient client = HttpClient.newHttpClient()){
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder builder = HttpRequest.newBuilder()
                     .uri(URI.create(downloadUrl) )
                     .header("Authorization", accessTokens.bearer())
-                    .GET()
-                    .build();
+                    .GET();
+            // Conditional and ranged reads are the browser's to make, so pass them through. Each is
+            // pattern-checked first: the JDK client rejects a header value outright rather than
+            // sending it, which would turn a hostile request header into a 500.
+            forwardHeader(req, builder, HttpHeaders.RANGE, RANGE_REQUEST_PATTERN);
+            forwardHeader(req, builder, HttpHeaders.IF_RANGE, ETAG_PATTERN);
+            forwardHeader(req, builder, HttpHeaders.IF_NONE_MATCH, ETAG_PATTERN);
+            HttpRequest request = builder.build();
             HttpResponse<InputStream> httpResponse = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-            if (httpResponse.statusCode() == 200) {
-                Map<String, List<String>> headers = httpResponse.headers().map();
+            Map<String, List<String>> headers = httpResponse.headers().map();
+            copyValidatedHeader(headers, response, HttpHeaders.ETAG, ETAG_PATTERN);
+            copyValidatedHeader(headers, response, HttpHeaders.CONTENT_RANGE, CONTENT_RANGE_PATTERN);
+            if (headers.getOrDefault(HttpHeaders.ACCEPT_RANGES, List.of()).contains("bytes")) {
+                response.setHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
+            }
 
+            // 206 carries a body exactly like 200 does; 304 and 416 carry none, and fall through to
+            // the status-only branch below.
+            if (httpResponse.statusCode() == 200 || httpResponse.statusCode() == 206) {
                 String filename = headers.getOrDefault("Content-Disposition", List.of()).stream()
                         .findFirst()
                         .map(FileController::extractUpstreamFilename)
@@ -134,6 +147,7 @@ public class FileController {
                 ContentDisposition disposition = ContentDisposition.attachment()
                         .filename(filename, StandardCharsets.UTF_8)
                         .build();
+                response.setStatus(httpResponse.statusCode());
                 response.setContentType(contentType);
                 response.setHeader(HttpHeaders.CONTENT_DISPOSITION, disposition.toString());
 
@@ -207,6 +221,35 @@ public class FileController {
             }
         }
         return false;
+    }
+
+    private static final Pattern RANGE_REQUEST_PATTERN =
+            Pattern.compile("bytes=\\d*-\\d*(\\s*,\\s*\\d*-\\d*)*");
+
+    /** An etag list, or the bare "*" that If-None-Match allows. Excludes CTLs, so no CR/LF. */
+    private static final Pattern ETAG_PATTERN =
+            Pattern.compile("\\*|(W/)?\"[!#-~]{0,256}\"(\\s*,\\s*(W/)?\"[!#-~]{0,256}\")*");
+
+    private static final Pattern CONTENT_RANGE_PATTERN =
+            Pattern.compile("bytes (\\d+-\\d+|\\*)/(\\d+|\\*)");
+
+    /** Pass a request header upstream only when it matches {@code pattern}; drop it otherwise. */
+    private static void forwardHeader(HttpServletRequest req, HttpRequest.Builder builder,
+                                      String name, Pattern pattern) {
+        String value = req.getHeader(name);
+        if (value != null && pattern.matcher(value).matches()) {
+            builder.header(name, value);
+        }
+    }
+
+    /** Copy a response header down only when it matches {@code pattern}; drop it otherwise. */
+    private static void copyValidatedHeader(Map<String, List<String>> upstream,
+                                            HttpServletResponse response,
+                                            String name, Pattern pattern) {
+        upstream.getOrDefault(name, List.of()).stream()
+                .findFirst()
+                .filter(v -> pattern.matcher(v).matches())
+                .ifPresent(v -> response.setHeader(name, v));
     }
 
     /** RFC 7230 defines a content-type token as a tightly restricted character set. */

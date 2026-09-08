@@ -37,6 +37,8 @@ import ai.intellistream.datahub.helpers.checksum.ChecksumFactory;
 import ai.intellistream.datahub.helpers.checksum.FileChecksum;
 import net.openhft.hashing.LongHashFunction;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpRange;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -593,7 +595,7 @@ public class FileController {
             value = { "/download/{id}"},
             method = RequestMethod.GET,
             produces = { "application/octet-stream" })
-    public ResponseEntity<?> download(HttpServletResponse res, @Parameter(description = "Numeric id of the file to download.", example = "5677892") @PathVariable Optional<String> id){
+    public ResponseEntity<?> download(HttpServletRequest req, HttpServletResponse res, @Parameter(description = "Numeric id of the file to download.", example = "5677892") @PathVariable Optional<String> id){
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
@@ -604,7 +606,7 @@ public class FileController {
                 inode = findIndexNode(id.get(), inode);
                 if (inode.isPresent()) {
                     String filesystemPath = filesConfig.getRoot().toString();
-                    return doFileDownload(res, filesystemPath, inode.get());
+                    return doFileDownload(req, res, filesystemPath, inode.get());
                 } else {
                     return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
                 }
@@ -616,6 +618,7 @@ public class FileController {
     }
 
     private static ResponseEntity<?> doFileDownload(
+            HttpServletRequest req,
             HttpServletResponse res,
             String filesystemPath,
             @NotNull INodeDownload inode
@@ -624,13 +627,23 @@ public class FileController {
                 .toAbsolutePath()
                 .normalize();
 
+        // The stored SHA-256 doubles as a strong validator: content is written once at a path and
+        // never mutated in place, so a different body always means a different etag.
+        final String etag = entityTag(inode);
+        if (etag != null) {
+            res.setHeader(HttpHeaders.ETAG, etag);
+            if (etag.equals(req.getHeader(HttpHeaders.IF_NONE_MATCH))) {
+                res.setStatus(HttpStatus.NOT_MODIFIED.value());
+                return null;
+            }
+        }
+
         // Only the input file is ours to close. The servlet output stream is owned by the
         // container; closing it here throws AsyncRequestNotUsableException once the client has
         // aborted the download, so we leave it for the container to close.
         try (FileChannel inputChannel = FileChannel.open(sourcePath, StandardOpenOption.READ)) {
             res.setHeader("Content-Disposition",
                     "attachment; filename=\"" + inode.getName() + "\"");
-            res.setContentLengthLong(inode.getSize());
 
             String mimeType = inode.getMimeType();
             if (mimeType == null || mimeType.isBlank() ||
@@ -639,9 +652,40 @@ public class FileController {
             }
             res.setContentType(mimeType);
 
+            final long size = inputChannel.size();
+            res.setHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
+
+            long start = 0;
+            long length = size;
+            HttpRange range = singleRange(req, etag);
+            if (range != null) {
+                if (size == 0 || range.getRangeStart(size) >= size) {
+                    res.setHeader(HttpHeaders.CONTENT_RANGE, "bytes */" + size);
+                    res.setStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE.value());
+                    return null;
+                }
+                start = range.getRangeStart(size);
+                length = range.getRangeEnd(size) - start + 1;
+                res.setStatus(HttpStatus.PARTIAL_CONTENT.value());
+                res.setHeader(HttpHeaders.CONTENT_RANGE,
+                        "bytes " + start + "-" + (start + length - 1) + "/" + size);
+            }
+            res.setContentLengthLong(length);
+
             WritableByteChannel outputChannel = Channels.newChannel(res.getOutputStream());
-            inputChannel.transferTo(0, inputChannel.size(), outputChannel);
-            return new ResponseEntity<>(HttpStatus.OK);
+            // transferTo is contractually allowed to move fewer bytes than asked for, so loop
+            // rather than trust one call to finish.
+            long position = start;
+            long remaining = length;
+            while (remaining > 0) {
+                long transferred = inputChannel.transferTo(position, remaining, outputChannel);
+                if (transferred <= 0) {
+                    break;
+                }
+                position += transferred;
+                remaining -= transferred;
+            }
+            return range != null ? null : new ResponseEntity<>(HttpStatus.OK);
         } catch (IOException e) {
             if (isClientAbort(e)) {
                 // The client cancelled or disconnected mid-download. Normal, not a server error;
@@ -655,6 +699,41 @@ public class FileController {
                     HttpStatus.INTERNAL_SERVER_ERROR
             );
         }
+    }
+
+    /**
+     * The single byte range the caller asked for, or null to serve the whole file.
+     *
+     * <p>Null covers every case where the request is not a plain single-range read: no header, a
+     * malformed one (RFC 9110 says ignore rather than reject), a unit other than bytes, several
+     * ranges at once (multipart/byteranges is optional and nothing we serve needs it), and an
+     * If-Range that no longer matches, which means the client is resuming against a file that has
+     * changed and would otherwise splice two different bodies together.
+     */
+    private static HttpRange singleRange(HttpServletRequest req, String etag) {
+        String header = req.getHeader(HttpHeaders.RANGE);
+        if (header == null || header.isBlank()) {
+            return null;
+        }
+        String ifRange = req.getHeader(HttpHeaders.IF_RANGE);
+        if (ifRange != null && !ifRange.equals(etag)) {
+            return null;
+        }
+        try {
+            List<HttpRange> ranges = HttpRange.parseRanges(header);
+            return ranges.size() == 1 ? ranges.getFirst() : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Strong entity tag from the stored SHA-256, or null for a row that has no checksum. */
+    private static String entityTag(INodeDownload inode) {
+        byte[] checksum = inode.getChecksum();
+        if (checksum == null || checksum.length == 0) {
+            return null;
+        }
+        return "\"" + HexFormat.of().formatHex(checksum) + "\"";
     }
 
     /**
