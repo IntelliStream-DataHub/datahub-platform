@@ -67,6 +67,11 @@ public class SubscriptionFilter {
     /**
      * Subscriptions bound to any of these timeseries. A subscription is bound to several, so this
      * asks "streams at least one of them" — the OR the rest of the list fields use.
+     *
+     * <p>{@link SingleOrList}, like the other two collections of references in the family
+     * ({@code EventFilter.relatedResources}, {@code DataSetScopedFilter.dataSetId}). Without it the
+     * bare form those two accept — {@code "timeseries": {"externalId": "heater_2012_temp"}} — was a
+     * 400 here and nowhere else.
      */
     @Schema(
             description = "Return only subscriptions bound to any of these timeseries. Each entry can specify " +
@@ -74,6 +79,7 @@ public class SubscriptionFilter {
             example = "[{\"id\": 29}, {\"externalId\": \"heater_2012_temp\"}]"
     )
     @Size(max = 1000)
+    @SingleOrList
     private Collection<IdCollection> timeseries = new ArrayList<>();
 
     private TimeFilter createdTime;
