@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse;
 
+import ai.intellistream.datahub.clickhouse.filter.EventFilterRenderer;
+import ai.intellistream.datahub.filter.EventFilterParser;
+import ai.intellistream.datahub.filter.Predicate;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
@@ -770,9 +773,14 @@ public class ClickHouseEventService extends ClickHouseService {
                 }
             }
 
-            AdvancedFilter advancedFilter = retreiver.getAdvancedFilter();
-            if(advancedFilter != null){
-                buildAdvancedFilter(criterias, params, advancedFilter, null);
+            // The advanced filter is parsed into a tree and rendered as one parameterised term,
+            // which then joins the basic criteria as an ordinary AND. It cannot introduce boolean
+            // structure at the WHERE root, so it cannot reach the dataset ACL's precedence.
+            Predicate advanced = EventFilterParser.parse(retreiver.getAdvancedFilter());
+            if (advanced != null) {
+                String sql = new EventFilterRenderer(params, retreiver.getAdvancedFilter())
+                        .render(advanced);
+                criterias.add(new SqlField("advancedFilter", null, sql));
             }
 
             int limit = retreiver.getLimit();
@@ -1230,147 +1238,38 @@ public class ClickHouseEventService extends ClickHouseService {
     /**
      * Assemble the WHERE clause: the caller's criteria, then the dataset ACL conjoined on top.
      *
-     * <p>Package-private so the ASSEMBLED clause can be asserted directly. The fragment-level
-     * tests could not see the defect this method exists to prevent: the ACL has to bind more
-     * tightly than any boolean structure the caller supplied, and in SQL that is a question about
-     * parentheses, not about the order the strings were appended in.
+     * <p>Every criterion is now a self-contained boolean term, including the advanced filter — the
+     * expression language renders a whole tree as one parenthesised string. So this joins with AND
+     * and nothing else, the way {@link #search} always did. The state machine that used to live
+     * here emitted {@code WHERE}, {@code AND} and {@code OR} as it walked a flat list, and a
+     * top-level {@code OR} in that list ended up at the same precedence as the ACL appended after
+     * it — which meant the first disjunct was returned with no dataset restriction. There is no
+     * longer a shape that can express that.
+     *
+     * <p>Package-private so the assembled clause can be asserted directly; the fragment-level
+     * tests that preceded it could not see a precedence defect at all.
      *
      * @param aclCondition the dataset restriction, or null when the caller may read everything
      */
     String renderWhere(List<SqlField> criterias, String aclCondition) {
-        // The body is assembled WITHOUT the WHERE keyword, so what comes out is a self-contained
-        // boolean expression that can be wrapped as one term below. Emitting "WHERE" from inside
-        // the loop is what used to leave a top-level OR at the same precedence as the ACL.
-        StringBuilder strBuilder = new StringBuilder();
-        String STRJOIN = "";
+        List<String> terms = new ArrayList<>(criterias.size());
         for (SqlField criteria : criterias) {
-            if (criteria.sqlOperation() != null) {
-                var op = criteria.sqlOperation();
-                if (op.equals(SQLOperation.START_LIST)) {
-                    // If it is an OR critera, do not start with AND
-                    if (!criteria.sql().equals(" OR (")) {
-                        strBuilder.append(" ").append(STRJOIN).append(" ");
-                    } else {
-                        // Opening an OR group with nothing in front of it: the " OR (" fragment
-                        // would dangle, so emit just the group opener. END_LIST closes it.
-                        if (strBuilder.isEmpty()) {
-                            strBuilder.append("(");
-                            STRJOIN = "";
-                            continue;
-                        }
-                    }
-                    STRJOIN = "";
-                } else if (op.equals(SQLOperation.END_LIST)) {
-                    STRJOIN = "AND";
-                } else if (op.equals(SQLOperation.AND_LIST)) {
-                    strBuilder.append(" ").append(STRJOIN).append(" ");
-                    STRJOIN = "AND";
-                } else if (op.equals(SQLOperation.OR_LIST)) {
-                    strBuilder.append(" ").append(STRJOIN).append(" ");
-                    STRJOIN = "OR";
-                }
-                strBuilder.append(criteria.sql());
-
-            } else {
-                strBuilder.append(" ").append(STRJOIN).append(" ");
-                strBuilder.append(criteria.sql());
-                STRJOIN = "AND";
+            String sql = criteria.sql() == null ? "" : criteria.sql().trim();
+            if (!sql.isEmpty()) {
+                terms.add(sql);
             }
         }
-
-        // One parenthesised term for everything the caller asked for, then the ACL conjoined
-        // around it. Without the parentheses a top-level OR in the body would bind looser than
-        // this AND, and every row matching its first disjunct would come back unrestricted.
-        String body = strBuilder.toString().trim();
-        if (body.isEmpty()) {
+        if (terms.isEmpty()) {
             return aclCondition == null ? "" : " WHERE " + aclCondition;
         }
-        String clause = " WHERE (" + body + ")";
+        // The caller's filter is one parenthesised term and the ACL is conjoined around it, so no
+        // structure a caller can write reaches the ACL's precedence.
+        String clause = " WHERE (" + String.join(" AND ", terms) + ")";
         if (aclCondition != null) {
             clause += " AND " + aclCondition;
         }
         return clause;
     }
-
-    // Package-private for direct unit testing of the generated placeholder syntax.
-    void buildAdvancedFilter(
-            List<SqlField> criterias,
-            Map<String, Object> params,
-            AdvancedFilter advancedFilter,
-            SQLOperation andOr
-    ) {
-        if(advancedFilter.getOr() != null && !advancedFilter.getOr().isEmpty()){
-
-            //
-            criterias.add( new SqlField(null, null, " OR (", SQLOperation.START_LIST));
-            for(AdvancedFilter f : advancedFilter.getOr()){
-                buildAdvancedFilter(criterias, params, f, SQLOperation.OR_LIST);
-            }
-            criterias.add( new SqlField(null, null, ")", SQLOperation.END_LIST));
-
-        } else if (advancedFilter.getAnd() != null && !advancedFilter.getAnd().isEmpty()){
-
-            criterias.add( new SqlField(null, null, "(", SQLOperation.START_LIST));
-            for(AdvancedFilter f : advancedFilter.getAnd()){
-                buildAdvancedFilter(criterias, params, f, SQLOperation.AND_LIST);
-            }
-            criterias.add( new SqlField(null, null, ")", SQLOperation.END_LIST));
-
-        } else if (advancedFilter.getNot() != null){
-            var notFilter = advancedFilter.getNot();
-            AdvancedFilterOperator advancedFilterOperator = notFilter.getFilterOperator();
-
-            var propertyName = advancedFilterOperator.getProperty().getFirst();
-            var snakeCasedProperty = TextValidator.toSnakeLowerCased(propertyName);
-
-            Operator currentOperator = advancedFilterOperator.getOperator();
-            var propertyWithId = propertyName + IdGenerator.getRandomId();
-            // Pass andOr through (4-arg SqlField), like the plain leaf below: a `not` inside an
-            // and/or list must join with that list's operator, not the WHERE-builder's default AND.
-            if(currentOperator == Operator.in){
-                // `in` carries its payload in `values`, bound as an array — mirroring the plain leaf.
-                criterias.add( new SqlField(snakeCasedProperty, advancedFilterOperator.getValues(),
-                        String.format("NOT e.%s IN {%s:Array(String)}", snakeCasedProperty, propertyWithId),
-                        andOr));
-                params.put(propertyWithId, advancedFilterOperator.getValues());
-            } else {
-                var propertyValue = advancedFilterOperator.getValue();
-                if(currentOperator == Operator.prefix){
-                    propertyValue += "%";
-                }
-                criterias.add( new SqlField(snakeCasedProperty, propertyValue,
-                        String.format("NOT e.%s %s {%s:String}", snakeCasedProperty, currentOperator.getSymbol(), propertyWithId),
-                        andOr));
-                params.put(propertyWithId, propertyValue);
-            }
-        } else {
-            AdvancedFilterOperator advancedFilterOperator = advancedFilter.getFilterOperator();
-            var propertyName = advancedFilterOperator.getProperty().getFirst();
-            var snakeCasedProperty = TextValidator.toSnakeLowerCased(propertyName);
-
-            var propertyValue = advancedFilterOperator.getValue();
-
-            Operator currentOperator = advancedFilterOperator.getOperator();
-            var propertyWithId = propertyName + IdGenerator.getRandomId();
-            String query = String.format("e.%s %s {%s:String}", snakeCasedProperty, currentOperator.getSymbol(), propertyWithId);
-            if(currentOperator == Operator.prefix){
-                propertyValue += "%";
-                query = String.format("e.%s %s {%s:String}", snakeCasedProperty, currentOperator.getSymbol(), propertyWithId);
-                criterias.add( new SqlField(snakeCasedProperty, propertyValue, query, andOr) );
-                params.put(propertyWithId, propertyValue);
-            }
-            else if(currentOperator == Operator.in){
-                query = String.format("e.%s IN {%s:Array(String)}", snakeCasedProperty, propertyWithId);
-                criterias.add( new SqlField(snakeCasedProperty, propertyValue, query, andOr) );
-                params.put(propertyWithId, advancedFilterOperator.getValues());
-            } else {
-                criterias.add( new SqlField(snakeCasedProperty, propertyValue, query, andOr) );
-                params.put(propertyWithId, propertyValue);
-            }
-
-        }
-    }
-
     public long count() {
         AtomicLong count = new AtomicLong();
         String query = "SELECT count(1) as count FROM events";

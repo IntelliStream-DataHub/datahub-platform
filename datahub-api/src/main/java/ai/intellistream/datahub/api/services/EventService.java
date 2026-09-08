@@ -13,8 +13,6 @@ import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalId;
 import ai.intellistream.datahub.models.*;
-import ai.intellistream.datahub.models.events.AdvancedFilter;
-import ai.intellistream.datahub.models.events.AdvancedFilterOperator;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.models.paging.PageCursor;
@@ -140,7 +138,6 @@ public class EventService {
         DataWrapper<EventModel> data = new DataWrapper<>();
         ClickHouseEventService.EventSortSpec sort = ClickHouseEventService.resolveSort(retreiver.getSort());
         assertCursorIsUsable(retreiver.getCursor(), sort);
-        assertAdvancedFilterIsUsable(retreiver.getAdvancedFilter());
 
         resolveDataSetIds(retreiver.getFilter());
         // Use Clickhouse for filtering, narrowed in SQL to the caller's readable datasets.
@@ -148,81 +145,6 @@ public class EventService {
         data.setItems(events);
         data.setNextCursor(nextCursor(events, retreiver.getLimit(), sort));
         return data;
-    }
-
-    /**
-     * The properties an advanced filter may name. Mirrors {@code AdvancedEventFilter}'s own list,
-     * which is unreachable from here: {@code isValidProperty} is protected on the nested
-     * {@code AdvancedFilter} children, and the tree is built from those rather than from the root
-     * type.
-     */
-    private static final Set<String> ADVANCED_FILTER_PROPERTIES =
-            Set.of("id", "externalId", "type", "subType", "source", "dataSetId", "metadata");
-
-    /**
-     * Reject an advanced filter the query builder cannot render, before it reaches ClickHouse.
-     *
-     * <p>Two failures were reaching callers as a 500 rather than a 400. An unknown property was
-     * snake-cased straight into the SQL and came back as a ClickHouse "no such column"; and a leaf
-     * carrying an operator the builder has no binding for — {@code containsAll}, {@code containsAny}
-     * and {@code exists} are declared in {@code Operator} but have no {@code @JsonProperty} setter,
-     * and the Rust SDK additionally offers {@code range}, {@code isSet}, {@code containsAny} and
-     * {@code containsAll} — deserialises with a null {@code filterOperator} and NPEs in
-     * {@code buildAdvancedFilter}.
-     *
-     * <p>{@code AdvancedEventFilter.validate()} was meant to cover the first of these. It was never
-     * called, and would not have worked if it had been: it inspects {@code filter.getProperty()},
-     * while a leaf built from JSON carries its property on {@code filterOperator.getProperty()}.
-     */
-    static void assertAdvancedFilterIsUsable(AdvancedFilter filter) {
-        if (filter == null) {
-            return;
-        }
-        List<String> problems = new ArrayList<>();
-        collectAdvancedFilterProblems(filter, problems);
-        if (problems.isEmpty()) {
-            return;
-        }
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        var error = new BadRequestError();
-        error.setMessage("The advanced filter cannot be applied. Filterable properties are "
-                + String.join(", ", new TreeSet<>(ADVANCED_FILTER_PROPERTIES))
-                + "; supported operators are equals, prefix and in.");
-        problems.forEach(p -> error.addFieldError("advancedFilter", p));
-        errors.setError(error);
-        throw new BadRequestException(errors);
-    }
-
-    private static void collectAdvancedFilterProblems(AdvancedFilter filter, List<String> problems) {
-        if (filter.getOr() != null && !filter.getOr().isEmpty()) {
-            filter.getOr().forEach(child -> collectAdvancedFilterProblems(child, problems));
-            return;
-        }
-        if (filter.getAnd() != null && !filter.getAnd().isEmpty()) {
-            filter.getAnd().forEach(child -> collectAdvancedFilterProblems(child, problems));
-            return;
-        }
-        if (filter.getNot() != null) {
-            collectAdvancedFilterProblems(filter.getNot(), problems);
-            return;
-        }
-        // A leaf. Everything the builder needs hangs off filterOperator, so a null one is a shape
-        // it cannot render at all rather than a property it does not recognise.
-        AdvancedFilterOperator operator = filter.getFilterOperator();
-        if (operator == null) {
-            problems.add("a leaf with no supported operator; use equals, prefix or in");
-            return;
-        }
-        List<String> property = operator.getProperty();
-        if (property == null || property.isEmpty() || property.getFirst() == null
-                || property.getFirst().isBlank()) {
-            problems.add("a leaf with no property");
-            return;
-        }
-        String name = property.getFirst();
-        if (!ADVANCED_FILTER_PROPERTIES.contains(name)) {
-            problems.add("unknown property '" + name + "'");
-        }
     }
 
     /**
@@ -311,7 +233,6 @@ public class EventService {
      * caller's readable datasets, like {@link #filter}.
      */
     public EventQueryResult queryEvents(EventRetreiver retreiver, String groupBy) {
-        assertAdvancedFilterIsUsable(retreiver.getAdvancedFilter());
         resolveDataSetIds(retreiver.getFilter());
         Collection<Long> acl = readAclOrNull();
         EventQueryResult result = new EventQueryResult();
