@@ -122,12 +122,22 @@
 			+ '</div>'
 			+ '<div class="btns flex-end mtop20">'
 			+ '<button type="button" class="dh-btn secondary" data-act="close"><span></span></button>'
+			+ '<button type="button" class="dh-btn primary" data-act="view3d" hidden><i class="fa fa-fw fa-cube"></i> <span></span></button>'
 			+ '<a class="dh-btn primary" data-act="download"><i class="fa fa-fw fa-download"></i> <span></span></a>'
 			+ '</div></div>';
 		document.body.appendChild(overlay);
 
 		overlay.querySelector('h2 span').textContent = $L('file.information');
 		overlay.querySelector('[data-act="close"] span').textContent = $L('close');
+
+		const view3d = overlay.querySelector('[data-act="view3d"]');
+		if (n.type === 'FILE' && window.ModelViewer.isModel(n.name)) {
+			view3d.querySelector('span').textContent = $L('model.view.3d');
+			view3d.hidden = false;
+			view3d.addEventListener('click', () => window.ModelViewer.open(n));
+		} else {
+			view3d.remove();
+		}
 
 		// Image files get an inline preview at the top. mimeType is sometimes null in the index, so
 		// fall back to the filename extension. The <img> streams via the same authenticated download
