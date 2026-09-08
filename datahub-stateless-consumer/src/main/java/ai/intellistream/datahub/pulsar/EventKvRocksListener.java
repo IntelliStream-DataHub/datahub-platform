@@ -5,8 +5,6 @@ import ai.intellistream.datahub.clickhouse.ClickHouseEventService;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.dto.UUIDAndBigIntHash;
 import ai.intellistream.datahub.models.EventModel;
-import ai.intellistream.datahub.models.UpdateEventForm;
-import ai.intellistream.datahub.models.validation.EventFields;
 import ai.intellistream.datahub.services.KVRocksService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -29,50 +27,20 @@ public class EventKvRocksListener {
     /**
      * Apply one event-CUD message to KVRocks. Throws on failure so the {@link PulsarReceiveLoop}
      * retries it in place rather than acking a half-applied change.
+     *
+     * <p>No UPDATE case: KVRocks only holds the externalId→UUIDs mapping, and an event's
+     * externalId is immutable (absent from {@code EventFields}), so an update never changes
+     * anything stored here. CREATE is written synchronously by the api ({@code saveEvents}),
+     * which leaves DELETE as the one action with consumer-side KVRocks work.
      */
     public void process(EventCudMessage message) throws Exception {
         switch (message.getEventObject()){
             case EVENT -> {
                 switch (message.getEventAction()){
-                    case UPDATE -> updateExternalId(message);
                     case DELETE -> delete(message);
                 }
             }
         }
-    }
-
-    private void updateExternalId(EventCudMessage message) throws Exception{
-        // Keys that should be renamed from(key) -> to(value)
-        Map<byte[], byte[]> renameKeys = new HashMap<>();
-
-        // Go through each event found and map new values
-        for(EventModel em : message.getEvents()){
-            Optional<UpdateEventForm> foundUpdateForm =
-                    message.getUpdateEvents().stream()
-                            .filter( it -> it.getId().equals( UUID.fromString(em.getId()) ) )
-                            .findFirst();
-            if(foundUpdateForm.isPresent()){
-                UpdateEventForm updateForm = foundUpdateForm.get();
-                if(updateForm.getUpdate() != null){
-                    EventFields fields = updateForm.getUpdate();
-                    // Update externalId
-                    if(fields.getExternalId().getSet() != null){
-                        var t = message.getTenantId();
-                        String newExternalId = fields.getExternalId().getSet();
-                        log.debug("Rename key {} to {}", updateForm.getExternalId(), newExternalId);
-                        var extIdBArr = externalIdToByteArray(updateForm.getExternalId(), t);
-                        var newExtIdBArr = externalIdToByteArray(newExternalId, t);
-                        renameKeys.put(extIdBArr, newExtIdBArr);
-                    }
-                }
-            }
-        }
-
-        kvRocksService.updateKeys(renameKeys, message.getTenantId());
-    }
-
-    private byte[] externalIdToByteArray(String id, String tenant){
-        return IdGenerator.generate128bitKey(id, tenant).toByteArray();
     }
 
     private void delete(EventCudMessage message) throws Exception{

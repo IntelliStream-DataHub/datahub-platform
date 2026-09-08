@@ -26,7 +26,7 @@ header comments and an SELinux note; keep them in sync if you change one.
 
 | Host | Upstream | Notes |
 |---|---|---|
-| `api.example.org` | `api1`, `api2` :8081 | `/timeseries/datapoints/` is upgraded to WebSocket with hour-long timeouts; `/files` streams raw PUT uploads and downloads with no body cap and no buffering; everything else is buffered REST with a 64 MB body cap |
+| `api.example.org` | `api1`, `api2` :8081 | `/timeseries/datapoints/` is upgraded to WebSocket with hour-long timeouts; `/files`, `/resources/import` and `/resources/export/` stream uploads and downloads with no body cap and no buffering; everything else is buffered REST with a 20 MB body cap |
 | `console.example.org` | `console1`, `console2` :8080 | forwards `X-Forwarded-Proto/Host/Port` so the console's OAuth2 redirect URI comes out with the public scheme and host |
 
 Neither host needs session affinity, see the root `README.md`, "Deployment & Scaling".

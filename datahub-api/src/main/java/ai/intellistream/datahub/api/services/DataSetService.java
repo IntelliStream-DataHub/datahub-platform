@@ -207,12 +207,12 @@ public class DataSetService {
     @Transactional(readOnly = true)
     public DataWrapper<DataSetModel> filter(DataSetRetreiver form) {
         NodeSort sort = NodeSort.resolve(form.getSort());
-        PageCursor cursor = NodePaging.validated(form.getCursor(), sort);
+        PageCursor cursor = FilterPaging.validated(form.getCursor(), sort);
 
         List<DatasetEntity> results = dataSetRepository.filter(form.getFilter(), form.getLimit(), sort, cursor);
         var data = new DataWrapper<DataSetModel>();
         data.setItems(DataSetTransformer.toDataSetModel(ResourceTransformer.from(results)));
-        data.setNextCursor(NodePaging.nextCursor(results, form.getLimit(), sort));
+        data.setNextCursor(FilterPaging.nextCursor(results, form.getLimit(), sort));
         return data;
     }
 

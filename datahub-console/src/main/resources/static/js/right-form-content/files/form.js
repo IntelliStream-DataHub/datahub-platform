@@ -193,7 +193,7 @@ class UploadFileForm extends FileFormAbstract {
 					placeholder="${$L('write.external.id.here')}" tabindex="50"/>
 
 			<label>${$L('description')}</label>
-			<textarea class="w100 ${this.fieldError('description')}" name="description" placeholder="${$L('write.description.here')}..." tabindex="70"></textarea>
+			<textarea class="w100 ${this.fieldError('description')}" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="70"></textarea>
 
 			<label>${$L('source')}</label>
 			<input type="text" name="source" value="" placeholder="${$L('write.source.here')}" tabindex="72"/>
@@ -417,7 +417,10 @@ class UploadFileForm extends FileFormAbstract {
 					document.location = '/files/list';
 				}
 			} else {
-				this.handleUploadError(xhr.responseText || $L('upload.failed'));
+				// The raw body is a problem document, so show what it means rather than its JSON.
+				this.handleUploadError(
+					window.LimitErrors.fromStatus(xhr.status, xhr.responseText)
+					|| $L('upload.failed'));
 			}
 		});
 
@@ -699,7 +702,8 @@ class SetRelatedResourcesForm extends FileFormAbstract {
 					Flash.info($L('file.updated'));
 				} else {
 					this.submitButtonElement.disabled = false;
-					response.text().then(t => Flash.error(t || $L('update.failed')));
+					response.text().then(t =>
+						Flash.error(window.LimitErrors.fromStatus(response.status, t) || t || $L('update.failed')));
 				}
 			})
 			.catch(() => {
@@ -732,7 +736,7 @@ class UpdateFileForm extends FileFormAbstract {
 			<input type="text" name="name" required pattern="[^/]+" value="${this.escAttr(n.name)}" tabindex="10"/>
 
 			<label>${$L('description')}</label>
-			<textarea class="w100" name="description" tabindex="20"></textarea>
+			<textarea class="w100" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" tabindex="20"></textarea>
 
 			<label>${$L('source')}</label>
 			<input type="text" name="source" value="${this.escAttr(n.source)}" tabindex="30"/>
@@ -801,7 +805,8 @@ class UpdateFileForm extends FileFormAbstract {
 					document.location.reload();
 				} else {
 					this.submitButtonElement.disabled = false;
-					response.text().then(t => Flash.error(t || $L('update.failed')));
+					response.text().then(t =>
+						Flash.error(window.LimitErrors.fromStatus(response.status, t) || t || $L('update.failed')));
 				}
 			})
 			.catch(() => {

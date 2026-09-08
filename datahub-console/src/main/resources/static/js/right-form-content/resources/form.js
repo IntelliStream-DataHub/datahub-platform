@@ -93,7 +93,7 @@ class ResourceForm extends DatasetFormAbstract{
 			<p class="field-hint">${$L('external.id.charset.help')}</p>
 
 			<label>${$L('description')}</label>
-			<textarea class="w100 ${this.fieldError('description')}" name="description" placeholder="${$L('write.description.here')}..." tabindex="40"></textarea>
+			<textarea class="w100 ${this.fieldError('description')}" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="40"></textarea>
 
 			<label>${$L('source')}</label>
 			<input class="${this.fieldError('source')}"
@@ -632,7 +632,7 @@ class LabelForm extends DatasetFormAbstract{
 			<label for="name">${$L('name')}</label>
 			<input class="${this.fieldError('name')}" type="text" name="name" value="" placeholder="${$L('write.label.name.here')}" pattern="^[a-zA-Z][a-zA-Z0-9_]{0,64}$" tabindex="110"/>
 			<label for="description">${$L('description')}</label>
-			<textarea class="w100 ${this.fieldError('description')}" name="description" placeholder="${$L('write.description.here')}..." tabindex="120"></textarea>
+			<textarea class="w100 ${this.fieldError('description')}" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="120"></textarea>
 			<label for="i18nCode">${$L('i18ncode')}</label>
 			<input class="${this.fieldError('i18nCode')}" type="text" name="i18nCode" value="" placeholder="${$L('write.i18n.code.here')}" tabindex="130"/>
 			<label for="color">${$L('color')}</label>
@@ -901,7 +901,7 @@ class RelationForm extends DatasetFormAbstract{
 					type="text" name="i18nCode" 
 					value="${this.getFormProperty('i18nCode')}" tabindex="20" />
 			<label>${$L('description')}</label>
-			<textarea class="w100" name="description" placeholder="${$L('write.description.here')}..." tabindex="30"></textarea>
+			<textarea class="w100" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="30"></textarea>
 		`;
     }
 
@@ -1142,7 +1142,7 @@ class ResourceEdgeForm extends DatasetFormAbstract{
 			</div>
 			
 			<label>${$L('description')}</label>
-			<textarea class="w100 h80px" name="description" placeholder="${$L('write.description.here')}..." tabindex="50"></textarea>
+			<textarea class="w100 h80px" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="50"></textarea>
 
 			<div class="animate-flow-field" data-type="animate-flow">
 				<label class="animate-flow-toggle-label">
@@ -1684,7 +1684,7 @@ class PolicyForm extends DatasetFormAbstract {
                     placeholder="${$L('write.external.id.here')}" tabindex="20"/>
 
             <label>${$L('description')}</label>
-            <textarea class="w100 ${this.fieldError('description')}" name="description"
+            <textarea class="w100 ${this.fieldError('description')}" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}"
                     placeholder="${$L('write.description.here')}..." tabindex="30"></textarea>
 
             <div data-type="starter-block">

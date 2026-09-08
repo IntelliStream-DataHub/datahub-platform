@@ -132,4 +132,20 @@ class EventCudMessageAvroSchemaTest {
         assertNull(patch.getField("eventTime"), "event time is immutable after creation");
         assertNotNull(patch.getField("description"), "other patchable fields are unaffected");
     }
+
+    /**
+     * The externalId is immutable for the same reason it is the KVRocks key: events sharing one
+     * are the lifecycle of a single logical event, so "renaming" one event's externalId has no
+     * per-event meaning. The identifying externalId on the form itself (which event to patch)
+     * is unaffected — only the patchable field is gone.
+     */
+    @Test
+    void theUpdateFormDoesNotOfferExternalId() {
+        Schema form = unwrapNullable(unwrapNullable(eventCudSchema()
+                .getField("updateEvents").schema()).getElementType());
+        Schema patch = unwrapNullable(form.getField("update").schema());
+
+        assertNull(patch.getField("externalId"), "an event's externalId is immutable");
+        assertNotNull(form.getField("externalId"), "the form still identifies events by externalId");
+    }
 }

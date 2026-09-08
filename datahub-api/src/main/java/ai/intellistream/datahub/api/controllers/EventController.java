@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.controllers.errors.*;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.EventCountResponse;
@@ -446,6 +447,11 @@ public class EventController {
         catch (org.springframework.security.access.AccessDeniedException e){
             throw e;
         }
+        catch (LimitException e){
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
+            throw e;
+        }
         catch (PulsarClientException | RuntimeException e){
             log.error(e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -460,9 +466,15 @@ public class EventController {
                     `externalId`. Only fields you name in the `update` block are changed.
 
                     Uses the standard `set` / `setNull` / `add` / `remove` rules — see
-                    `POST /resources/update` for details. An event's required fields —
-                    `externalId`, `type` and `eventTime` — reject `setNull` with a 400; `dataSetId`
-                    accepts it and detaches the event from its dataset.
+                    `POST /resources/update` for details. `type` rejects `setNull` with a 400;
+                    `dataSetId` accepts it and detaches the event from its dataset.
+
+                    ### Identity is immutable
+                    An event's `id` and `externalId` cannot be changed — they identify the
+                    event rather than describe it, and events sharing an `externalId` are the
+                    lifecycle of one logical event. Sending `externalId` or `eventTime` inside
+                    `update` is rejected with a 400 naming the field. To re-key an event,
+                    create a new one and delete the old.
 
                     ### Use sparingly
                     Event updates run a replace-and-cleanup on the stored record. While the
@@ -484,12 +496,6 @@ public class EventController {
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = BadRequestError.class)
-            ))
-    @ApiResponse(responseCode = "409", description =
-            "The new `externalId` already belongs to another event. Pick a different one.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
             ))
     @ApiResponse(responseCode = "429", description = "Too many requests — back off and retry.",
             content = @Content)
@@ -525,9 +531,6 @@ public class EventController {
         try{
             DataWrapper<EventModel> results = eventService.update(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
         } catch (ConstraintViolationException cve){
             var e = BuildErrorResponse.createConstraintViolationError(cve);
             return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
@@ -537,6 +540,11 @@ public class EventController {
         }
         // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
         catch (org.springframework.security.access.AccessDeniedException e){
+            throw e;
+        }
+        catch (LimitException e){
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
             throw e;
         }
         catch (PulsarClientException | RuntimeException e){

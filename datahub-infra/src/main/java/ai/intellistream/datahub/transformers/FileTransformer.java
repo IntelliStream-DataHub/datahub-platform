@@ -13,6 +13,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.tika.Tika;
+import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.parser.ParseContext;
@@ -23,9 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -146,7 +145,7 @@ public class FileTransformer {
     public void extractMetadata(INode datahubFile, String absolutePath){
         Metadata metadata = new Metadata();
 
-        try (InputStream stream = new FileInputStream(absolutePath)) {
+        try (TikaInputStream stream = TikaInputStream.get(Path.of(absolutePath))) {
             // Initialize the parser
             AutoDetectParser parser = new AutoDetectParser();
 

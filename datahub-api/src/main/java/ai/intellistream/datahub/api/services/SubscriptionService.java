@@ -10,13 +10,14 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.SubscriptionEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
-import ai.intellistream.datahub.models.DataSort;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.SubscriptionNotifyMessage;
 import ai.intellistream.datahub.pulsar.TopicNames;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import ai.intellistream.datahub.repositories.subscription.SubscriptionRepository;
+import ai.intellistream.datahub.repositories.subscription.SubscriptionSort;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionFilter;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
@@ -28,9 +29,6 @@ import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.client.api.MessageId;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
-import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -130,77 +128,56 @@ public class SubscriptionService {
         SubscriptionEntity saved = subscriptionRepository.save(entity);
         createPulsarSubscription(saved.getExternalId());
         publishNotifyMessage(EventAction.CREATE, saved);
-        log.info("Created subscription id={} externalId={} systemManaged={} bound to {} timeseries",
-                saved.getId(), saved.getExternalId(), saved.isSystemManaged(),
-                saved.getTimeseries().size());
+        log.info("Created subscription id={} externalId={} bound to {} timeseries",
+                saved.getId(), saved.getExternalId(), saved.getTimeseries().size());
         return saved;
     }
 
     /**
-     * List subscriptions for the current tenant. When {@code retriever.filter.timeseries} is
-     * empty, returns every subscription up to {@code limit}. Otherwise filters to subscriptions
-     * whose timeseries matches any supplied {@link IdCollection} (by timeseries id or external id).
-     * Hard-capped at 10 000 rows.
+     * Subscriptions for the current tenant matching every supplied criterion, in the requested
+     * order, one keyset page at a time.
+     *
+     * <p>The same shape as {@code DataSetService.filter} and the two beside it: resolve the sort
+     * against a whitelist, validate the cursor against that sort, run the query, hand back the
+     * cursor for the next page. It replaced a hand-rolled version that clamped the limit itself
+     * with different numbers than the rest of the API used, passed the caller's sort property
+     * straight into {@code Sort.by} — where an unknown one became a 500 — and had no cursor at all,
+     * so a tenant past the page size had no way to reach the rest of its subscriptions.
+     *
+     * <p>Narrowed by the caller's dataset grants, like {@code ResourceService.filter} and
+     * {@code TimeseriesService.filter}. This path had no ACL at all: it answered with every
+     * subscription in the tenant, each one naming the timeseries it streams, while {@link #create}
+     * and {@link #delete} asserted read access on every bound timeseries. A subscription is hidden
+     * unless the caller could read all of it — see
+     * {@code SubscriptionPredicateBuilder.readableDataSetScope}.
      */
     @Transactional(readOnly = true)
-    public DataWrapper<Subscription> list(SubscriptionRetriever retriever) {
-        if (retriever == null) retriever = new SubscriptionRetriever();
-        int limit = clampLimit(retriever.getLimit());
-        Pageable pageable = PageRequest.of(0, limit, toSort(retriever.getSort()));
-        boolean includeSystemManaged = retriever.isIncludeSystemManaged();
+    public DataWrapper<Subscription> filter(SubscriptionRetriever retriever) {
+        SubscriptionRetriever request = retriever != null ? retriever : new SubscriptionRetriever();
+        SubscriptionFilter filter = request.getFilter();
 
-        SubscriptionFilter filter = retriever.getFilter();
-        Collection<IdCollection> tsFilter = filter == null ? List.of() : filter.getTimeseries();
+        SubscriptionSort sort = SubscriptionSort.resolve(request.getSort());
+        PageCursor cursor = FilterPaging.validated(request.getCursor(), sort);
+        int limit = request.getLimit();
 
-        List<SubscriptionEntity> entities;
-        if (tsFilter == null || tsFilter.isEmpty()) {
-            entities = includeSystemManaged
-                    ? subscriptionRepository.findAll(pageable).getContent()
-                    : subscriptionRepository.findAllBySystemManagedFalse(pageable);
-            log.info("Listed {} subscription(s) for tenant {} (unfiltered, limit={}, includeSystemManaged={}).",
-                    entities.size(), TenantContext.getTenantId(), limit, includeSystemManaged);
-        } else {
-            Set<Long> timeseriesIds = tsFilter.stream()
-                    .map(IdCollection::getId)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toSet());
-            Set<Long> timeseriesExternalIdHashes = tsFilter.stream()
-                    .map(IdCollection::getExternalId)
-                    .filter(Objects::nonNull)
-                    .map(ExternalIds::hash)
-                    .collect(Collectors.toSet());
-
-            entities = includeSystemManaged
-                    ? subscriptionRepository.findAllByTimeseriesIdInOrTimeseriesExternalIdHashIn(
-                            timeseriesIds, timeseriesExternalIdHashes, pageable)
-                    : subscriptionRepository.findAllUserManagedByTimeseriesIdInOrTimeseriesExternalIdHashIn(
-                            timeseriesIds, timeseriesExternalIdHashes, pageable);
-            log.info("Listed {} subscription(s) matching {} timeseries filter(s) for tenant {} (limit={}, includeSystemManaged={}).",
-                    entities.size(), tsFilter.size(), TenantContext.getTenantId(), limit, includeSystemManaged);
+        Set<Long> readableDataSets = null; // null = no restriction in SQL
+        if (!dataSecurity.hasReadAccessToEverything()) {
+            readableDataSets = dataSecurity.readableDataSetIds();
+            if (readableDataSets.isEmpty()) {
+                return new DataWrapper<>(); // no readable datasets -> nothing to stream, nothing to see
+            }
         }
+
+        List<SubscriptionEntity> entities =
+                subscriptionRepository.filter(filter, readableDataSets, limit, sort, cursor);
+        log.info("Filtered {} subscription(s) for tenant {} (limit={}, sort={} {}, paged={}).",
+                entities.size(), TenantContext.getTenantId(), limit, sort.property(),
+                sort.descending() ? "desc" : "asc", cursor != null);
 
         var results = new DataWrapper<Subscription>();
         results.setItems(SubscriptionTransformer.toSubscription(entities));
+        results.setNextCursor(FilterPaging.nextCursor(entities, limit, sort));
         return results;
-    }
-
-    private int clampLimit(int requested) {
-        if (requested <= 0) return 100;
-        return Math.min(requested, 10_000);
-    }
-
-    /**
-     * Translate the generic {@link DataSort} payload to a Spring Data {@link Sort}. Defaults to
-     * {@code dateCreated DESC} (newest first) when no sort is supplied.
-     */
-    private Sort toSort(DataSort dataSort) {
-        if (dataSort == null || dataSort.getProperty() == null || dataSort.getProperty().isEmpty()) {
-            return Sort.by(Sort.Direction.DESC, "dateCreated");
-        }
-        Sort.Direction direction = "asc".equalsIgnoreCase(dataSort.getOrder())
-                ? Sort.Direction.ASC
-                : Sort.Direction.DESC;
-        return Sort.by(direction, dataSort.getProperty().toArray(String[]::new));
     }
 
     /**
@@ -248,19 +225,6 @@ public class SubscriptionService {
             if (entity.getTimeseries() != null) {
                 entity.getTimeseries().forEach(dataSecurity::assertCanRead);
             }
-        }
-
-        // Reject system-managed subscriptions up front — their lifecycle is owned by the
-        // system, not the user, so they can't be deleted through this endpoint. No code
-        // currently provisions such subscriptions, so this is a defensive guard.
-        List<String> systemManaged = entities.stream()
-                .filter(SubscriptionEntity::isSystemManaged)
-                .map(SubscriptionEntity::getExternalId)
-                .collect(Collectors.toList());
-        if (!systemManaged.isEmpty()) {
-            throw badRequest(
-                    "Cannot delete system-managed subscription(s).",
-                    Map.of("externalIds", String.join(",", systemManaged)));
         }
 
         // Pre-flight: reject the whole batch if any Pulsar subscription still has clients

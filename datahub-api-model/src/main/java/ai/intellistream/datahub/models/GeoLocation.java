@@ -3,8 +3,10 @@ package ai.intellistream.datahub.models;
 
 import ai.intellistream.datahub.json.GeoLocationDeserializer;
 import ai.intellistream.datahub.json.GeoLocationSerializer;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.Size;
 import tools.jackson.databind.annotation.JsonDeserialize;
 import tools.jackson.databind.annotation.JsonSerialize;
 import tools.jackson.databind.json.JsonMapper;
@@ -38,6 +40,7 @@ public class GeoLocation {
             "Polygon", "MultiPolygon", "GeometryCollection");
 
     /** The raw GeoJSON geometry, stored verbatim. */
+    @Size(max = FieldLimits.GEOJSON_MAX_CHARS)
     private String json;
 
     public GeoLocation() {

@@ -1,0 +1,19 @@
+POST {{hostname}}/subscriptions/filter
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+	"filter": {
+		"externalId": ["plant_a_*"],
+		"timeseries": [{"id": 29}, {"externalId": "heater_2012_temp"}]
+	},
+	"limit": 500,
+	"sort": { "property": ["name"], "order": "asc" }
+}
+
+###
+# The no-body listing: the first `limit`, newest first, no criteria.
+GET {{hostname}}/subscriptions?limit=100
+Authorization: Bearer {{token}}
+Accept: application/json

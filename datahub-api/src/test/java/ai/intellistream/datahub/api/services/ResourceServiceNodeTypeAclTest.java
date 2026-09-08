@@ -87,6 +87,7 @@ class ResourceServiceNodeTypeAclTest {
             entityManager, nodeRepository, nodeService, edgeRepository,
             relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService, dataSecurity, subscriptionRepository, validator, policyEnforcement,
             datasetClosureService,
+            mock(IngestQuotaService.class), mock(TenantLimitsService.class),
                 new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
             new ai.intellistream.datahub.api.services.node.NodeUpdateService(
                     nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),

@@ -37,6 +37,13 @@ public record ChatSettings(LlmProvider provider,
                            /** Appended to the built-in system prompt, never replacing it. */
                            String instructions) {
 
+    /** Never the credential: this is passed around per turn and is one log line from leaking it. */
+    @Override
+    public String toString() {
+        return "ChatSettings[provider=" + provider + ", model=" + model + ", baseUrl=" + baseUrl
+                + ", turnTimeout=" + turnTimeout + ", apiKey=" + (apiKey == null ? "unset" : "***") + "]";
+    }
+
     /**
      * A configured roof beats the level the user picked: the roof is written down once and the
      * picker is clicked per message, so the roof is the more considered of the two. Leaving it
@@ -56,5 +63,11 @@ public record ChatSettings(LlmProvider provider,
 
     /** @see #backendKey() */
     public record BackendKey(LlmProvider provider, String apiKey, String baseUrl) {
+
+        /** Records print every component, and this one is a cache key that ends up in log lines. */
+        @Override
+        public String toString() {
+            return "BackendKey[provider=" + provider + ", baseUrl=" + baseUrl + ", apiKey=***]";
+        }
     }
 }

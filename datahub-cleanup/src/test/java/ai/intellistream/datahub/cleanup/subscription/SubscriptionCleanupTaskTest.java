@@ -41,10 +41,9 @@ class SubscriptionCleanupTaskTest {
     private final OffsetDateTime now = OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(nowMillis), ZoneOffset.UTC);
     private final OffsetDateTime cutoff = now.minus(props.getStaleAge());
 
-    private static SubscriptionEntity sub(boolean systemManaged, OffsetDateTime lastUpdated) {
+    private static SubscriptionEntity sub(OffsetDateTime lastUpdated) {
         SubscriptionEntity s = new SubscriptionEntity();
         s.setExternalId("sub-1");
-        s.setSystemManaged(systemManaged);
         s.setLastUpdated(lastUpdated);
         return s;
     }
@@ -56,51 +55,45 @@ class SubscriptionCleanupTaskTest {
     @Test
     void activelyConsumedButClientOffline_isNotOrphan() {
         // Old row, no connected consumer, big backlog — but it was consumed yesterday. Must be spared.
-        SubscriptionEntity s = sub(false, now.minusDays(30));
+        SubscriptionEntity s = sub(now.minusDays(30));
         assertFalse(task.isOrphan(s, stats(0, 5000, nowMillis - DAY), cutoff));
     }
 
     @Test
     void longAbandoned_isOrphan() {
-        SubscriptionEntity s = sub(false, now.minusDays(30));
+        SubscriptionEntity s = sub(now.minusDays(30));
         assertTrue(task.isOrphan(s, stats(0, 5000, nowMillis - 30 * DAY), cutoff));
     }
 
     @Test
     void brandNewNeverConsumed_isNotOrphan() {
         // Never consumed (timestamp 0) but the row is minutes old — give the client time to connect.
-        SubscriptionEntity s = sub(false, now.minusMinutes(1));
+        SubscriptionEntity s = sub(now.minusMinutes(1));
         assertFalse(task.isOrphan(s, stats(0, 5000, 0), cutoff));
     }
 
     @Test
     void neverConsumedButOldRow_isOrphan() {
         // Created long ago, never once consumed, backlog piling up — a genuine orphan.
-        SubscriptionEntity s = sub(false, now.minusDays(30));
+        SubscriptionEntity s = sub(now.minusDays(30));
         assertTrue(task.isOrphan(s, stats(0, 5000, 0), cutoff));
     }
 
     @Test
     void connectedConsumer_isNotOrphan() {
-        SubscriptionEntity s = sub(false, now.minusDays(30));
+        SubscriptionEntity s = sub(now.minusDays(30));
         assertFalse(task.isOrphan(s, stats(1, 5000, nowMillis - 30 * DAY), cutoff));
     }
 
     @Test
     void backlogBelowThreshold_isNotOrphan() {
-        SubscriptionEntity s = sub(false, now.minusDays(30));
+        SubscriptionEntity s = sub(now.minusDays(30));
         assertFalse(task.isOrphan(s, stats(0, 10, nowMillis - 30 * DAY), cutoff));
     }
 
     @Test
-    void systemManaged_isNotOrphan() {
-        SubscriptionEntity s = sub(true, now.minusDays(30));
-        assertFalse(task.isOrphan(s, stats(0, 5000, nowMillis - 30 * DAY), cutoff));
-    }
-
-    @Test
     void noPulsarStats_isNotOrphan() {
-        SubscriptionEntity s = sub(false, now.minusDays(30));
+        SubscriptionEntity s = sub(now.minusDays(30));
         assertFalse(task.isOrphan(s, null, cutoff));
     }
 

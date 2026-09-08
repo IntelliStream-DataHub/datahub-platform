@@ -12,7 +12,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -100,6 +103,10 @@ class SecurityFilterChainTest {
     /** The actuator port. RANDOM_PORT makes Boot randomise it along with the server port. */
     @Value("${local.management.port}")
     private int managementPort;
+
+    /** The assembled chain, for asserting filter order rather than only filter behaviour. */
+    @Autowired
+    private FilterChainProxy securityFilterChainProxy;
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
@@ -243,6 +250,25 @@ class SecurityFilterChainTest {
         assertThat(get("/actuator/prometheus", null))
                 .as("the scrape endpoint must exist on the management port only")
                 .isNotEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    @DisplayName("Rate limiting runs after authorization and before tenant provisioning")
+    void rateLimitingSitsBetweenAuthorizationAndTenantProvisioning() {
+        List<String> filters = securityFilterChainProxy.getFilterChains().stream()
+                .flatMap(chain -> ((SecurityFilterChain) chain).getFilters().stream())
+                .map(filter -> filter.getClass().getSimpleName())
+                .toList();
+
+        int authorization = filters.indexOf("AuthorizationFilter");
+        int rateLimit = filters.indexOf("RateLimitFilter");
+        int provisioning = filters.indexOf("TenantProvisioningFilter");
+
+        assertThat(rateLimit).as("the limiter must be in the chain at all").isPositive();
+        // After authorization, because the budget is charged to an authenticated identity. Before
+        // provisioning, so an over-budget caller costs no Vault lookup and no Flyway check.
+        assertThat(rateLimit).isGreaterThan(authorization);
+        assertThat(rateLimit).isLessThan(provisioning);
     }
 
     // ---- helpers -----------------------------------------------------------------------------
