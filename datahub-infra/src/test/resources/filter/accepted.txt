@@ -219,7 +219,6 @@ identifiers | "type" = 'a'
 literals | source = 'O''Brien'
 literals | source = ''
 literals | source = 'with space'
-literals | source = 'tab\tinside'
 literals | source = 'unicode æøå'
 literals | source = 'emoji 😀'
 literals | dataSetId = -1

@@ -144,3 +144,5 @@ shape-fix | date_part('quarter', eventTime) = 1
 shape-fix | eventTime > 'yesterday'
 shape-fix | eventTime > 'not-a-date'
 shape-fix | dataSetId = 'not-a-number'
+syntax | source = 'tab\tinside'
+syntax | source = 'line\nbreak'

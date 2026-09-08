@@ -128,7 +128,8 @@ final class PredicateBuilder {
 
     private Expr atom(EventFilterQueryParser.AtomContext ctx) {
         if (ctx instanceof EventFilterQueryParser.MetadataAtomContext m) {
-            return new Expr.MetadataRef(unquote(m.metadataRef().STRING().getText()));
+            return new Expr.MetadataRef(checkPrintable(
+                    unquote(m.metadataRef().STRING().getText()), m.metadataRef().STRING().getSymbol()));
         }
         if (ctx instanceof EventFilterQueryParser.FunctionAtomContext f) {
             EventFilterQueryParser.FunctionCallContext call = f.functionCall();
@@ -146,7 +147,8 @@ final class PredicateBuilder {
 
     private Expr literal(EventFilterQueryParser.LiteralContext ctx) {
         if (ctx.STRING() != null) {
-            return new Expr.StringLiteral(unquote(ctx.STRING().getText()));
+            return new Expr.StringLiteral(
+                    checkPrintable(unquote(ctx.STRING().getText()), ctx.STRING().getSymbol()));
         }
         if (ctx.TRUE() != null) {
             return new Expr.BooleanLiteral(true);
@@ -163,6 +165,30 @@ final class PredicateBuilder {
             return text.substring(1, text.length() - 1);
         }
         return ctx.IDENT().getText();
+    }
+
+    /**
+     * Refuses a control character inside a string value.
+     *
+     * <p>Not a stylistic rule: ClickHouse's query-parameter encoding terminates a value at a raw
+     * tab or newline, so binding one produces "cannot be parsed as String ... only 3 of 10 bytes
+     * was parsed" — a 500 for what looks to the caller like an ordinary literal. Refusing it here
+     * turns that into a 400 that says what is wrong, and refusing beats silently rewriting the
+     * value, which would quietly search for something other than what was asked for.
+     */
+    private static String checkPrintable(String value, org.antlr.v4.runtime.Token token) {
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isISOControl(c)) {
+                throw new FilterParseException(
+                        "A quoted value cannot contain a control character (found "
+                                + String.format("U+%04X", (int) c) + ").",
+                        token.getCharPositionInLine(), token.getText().length(), null, null,
+                        "Tabs and newlines cannot be sent as query parameters; "
+                                + "match around them with LIKE instead.");
+            }
+        }
+        return value;
     }
 
     /** Strips the surrounding quotes and collapses Postgres's doubled-quote escape. */
