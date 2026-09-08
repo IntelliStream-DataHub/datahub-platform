@@ -263,7 +263,6 @@ class EventServiceTest {
         input.getItems().add(f2);
 
         when(clickHouseEventService.findAllById(anySet(), any(), any())).thenReturn(List.of(em1, em2));
-        when(kvRocksService.findEventIdsByExternalIdCollectionAsMap(anySet())).thenReturn(Map.of());
         when(nodeRepository.findAllByIdIn(anySet(), any())).thenReturn(List.of());
         when(nodeRepository.findAllByExternalIdHashIn(anyList(), any())).thenReturn(List.of());
 
@@ -325,7 +324,6 @@ class EventServiceTest {
 
         when(clickHouseEventService.findAllById(anySet(), any(), any())).thenReturn(List.of(em));
         when(nodeRepository.findAllByIdAsIdList(anySet())).thenReturn(List.of(42L));
-        when(kvRocksService.findEventIdsByExternalIdCollectionAsMap(anySet())).thenReturn(Map.of());
         when(nodeRepository.findAllByIdIn(anySet(), any())).thenReturn(List.of());
         when(nodeRepository.findAllByExternalIdHashIn(anyList(), any())).thenReturn(List.of());
 

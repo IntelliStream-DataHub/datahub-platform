@@ -75,19 +75,6 @@ public class KVRocksService {
         }
     }
 
-    public void updateKeys(Map<byte[], byte[]> map, String tenantId) {
-        try (StatefulRedisConnection<byte[], byte[]> connection = kvRocksConnections.openConnection(tenantId)) {
-            var client = connection.sync();
-            client.multi();
-            for(Map.Entry<byte[], byte[]> entry : map.entrySet()){
-                client.rename(entry.getKey(), entry.getValue());
-            }
-            client.exec();
-        } catch (RedisException e) {
-            log.debug(e.getMessage(), e);
-        }
-    }
-
     public List<UUID> findEventIdsByExternalIdCollection(Collection<String> externalIdList) {
         try (StatefulRedisConnection<byte[], byte[]> con = kvRocksConnections.openConnection()) {
             var client = con.sync();
@@ -135,28 +122,6 @@ public class KVRocksService {
         }
     }
 
-    public byte[][] getBinaryKeys(Collection<String> texts){
-        List<byte[]> hashes = texts.stream().map( it -> {
-            BigInteger id = IdGenerator.generate128bitKey(it, TenantContext.getTenantId());
-            return id.toByteArray();
-        } ).toList();
-
-        byte[][] keys = hashes.toArray(new byte[hashes.size()][]);
-        return keys;
-    }
-
-    public static byte[][] extractKeysToByteArray(Map<byte[], byte[]> map) {
-        // Create an array to hold the keys
-        byte[][] keys = new byte[map.size()][];
-
-        int i = 0;
-        for (byte[] key : map.keySet()) {
-            keys[i++] = key;  // Add key to the array
-        }
-
-        return keys;
-    }
-
     public void deleteKeys(Collection<byte[]> externalIdSet, String tenantId) {
         if(!externalIdSet.isEmpty()){
             try (StatefulRedisConnection<byte[], byte[]> connection = kvRocksConnections.openConnection(tenantId)) {
@@ -184,7 +149,7 @@ public class KVRocksService {
         }
     }
 
-    public byte[] convertUuid(UUID id){
+    private byte[] convertUuid(UUID id){
         ByteBuffer bb = ByteBuffer.wrap(new byte[16]);
         bb.putLong(id.getMostSignificantBits());
         bb.putLong(id.getLeastSignificantBits());

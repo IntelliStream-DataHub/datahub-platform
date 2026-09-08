@@ -663,10 +663,6 @@ public class EventService {
             validateDataSets(targetDataSets);
         }
 
-        // Collection that contains new External Ids, if some already exists, deny update.
-        // If it contains duplicates, also deny update.
-        List<String> newExternalIds = new ArrayList<>();
-
         List<UpdateEventForm> newUpdateForms = new ArrayList<>();
         // Go through each event found and map new values
         for(EventModel em : events){
@@ -687,19 +683,12 @@ public class EventService {
                 newUpdateForm.setUpdate(updateForm.getUpdate());
 
                 if(updateForm.getUpdate() != null){
-
-                    if(updateForm.getUpdate().getExternalId().getSet() != null){
-                        newExternalIds.add(updateForm.getUpdate().getExternalId().getSet());
-                    }
-
                     // Update Event object
                     validateAndUpdate(updateForm, em, resourcesById, resourcesByExternalIdHash);
                     newUpdateForms.add(newUpdateForm);
                 }
             }
         }
-
-        validateNewExternalIds(newExternalIds);
 
         // Final normalization pass, so the models published to Pulsar — the ones the ClickHouse
         // mutation derives its three columns from — carry fully resolved, deduped entries.
@@ -727,52 +716,6 @@ public class EventService {
         return result;
     }
 
-    private void validateNewExternalIds(List<String> newExternalIds) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        errors.setError(new BadRequestError());
-
-        Set<String> existingExternalIdSet = new HashSet<>();
-
-        Set<String> set = new HashSet<>();
-        for (String str : newExternalIds) {
-            if (!set.add(str)) {
-                existingExternalIdSet.add(str);
-            }
-        }
-
-        List<Map<String, String>> existingExternalIds = new ArrayList<>(existingExternalIdSet.stream()
-                .map(it -> Map.of("externalId", it))
-                .toList());
-
-        try{
-            Map<UUID, BigInteger> results = kvRocksService.findEventIdsByExternalIdCollectionAsMap(set);
-            if(!results.isEmpty()){
-                for(var entry : results.entrySet()){
-                    set.stream()
-                            .filter( it -> {
-                                var tId = TenantContext.getTenantId();
-                                var key = IdGenerator.generate128bitKey(it, tId);
-                                return key.equals(entry.getValue());
-                            }).findFirst()
-                            .ifPresent( it -> {
-                                existingExternalIds.add( Map.of("externalId", it) );
-                            });
-                }
-            }
-        } catch (Exception e){
-            throw new RuntimeException(e.getMessage(), e);
-        }
-
-        if(!existingExternalIds.isEmpty()){
-            ResponseError<DuplicateError> responseError = new ResponseError<>();
-            var duplicateError = new DuplicateError();
-            duplicateError.setMessage("DataSet with externalId's already exists.");
-            duplicateError.setDuplicated(existingExternalIds);
-            responseError.setError(duplicateError);
-            throw new DuplicateDataException(responseError);
-        }
-    }
-
     public EventModel validateAndUpdate(UpdateEventForm form, EventModel em,
                                         Map<Long, NameAndExternalId> resourcesById,
                                         Map<Long, NameAndExternalId> resourcesByExternalIdHash){
@@ -789,11 +732,8 @@ public class EventService {
 
         em.setLastUpdatedTime(ZonedDateTime.now());
 
-        // Update externalId
-        if(fields.getExternalId().getSet() != null){
-            String newExternalId = fields.getExternalId().getSet();
-            em.setExternalId(newExternalId);
-        }
+        // No externalId branch: an event's externalId is immutable, like its eventTime — the
+        // field is absent from EventFields, so a caller sending it gets a 400 naming it.
 
         /**
          * Update metadata

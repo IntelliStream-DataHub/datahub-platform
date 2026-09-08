@@ -34,9 +34,17 @@ public class EventFields {
      * CANNOT_UPDATE_COLUMN. The field used to exist and was accepted, echoed back with the new
      * value, and then discarded — the api reported a change it had no way to make. Removing it
      * means a caller sending eventTime now gets a 400 naming the field rather than a false 200.
+     *
+     * There is deliberately no externalId either. An event's externalId is its identity, not a
+     * property: KVRocks maps hash(externalId) to the SET of event UUIDs behind it, because events
+     * sharing an externalId are the lifecycle of one logical event. A rename therefore has no
+     * per-event meaning — moving the whole key would silently take every sibling event along, and
+     * the old code did not even have the old value when the caller identified the event by UUID,
+     * so the mapping was left untouched and the "renamed" event stopped resolving by either id.
+     * Like eventTime, absence means a caller sending it gets a 400 naming the field. The UUID id
+     * was never patchable. To re-key an event, create a new one and delete the old.
      */
 
-    private UpdateStringField externalId = new UpdateStringField();
     private UpdateStringField description = new UpdateStringField();
     private UpdateStringField type = new UpdateStringField();
     private UpdateStringField subType = new UpdateStringField();
@@ -57,12 +65,6 @@ public class EventFields {
     private transient List<FieldValidationError> errors = new ArrayList<>();
 
     public boolean validateFields(){
-        // The charset floor is ALL an event external id is subject to — the naming policy does not
-        // apply to events. It is the source system's key for the subject the event is about, not a
-        // name someone chose, and the policy's other rules are meaningless here: events deliberately
-        // share external ids, so uniqueness does not apply and a near duplicate is the normal case.
-        ExternalIdRules.validate("Event", "event", this.externalId.getSet(), errors);
-
         if(this.type.getSet() != null){
             if(this.type.getSet().length() > 128){
                 errors.add(
@@ -133,14 +135,12 @@ public class EventFields {
                                 "A related resource must have an id or an externalId.")
                 ));
 
-        // Both fields create declares required (@NotBlank externalId, @NotBlank type) are also
-        // stored non-nullable by ClickHouse, as LowCardinality(String). Clearing type was the
-        // damaging one: the service honoured it, ClickHouse coerced the null to an empty string,
-        // and every later read of that event failed against a model that declares type required.
-        // The event became unreadable through the very client that wrote it. (event_time is the
-        // third such field, but it cannot be updated at all — see the class javadoc.)
-        RequiredFieldRules.rejectSetNull("Event", "event.external.id.null.error",
-                "ExternalId", this.externalId.getSetNull(), errors);
+        // type is required on create and stored non-nullable by ClickHouse, as
+        // LowCardinality(String). Clearing it was damaging: the service honoured it, ClickHouse
+        // coerced the null to an empty string, and every later read of that event failed against a
+        // model that declares type required. The event became unreadable through the very client
+        // that wrote it. (externalId and event_time are the other two required fields, but neither
+        // can be updated at all — see the class comment.)
         RequiredFieldRules.rejectSetNull("Event", "event.type.null.error",
                 "Type", this.type.getSetNull(), errors);
 
