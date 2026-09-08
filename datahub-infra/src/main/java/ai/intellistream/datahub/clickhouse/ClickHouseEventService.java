@@ -775,54 +775,12 @@ public class ClickHouseEventService extends ClickHouseService {
                 buildAdvancedFilter(criterias, params, advancedFilter, null);
             }
 
-            StringBuilder strBuilder = new StringBuilder();
-            String STRJOIN = "WHERE";
-            boolean hasWhere = false;
-            for (SqlField criteria : criterias) {
-                if (criteria.sqlOperation() != null) {
-                    var op = criteria.sqlOperation();
-                    if (op.equals(SQLOperation.START_LIST)) {
-                        // If it is an OR critera, do not start with AND
-                        if (!criteria.sql().equals(" OR (")) {
-                            strBuilder.append(" ").append(STRJOIN).append(" ");
-                        } else {
-                            // Handle case where no where has not been added
-                            if (!hasWhere) {
-                                strBuilder.append("WHERE (");
-                                STRJOIN = "";
-                                hasWhere = true;
-                                continue;
-                            }
-                        }
-                        STRJOIN = "";
-                    } else if (op.equals(SQLOperation.END_LIST)) {
-                        STRJOIN = "AND";
-                    } else if (op.equals(SQLOperation.AND_LIST)) {
-                        strBuilder.append(" ").append(STRJOIN).append(" ");
-                        STRJOIN = "AND";
-                    } else if (op.equals(SQLOperation.OR_LIST)) {
-                        strBuilder.append(" ").append(STRJOIN).append(" ");
-                        STRJOIN = "OR";
-                    }
-                    strBuilder.append(criteria.sql());
-
-                } else {
-                    strBuilder.append(" ").append(STRJOIN).append(" ");
-                    strBuilder.append(criteria.sql());
-                    STRJOIN = "AND";
-                }
-                hasWhere = true;
-            }
-
             int limit = retreiver.getLimit();
 
-            query += strBuilder;
             // AND the caller's dataset ACL on top of the user filter (read-all → allowed == null).
             // Bound as an Array(Int64) param, so no caller-derived value reaches the SQL string.
             String aclCondition = datasetAclCondition(allowedDataSetIds, "data_set_id", params);
-            if (aclCondition != null) {
-                query += (hasWhere ? " AND " : " WHERE ") + aclCondition;
-            }
+            query += renderWhere(criterias, aclCondition);
             query += orderByClause(retreiver);
             query += " LIMIT " + limit;
             log.debug("ClickHouse Event Query: {}", query);
@@ -1267,6 +1225,71 @@ public class ClickHouseEventService extends ClickHouseService {
             throw new RuntimeException("Failed to search events in ClickHouse", e);
         }
         return results;
+    }
+
+    /**
+     * Assemble the WHERE clause: the caller's criteria, then the dataset ACL conjoined on top.
+     *
+     * <p>Package-private so the ASSEMBLED clause can be asserted directly. The fragment-level
+     * tests could not see the defect this method exists to prevent: the ACL has to bind more
+     * tightly than any boolean structure the caller supplied, and in SQL that is a question about
+     * parentheses, not about the order the strings were appended in.
+     *
+     * @param aclCondition the dataset restriction, or null when the caller may read everything
+     */
+    String renderWhere(List<SqlField> criterias, String aclCondition) {
+        // The body is assembled WITHOUT the WHERE keyword, so what comes out is a self-contained
+        // boolean expression that can be wrapped as one term below. Emitting "WHERE" from inside
+        // the loop is what used to leave a top-level OR at the same precedence as the ACL.
+        StringBuilder strBuilder = new StringBuilder();
+        String STRJOIN = "";
+        for (SqlField criteria : criterias) {
+            if (criteria.sqlOperation() != null) {
+                var op = criteria.sqlOperation();
+                if (op.equals(SQLOperation.START_LIST)) {
+                    // If it is an OR critera, do not start with AND
+                    if (!criteria.sql().equals(" OR (")) {
+                        strBuilder.append(" ").append(STRJOIN).append(" ");
+                    } else {
+                        // Opening an OR group with nothing in front of it: the " OR (" fragment
+                        // would dangle, so emit just the group opener. END_LIST closes it.
+                        if (strBuilder.isEmpty()) {
+                            strBuilder.append("(");
+                            STRJOIN = "";
+                            continue;
+                        }
+                    }
+                    STRJOIN = "";
+                } else if (op.equals(SQLOperation.END_LIST)) {
+                    STRJOIN = "AND";
+                } else if (op.equals(SQLOperation.AND_LIST)) {
+                    strBuilder.append(" ").append(STRJOIN).append(" ");
+                    STRJOIN = "AND";
+                } else if (op.equals(SQLOperation.OR_LIST)) {
+                    strBuilder.append(" ").append(STRJOIN).append(" ");
+                    STRJOIN = "OR";
+                }
+                strBuilder.append(criteria.sql());
+
+            } else {
+                strBuilder.append(" ").append(STRJOIN).append(" ");
+                strBuilder.append(criteria.sql());
+                STRJOIN = "AND";
+            }
+        }
+
+        // One parenthesised term for everything the caller asked for, then the ACL conjoined
+        // around it. Without the parentheses a top-level OR in the body would bind looser than
+        // this AND, and every row matching its first disjunct would come back unrestricted.
+        String body = strBuilder.toString().trim();
+        if (body.isEmpty()) {
+            return aclCondition == null ? "" : " WHERE " + aclCondition;
+        }
+        String clause = " WHERE (" + body + ")";
+        if (aclCondition != null) {
+            clause += " AND " + aclCondition;
+        }
+        return clause;
     }
 
     // Package-private for direct unit testing of the generated placeholder syntax.
