@@ -35,6 +35,10 @@ here like any other static asset:
 Each is fetched only when a file of that type is opened, so `libs/` costs nothing until then. They
 sit in one directory because each locates its own `.wasm` relative to its script URL.
 
+The rewritten URLs are absolute, built from `location.origin` at runtime rather than written as
+`/static/...`. The occt decoder runs in a worker created from a `blob:` URL, and a blob URL has an
+opaque base, so a root-relative path is not resolvable there and `importScripts` rejects it.
+
 The upstream text files ship with CRLF line endings and are stored here with LF, which is the only
 other change made to any of them.
 
