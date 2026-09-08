@@ -180,11 +180,7 @@ public class DataSetController {
             mediaType = MediaType.APPLICATION_JSON_VALUE,
             schema = @Schema(implementation = DataSetDataWrapper.class)
     ))
-    @ApiResponse(responseCode = "400", description = "The request failed validation — typically a `limit` above 10000.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
-            ))
+    @ApiResponse(responseCode = "400", description = "The request failed validation — typically a `limit` above 10000.")
     @RequestMapping(value = {"/list"}, method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> list(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -200,6 +196,7 @@ public class DataSetController {
                                     """)
                     )
             )
+            @Valid
             @RequestBody
             @Schema(implementation = DataSetRetreiver.class)
             DataSetRetreiver form
@@ -245,11 +242,8 @@ public class DataSetController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = DataSetDataWrapper.class)
             ))
-    @ApiResponse(responseCode = "400", description = "The request failed validation — typically a `limit` above 10000.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
-            ))
+    @ApiResponse(responseCode = "400", description = "The request failed validation, e.g. `limit` above 10000 "
+            + "or an over-long filter value.")
     @RequestMapping(value = {"/filter"}, method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> filter(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -274,6 +268,13 @@ public class DataSetController {
                                     """)
                     )
             )
+            // @Valid, like the resource, timeseries, event and subscription filter endpoints. This
+            // one relied on the in-body validate() below, which answers with the violation message
+            // as a bare string, so the same over-limit request produced one 400 body here and a
+            // different one on every other filter endpoint. The explicit validate stays as the
+            // fallback for calls that reach this method without passing through the binder —
+            // /datasets/list delegates to it.
+            @Valid
             @RequestBody
             @Schema(implementation = DataSetRetreiver.class)
             DataSetRetreiver form
