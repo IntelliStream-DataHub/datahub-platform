@@ -84,7 +84,7 @@ public class EventFields {
                                 "Event",
                                 new String[] {"event.subType.max.length.error"},
                                 new Object[] {this.subType.getSet().length()},
-                                "Type max length is 128 characters.")
+                                "SubType max length is 128 characters.")
                 );
             }
         }
@@ -95,8 +95,8 @@ public class EventFields {
                         new FieldValidationError(
                                 "Event",
                                 new String[] {"event.status.max.length.error"},
-                                new Object[] {this.type.getSet().length()},
-                                "Type max length is 128 characters.")
+                                new Object[] {this.status.getSet().length()},
+                                "Status max length is 128 characters.")
                 );
             }
         }
