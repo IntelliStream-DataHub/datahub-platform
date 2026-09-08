@@ -45,7 +45,7 @@ python3 make-examples.py .        # rewrites every file in this directory
 | File | Notes |
 |---|---|
 | `cut-cube.stl` | Binary STL, the most common mesh interchange format |
-| `cut-cube.obj` + `.mtl` | Upload **both**; the viewer needs the material file alongside |
+| `cut-cube.obj` + `.mtl` | The OBJ opens, but grey: see "Multi-file models" below |
 | `cut-cube.ply` | ASCII PLY |
 | `cut-cube.off` | ASCII OFF |
 | `cut-cube.wrl` | VRML97 |
@@ -72,6 +72,27 @@ python3 make-step.py cube.step
 A plain cube rather than the cut-corner shape: the generator emits planar quad faces, and the cut
 corner needs a triangular one. It loads as 1 mesh and 12 triangles. OCCT reports two entities it
 cannot parse and reads the file anyway, which is cosmetic and left alone.
+
+## Multi-file models, and textures
+
+The viewer opens whichever file you click, and only that file. A model that references siblings
+therefore loads its geometry and loses everything else, which is measurable rather than a guess:
+
+```
+cut-cube.obj alone   materials=1 -> (unnamed)      the fallback grey
+cut-cube.obj + .mtl  materials=1 -> steel          the real material
+```
+
+Uploading the `.mtl` alongside does not change that, because the modal never sends it. The same
+applies to a `.gltf` with an external `.bin` or texture images.
+
+**Textures work in a self-contained file.** A GLB with its images embedded in the binary chunk
+renders them correctly, as does a `.gltf` with `data:` URIs, and a `.3mf`, which is a zip. So the
+practical rule for anything with materials or textures worth seeing is: export it as **GLB**.
+
+Fixing this means fetching a model's companions from the same folder and passing them along, which
+is possible (the folder listing and the file's path are both available to the browser) but is not
+built.
 
 ## Not covered
 
