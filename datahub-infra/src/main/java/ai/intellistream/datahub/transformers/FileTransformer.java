@@ -191,12 +191,12 @@ public class FileTransformer {
         dto.setRelatedResources( new TreeSet<>(node.getRelatedResources()) );
 
         dto.setType(node.getNodeType().toString());
+        // A file's stored path already ends in its own name, so never append the name again.
+        dto.setPath( node.getPath() );
         if( node.getNodeType() == INode.INodeType.FILE ){
-            dto.setPath( node.getPath() + "/" + node.getName() );
             dto.setSize( node.getSize() );
             dto.setChecksum( Hex.encodeHexString(node.getChecksum()) );
         } else if( node.getNodeType() == INode.INodeType.FOLDER ){
-            dto.setPath( node.getPath() );
             dto.setSize(0L);
         }
 

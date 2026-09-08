@@ -78,6 +78,8 @@ public class FileController {
         String foundPath = httpHelper.getRequestPath(req, "/files/list");
         // Expose the browsed folder so the upload form can pre-fill its path field.
         model.addAttribute("currentPath", foundPath);
+        // Drives the disabled state of the parent-folder button.
+        model.addAttribute("atRoot", foundPath == null || foundPath.isBlank() || "/".equals(foundPath));
         try{
             DataWrapper<IndexNode> nodes = datahubApi.listDirectory(foundPath);
             var sortedNodes = IndexNode.sort( nodes.getItems().stream().toList() );

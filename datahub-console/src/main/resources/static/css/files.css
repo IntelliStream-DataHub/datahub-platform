@@ -210,6 +210,8 @@ table.files-table .fs-empty td{
 	border: 1px solid var(--border);
 	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
+/* Vector art has no intrinsic size to fall back on, so give it a definite width. */
+.dh-file-preview img.vector{ width: 320px; height: auto; }
 /* File-information dialog: two-column key/value grid — accent uppercase labels, row dividers. */
 .dh-file-info-list{
 	flex: 1 1 auto;

@@ -33,11 +33,6 @@
 				<button type="button" class="dh-btn small mleft10" data-type="tab-trash" th:text="#{files.tab.deleted}">Deleted files</button>
 			</div>
 			<div class="flex-container left-right">
-				<div class="flex-container actions pad10">
-					<a th:href="${parentPath}" class="dh-btn primary small mleft10" type="button" data-type="go-up-btn" th:title="#{parent.folder}">
-						<i class="fa fa-fw fa-chevron-up"></i>
-					</a>
-				</div>
 				<div class="files-breadcrumb" th:title="#{main.path}">
 					<i class="fa fa-fw fa-folder-open"></i>
 					<span th:text="${#strings.isEmpty(currentPath) ? '/' : currentPath}">/</span>
@@ -46,6 +41,15 @@
 					</button>
 				</div>
 				<div class="flex-container actions pad10">
+					<!--/* The root has no parent: render a disabled button instead of a dead link. */-->
+					<a th:unless="${atRoot}" th:href="${parentPath}" class="dh-btn primary small"
+					   data-type="go-up-btn" th:title="#{parent.folder}">
+						<i class="fa fa-fw fa-chevron-up"></i>
+					</a>
+					<button th:if="${atRoot}" type="button" class="dh-btn primary small" disabled
+							data-type="go-up-btn" th:title="#{parent.folder}">
+						<i class="fa fa-fw fa-chevron-up"></i>
+					</button>
 					<button class="dh-btn primary small mleft10" type="button" data-type="upload-file-btn" th:data-current-path="${currentPath}" th:title="#{upload.file}">
 						<i class="fa fa-fw fa-upload"></i>
 					</button>
