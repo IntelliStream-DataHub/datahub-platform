@@ -155,7 +155,8 @@ public final class EventFilterRenderer {
             throw new FilterParseException(
                     "This is " + describe(type) + ", not a condition. Compare it with something, "
                             + "or use a function that answers yes or no such as has_key(...).",
-                    0, 0);
+                    0, 0)
+                    .withCode("filter.error.not.a.condition");
         }
         return "(" + sql(value.operand(), ValueType.BOOLEAN) + ")";
     }
@@ -193,7 +194,9 @@ public final class EventFilterRenderer {
                     Math.max(offset, 0), wrong.length(), converter,
                     offset < 0 ? null : Suggestions.splice(source, offset, wrong.length(), right2),
                     "Every metadata value is stored as text; converters are to_int, to_number, "
-                            + "to_bool, to_date and to_timestamp (or the ::type shorthand).");
+                            + "to_bool, to_date and to_timestamp (or the ::type shorthand).")
+                    .withCode(metadataConverterCode(other), key, right2)
+                    .withHelpCode("filter.help.metadata.converters");
         }
         // A UUID column accepts a string literal: it binds as UUID rather than as text.
         if (leftType == ValueType.UUID && right instanceof Expr.StringLiteral) {
@@ -206,7 +209,22 @@ public final class EventFilterRenderer {
                 describe(leftType) + " cannot be compared with " + describe(rightType) + ".",
                 0, 0, null, null,
                 "Compare like with like, or convert one side with to_int, to_number, to_bool, "
-                        + "to_date or to_timestamp.");
+                        + "to_date or to_timestamp.")
+                .withCode("filter.error.type.mismatch")
+                .withHelpCode("filter.help.compare.like.with.like");
+    }
+
+    /**
+     * One code per target type rather than one code with the type as an argument: an argument is
+     * substituted verbatim, so "a number" would stay English inside a translated sentence.
+     */
+    private static String metadataConverterCode(ValueType other) {
+        return switch (other) {
+            case NUMBER -> "filter.error.metadata.converter.number";
+            case DATETIME -> "filter.error.metadata.converter.datetime";
+            case BOOLEAN -> "filter.error.metadata.converter.boolean";
+            case STRING, UUID -> "filter.error.metadata.converter.other";
+        };
     }
 
     private static String converterFor(ValueType type) {
@@ -250,7 +268,9 @@ public final class EventFilterRenderer {
         int offset = Suggestions.locate(source, typeName);
         return new FilterParseException("Unknown type '" + typeName + "' in a :: cast.",
                 Math.max(offset, 0), typeName.length(), null, null,
-                "Cast targets are " + String.join(", ", FunctionRegistry.castTargets()) + ".");
+                "Cast targets are " + String.join(", ", FunctionRegistry.castTargets()) + ".")
+                .withCode("filter.error.unknown.cast", typeName)
+                .withHelpCode("filter.help.cast.targets", String.join(", ", FunctionRegistry.castTargets()));
     }
 
     // ---------------------------------------------------------------- SQL emission
@@ -288,7 +308,9 @@ public final class EventFilterRenderer {
                     int offset = Suggestions.locate(source, value);
                     throw new FilterParseException("'" + value + "' is not a number.",
                             Math.max(offset, 0), value.length(), null, null,
-                            "Compare against a number without quotes, or against text with quotes.");
+                            "Compare against a number without quotes, or against text with quotes.")
+                            .withCode("filter.error.not.a.number", value)
+                            .withHelpCode("filter.help.number.or.text");
                 }
             }
             case STRING, BOOLEAN -> bind(value, "String");
@@ -306,11 +328,12 @@ public final class EventFilterRenderer {
         FunctionRegistry.Fn fn = FunctionRegistry.find(name)
                 .orElseThrow(() -> Suggestions.unknownFunction(source, name));
         if (args.size() < fn.minArgs() || args.size() > fn.maxArgs()) {
-            throw new FilterParseException(fn.name() + " takes "
-                    + (fn.minArgs() == fn.maxArgs() ? String.valueOf(fn.minArgs())
-                    : fn.minArgs() + " to " + fn.maxArgs())
+            String expected = fn.minArgs() == fn.maxArgs() ? String.valueOf(fn.minArgs())
+                    : fn.minArgs() + " to " + fn.maxArgs();
+            throw new FilterParseException(fn.name() + " takes " + expected
                     + " argument(s), but got " + args.size() + ".",
-                    Math.max(Suggestions.locate(source, name), 0), name.length());
+                    Math.max(Suggestions.locate(source, name), 0), name.length())
+                    .withCode("filter.error.arity", fn.name(), expected, String.valueOf(args.size()));
         }
         return switch (fn.name()) {
             case "to_timestamp" -> convert(args.getFirst(), "parseDateTimeBestEffortOrNull",
@@ -362,7 +385,9 @@ public final class EventFilterRenderer {
                 throw new FilterParseException("'" + literal.value() + "' is not a boolean.",
                         Math.max(Suggestions.locate(source, literal.value()), 0),
                         literal.value().length(), null, null,
-                        "Accepted: true/false, t/f, yes/no, y/n, on/off, 1/0.");
+                        "Accepted: true/false, t/f, yes/no, y/n, on/off, 1/0.")
+                        .withCode("filter.error.not.a.boolean", literal.value())
+                        .withHelpCode("filter.help.bool.values");
             }
             return bind(parsed ? 1 : 0, "UInt8");
         }
@@ -387,14 +412,18 @@ public final class EventFilterRenderer {
         if (!(args.getFirst() instanceof Expr.StringLiteral part)) {
             throw new FilterParseException(
                     "date_part's first argument must be one of "
-                            + String.join(", ", FunctionRegistry.DATE_PARTS) + ", in quotes.", 0, 0);
+                            + String.join(", ", FunctionRegistry.DATE_PARTS) + ", in quotes.", 0, 0)
+                    .withCode("filter.error.date.part.literal",
+                            String.join(", ", FunctionRegistry.DATE_PARTS));
         }
         String name = part.value().toLowerCase(Locale.ROOT);
         if (!FunctionRegistry.DATE_PARTS.contains(name)) {
             int offset = Suggestions.locate(source, part.value());
             throw new FilterParseException("date_part cannot extract '" + part.value() + "'.",
                     Math.max(offset, 0), part.value().length(), null, null,
-                    "Available parts: " + String.join(", ", FunctionRegistry.DATE_PARTS) + ".");
+                    "Available parts: " + String.join(", ", FunctionRegistry.DATE_PARTS) + ".")
+                    .withCode("filter.error.date.part.unknown", part.value())
+                    .withHelpCode("filter.help.date.parts", String.join(", ", FunctionRegistry.DATE_PARTS));
         }
         String inner = sql(args.get(1), ValueType.DATETIME);
         return switch (name) {
@@ -450,6 +479,8 @@ public final class EventFilterRenderer {
         int offset = Suggestions.locate(source, text);
         throw new FilterParseException("'" + value + "' is not a date or timestamp.",
                 Math.max(offset, 0), text.length(), null, null,
-                "Accepted: 2026-01-01, 2026-01-01 12:30, 2026-01-01T12:30:00Z.");
+                "Accepted: 2026-01-01, 2026-01-01 12:30, 2026-01-01T12:30:00Z.")
+                .withCode("filter.error.not.a.date", value)
+                .withHelpCode("filter.help.date.formats");
     }
 }

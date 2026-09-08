@@ -52,7 +52,9 @@ public final class EventFilterParser {
         if (expression.length() > MAX_LENGTH) {
             throw new FilterParseException(
                     "The filter expression is " + expression.length() + " characters; the limit is "
-                            + MAX_LENGTH + ".", MAX_LENGTH, 0);
+                            + MAX_LENGTH + ".", MAX_LENGTH, 0)
+                    .withCode("filter.error.too.long",
+                            String.valueOf(expression.length()), String.valueOf(MAX_LENGTH));
         }
 
         // Before lexing, not after: ANTLR's generated parser recurses on nested groups, so a few
@@ -103,7 +105,8 @@ public final class EventFilterParser {
                 case '(', '[' -> {
                     if (++depth > MAX_DEPTH) {
                         throw new FilterParseException("The filter expression nests more than "
-                                + MAX_DEPTH + " levels deep.", i, 1);
+                                + MAX_DEPTH + " levels deep.", i, 1)
+                                .withCode("filter.error.too.deep", String.valueOf(MAX_DEPTH));
                     }
                 }
                 case ')', ']' -> depth--;
@@ -142,11 +145,14 @@ public final class EventFilterParser {
                 throw new FilterParseException("Subqueries and aggregation are not supported yet, "
                         + "so '" + token.getText() + "' cannot be used here.",
                         offset, length, null, null,
-                        "This filter takes a single boolean expression over one event.");
+                        "This filter takes a single boolean expression over one event.")
+                        .withCode("filter.error.subquery.unsupported", token.getText())
+                        .withHelpCode("filter.help.single.expression");
             }
             throw new FilterParseException(
                     "The filter expression could not be parsed at position " + offset
-                            + ": " + msg + ".", offset, length);
+                            + ": " + msg + ".", offset, length)
+                    .withCode("filter.error.syntax", String.valueOf(offset));
         }
         };
     }

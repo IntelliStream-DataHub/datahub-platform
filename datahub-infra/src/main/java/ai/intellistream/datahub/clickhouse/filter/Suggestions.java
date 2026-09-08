@@ -98,20 +98,26 @@ public final class Suggestions {
             return build(source, name, exact,
                     "'" + name + "' is the ClickHouse spelling. This filter uses PostgreSQL names, "
                             + "so use '" + exact + "'.",
-                    "Function names follow PostgreSQL; ClickHouse spellings are mapped internally.");
+                    "Function names follow PostgreSQL; ClickHouse spellings are mapped internally.")
+                    .withCode("filter.error.clickhouse.spelling", name, exact)
+                    .withHelpCode("filter.help.postgres.names");
         }
         String reshaped = RESHAPED.get(lower);
         if (reshaped != null) {
             return new FilterParseException(
                     "'" + name + "' is not available; write " + reshaped + " instead.",
                     Math.max(locate(source, name), 0), name.length(), "date_part", null,
-                    "date_part takes the part first: date_part('year'|'month'|'day', expression).");
+                    "date_part takes the part first: date_part('year'|'month'|'day', expression).")
+                    .withCode("filter.error.reshaped", name, reshaped)
+                    .withHelpCode("filter.help.date.part.shape");
         }
         String alias = DIALECT_ALIASES.get(lower);
         if (alias != null) {
             return build(source, name, alias,
                     "'" + name + "' is not available; the equivalent here is '" + alias + "'.",
-                    "Function names follow PostgreSQL.");
+                    "Function names follow PostgreSQL.")
+                    .withCode("filter.error.dialect.alias", name, alias)
+                    .withHelpCode("filter.help.postgres.names");
         }
         return nearest(source, name, FunctionRegistry.names(), "function");
     }
@@ -123,7 +129,9 @@ public final class Suggestions {
             return build(source, name, physical,
                     "'" + name + "' is the database column name; filters use '" + physical + "'.",
                     "Filterable fields use the same names as the events API: "
-                            + String.join(", ", EventColumns.names()) + ".");
+                            + String.join(", ", EventColumns.names()) + ".")
+                    .withCode("filter.error.physical.column", name, physical)
+                    .withHelpCode("filter.help.known.fields", String.join(", ", EventColumns.names()));
         }
         return nearest(source, name, EventColumns.names(), "field");
     }
@@ -152,20 +160,29 @@ public final class Suggestions {
                 best.add(candidate);
             }
         }
-        String known = "Known " + kind + "s: " + String.join(", ", candidates) + ".";
+        String list = String.join(", ", candidates);
+        String known = "Known " + kind + "s: " + list + ".";
+        String helpCode = "function".equals(kind) ? "filter.help.known.functions" : "filter.help.known.fields";
+        String prefix = "function".equals(kind) ? "filter.error.unknown.function" : "filter.error.unknown.field";
         if (best.isEmpty()) {
             return new FilterParseException("Unknown " + kind + " '" + name + "'.",
-                    locate(source, name), name.length(), null, null, known);
+                    locate(source, name), name.length(), null, null, known)
+                    .withCode(prefix, name)
+                    .withHelpCode(helpCode, list);
         }
         if (best.size() > 1) {
             best.sort(Comparator.naturalOrder());
             List<String> shown = best.subList(0, Math.min(3, best.size()));
             return new FilterParseException("Unknown " + kind + " '" + name + "'. Did you mean "
                     + String.join(", ", shown) + "?",
-                    locate(source, name), name.length(), null, null, known);
+                    locate(source, name), name.length(), null, null, known)
+                    .withCode(prefix + ".candidates", name, String.join(", ", shown))
+                    .withHelpCode(helpCode, list);
         }
         return build(source, name, best.getFirst(),
-                "Unknown " + kind + " '" + name + "'. Did you mean '" + best.getFirst() + "'?", known);
+                "Unknown " + kind + " '" + name + "'. Did you mean '" + best.getFirst() + "'?", known)
+                .withCode(prefix + ".did.you.mean", name, best.getFirst())
+                .withHelpCode(helpCode, list);
     }
 
     private static FilterParseException build(String source, String wrong, String right,

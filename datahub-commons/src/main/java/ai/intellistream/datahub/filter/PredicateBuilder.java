@@ -114,7 +114,8 @@ final class PredicateBuilder {
             // Unreachable: comparisonOp only matches the tokens above. Thrown rather than
             // defaulted, because a silent default here would be a wrong query, not a wrong error.
             default -> throw new FilterParseException("Unknown comparison operator '" + text + "'.",
-                    ctx.getStart().getCharPositionInLine(), text.length());
+                    ctx.getStart().getCharPositionInLine(), text.length())
+                    .withCode("filter.error.unknown.operator", text);
         };
     }
 
@@ -185,7 +186,9 @@ final class PredicateBuilder {
                                 + String.format("U+%04X", (int) c) + ").",
                         token.getCharPositionInLine(), token.getText().length(), null, null,
                         "Tabs and newlines cannot be sent as query parameters; "
-                                + "match around them with LIKE instead.");
+                                + "match around them with LIKE instead.")
+                        .withCode("filter.error.control.character", String.format("U+%04X", (int) c))
+                        .withHelpCode("filter.help.control.character");
             }
         }
         return value;

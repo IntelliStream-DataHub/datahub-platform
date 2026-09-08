@@ -27,11 +27,13 @@ final class Guards {
     private static void walk(Predicate node, int depth, Counts counts) {
         if (depth > EventFilterParser.MAX_DEPTH) {
             throw new FilterParseException("The filter expression nests more than "
-                    + EventFilterParser.MAX_DEPTH + " levels deep.", 0, 0);
+                    + EventFilterParser.MAX_DEPTH + " levels deep.", 0, 0)
+                    .withCode("filter.error.too.deep", String.valueOf(EventFilterParser.MAX_DEPTH));
         }
         if (++counts.nodes > EventFilterParser.MAX_NODES) {
             throw new FilterParseException("The filter expression has more than "
-                    + EventFilterParser.MAX_NODES + " terms.", 0, 0);
+                    + EventFilterParser.MAX_NODES + " terms.", 0, 0)
+                    .withCode("filter.error.too.many.terms", String.valueOf(EventFilterParser.MAX_NODES));
         }
         switch (node) {
             case Predicate.And and -> and.nodes().forEach(child -> walk(child, depth + 1, counts));
@@ -62,17 +64,21 @@ final class Guards {
     private static void walk(Expr node, int depth, Counts counts) {
         if (depth > EventFilterParser.MAX_DEPTH) {
             throw new FilterParseException("The filter expression nests more than "
-                    + EventFilterParser.MAX_DEPTH + " levels deep.", 0, 0);
+                    + EventFilterParser.MAX_DEPTH + " levels deep.", 0, 0)
+                    .withCode("filter.error.too.deep", String.valueOf(EventFilterParser.MAX_DEPTH));
         }
         if (++counts.nodes > EventFilterParser.MAX_NODES) {
             throw new FilterParseException("The filter expression has more than "
-                    + EventFilterParser.MAX_NODES + " terms.", 0, 0);
+                    + EventFilterParser.MAX_NODES + " terms.", 0, 0)
+                    .withCode("filter.error.too.many.terms", String.valueOf(EventFilterParser.MAX_NODES));
         }
         switch (node) {
             case Expr.FunctionCall call -> {
                 if (++counts.functionCalls > EventFilterParser.MAX_FUNCTION_CALLS) {
                     throw new FilterParseException("The filter expression calls more than "
-                            + EventFilterParser.MAX_FUNCTION_CALLS + " functions.", 0, 0);
+                            + EventFilterParser.MAX_FUNCTION_CALLS + " functions.", 0, 0)
+                            .withCode("filter.error.too.many.functions",
+                                    String.valueOf(EventFilterParser.MAX_FUNCTION_CALLS));
                 }
                 call.args().forEach(arg -> walk(arg, depth + 1, counts));
             }

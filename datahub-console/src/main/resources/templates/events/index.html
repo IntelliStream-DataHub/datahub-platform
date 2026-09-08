@@ -235,6 +235,21 @@
 			// `suggestedQuery` is deliberately absent when several candidates tie, so its presence is
 			// the signal that there IS one obvious fix — not merely that a fix exists. Offering an
 			// ambiguous guess as a button would apply the wrong one on a single click.
+			// The api sends both a translation key and an English sentence. Render the key when this
+			// build has it, and fall back to the sentence otherwise, so a code introduced after this
+			// console shipped degrades to English rather than to a bare key on screen.
+			//
+			// $L returns the key itself when it has no entry, which is the test for "do I know this
+			// one". Checked before the substituting three-argument form, which assumes the key exists
+			// and would throw on an unknown one. The console warning $L emits on a miss is wanted
+			// here: a code the api sends and this build cannot render is worth noticing.
+			const translated = (code, args, fallback) => {
+				if(!code) return fallback;
+				const template = $L(code);
+				if(template === code) return fallback;
+				return (args && args.length) ? $L(code, null, args) : template;
+			};
+
 			const expressionErrorEle = () => document.getElementById("advancedFilterError");
 
 			const clearExpressionError = () => {
@@ -254,7 +269,8 @@
 
 				const message = document.createElement("div");
 				message.className = "dh-expression-message";
-				message.textContent = problem.detail || problem.title || "";
+				message.textContent = translated(problem.code, problem.args,
+					problem.detail || problem.title || "");
 				box.appendChild(message);
 
 				// The caret line repeats the expression in the same monospace face and marks the span,
@@ -269,10 +285,11 @@
 					box.appendChild(caret);
 				}
 
-				if(problem.help){
+				const helpText = translated(problem.helpCode, problem.helpArgs, problem.help);
+				if(helpText){
 					const help = document.createElement("div");
 					help.className = "dh-expression-help";
-					help.textContent = problem.help;
+					help.textContent = helpText;
 					box.appendChild(help);
 				}
 

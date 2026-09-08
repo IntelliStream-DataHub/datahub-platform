@@ -22,6 +22,13 @@ import java.net.URI;
  * equally close — because applying the wrong correction automatically is worse than offering none.
  * A client should treat its presence as "there is one obvious fix" rather than as "there is a fix".
  *
+ * <p>{@code code} and {@code args} carry the same message as a stable key and its values, so a UI
+ * can render it in the reader's language. {@code detail} stays the English sentence rather than
+ * being replaced by the key: an SDK caller, a curl session and a log line all want something
+ * readable, and a client that does not translate must not be handed {@code filter.error.syntax}.
+ * A client that does translate looks up {@code code} and falls back to {@code detail} when it has
+ * no entry, which is also what happens for a code added after that client shipped.
+ *
  * <p>Rejection is total: no query is issued. An expression this service cannot read is never
  * partially applied or quietly dropped, which would return everything the caller may see while
  * silently ignoring what they asked for — a wrong answer wearing a 200.
@@ -43,6 +50,14 @@ public class FilterParseExceptionHandler {
         problem.setType(URI.create(PROBLEM_TYPE));
         problem.setProperty("offset", ex.getOffset());
         problem.setProperty("length", ex.getLength());
+        if (ex.getCode() != null) {
+            problem.setProperty("code", ex.getCode());
+            problem.setProperty("args", ex.getArgs());
+        }
+        if (ex.getHelpCode() != null) {
+            problem.setProperty("helpCode", ex.getHelpCode());
+            problem.setProperty("helpArgs", ex.getHelpArgs());
+        }
         if (ex.getSuggestion() != null) {
             problem.setProperty("suggestion", ex.getSuggestion());
         }

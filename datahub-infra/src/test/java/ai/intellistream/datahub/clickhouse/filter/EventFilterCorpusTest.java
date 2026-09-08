@@ -186,6 +186,32 @@ class EventFilterCorpusTest {
         }
     }
 
+    /**
+     * Every rejection carries a translation key, so the console can say it in the reader's own
+     * language. Asserted over the whole corpus rather than per case: a code is easy to forget on a
+     * throw site added later, and the failure mode is silent -- the English sentence still shows,
+     * so nothing looks broken until someone reads the page in Norwegian.
+     */
+    @Test
+    void everyRejectionCarriesATranslationKey() {
+        List<String> missing = new ArrayList<>();
+        for (Case testCase : load("/filter/rejected.txt")) {
+            try {
+                Predicate parsed = EventFilterParser.parse(testCase.expression());
+                if (parsed != null) {
+                    new EventFilterRenderer(new LinkedHashMap<>(), testCase.expression()).render(parsed);
+                }
+            } catch (FilterParseException e) {
+                if (e.getCode() == null || e.getCode().isBlank()) {
+                    missing.add(testCase.expression() + "  ->  " + e.getMessage());
+                } else if (!e.getCode().startsWith("filter.error.")) {
+                    missing.add(testCase.expression() + "  ->  odd code " + e.getCode());
+                }
+            }
+        }
+        assertThat(missing).as("rejections with no translation key").isEmpty();
+    }
+
     /** The counts the corpus is meant to carry, so shrinking it is a deliberate act. */
     @Test
     void theCorpusIsTheSizeItClaims() {
