@@ -186,8 +186,6 @@
 }
 
 .dh-btn {
-	/* <button> is border-box by UA default and <a> is not, so an anchor styled as a button
-	   would stand 2px taller than the real button beside it. */
 	box-sizing: border-box;
 	padding: 8px 16px;
 	border-radius: 3px;
