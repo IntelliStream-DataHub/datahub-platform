@@ -84,6 +84,17 @@
 					</label>
 				</div>
 			</div>
+			<div class="pad10">
+				<label th:for="advancedFilter" th:text="#{events.advanced.filter}"></label>
+				<div class="posrel">
+					<!-- A textarea rather than an input: an expression wraps, and a filter you cannot
+					     read all of is a filter you cannot check. -->
+					<textarea id="advancedFilter" class="w100 dh-expression" name="advancedFilter"
+					          rows="2" spellcheck="false" autocomplete="off"
+					          th:attr="placeholder=#{events.advanced.filter.placeholder}" tabindex="350"></textarea>
+				</div>
+				<div id="advancedFilterError" class="dh-expression-error" hidden></div>
+			</div>
 		</form>
 
 		</section>
@@ -218,6 +229,68 @@
 				}
 			};
 
+			// Show a rejected filter expression where it was typed: the message, the offending span
+			// underlined, and the repair as one click when the api is confident enough to offer one.
+			//
+			// `suggestedQuery` is deliberately absent when several candidates tie, so its presence is
+			// the signal that there IS one obvious fix — not merely that a fix exists. Offering an
+			// ambiguous guess as a button would apply the wrong one on a single click.
+			const expressionErrorEle = () => document.getElementById("advancedFilterError");
+
+			const clearExpressionError = () => {
+				const box = expressionErrorEle();
+				if(!box) return;
+				box.hidden = true;
+				box.textContent = "";
+				document.getElementById("advancedFilter").classList.remove("dh-expression-invalid");
+			};
+
+			const renderExpressionError = problem => {
+				const box = expressionErrorEle();
+				const field = document.getElementById("advancedFilter");
+				if(!box || !field) return;
+				box.textContent = "";
+				field.classList.add("dh-expression-invalid");
+
+				const message = document.createElement("div");
+				message.className = "dh-expression-message";
+				message.textContent = problem.detail || problem.title || "";
+				box.appendChild(message);
+
+				// The caret line repeats the expression in the same monospace face and marks the span,
+				// so "position 24" does not have to be counted by hand.
+				const offset = Number.isInteger(problem.offset) ? problem.offset : -1;
+				const length = Number.isInteger(problem.length) && problem.length > 0 ? problem.length : 0;
+				if(offset >= 0 && length > 0 && offset + length <= field.value.length){
+					const caret = document.createElement("pre");
+					caret.className = "dh-expression-caret";
+					caret.textContent = field.value + "\n"
+						+ " ".repeat(offset) + "^".repeat(length);
+					box.appendChild(caret);
+				}
+
+				if(problem.help){
+					const help = document.createElement("div");
+					help.className = "dh-expression-help";
+					help.textContent = problem.help;
+					box.appendChild(help);
+				}
+
+				if(problem.suggestedQuery){
+					const apply = document.createElement("button");
+					apply.type = "button";
+					apply.className = "dh-btn secondary dh-expression-fix";
+					apply.textContent = $L('events.advanced.filter.apply.fix');
+					apply.addEventListener("click", () => {
+						field.value = problem.suggestedQuery;
+						clearExpressionError();
+						doSearch(buildQuery(document.getElementById("filter-events")));
+					});
+					box.appendChild(apply);
+				}
+				box.hidden = false;
+			};
+
 			const doSearch = query => {
 				const apiBaseUrl = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
 				// Search straight on datahub-api (CORS-enabled), NOT through the console proxy, authorized
@@ -245,11 +318,23 @@
 					.then(response => {
 						if (!response) return null;
 						if (response.status === 401) { window.renderSignedOutDialog(); return null; }
+						// A rejected filter expression is the one 400 a user can produce by typing, so
+						// it is shown rather than logged. Everything else stays a console error: it is
+						// not something the person at the keyboard can act on.
+						if (response.status === 400) {
+							return response.json().then(problem => {
+								if (problem && problem.type && problem.type.endsWith('/filter-expression')) {
+									renderExpressionError(problem);
+									return null;
+								}
+								throw new Error('/events/filter returned 400');
+							});
+						}
 						if (!response.ok) throw new Error(`/events/filter returned ${response.status}`);
 						return response.json();
 					})
 					.then(json => {
-						if (json) renderSearchResults(json.items);
+						if (json) { clearExpressionError(); renderSearchResults(json.items); }
 					})
 					.catch(e => console.log(e));
 			};
@@ -322,6 +407,15 @@
 					const typed = json["filter"]["externalId"];
 					json["filter"]["externalId"] = /[*%]/.test(typed) ? typed : typed + "*";
 				}
+
+				// advancedFilter is a sibling of `filter`, not one of its fields: it is a boolean
+				// expression the api parses, and the two are combined with AND. It goes over verbatim,
+				// including whatever the user has half-typed — the api answers a bad expression with a
+				// 400 carrying an offset and often a repair, which is what renderExpressionError shows.
+				if(json["filter"]["advancedFilter"]){
+					json["advancedFilter"] = json["filter"]["advancedFilter"];
+				}
+				delete json["filter"]["advancedFilter"];
 
 				// Handle metadata
 				if(json["filter"]["key"]){

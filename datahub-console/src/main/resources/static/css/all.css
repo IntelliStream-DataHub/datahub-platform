@@ -3832,3 +3832,43 @@ body.chat-resizing{
 .dh-context-item.danger{ color: #e5534b; }
 .dh-context-item.danger:hover,
 .dh-context-item.danger:focus-visible{ background: rgba(229, 83, 75, 0.14); color: #e5534b; }
+
+/* Events filter expression box.
+   Monospace because it holds SQL-like text where spacing is meaningful, and because the caret
+   line under an error only lines up with the expression if both are in the same face. */
+.dh-expression {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 13px;
+	resize: vertical;
+	min-height: 3.2em;
+}
+.dh-expression-invalid {
+	border-color: var(--input-error-fg);
+}
+.dh-expression-error {
+	margin-top: 6px;
+	font-size: 13px;
+	color: var(--input-error-fg);
+}
+.dh-expression-message {
+	line-height: 1.35;
+}
+/* The expression repeated with a ^^^ run under the offending span, so an offset does not have to
+   be counted by hand. pre, not div: the leading spaces that position the caret are the content. */
+.dh-expression-caret {
+	margin: 6px 0 0;
+	padding: 6px 8px;
+	overflow-x: auto;
+	white-space: pre;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	font-size: 12px;
+	background: var(--input-error-bg);
+	border-radius: 4px;
+}
+.dh-expression-help {
+	margin-top: 6px;
+	opacity: 0.85;
+}
+.dh-expression-fix {
+	margin-top: 8px;
+}

@@ -160,6 +160,20 @@ class EventFilterParserTest {
         assertThat(c.right()).isInstanceOf(Expr.FunctionCall.class);
     }
 
+    /**
+     * The offset must index the whole expression, not the line it happens to fall on. A filter box
+     * that accepts newlines is what makes the difference visible: a caret drawn at ANTLR's own
+     * column would land on the right column of the wrong line.
+     */
+    @Test
+    void offsetsAreAbsoluteAcrossNewlines() {
+        FilterParseException e = (FilterParseException) org.assertj.core.api.Assertions
+                .catchThrowable(() -> EventFilterParser.parse("type = 'a'\nAND status ="));
+
+        assertThat(e).isNotNull();
+        assertThat(e.getOffset()).isGreaterThan("type = 'a'".length());
+    }
+
     @Test
     void limitsAreEnforced() {
         assertThatThrownBy(() -> EventFilterParser.parse("type = '" + "x".repeat(5000) + "'"))

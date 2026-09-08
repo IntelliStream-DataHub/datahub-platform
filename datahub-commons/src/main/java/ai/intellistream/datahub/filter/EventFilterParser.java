@@ -60,13 +60,18 @@ public final class EventFilterParser {
         // AST guards below cannot see this at all — redundant parentheses add no AST depth.
         checkNestingDepth(expression);
 
+        // The listener is built per parse because it needs the expression: ANTLR reports a
+        // position within its LINE, and what a caller can underline is a position within the whole
+        // string. The two only agree on a single-line expression.
+        BaseErrorListener throwing = throwingListener(expression);
+
         EventFilterQueryLexer lexer = new EventFilterQueryLexer(CharStreams.fromString(expression));
         lexer.removeErrorListeners();
-        lexer.addErrorListener(THROWING);
+        lexer.addErrorListener(throwing);
 
         EventFilterQueryParser parser = new EventFilterQueryParser(new CommonTokenStream(lexer));
         parser.removeErrorListeners();
-        parser.addErrorListener(THROWING);
+        parser.addErrorListener(throwing);
 
         ParseTree tree = parser.statement();
         Predicate predicate = new PredicateBuilder().build(tree);
@@ -119,12 +124,14 @@ public final class EventFilterParser {
             EventFilterQueryLexer.HAVING, EventFilterQueryLexer.EXISTS, EventFilterQueryLexer.UNION,
             EventFilterQueryLexer.JOIN);
 
-    private static final BaseErrorListener THROWING = new BaseErrorListener() {
+    private static BaseErrorListener throwingListener(String expression) {
+        return new BaseErrorListener() {
         @Override
         public void syntaxError(Recognizer<?, ?> recognizer, Object offendingSymbol, int line,
                                 int charPositionInLine, String msg, RecognitionException e) {
             Token token = offendingSymbol instanceof Token t ? t : null;
             int length = token != null && token.getText() != null ? token.getText().length() : 0;
+            int offset = absoluteOffset(expression, line, charPositionInLine);
 
             // SELECT, FROM, GROUP, HAVING, EXISTS, UNION and JOIN are reserved rather than merely
             // absent, so someone reaching for a subquery is told the feature is missing instead of
@@ -134,12 +141,32 @@ public final class EventFilterParser {
             if (token != null && RESERVED.contains(token.getType())) {
                 throw new FilterParseException("Subqueries and aggregation are not supported yet, "
                         + "so '" + token.getText() + "' cannot be used here.",
-                        charPositionInLine, length, null, null,
+                        offset, length, null, null,
                         "This filter takes a single boolean expression over one event.");
             }
             throw new FilterParseException(
-                    "The filter expression could not be parsed at position " + charPositionInLine
-                            + ": " + msg + ".", charPositionInLine, length);
+                    "The filter expression could not be parsed at position " + offset
+                            + ": " + msg + ".", offset, length);
         }
-    };
+        };
+    }
+
+    /**
+     * ANTLR's line and column translated into an index into the whole expression.
+     *
+     * <p>Only these two agree when the expression is one line, and a filter box that accepts
+     * newlines makes that the wrong assumption: the caret would land on the right column of the
+     * wrong line.
+     */
+    private static int absoluteOffset(String expression, int line, int charPositionInLine) {
+        int index = 0;
+        for (int remaining = line - 1; remaining > 0; remaining--) {
+            int newline = expression.indexOf('\n', index);
+            if (newline < 0) {
+                break;
+            }
+            index = newline + 1;
+        }
+        return Math.min(index + charPositionInLine, expression.length());
+    }
 }
