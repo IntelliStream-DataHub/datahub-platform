@@ -15,8 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Guards the ASSEMBLED where clause, which the fragment-level tests in
- * {@link ClickHouseEventAdvancedFilterTest} cannot see.
+ * Guards the ASSEMBLED where clause, which fragment-level tests cannot see.
  *
  * <p>The property under test is one sentence: <b>the dataset ACL binds more tightly than anything
  * the caller supplied.</b> In SQL that is a question about parentheses rather than about the order
