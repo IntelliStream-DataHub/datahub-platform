@@ -58,17 +58,34 @@ python3 make-examples.py .        # rewrites every file in this directory
 All ten load with 16 triangles. STL, WRL and DAE report 48 vertices rather than 10 because those
 formats do not share vertices between faces, which is correct, not a fault.
 
+## cube.step: the CAD decoder path
+
+A 1 m cube as a STEP AP214 manifold solid B-rep, written by `make-step.py`. Unlike everything else
+here it does not go through the viewer's own parsers at all: STEP is handed to `occt-import-js`,
+the 7.7 MB WASM decoder the console vendors, so this is the fixture that proves that whole path
+works.
+
+```bash
+python3 make-step.py cube.step
+```
+
+A plain cube rather than the cut-corner shape: the generator emits planar quad faces, and the cut
+corner needs a triangular one. It loads as 1 mesh and 12 triangles. OCCT reports two entities it
+cannot parse and reads the file anyway, which is cosmetic and left alone.
+
 ## Not covered
 
-Nothing here exercises the vendored WASM decoders, which are the interesting half of the viewer:
-**STEP, IGES, BREP, FCStd, IFC and 3DM** all go through `occt-import-js`, `web-ifc` or `rhino3dm`
-rather than the bundle's own parsers.
-
-Writing a valid file in those formats by hand is not practical, and a hand-written STEP B-rep was
-tried and abandoned: the decoder read it, but the viewer never finished loading it, with the
-**unpatched upstream bundle behaving the same way**, so the fixture could not be told apart from a
-real problem. Those formats want a genuine export from a CAD tool, which is also a better test of
-them.
+**IGES, BREP, FCStd, IFC and 3DM** still have no fixture. They go through `occt-import-js`,
+`web-ifc` or `rhino3dm`, and writing a valid file in those formats by hand is not practical. STEP
+now stands in for the occt path; IFC and 3DM want a genuine export from a CAD tool, which tests
+them better anyway.
 
 There is a separate fixture for AVEVA RVM in `tools/rvm-converter/testdata`, since RVM is converted
 before it reaches the viewer rather than opened directly.
+
+## A note on testing these headlessly
+
+Do not use Chromium's `--virtual-time-budget` to check the CAD formats. The decoders run in a Web
+Worker, virtual time does not advance there, and the load never completes: it looks exactly like a
+hang in the viewer. Give the browser real wall-clock time instead. Every STEP file tried, including
+a 433 KB multi-part assembly written by a commercial converter, loads in under a second.
