@@ -33,6 +33,13 @@ public final class Suggestions {
     private static final Map<String, String> DIALECT_ALIASES = new LinkedHashMap<>();
     /** Physical DDL column names, which callers copy out of query logs and schema dumps. */
     private static final Map<String, String> PHYSICAL_COLUMNS = new LinkedHashMap<>();
+    /**
+     * Names that map to something here but with a different call shape, so the repair is not a
+     * substitution. {@code toYear(x)} means {@code date_part('year', x)}: swapping the name alone
+     * would hand back a call with the wrong number of arguments, which is worse than no repair,
+     * so these carry the correct form as help and no suggestedQuery.
+     */
+    private static final Map<String, String> RESHAPED = new LinkedHashMap<>();
 
     static {
         CLICKHOUSE_SPELLINGS.put("todate", "to_date");
@@ -49,18 +56,15 @@ public final class Suggestions {
         CLICKHOUSE_SPELLINGS.put("tofloat64ornull", "to_number");
         CLICKHOUSE_SPELLINGS.put("tobool", "to_bool");
         CLICKHOUSE_SPELLINGS.put("mapcontains", "has_key");
-        CLICKHOUSE_SPELLINGS.put("toyear", "date_part");
-        CLICKHOUSE_SPELLINGS.put("tomonth", "date_part");
-        CLICKHOUSE_SPELLINGS.put("todayofmonth", "date_part");
+        RESHAPED.put("toyear", "date_part('year', <expression>)");
+        RESHAPED.put("tomonth", "date_part('month', <expression>)");
+        RESHAPED.put("todayofmonth", "date_part('day', <expression>)");
+        RESHAPED.put("extract", "date_part('year', <expression>)");
         CLICKHOUSE_SPELLINGS.put("lengthutf8", "length");
         CLICKHOUSE_SPELLINGS.put("lowerutf8", "lower");
         CLICKHOUSE_SPELLINGS.put("upperutf8", "upper");
 
-        DIALECT_ALIASES.put("extract", "date_part");
         DIALECT_ALIASES.put("datepart", "date_part");
-        DIALECT_ALIASES.put("year", "date_part");
-        DIALECT_ALIASES.put("month", "date_part");
-        DIALECT_ALIASES.put("day", "date_part");
         DIALECT_ALIASES.put("to_char", "to_timestamp");
         DIALECT_ALIASES.put("strftime", "to_timestamp");
         DIALECT_ALIASES.put("to_timestamptz", "to_timestamp");
@@ -95,6 +99,13 @@ public final class Suggestions {
                     "'" + name + "' is the ClickHouse spelling. This filter uses PostgreSQL names, "
                             + "so use '" + exact + "'.",
                     "Function names follow PostgreSQL; ClickHouse spellings are mapped internally.");
+        }
+        String reshaped = RESHAPED.get(lower);
+        if (reshaped != null) {
+            return new FilterParseException(
+                    "'" + name + "' is not available; write " + reshaped + " instead.",
+                    Math.max(locate(source, name), 0), name.length(), "date_part", null,
+                    "date_part takes the part first: date_part('year'|'month'|'day', expression).");
         }
         String alias = DIALECT_ALIASES.get(lower);
         if (alias != null) {

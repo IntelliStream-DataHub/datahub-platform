@@ -1,0 +1,146 @@
+# Filter expressions that MUST be rejected, with the reason each must be rejected FOR.
+# `category | expression`. Asserting the category stops a case passing for the wrong
+# reason -- a typo'd field rejected as a syntax error is a failing test, not a passing one.
+metadata-converter | metadata['count'] > 5
+metadata-converter | metadata['count'] = 5
+metadata-converter | metadata['count'] < 5
+metadata-converter | metadata['count'] >= 5
+metadata-converter | metadata['t'] > to_timestamp('2026-01-01')
+metadata-converter | metadata['t'] < now()
+metadata-converter | metadata['b'] = true
+metadata-converter | metadata['b'] != false
+metadata-converter | 5 < metadata['count']
+metadata-converter | to_timestamp('2026-01-01') < metadata['t']
+unknown-field | externaId = 'x'
+unknown-field | subTpye = 'x'
+unknown-field | typ = 'x'
+unknown-field | stat = 'x'
+unknown-field | sourc = 'x'
+unknown-field | external_id_hash = 1
+unknown-field | related_resources_id = 1
+unknown-field | related_resources_external_id = 'x'
+unknown-field | nosuchfield = 'x'
+unknown-field | event_time_utc > '2026-01-01'
+syntax | metadataa['x'] = 'y'
+unknown-field | "nope" = 'x'
+unknown-function | to_intt(metadata['n']) = 1
+unknown-function | to_timestampp(metadata['t']) = '2026-01-01'
+unknown-function | nosuchfn('x') = 'y'
+unknown-function | to_num(metadata['n']) = 1
+unknown-function | datepart('year', eventTime) = 1
+unknown-function | has_keys('x')
+unknown-function | lowercase(type) = 'a'
+unknown-function | strlen(type) = 1
+banned-function | url('http://x') = 'y'
+banned-function | file('/etc/passwd') = 'y'
+banned-function | s3('bucket') = 'y'
+banned-function | remote('host') = 'y'
+banned-function | remoteSecure('host') = 'y'
+banned-function | mysql('h') = 'y'
+banned-function | postgresql('h') = 'y'
+banned-function | jdbc('h') = 'y'
+banned-function | hdfs('h') = 'y'
+banned-function | executable('sh') = 'y'
+banned-function | dictGet('d','k',1) = 'y'
+banned-function | sleep(10) = 1
+banned-function | sleepEachRow(1) = 1
+banned-function | arrayJoin('a') = 'b'
+banned-function | currentUser() = 'root'
+banned-function | getSetting('max_threads') = 1
+injection | type = 'a'; DROP TABLE events
+injection | type = 'a'; SELECT 1
+injection | 1=1 UNION SELECT 1
+injection | type = 'a' UNION ALL SELECT 1
+injection | type = 'a') OR (1=1
+injection | type = 'a' /*
+injection | */ type = 'a'
+injection | type = 'a' AND SLEEP(5)
+injection | type = (SELECT 1)
+injection | id IN (SELECT id FROM events)
+injection | EXISTS (SELECT 1)
+injection | type = 'a' INTO OUTFILE '/tmp/x'
+injection | type = 'a' FORMAT JSON
+injection | type = 'a' SETTINGS max_threads=1
+injection | type = 'a' \\; SELECT 1
+injection | type = `a`
+injection | type = $$a$$
+syntax | type =
+syntax | = 'a'
+syntax | type 'a'
+syntax | (type = 'a'
+syntax | type = 'a')
+syntax | AND type = 'a'
+syntax | type = 'a' AND
+syntax | type = 'a' OR
+syntax | NOT
+syntax | WHERE
+syntax | ()
+syntax | type IN ()
+syntax | type BETWEEN 1
+syntax | metadata[] = 'x'
+unsupported-syntax | CASE WHEN type = 'a' THEN 1 END = 1
+unsupported-syntax | dataSetId + 1 = 2
+unsupported-syntax | dataSetId - 1 = 2
+unsupported-syntax | type || 'x' = 'ax'
+unsupported-syntax | type ~ 'pump'
+unsupported-syntax | type ~* 'pump'
+unsupported-syntax | type = ANY(ARRAY['a'])
+unsupported-syntax | type IS DISTINCT FROM 'a'
+unsupported-syntax | type = E'\\n'
+unsupported-syntax | dataSetId * 2 = 4
+reserved-subquery | SELECT 1
+reserved-subquery | having count() > 1
+reserved-subquery | GROUP BY type
+reserved-subquery | type = 'a' HAVING count() > 1
+reserved-subquery | FROM events
+reserved-subquery | type = 'a' JOIN x
+reserved-subquery | UNION
+reserved-subquery | type = 'a' GROUP BY type
+bad-argument | to_int(metadata['a'], 2) = 1
+bad-argument | to_int() = 1
+bad-argument | date_part('week', eventTime) = 1
+bad-argument | date_part('hour', eventTime) = 1
+bad-argument | date_part(eventTime) = 1
+bad-argument | metadata['n']::money = 1
+bad-argument | metadata['n']::text = 'a'
+bad-argument | now(1) > eventTime
+limit | type = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+limit | (((((((((((((((((((((((((type = 'a')))))))))))))))))))))))))
+limit | [[[[[[[[[[[[[[[[[[[[[[[[[[[[[[type = 'a']]]]]]]]]]]]]]]]]]]]]]]]]]]]]]
+limit | type = 'v0' OR type = 'v1' OR type = 'v2' OR type = 'v3' OR type = 'v4' OR type = 'v5' OR type = 'v6' OR type = 'v7' OR type = 'v8' OR type = 'v9' OR type = 'v10' OR type = 'v11' OR type = 'v12' OR type = 'v13' OR type = 'v14' OR type = 'v15' OR type = 'v16' OR type = 'v17' OR type = 'v18' OR type = 'v19' OR type = 'v20' OR type = 'v21' OR type = 'v22' OR type = 'v23' OR type = 'v24' OR type = 'v25' OR type = 'v26' OR type = 'v27' OR type = 'v28' OR type = 'v29' OR type = 'v30' OR type = 'v31' OR type = 'v32' OR type = 'v33' OR type = 'v34' OR type = 'v35' OR type = 'v36' OR type = 'v37' OR type = 'v38' OR type = 'v39' OR type = 'v40' OR type = 'v41' OR type = 'v42' OR type = 'v43' OR type = 'v44' OR type = 'v45' OR type = 'v46' OR type = 'v47' OR type = 'v48' OR type = 'v49' OR type = 'v50' OR type = 'v51' OR type = 'v52' OR type = 'v53' OR type = 'v54' OR type = 'v55' OR type = 'v56' OR type = 'v57' OR type = 'v58' OR type = 'v59' OR type = 'v60' OR type = 'v61' OR type = 'v62' OR type = 'v63' OR type = 'v64' OR type = 'v65' OR type = 'v66' OR type = 'v67' OR type = 'v68' OR type = 'v69' OR type = 'v70' OR type = 'v71' OR type = 'v72' OR type = 'v73' OR type = 'v74' OR type = 'v75' OR type = 'v76' OR type = 'v77' OR type = 'v78' OR type = 'v79' OR type = 'v80' OR type = 'v81' OR type = 'v82' OR type = 'v83' OR type = 'v84' OR type = 'v85' OR type = 'v86' OR type = 'v87' OR type = 'v88' OR type = 'v89' OR type = 'v90' OR type = 'v91' OR type = 'v92' OR type = 'v93' OR type = 'v94' OR type = 'v95' OR type = 'v96' OR type = 'v97' OR type = 'v98' OR type = 'v99' OR type = 'v100' OR type = 'v101' OR type = 'v102' OR type = 'v103' OR type = 'v104' OR type = 'v105' OR type = 'v106' OR type = 'v107' OR type = 'v108' OR type = 'v109' OR type = 'v110' OR type = 'v111' OR type = 'v112' OR type = 'v113' OR type = 'v114' OR type = 'v115' OR type = 'v116' OR type = 'v117' OR type = 'v118' OR type = 'v119'
+limit | type = 'v0' AND type = 'v1' AND type = 'v2' AND type = 'v3' AND type = 'v4' AND type = 'v5' AND type = 'v6' AND type = 'v7' AND type = 'v8' AND type = 'v9' AND type = 'v10' AND type = 'v11' AND type = 'v12' AND type = 'v13' AND type = 'v14' AND type = 'v15' AND type = 'v16' AND type = 'v17' AND type = 'v18' AND type = 'v19' AND type = 'v20' AND type = 'v21' AND type = 'v22' AND type = 'v23' AND type = 'v24' AND type = 'v25' AND type = 'v26' AND type = 'v27' AND type = 'v28' AND type = 'v29' AND type = 'v30' AND type = 'v31' AND type = 'v32' AND type = 'v33' AND type = 'v34' AND type = 'v35' AND type = 'v36' AND type = 'v37' AND type = 'v38' AND type = 'v39' AND type = 'v40' AND type = 'v41' AND type = 'v42' AND type = 'v43' AND type = 'v44' AND type = 'v45' AND type = 'v46' AND type = 'v47' AND type = 'v48' AND type = 'v49' AND type = 'v50' AND type = 'v51' AND type = 'v52' AND type = 'v53' AND type = 'v54' AND type = 'v55' AND type = 'v56' AND type = 'v57' AND type = 'v58' AND type = 'v59' AND type = 'v60' AND type = 'v61' AND type = 'v62' AND type = 'v63' AND type = 'v64' AND type = 'v65' AND type = 'v66' AND type = 'v67' AND type = 'v68' AND type = 'v69' AND type = 'v70' AND type = 'v71' AND type = 'v72' AND type = 'v73' AND type = 'v74' AND type = 'v75' AND type = 'v76' AND type = 'v77' AND type = 'v78' AND type = 'v79' AND type = 'v80' AND type = 'v81' AND type = 'v82' AND type = 'v83' AND type = 'v84' AND type = 'v85' AND type = 'v86' AND type = 'v87' AND type = 'v88' AND type = 'v89' AND type = 'v90' AND type = 'v91' AND type = 'v92' AND type = 'v93' AND type = 'v94' AND type = 'v95' AND type = 'v96' AND type = 'v97' AND type = 'v98' AND type = 'v99' AND type = 'v100' AND type = 'v101' AND type = 'v102' AND type = 'v103' AND type = 'v104' AND type = 'v105' AND type = 'v106' AND type = 'v107' AND type = 'v108' AND type = 'v109' AND type = 'v110' AND type = 'v111' AND type = 'v112' AND type = 'v113' AND type = 'v114' AND type = 'v115' AND type = 'v116' AND type = 'v117' AND type = 'v118' AND type = 'v119'
+limit | to_int(metadata['m0']) = 1 AND to_int(metadata['m1']) = 1 AND to_int(metadata['m2']) = 1 AND to_int(metadata['m3']) = 1 AND to_int(metadata['m4']) = 1 AND to_int(metadata['m5']) = 1 AND to_int(metadata['m6']) = 1 AND to_int(metadata['m7']) = 1 AND to_int(metadata['m8']) = 1 AND to_int(metadata['m9']) = 1 AND to_int(metadata['m10']) = 1 AND to_int(metadata['m11']) = 1 AND to_int(metadata['m12']) = 1 AND to_int(metadata['m13']) = 1 AND to_int(metadata['m14']) = 1 AND to_int(metadata['m15']) = 1 AND to_int(metadata['m16']) = 1 AND to_int(metadata['m17']) = 1 AND to_int(metadata['m18']) = 1 AND to_int(metadata['m19']) = 1 AND to_int(metadata['m20']) = 1 AND to_int(metadata['m21']) = 1 AND to_int(metadata['m22']) = 1 AND to_int(metadata['m23']) = 1 AND to_int(metadata['m24']) = 1
+not-a-condition | type
+not-a-condition | 'a'
+not-a-condition | 5
+not-a-condition | metadata['site']
+clickhouse-spelling | toDate(metadata['t']) = '2026-01-01'
+clickhouse-spelling | toDateTime(metadata['t']) > '2026-01-01'
+clickhouse-spelling | toDateTime64(metadata['t']) > '2026-01-01'
+clickhouse-spelling | parseDateTimeBestEffort(metadata['t']) > '2026-01-01'
+clickhouse-spelling | parseDateTimeBestEffortOrNull(metadata['t']) > '2026-01-01'
+clickhouse-spelling | toInt64(metadata['n']) = 1
+clickhouse-spelling | toInt64OrNull(metadata['n']) = 1
+clickhouse-spelling | toFloat64(metadata['n']) = 1
+clickhouse-spelling | toFloat64OrNull(metadata['n']) = 1
+clickhouse-spelling | mapContains('site')
+clickhouse-spelling | toYear(eventTime) = 2026
+clickhouse-spelling | lengthUTF8(type) = 1
+physical-column | sub_type = 'water'
+physical-column | external_id = 'x'
+physical-column | data_set_id = 5
+physical-column | event_time > '2026-01-01'
+physical-column | date_created > '2026-01-01'
+physical-column | last_updated > '2026-01-01'
+physical-column | created_time > '2026-01-01'
+physical-column | dataset_id = 5
+shape-fix | type == 'a'
+shape-fix | type = "bergen"
+shape-fix | source = "SAP"
+shape-fix | type = ('a','b')
+shape-fix | (type = 'a'
+shape-fix | type = 'a'))
+shape-fix | date_part('quarter', eventTime) = 1
+shape-fix | eventTime > 'yesterday'
+shape-fix | eventTime > 'not-a-date'
+shape-fix | dataSetId = 'not-a-number'

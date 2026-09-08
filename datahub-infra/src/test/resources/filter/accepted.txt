@@ -1,0 +1,244 @@
+# Filter expressions that MUST parse, render and run.
+# One per line as `family | expression`; blank lines and # comments ignored.
+# Newlines inside an expression are written as \n and tabs as \t.
+comparison | externalId = 'alpha'
+comparison | externalId != 'alpha'
+comparison | externalId <> 'alpha'
+comparison | type = 'alpha'
+comparison | type != 'alpha'
+comparison | type <> 'alpha'
+comparison | subType = 'alpha'
+comparison | subType != 'alpha'
+comparison | subType <> 'alpha'
+comparison | status = 'alpha'
+comparison | status != 'alpha'
+comparison | status <> 'alpha'
+comparison | source = 'alpha'
+comparison | source != 'alpha'
+comparison | source <> 'alpha'
+comparison | description = 'alpha'
+comparison | description != 'alpha'
+comparison | description <> 'alpha'
+comparison | dataSetId = 5
+comparison | dataSetId != 5
+comparison | dataSetId < 5
+comparison | dataSetId <= 5
+comparison | dataSetId > 5
+comparison | dataSetId >= 5
+comparison | eventTime > '2026-01-01'
+comparison | eventTime >= '2026-01-01 12:30'
+comparison | eventTime < '2026-01-01T12:30:00Z'
+comparison | createdTime >= '2025-06-01'
+comparison | lastUpdatedTime <= '2026-12-31 23:59:59'
+comparison | eventTime != '2026-01-01'
+comparison | id = '0190f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90'
+like | externalId LIKE 'pump%'
+like | externalId NOT LIKE 'pump%'
+like | externalId ILIKE 'PUMP%'
+like | externalId NOT ILIKE 'PUMP%'
+like | type LIKE 'pump%'
+like | type NOT LIKE 'pump%'
+like | type ILIKE 'PUMP%'
+like | type NOT ILIKE 'PUMP%'
+like | subType LIKE 'pump%'
+like | subType NOT LIKE 'pump%'
+like | subType ILIKE 'PUMP%'
+like | subType NOT ILIKE 'PUMP%'
+like | source LIKE 'pump%'
+like | source NOT LIKE 'pump%'
+like | source ILIKE 'PUMP%'
+like | source NOT ILIKE 'PUMP%'
+in | type IN ('a')
+in | type IN ('a','b')
+in | type IN ('a','b','c','d','e')
+in | type NOT IN ('a')
+in | type NOT IN ('a','b')
+in | status IN ('OPEN','CLOSED')
+in | status NOT IN ('OPEN','CLOSED')
+in | source IN ('SAP')
+in | subType IN ('water','gas')
+in | externalId IN ('PO-1','PO-2')
+in | dataSetId IN (1,2,3)
+in | dataSetId NOT IN (9)
+in | description IN ('x')
+in | source NOT IN ('SAP','OPC')
+between | dataSetId BETWEEN 1 AND 5
+between | dataSetId NOT BETWEEN 1 AND 5
+between | eventTime BETWEEN '2026-01-01' AND '2026-02-01'
+between | eventTime NOT BETWEEN '2026-01-01' AND '2026-02-01'
+between | createdTime BETWEEN '2025-01-01' AND '2025-12-31'
+between | lastUpdatedTime BETWEEN '2025-01-01' AND '2026-01-01'
+between | date_part('year', eventTime) BETWEEN 2024 AND 2026
+between | to_int(metadata['n']) BETWEEN 1 AND 10
+between | to_number(metadata['n']) BETWEEN 0.5 AND 9.5
+between | dataSetId BETWEEN -5 AND 5
+is-null | subType IS NULL
+is-null | subType IS NOT NULL
+is-null | status IS NULL
+is-null | status IS NOT NULL
+is-null | subType IS NULL OR status IS NULL
+is-null | subType IS NOT NULL AND status IS NOT NULL
+metadata-text | metadata['site'] = 'bergen'
+metadata-text | metadata['site'] != 'bergen'
+metadata-text | metadata['site'] LIKE 'ber%'
+metadata-text | metadata['site'] ILIKE 'BER%'
+metadata-text | metadata['site'] NOT LIKE 'osl%'
+metadata-text | metadata['site'] IN ('bergen','oslo')
+metadata-text | metadata['site'] NOT IN ('bergen')
+metadata-text | metadata['a'] = metadata['b']
+metadata-text | metadata['site'] IS NULL
+metadata-text | metadata['site'] IS NOT NULL
+metadata-text | metadata['unit'] = ''
+metadata-text | lower(metadata['site']) = 'bergen'
+metadata-converter | to_int(metadata['v']) = 5
+metadata-converter | to_int(metadata['v']) != 5
+metadata-converter | to_int(metadata['v']) < 5
+metadata-converter | to_int(metadata['v']) <= 5
+metadata-converter | to_int(metadata['v']) > 5
+metadata-converter | to_int(metadata['v']) >= 5
+metadata-converter | to_number(metadata['v']) = 5.5
+metadata-converter | to_number(metadata['v']) != 5.5
+metadata-converter | to_number(metadata['v']) < 5.5
+metadata-converter | to_number(metadata['v']) <= 5.5
+metadata-converter | to_number(metadata['v']) > 5.5
+metadata-converter | to_number(metadata['v']) >= 5.5
+metadata-converter | to_timestamp(metadata['v']) = '2026-01-01'
+metadata-converter | to_timestamp(metadata['v']) != '2026-01-01'
+metadata-converter | to_timestamp(metadata['v']) < '2026-01-01'
+metadata-converter | to_timestamp(metadata['v']) <= '2026-01-01'
+metadata-converter | to_timestamp(metadata['v']) > '2026-01-01'
+metadata-converter | to_timestamp(metadata['v']) >= '2026-01-01'
+metadata-converter | to_date(metadata['v']) = '2026-01-01'
+metadata-converter | to_date(metadata['v']) != '2026-01-01'
+metadata-converter | to_date(metadata['v']) < '2026-01-01'
+metadata-converter | to_date(metadata['v']) <= '2026-01-01'
+metadata-converter | to_date(metadata['v']) > '2026-01-01'
+metadata-converter | to_date(metadata['v']) >= '2026-01-01'
+metadata-converter | to_bool(metadata['flag']) = true
+metadata-converter | to_bool(metadata['flag']) = false
+metadata-converter | to_bool(metadata['flag']) != true
+metadata-converter | to_int(metadata['n']) IN (1,2,3)
+metadata-converter | to_int(metadata['n']) NOT IN (4)
+metadata-converter | to_number(metadata['n']) BETWEEN 1 AND 2
+metadata-converter | to_timestamp(metadata['t']) BETWEEN '2026-01-01' AND '2026-02-01'
+metadata-converter | to_int(metadata['a']) = to_int(metadata['b'])
+metadata-converter | to_timestamp(metadata['t']) > to_timestamp('2026-01-01 12:30')
+metadata-converter | to_number(metadata['a']) > to_number(metadata['b'])
+metadata-converter | to_int(metadata['n']) = 0
+metadata-converter | to_int(metadata['n']) = -3
+metadata-converter | to_date(metadata['d']) = '2026-03-01'
+metadata-converter | to_bool(metadata['b']) = true
+metadata-converter | to_int(metadata['n']) >= 100
+metadata-converter | to_number(metadata['p']) <= 0.01
+cast-sugar | metadata['n']::int > 5
+cast-sugar | metadata['n']::bigint > 5
+cast-sugar | metadata['n']::integer > 5
+cast-sugar | metadata['n']::float > 0.5
+cast-sugar | metadata['n']::numeric > 0.5
+cast-sugar | metadata['b']::boolean = true
+cast-sugar | metadata['b']::bool = false
+cast-sugar | metadata['t']::timestamp > '2026-01-01'
+cast-sugar | metadata['d']::date = '2026-01-01'
+cast-sugar | metadata['n']::INT > 5
+cast-sugar | metadata['n']::int IN (1,2)
+cast-sugar | metadata['n']::int BETWEEN 1 AND 9
+cast-sugar | metadata['t']::timestamp BETWEEN '2026-01-01' AND '2026-02-01'
+cast-sugar | metadata['n']::int != 7
+date-part | date_part('year', eventTime) = 1
+date-part | date_part('year', eventTime) > 1
+date-part | date_part('year', createdTime) IN (1,2)
+date-part | date_part('year', to_timestamp(metadata['t'])) = 2026
+date-part | date_part('year', lastUpdatedTime) BETWEEN 1 AND 12
+date-part | date_part('YEAR', eventTime) = 1
+date-part | date_part('month', eventTime) = 1
+date-part | date_part('month', eventTime) > 1
+date-part | date_part('month', createdTime) IN (1,2)
+date-part | date_part('month', to_timestamp(metadata['t'])) = 2026
+date-part | date_part('month', lastUpdatedTime) BETWEEN 1 AND 12
+date-part | date_part('MONTH', eventTime) = 1
+date-part | date_part('day', eventTime) = 1
+date-part | date_part('day', eventTime) > 1
+date-part | date_part('day', createdTime) IN (1,2)
+date-part | date_part('day', to_timestamp(metadata['t'])) = 2026
+date-part | date_part('day', lastUpdatedTime) BETWEEN 1 AND 12
+date-part | date_part('DAY', eventTime) = 1
+functions | has_key('site')
+functions | NOT has_key('site')
+functions | lower(type) = 'alarm'
+functions | upper(type) = 'ALARM'
+functions | length(externalId) > 3
+functions | length(metadata['site']) > 0
+functions | lower(metadata['site']) LIKE 'ber%'
+functions | eventTime < now()
+functions | upper(source) IN ('SAP','OPC')
+functions | length(description) = 0
+structure | type = 'a' AND status = 'b'
+structure | type = 'a' OR status = 'b'
+structure | NOT type = 'a'
+structure | NOT (type = 'a')
+structure | type = 'a' AND status = 'b' AND source = 'c'
+structure | type = 'a' OR status = 'b' OR source = 'c'
+structure | type = 'a' OR status = 'b' AND source = 'c'
+structure | (type = 'a' OR status = 'b') AND source = 'c'
+structure | type = 'a' AND (status = 'b' OR source = 'c')
+structure | NOT (type = 'a' AND status = 'b')
+structure | NOT (type = 'a' OR status = 'b')
+structure | NOT NOT type = 'a'
+structure | ((type = 'a'))
+structure | (((type = 'a')))
+structure | (type = 'a' AND (status = 'b' AND (source = 'c')))
+structure | (type = 'a' OR (status = 'b' OR (source = 'c')))
+structure | type = 'a' AND NOT status = 'b'
+structure | NOT type = 'a' OR status = 'b'
+structure | type LIKE 'a%' AND subType IS NULL
+structure | has_key('site') AND type = 'a'
+structure | has_key('site') OR NOT has_key('unit')
+structure | type = 'a' AND metadata['site'] = 'b' AND to_int(metadata['n']) > 1
+structure | (type = 'a' AND status = 'b') OR (source = 'c' AND subType = 'd')
+structure | NOT (type IN ('a','b') AND status IS NULL)
+keywords | where type = 'a'
+keywords | WHERE type = 'a'
+keywords | Where type = 'a'
+keywords | wHeRe type = 'a'
+keywords | type = 'a' and status = 'b'
+keywords | type = 'a' And status = 'b'
+keywords | type = 'a' or status = 'b'
+keywords | type = 'a' Or status = 'b'
+keywords | not type = 'a'
+keywords | type like 'a%'
+keywords | type ilike 'A%'
+keywords | subType is null
+identifiers | subtype = 'a'
+identifiers | SUBTYPE = 'a'
+identifiers | SubType = 'a'
+identifiers | "subType" = 'a'
+identifiers | "externalId" = 'a'
+identifiers | externalid = 'a'
+identifiers | DATASETID = 5
+identifiers | "type" = 'a'
+literals | source = 'O''Brien'
+literals | source = ''
+literals | source = 'with space'
+literals | source = 'tab\tinside'
+literals | source = 'unicode æøå'
+literals | source = 'emoji 😀'
+literals | dataSetId = -1
+literals | dataSetId = 0
+literals | to_number(metadata['n']) = 1.5
+literals | to_number(metadata['n']) = -1.5
+literals | to_number(metadata['n']) = 0.001
+literals | source = 'quote''s and more'
+literals | source = '%'
+literals | source = '_'
+trivia | type='a'
+trivia | type   =   'a'
+trivia |   type = 'a'  
+trivia | type = 'a'\nAND status = 'b'
+trivia | type = 'a'\tAND status = 'b'
+trivia | type = 'a' -- trailing
+trivia | -- leading\ntype = 'a'
+trivia | type /* mid */ = 'a'
+trivia | /* lead */ type = 'a'
+trivia | type = 'a' /* multi\nline */ AND status = 'b'
+literals | type = 'a' OR 1=1 --
+literals | 1 = 1
