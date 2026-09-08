@@ -143,6 +143,13 @@ public class SubscriptionService {
      * with different numbers than the rest of the API used, passed the caller's sort property
      * straight into {@code Sort.by} — where an unknown one became a 500 — and had no cursor at all,
      * so a tenant past the page size had no way to reach the rest of its subscriptions.
+     *
+     * <p>Narrowed by the caller's dataset grants, like {@code ResourceService.filter} and
+     * {@code TimeseriesService.filter}. This path had no ACL at all: it answered with every
+     * subscription in the tenant, each one naming the timeseries it streams, while {@link #create}
+     * and {@link #delete} asserted read access on every bound timeseries. A subscription is hidden
+     * unless the caller could read all of it — see
+     * {@code SubscriptionPredicateBuilder.readableDataSetScope}.
      */
     @Transactional(readOnly = true)
     public DataWrapper<Subscription> filter(SubscriptionRetriever retriever) {
@@ -153,7 +160,16 @@ public class SubscriptionService {
         PageCursor cursor = FilterPaging.validated(request.getCursor(), sort);
         int limit = request.getLimit();
 
-        List<SubscriptionEntity> entities = subscriptionRepository.filter(filter, limit, sort, cursor);
+        Set<Long> readableDataSets = null; // null = no restriction in SQL
+        if (!dataSecurity.hasReadAccessToEverything()) {
+            readableDataSets = dataSecurity.readableDataSetIds();
+            if (readableDataSets.isEmpty()) {
+                return new DataWrapper<>(); // no readable datasets -> nothing to stream, nothing to see
+            }
+        }
+
+        List<SubscriptionEntity> entities =
+                subscriptionRepository.filter(filter, readableDataSets, limit, sort, cursor);
         log.info("Filtered {} subscription(s) for tenant {} (limit={}, sort={} {}, paged={}).",
                 entities.size(), TenantContext.getTenantId(), limit, sort.property(),
                 sort.descending() ? "desc" : "asc", cursor != null);

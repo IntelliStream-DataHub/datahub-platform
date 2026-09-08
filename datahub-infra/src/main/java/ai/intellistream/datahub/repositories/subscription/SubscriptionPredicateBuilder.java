@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.repositories.subscription;
 
 import ai.intellistream.datahub.helpers.text.ExternalIds;
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.SubscriptionEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.models.IdCollection;
@@ -161,6 +162,51 @@ public final class SubscriptionPredicateBuilder {
                 cb.equal(subRoot.get("id"), root.get("id")),
                 cb.or(anyReference.toArray(new Predicate[0])));
         return cb.exists(sub);
+    }
+
+    /**
+     * Subscriptions the caller may read: those with no bound timeseries outside
+     * {@code readableDataSetIds}.
+     *
+     * <p>The counterpart of {@code NodePredicateBuilder.dataSetScope}, and the same rule
+     * {@code SubscriptionService.create} and {@code delete} already apply one entity at a time —
+     * both assert read access on <em>every</em> bound timeseries, because a subscription streams all
+     * of them. Reading was the one path that did not: {@code /subscriptions/list} returned every row
+     * in the tenant, each listing the timeseries it streams, whatever the caller's dataset grants.
+     *
+     * <p>Stated as "no unreadable member" rather than "some readable member" for that reason: a
+     * subscription over one granted and one ungranted timeseries is not a subscription the caller
+     * could have created, so it is not one they can see either.
+     *
+     * <p>A timeseries with no dataset counts as unreadable here, matching
+     * {@code DataSecurity.hasReadPermissionToDataSet} — an orphan is visible only to an
+     * all-datasets reader, and such a caller never reaches this predicate. Hence the LEFT join: an
+     * inner one would drop the orphan row and read it as nothing to object to.
+     *
+     * @param readableDataSetIds the caller's granted dataset ids; never empty — an empty grant set
+     *                           means the caller sees nothing, which the service answers without a
+     *                           query rather than with an empty {@code IN}
+     */
+    public static Predicate readableDataSetScope(
+            CriteriaBuilder cb,
+            CriteriaQuery<?> query,
+            Root<SubscriptionEntity> root,
+            Collection<Long> readableDataSetIds
+    ) {
+        if (readableDataSetIds == null || readableDataSetIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "readableDataSetScope needs at least one data set id; an empty scope means the caller "
+                            + "should return no rows");
+        }
+        Subquery<Integer> sub = query.subquery(Integer.class);
+        Root<SubscriptionEntity> subRoot = sub.from(SubscriptionEntity.class);
+        Join<SubscriptionEntity, TimeseriesEntity> ts = subRoot.join(TIMESERIES_REF, JoinType.INNER);
+        Join<TimeseriesEntity, DatasetEntity> dataSet = ts.join("dataSet", JoinType.LEFT);
+
+        sub.select(cb.literal(1)).where(
+                cb.equal(subRoot.get("id"), root.get("id")),
+                cb.or(dataSet.get("id").isNull(), cb.not(dataSet.get("id").in(readableDataSetIds))));
+        return cb.not(cb.exists(sub));
     }
 
     private static void addWindow(CriteriaBuilder cb, List<Predicate> predicates, Path<OffsetDateTime> column,
