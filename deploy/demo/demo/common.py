@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Shared plumbing for the 3W demo seeder and feeder.
 
 Holds the three things both need: a client that waits until the stack will actually accept

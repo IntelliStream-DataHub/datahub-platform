@@ -502,8 +502,15 @@
 						});
 						if(any) window.InsightsChart.commitLiveUpdate();
 					},
-					onStatus: state => {
+					onStatus: (state, info) => {
 						if(!liveActive) return;
+						if(state === 'refused'){
+							// The server will refuse every reconnect, so drop out of live mode
+							// rather than leaving the button spinning on 'connecting' forever.
+							Flash.error(info && info.message ? info.message : $L('error.limit.rate.plain'));
+							stopLive();
+							return;
+						}
 						setLiveButtonState(state === 'open' ? 'live' : 'connecting');
 					}
 				});

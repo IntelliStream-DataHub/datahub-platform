@@ -4,8 +4,11 @@ import tools.jackson.databind.annotation.JsonSerialize;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
 import ai.intellistream.datahub.helpers.text.TextValidator;
+import ai.intellistream.datahub.models.validation.BoundedMetadata;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.validation.resources.RelationshipTypeNotNull;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.Size;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
@@ -41,11 +44,13 @@ public class RelForm {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long relationshipTypeId;
 
+    @BoundedMetadata
     private HashMap<String, String> metadata = new HashMap<>();
 
     @JsonSerialize(using = ToStringSerializer.class)
     private Long dataSetId;
 
+    @Size(max = FieldLimits.DESCRIPTION_MAX)
     private String description;
 
     public void setName(String name){

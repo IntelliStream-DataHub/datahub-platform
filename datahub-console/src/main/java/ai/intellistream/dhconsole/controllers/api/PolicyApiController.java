@@ -28,14 +28,6 @@ public class PolicyApiController {
     }
 
     /**
-     * List available policy types (IS_WRITE_PROTECTED, MASKING_POLICY...)
-     */
-    @GetMapping("/types")
-    public ResponseEntity<DataWrapper<Policy>> listPolicyTypes() {
-        return ResponseEntity.ok(datahubApi.getPolicyTypes());
-    }
-
-    /**
      * Load a specific policy node.
      */
     @GetMapping("/{policyNodeId}")

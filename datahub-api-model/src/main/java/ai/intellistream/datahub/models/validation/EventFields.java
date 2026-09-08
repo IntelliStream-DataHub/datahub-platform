@@ -113,6 +113,9 @@ public class EventFields {
             }
         }
 
+        SizeRules.checkLength("Event", "event.description.max.length.error", "Description",
+                this.description.getSet(), FieldLimits.DESCRIPTION_MAX, errors);
+
         if(this.metadata.getSet() != null){
             Map<String, String> metadata = this.metadata.getSet();
             if(metadata.containsKey("")){
@@ -120,6 +123,13 @@ public class EventFields {
                 this.metadata.getSet().remove("");
             }
         }
+
+        SizeRules.checkMetadata("Event", "event", this.metadata, errors);
+
+        SizeRules.checkCount("Event", "event.related.resources.too.many", "Related resources",
+                this.relatedResources.getSet(), FieldLimits.RELATED_RESOURCES_MAX, errors);
+        SizeRules.checkCount("Event", "event.related.resources.too.many", "Related resources",
+                this.relatedResources.getAdd(), FieldLimits.RELATED_RESOURCES_MAX, errors);
 
         // An entry with neither side is unresolvable, so reject it here rather than letting the
         // service raise it — the caller gets one validation response with every bad field in it.

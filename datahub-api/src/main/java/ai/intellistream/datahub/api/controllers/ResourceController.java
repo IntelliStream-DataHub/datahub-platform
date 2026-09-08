@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.controllers.errors.*;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -149,7 +150,8 @@ public class ResourceController {
     @Operation(
             summary = "Find the nearest resources of a given label",
             description = """
-                    Breadth-first from a starting resource (numeric `id`), return the closest `limit`
+                    Breadth-first from a starting resource (`id` or `externalId`), return the
+                    closest `limit`
                     nodes carrying one of `endLabels` (e.g. `["TIMESERIES"]`) plus the sub-graph that
                     connects them. The cap is on matching END-nodes, not on hop depth or total node
                     count — so "the 10 nearest time series" is exact however many intermediate nodes
@@ -168,7 +170,9 @@ public class ResourceController {
                 mediaType = MediaType.APPLICATION_JSON_VALUE,
                 schema = @Schema(implementation = ResourceNetwork.class)
     ))
-    @ApiResponse(responseCode = "404", description = "The starting resource was not found. Check `id` and your tenant.",
+    @ApiResponse(responseCode = "404",
+            description = "The starting resource was not found. Check `id` / `externalId` "
+                    + "and your tenant.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(type = "string", example = "Could not find resource with id: 42")
@@ -176,9 +180,7 @@ public class ResourceController {
     @RequestMapping(value = "/fetch-nearest", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchNearestResources(@RequestBody FetchNearestResourcesForm form) {
         try{
-            ResourceNetwork network = resourceService.fetchNearestRelatedResources(
-                    form.getId(), form.getEndLabels(), form.getLimit(),
-                    form.getRelationshipTypes(), form.getExcludedLabels());
+            ResourceNetwork network = resourceService.fetchNearestRelatedResources(form);
             return new ResponseEntity<>(network, HttpStatus.OK);
         } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
             // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
@@ -605,6 +607,11 @@ public class ResourceController {
         catch (org.springframework.security.access.AccessDeniedException e){
             throw e;
         }
+        catch (LimitException e){
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
+            throw e;
+        }
         catch (PulsarClientException | RuntimeException e){
             log.error(e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -748,6 +755,11 @@ public class ResourceController {
         }
         // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
         catch (org.springframework.security.access.AccessDeniedException e){
+            throw e;
+        }
+        catch (LimitException e){
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
             throw e;
         }
         catch (DuplicateDataException e){

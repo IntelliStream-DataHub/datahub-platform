@@ -77,6 +77,14 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
     private final JwtDecoder jwtDecoder;
     private final JsonMapper jsonMapper;
     private final StreamAccessAuthorizer accessAuthorizer;
+    private final WebSocketConnectionLimiter connectionLimiter;
+    /** Who each open session belongs to, so the ping can refresh it and close can free it. */
+    private final Map<String, ConnectionOwner> owners = new ConcurrentHashMap<>();
+
+    /** The identity a socket is charged to. */
+    private record ConnectionOwner(String tenantId, String subject) {
+    }
+
 
     // Per-connection state — instance-local by design (a WebSocket is bound to one instance, so the
     // LB must route upgrades with session affinity). On instance failure the client reconnects.
@@ -98,12 +106,14 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
                                            TopicNames topicNames,
                                            JwtDecoder jwtDecoder,
                                            JsonMapper jsonMapper,
-                                           StreamAccessAuthorizer accessAuthorizer) {
+                                           StreamAccessAuthorizer accessAuthorizer,
+                                           WebSocketConnectionLimiter connectionLimiter) {
         this.pulsarClient = pulsarClient;
         this.topicNames = topicNames;
         this.jwtDecoder = jwtDecoder;
         this.jsonMapper = jsonMapper;
         this.accessAuthorizer = accessAuthorizer;
+        this.connectionLimiter = connectionLimiter;
         pingScheduler.scheduleAtFixedRate(this::sendPings,
                 PING_INTERVAL_SECONDS, PING_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
@@ -159,6 +169,19 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(rawSession, CloseStatus.POLICY_VIOLATION.withReason("Missing tenant context"));
             return;
         }
+
+        // Concurrency cap, checked after authentication (so there is an identity to charge) and
+        // before the Pulsar consumer is built (so a refused connection costs the broker nothing).
+        var refusal = connectionLimiter.register(tenantId, jwt.getSubject(), rawSession.getId());
+        if (refusal.isPresent()) {
+            log.info("Datapoint-listen handshake refused: {} limit of {} reached for tenant {}",
+                    refusal.get().scope(), refusal.get().limit(), tenantId);
+            sendLimitError(rawSession, refusal.get());
+            closeQuietly(rawSession, CloseStatus.POLICY_VIOLATION.withReason(
+                    "WebSocket connection limit reached"));
+            return;
+        }
+        owners.put(rawSession.getId(), new ConnectionOwner(tenantId, jwt.getSubject()));
 
         // Dataset ACL: narrow the requested interest set to timeseries whose dataset the caller may
         // read, so a caller can only live-tail data they are authorised for (matching the REST reads).
@@ -228,6 +251,10 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         wsSessions.remove(session.getId());
+        ConnectionOwner owner = owners.remove(session.getId());
+        if (owner != null) {
+            connectionLimiter.release(owner.tenantId(), owner.subject(), session.getId());
+        }
         DatapointListenSession listen = sessions.remove(session.getId());
         if (listen != null) listen.stop();
         log.info("Datapoint listen WS closed: session={} status={}", session.getId(), status);
@@ -270,6 +297,24 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
                 .subscribe();
     }
 
+    /**
+     * One frame explaining the refusal, so a client sees a reason rather than a bare close code.
+     * Shaped like {@link SubscriptionWebSocketHandler}'s error frames, so a client that speaks to
+     * both sockets needs one parser rather than two.
+     */
+    private void sendLimitError(WebSocketSession session, WebSocketConnectionLimiter.Refusal refusal) {
+        try {
+            session.sendMessage(new TextMessage(jsonMapper.writeValueAsString(Map.of(
+                    "error", Boolean.TRUE,
+                    "reason", "websocket-limit-reached",
+                    "scope", refusal.scope(),
+                    "limit", refusal.limit(),
+                    "message", refusal.message()))));
+        } catch (Exception e) {
+            log.debug("Could not send the limit error frame to {}: {}", session.getId(), e.getMessage());
+        }
+    }
+
     private void sendPings() {
         if (wsSessions.isEmpty()) return;
         ByteBuffer empty = ByteBuffer.allocate(0);
@@ -278,6 +323,12 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
             if (!session.isOpen()) continue;
             try {
                 session.sendMessage(new PingMessage(empty));
+                // Doubles as the liveness signal the connection registry counts by, so a socket
+                // this instance still holds is never mistaken for one left by a dead instance.
+                ConnectionOwner owner = owners.get(entry.getKey());
+                if (owner != null) {
+                    connectionLimiter.heartbeat(owner.tenantId(), owner.subject(), entry.getKey());
+                }
             } catch (Exception e) {
                 log.warn("Ping failed for datapoint-listen session {} ({}); leaving container to clean up",
                         entry.getKey(), e.getMessage());

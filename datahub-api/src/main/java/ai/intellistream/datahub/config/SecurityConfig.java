@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.config;
 
+import ai.intellistream.datahub.api.config.LimitsProperties;
+import ai.intellistream.datahub.api.filters.RateLimitFilter;
 import ai.intellistream.datahub.api.filters.TenantProvisioningFilter;
+import ai.intellistream.datahub.api.services.TenantLimitsService;
+import ai.intellistream.datahub.services.ValkeyService;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import lombok.extern.slf4j.Slf4j;
@@ -70,6 +74,9 @@ public class SecurityConfig {
             ServerProperties serverProperties,
             ObjectProvider<TenantConfigService> tenantConfigService,
             ObjectProvider<TenantFlywayMigrator> tenantMigrator,
+            LimitsProperties limitsProperties,
+            ObjectProvider<TenantLimitsService> tenantLimitsService,
+            ObjectProvider<ValkeyService> valkeyService,
             @Value("${origins:http://localhost:8080}") String[] origins,
             @Value("${permit-all:[]}") String[] permitAll
     ) {
@@ -108,6 +115,19 @@ public class SecurityConfig {
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter())
                         )
                 );
+
+        // Rate limiting runs on the authenticated identity, so it goes after authz — and is added
+        // before the provisioning filter below so it sits ahead of it in the chain, turning an
+        // over-budget caller away before the request costs a Vault lookup or a Flyway check.
+        // /mcp/* rides this same chain, which is how the MCP tools end up on the REST budget.
+        // Constructed rather than injected as a bean: a Filter bean would also be picked up by
+        // Boot's servlet auto-registration and run a second time outside this chain.
+        TenantLimitsService limitsService = tenantLimitsService.getIfAvailable();
+        ValkeyService valkey = valkeyService.getIfAvailable();
+        if (limitsService != null && valkey != null) {
+            http.addFilterAfter(new RateLimitFilter(limitsProperties, limitsService, valkey),
+                    AuthorizationFilter.class);
+        }
 
         // Refuse unknown tenants (403) and provision the request's tenant schema on first touch,
         // AFTER authz has run and OrganizationValidator has set TenantContext from the JWT. Gated

@@ -90,6 +90,10 @@ public class FunctionController {
             return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
         } catch (org.springframework.security.access.AccessDeniedException e) {
             throw e;
+        } catch (LimitException e) {
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
+            throw e;
         } catch (PulsarClientException | RuntimeException e) {
             log.error("Function create failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -160,6 +164,10 @@ public class FunctionController {
         } catch (OptimisticLockingFailureException olf) {
             throw olf;
         } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
+        } catch (LimitException e) {
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
             throw e;
         } catch (PulsarClientException | RuntimeException e) {
             log.error("Function update failed: {}", e.getMessage(), e);

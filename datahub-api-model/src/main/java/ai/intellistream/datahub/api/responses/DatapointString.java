@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.api.responses;
 
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -42,6 +44,7 @@ public class DatapointString {
     private String timestamp;
 
     @NotBlank
+    @Size(max = FieldLimits.DATAPOINT_VALUE_MAX)
     @Schema(description = """
             The data point value as a string, interpreted per the timeseries `valueType`:
             - `BIGINT` — whole number, max 8 bytes. No fractional part.

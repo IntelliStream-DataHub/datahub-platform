@@ -65,6 +65,7 @@ public class EventService {
     private final DataSetRepository dataSetRepository;
     /** The one authority for "which data sets are beneath this one" — shared with the ACL. */
     private final DatasetClosureService datasetClosureService;
+    private final IngestQuotaService ingestQuota;
 
     /**
      * The dataset ids the caller may read, or {@code null} when the caller may read every dataset
@@ -311,6 +312,9 @@ public class EventService {
         if(eventModels.isEmpty()){
             return dw;
         }
+
+        // Charged here rather than in a filter: event_create reaches this method directly.
+        ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.EVENTS, eventModels.size());
 
         Set<Long> dataSets = new HashSet<>();
         Set<String> externalIdList = new HashSet<>();

@@ -54,20 +54,13 @@ public interface DatahubApi {
     @RequestLine("POST /resources/filter")
     DataWrapper<NodeModel> filter(ResourceRetreiver apiReqData);
 
-    @RequestLine("GET /resources/{id}")
-    DataWrapper<NodeModel> get(@Param("id") Long id);
-
     @RequestLine("DELETE /resources/delete")
     GraphDataWrapper<Resource, EdgeProxy> deleteResource(DataWrapper<IdCollection> apiReqData);
 
     @RequestLine("POST /resources/search")
     DataWrapper<NodeModel> searchResource(SearchBody<ResourceFilter> form);
 
-    @RequestLine("GET /edges/{id}")
-    DataWrapper<EdgeProxy> getEdgeById(@Param("id") Long id);
 
-    @RequestLine("POST /edges/byids")
-    GraphDataWrapper<Resource, EdgeProxy> getEdgeWithNodesById(DataWrapper<IdCollection> apiReqData);
 
     @RequestLine("POST /timeseries/data/list")
     DataWrapper<DataCollection<?>> retrieveDatapoints(DataRetriever<RetrieveFilter> apiReqData);
@@ -117,11 +110,6 @@ public interface DatahubApi {
     @RequestLine("GET /policies/{policyNodeId}")
     DataWrapper<Policy> getPolicyById(@Param("policyNodeId") Long policyNodeId);
 
-    @RequestLine("POST /policies/apply-template?policyNodeId={policyNodeId}&templateId={templateId}")
-    DataWrapper<Policy> applyPolicyTemplate(
-            @Param("policyNodeId") Long policyNodeId,
-            @Param("templateId") Long templateId
-    );
 
     @RequestLine("POST /policies/create")
     DataWrapper<Policy> createPolicies(DataWrapper<Policy> wrapper);
@@ -132,13 +120,7 @@ public interface DatahubApi {
     @RequestLine("DELETE /policies/delete")
     void deletePolicies(DataWrapper<IdCollection> wrapper);
 
-    @RequestLine("GET /governance/templates")
-    DataWrapper<GovernanceTemplateDTO> getGovernanceTemplates();
 
-    @RequestLine("GET /governance/templates/{templateId}")
-    DataWrapper<GovernanceTemplateDTO> getGovernanceTemplateById(
-            @Param("templateId") Long templateId
-    );
 
     // TIMESERIES
     @RequestLine("GET /timeseries")
@@ -174,6 +156,4 @@ public interface DatahubApi {
     @RequestLine("GET /files/list{path}")
     DataWrapper<IndexNode> listDirectory(@Param("path") String path);
 
-    @RequestLine("GET /files/download/{id}")
-    ResponseEntity<org.springframework.core.io.Resource> download(@Param("id") String id);
 }
