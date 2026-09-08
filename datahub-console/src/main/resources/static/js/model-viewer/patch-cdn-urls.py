@@ -15,13 +15,21 @@ import re
 import sys
 
 LIBS = "/static/js/model-viewer/libs/"
-CDN = re.compile(r"https://cdn\.jsdelivr\.net/npm/[^\"']*/")
+
+# The whole string literal, quotes included, so the replacement can be an expression.
+CDN = re.compile(r"\"https://cdn\.jsdelivr\.net/npm/[^\"]*/([^\"/]*)\"")
+
+
+def replacement(match: "re.Match[str]") -> str:
+    # Absolute, not a root-relative path. The occt decoder is loaded by a worker built from a
+    # blob: URL, which has an opaque base, so "/static/..." is not a resolvable URL there.
+    return f'(location.origin+"{LIBS}{match.group(1)}")'
 
 
 def main() -> int:
     target = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else "o3dv.min.js")
     source = target.read_text(encoding="utf-8")
-    patched, count = CDN.subn(LIBS, source)
+    patched, count = CDN.subn(replacement, source)
     if count == 0:
         print(f"{target}: no CDN urls found, already patched?")
         return 1
