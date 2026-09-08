@@ -1,0 +1,15 @@
+plugins {
+	id 'ai.intellistream.datahub.java-library-conventions'
+}
+
+group = 'ai.intellistream.datahub.rvm'
+version = '0.0.1-SNAPSHOT'
+
+// No Spring, no Pulsar, no SDK. This module is the child-process boundary and nothing else, so
+// the service that will schedule conversions can be assembled around it without dragging a
+// framework into the part that has to be exactly right.
+dependencies {
+	// No Spring Boot BOM in this module, so pin the JUnit BOM directly, as datahub-pulsar-filter
+	// does. The shared convention declares junit-jupiter without a version.
+	testImplementation platform('org.junit:junit-bom:6.1.3')
+}
