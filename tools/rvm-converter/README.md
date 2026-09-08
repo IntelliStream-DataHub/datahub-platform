@@ -95,3 +95,41 @@ Two things this exposed, both about presentation rather than data:
 - The converter emits **one material for the whole model**, so everything is one colour.
 - The viewer lights without an environment map, so the result renders very dark. Real plant models
   make this much more obvious than a test cube does.
+
+## Calling it from Java
+
+`datahub-rvm-converter` wraps this binary as `RvmConverter`, which is the piece the eventual
+conversion service is built around:
+
+```java
+RvmConversion result = new RvmConverter(binary, Duration.ofMinutes(5))
+        .convert(rvmPath, attributePath);   // result.glb() is the model, result.log() the run
+```
+
+It owns the parts of a child process that are easy to get wrong, each covered by a test that fails
+without it: both streams drained concurrently so a chatty converter cannot deadlock the caller, the
+timeout bounding the whole run rather than only the wait after it, and a non-GLB result rejected
+rather than stored as a file that fails when somebody opens it.
+
+## No queue, decided
+
+Conversion runs **synchronously**. There is no Pulsar topic, no worker fleet and no stored
+derived file, and that is a decision rather than an omission.
+
+The measurement above is why: 35 ms, wall clock including process startup, for a real E3D model.
+A queue exists to stop a request waiting on work that is too slow to wait for, and at that cost the
+premise does not hold. Everything a queue would add here, a topic, a second deployable, its own
+service identity, a source-to-derived link, a "conversion pending" state in the console and a
+stuck-subscription failure mode, would be paid for something that finishes faster than a database
+round trip, while the person who clicked is waiting either way.
+
+Nothing is lost by not queueing. The source RVM stays in file storage, so a failed conversion is
+retried by asking again.
+
+The shape that fits is [datahub-analysis](../../datahub-analysis): a small stateless service that
+validates the caller's JWT, fetches what it needs from the api through the SDK with that same
+token, works in-process and returns the result, called from the browser with CORS.
+
+Two things would reopen it, on their own merits rather than by analogy: wanting the GLB **stored**
+rather than recomputed per view, once models are large enough that 35 ms becomes 30 seconds, or
+**bulk conversion** of a whole model library, which is a batch tool and not the interactive path.
