@@ -74,6 +74,115 @@ window.ModelViewer = (function () {
 			parts.length > 3 ? Math.round(parts[3] * 255) : 255);
 	}
 
+	// A model may name files beside it: an OBJ its material library and that library its textures,
+	// a glTF its buffer and images. Only that many are ever fetched, and only from the model's own
+	// folder, so a folder of unrelated files costs nothing.
+	var MAX_COMPANIONS = 24;
+
+	/** Filenames an .obj names in mtllib lines, and an .mtl in its map_* lines. */
+	function objReferences(text) {
+		var names = [];
+		text.split(/\r?\n/).forEach(function (line) {
+			var m = /^\s*(?:mtllib|map_[A-Za-z]+|bump|norm|disp|decal)\s+(.+?)\s*$/i.exec(line);
+			if (m) {
+				// A map line can carry options before the filename; the filename is the last token.
+				var parts = m[1].split(/\s+/);
+				names.push(parts[parts.length - 1]);
+			}
+		});
+		return names;
+	}
+
+	/** Relative uris a .gltf names for its buffers and images, skipping inline data. */
+	function gltfReferences(text) {
+		var names = [];
+		try {
+			var doc = JSON.parse(text);
+			["buffers", "images"].forEach(function (key) {
+				(doc[key] || []).forEach(function (entry) {
+					if (entry.uri && entry.uri.indexOf("data:") !== 0) {
+						names.push(decodeURIComponent(entry.uri));
+					}
+				});
+			});
+		} catch (ignored) { /* a malformed glTF fails later, in the importer, with a real message */ }
+		return names;
+	}
+
+	/**
+	 * The files this model names, as File objects, resolved against its own folder.
+	 *
+	 * Reading the model to find its references, rather than sweeping the folder, means exactly the
+	 * companions it asks for are fetched. Anything missing is skipped: a model with no material
+	 * library still opens, just untextured, which is what it would have done anyway.
+	 */
+	function companionsOf(node, blob) {
+		var name = node.name || "";
+		var isObj = /\.obj$/i.test(name);
+		var isGltf = /\.gltf$/i.test(name);
+		if (!isObj && !isGltf) {
+			return Promise.resolve([]);
+		}
+		var folder = (node.path || "").replace(/\/[^/]*$/, "");
+		return Promise.all([blob.text(), listFolder(folder)]).then(function (both) {
+			var wanted = isObj ? objReferences(both[0]) : gltfReferences(both[0]);
+			var byName = both[1];
+			return fetchNamed(wanted, byName, []).then(function (files) {
+				// An .mtl names textures of its own, so resolve one level further.
+				if (!isObj) {
+					return files;
+				}
+				var texts = files.filter(function (f) { return /\.mtl$/i.test(f.name); });
+				return Promise.all(texts.map(function (f) { return f.text(); })).then(function (bodies) {
+					var more = [];
+					bodies.forEach(function (b) { more = more.concat(objReferences(b)); });
+					return fetchNamed(more, byName, files);
+				});
+			});
+		}).catch(function () {
+			return []; // the model itself still opens
+		});
+	}
+
+	/** name -> externalId for one folder, so a referenced filename can be downloaded. */
+	function listFolder(folder) {
+		return window.Api.get("/files/list" + folder).then(function (response) {
+			if (!response.ok) {
+				return {};
+			}
+			return response.json().then(function (data) {
+				var map = {};
+				(data.items || []).forEach(function (item) {
+					if (item.type === "FILE") {
+						map[item.name] = item.externalId;
+					}
+				});
+				return map;
+			});
+		});
+	}
+
+	function fetchNamed(names, byName, already) {
+		var have = {};
+		already.forEach(function (f) { have[f.name] = true; });
+		var todo = names.filter(function (n) {
+			var keep = !have[n] && byName[n];
+			have[n] = true;
+			return keep;
+		}).slice(0, MAX_COMPANIONS - already.length);
+
+		return Promise.all(todo.map(function (n) {
+			return window.Api.request("/files/download/" + encodeURIComponent(byName[n]), {
+				headers: { Accept: "*/*" },
+				timeout: FILE_TIMEOUT_MS
+			}).then(function (r) {
+				return r.ok ? r.blob().then(function (b) { return new File([b], n); }) : null;
+			}).catch(function () { return null; });
+		})).then(function (fetched) {
+			return already.concat(fetched.filter(Boolean));
+		});
+	}
+
 	/* Streams the body so a large model reports progress instead of sitting on "Loading". */
 	function readBody(response, onProgress) {
 		var total = parseInt(response.headers.get("Content-Length") || "0", 10);
@@ -185,19 +294,25 @@ window.ModelViewer = (function () {
 			})
 			.then(function (blob) {
 				if (!overlay.isConnected) {
-					return; // closed while it was still downloading
+					return null; // closed while it was still downloading
 				}
-				viewer = new OV.EmbeddedViewer(canvasEl, {
-					backgroundColor: backgroundColor(canvasEl),
-					defaultColor: new OV.RGBColor(160, 168, 180),
-					// false: light the model with it, but keep the dialog's own background.
-					environmentSettings: new OV.EnvironmentSettings(ENVMAP, false),
-					onModelLoaded: function () { status(null); },
-					onModelLoadFailed: failed
+				status($L("model.loading"));
+				return companionsOf(node, blob).then(function (extra) {
+					if (!overlay.isConnected) {
+						return null;
+					}
+					viewer = new OV.EmbeddedViewer(canvasEl, {
+						backgroundColor: backgroundColor(canvasEl),
+						defaultColor: new OV.RGBColor(160, 168, 180),
+						// false: light the model with it, but keep the dialog's own background.
+						environmentSettings: new OV.EnvironmentSettings(ENVMAP, false),
+						onModelLoaded: function () { status(null); },
+						onModelLoadFailed: failed
+					});
+					// The library picks its importer from the extension and resolves a model's
+					// references by filename across the list, so both have to carry real names.
+					viewer.LoadModelFromFileList([new File([blob], node.name)].concat(extra));
 				});
-				// The library picks its importer from the extension, so the blob has to carry the
-				// real filename.
-				viewer.LoadModelFromFileList([new File([blob], node.name)]);
 			})
 			.catch(function (reason) {
 				// 404 covers "no such file" and "not yours to read" alike: the api hides a file
