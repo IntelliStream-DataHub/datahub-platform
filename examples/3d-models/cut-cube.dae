@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+<asset><contributor><authoring_tool>datahub make-examples.py</authoring_tool></contributor><created>2026-01-01T00:00:00Z</created><modified>2026-01-01T00:00:00Z</modified><unit meter="1" name="meter"/><up_axis>Z_UP</up_axis></asset>
+<library_geometries><geometry id="g1" name="cut_cube"><mesh>
+<source id="g1-pos"><float_array id="g1-pos-a" count="30">0.0 0.0 0.0 1.0 0.0 0.0 1.0 1.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0 1.0 0.0 1.0 0.0 1.0 1.0 1.0 0.6 1.0 1.0 1.0 0.6 0.6 1.0 1.0</float_array>
+<technique_common><accessor source="#g1-pos-a" count="10" stride="3"><param name="X" type="float"/><param name="Y" type="float"/><param name="Z" type="float"/></accessor></technique_common></source>
+<vertices id="g1-vtx"><input semantic="POSITION" source="#g1-pos"/></vertices>
+<triangles count="16"><input semantic="VERTEX" source="#g1-vtx" offset="0"/><p>0 3 2 0 2 1 4 5 7 4 7 9 4 9 6 0 1 5 0 5 4 1 2 8 1 8 7 1 7 5 2 3 6 2 6 9 2 9 8 3 0 4 3 4 6 7 8 9</p></triangles>
+</mesh></geometry></library_geometries>
+<library_visual_scenes><visual_scene id="s1" name="scene"><node id="n1" name="cut_cube"><instance_geometry url="#g1"/></node></visual_scene></library_visual_scenes>
+<scene><instance_visual_scene url="#s1"/></scene>
+</COLLADA>
