@@ -282,9 +282,14 @@ public class DataSetController {
             // @Valid, like the resource, timeseries, event and subscription filter endpoints. This
             // one relied on the in-body validate() below, which answers with the violation message
             // as a bare string, so the same over-limit request produced one 400 body here and a
-            // different one on every other filter endpoint. The explicit validate stays as the
-            // fallback for calls that reach this method without passing through the binder —
-            // /datasets/list delegates to it.
+            // different one on every other filter endpoint.
+            //
+            // The in-body validate() no longer has a caller to cover. It was kept as the fallback
+            // for POST /datasets/list, which delegated to this method and so reached it without
+            // passing through the binder; that endpoint is gone, and GET /datasets calls the
+            // service rather than this method. It stays as defence in depth rather than being
+            // removed in the same change that removed its reason, since dropping it also changes
+            // which 400 body an over-limit request gets.
             @Valid
             @RequestBody
             @Schema(implementation = DataSetRetreiver.class)
