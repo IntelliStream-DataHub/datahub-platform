@@ -22,6 +22,15 @@ window.ModelViewer = (function () {
 	var FILE_TIMEOUT_MS = 120000;
 	var LIB_SRC = "/static/js/model-viewer/o3dv.min.js";
 
+	/*
+	 * A cube map is not decoration here. The viewer shades a model carrying PBR materials, which
+	 * every CAD import does, with ambient light at zero and the scene's environment as the only
+	 * source. Without one a converted plant model renders almost black.
+	 */
+	var ENVMAP = ["posx", "negx", "posy", "negy", "posz", "negz"].map(function (face) {
+		return "/static/js/model-viewer/envmap/" + face + ".jpg";
+	});
+
 	var libPromise = null;
 
 	// The extensions the vendored library imports. Decided on the extension rather than the mime
@@ -181,6 +190,8 @@ window.ModelViewer = (function () {
 				viewer = new OV.EmbeddedViewer(canvasEl, {
 					backgroundColor: backgroundColor(canvasEl),
 					defaultColor: new OV.RGBColor(160, 168, 180),
+					// false: light the model with it, but keep the dialog's own background.
+					environmentSettings: new OV.EnvironmentSettings(ENVMAP, false),
 					onModelLoaded: function () { status(null); },
 					onModelLoadFailed: failed
 				});
