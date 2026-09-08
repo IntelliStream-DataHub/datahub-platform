@@ -14,7 +14,6 @@ import org.apache.pulsar.client.admin.PulsarAdminException;
 import org.apache.pulsar.common.policies.data.PartitionedTopicStats;
 import org.apache.pulsar.common.policies.data.SubscriptionStats;
 import org.apache.pulsar.common.policies.data.TopicStats;
-import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -102,7 +101,7 @@ public class SubscriptionCleanupTask {
         Map<String, SubscriptionActivity> statsByName = loadSubscriptionStats(fanoutTopic);
         if (statsByName == null) return 0; // couldn't read stats this round — leave everything alone
 
-        List<SubscriptionEntity> candidates = subscriptionRepository.findAllBySystemManagedFalse(Pageable.unpaged());
+        List<SubscriptionEntity> candidates = subscriptionRepository.findAll();
         if (candidates.isEmpty()) return 0;
 
         OffsetDateTime cutoff = OffsetDateTime.now().minus(props.getStaleAge());
@@ -126,8 +125,6 @@ public class SubscriptionCleanupTask {
 
     // Package-private for direct unit testing of the orphan decision.
     boolean isOrphan(SubscriptionEntity sub, SubscriptionActivity stats, OffsetDateTime cutoff) {
-        // System-managed subs are excluded by the query, but never trust a single guard.
-        if (sub.isSystemManaged()) return false;
         // No live Pulsar subscription — nothing is accumulating, so leave the (possibly dormant) row.
         if (stats == null) return false;
         if (stats.connectedConsumers() > 0) return false;

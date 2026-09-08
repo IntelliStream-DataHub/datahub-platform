@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.repositories.subscription;
 
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.SubscriptionEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.models.IdCollection;
@@ -26,6 +27,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 
@@ -71,13 +73,29 @@ class SubscriptionFilterIT {
     // --- fixtures ------------------------------------------------------------------------------
 
     private TimeseriesEntity timeseries(String externalId) {
+        return timeseries(externalId, null);
+    }
+
+    /** A timeseries in {@code dataSet}, or an orphan one when it is null. */
+    private TimeseriesEntity timeseries(String externalId, DatasetEntity dataSet) {
         TimeseriesEntity ts = new TimeseriesEntity();
         ts.setExternalId(externalId);           // derives external_id_hash
         ts.setName(externalId);
         ts.setLabels("TIMESERIES");
+        ts.setDataSet(dataSet);
         em.persist(ts);
         em.flush();
         return ts;
+    }
+
+    private DatasetEntity dataSet(String externalId) {
+        DatasetEntity ds = new DatasetEntity();
+        ds.setExternalId(externalId);           // derives external_id_hash
+        ds.setName(externalId);
+        ds.setLabels("DATASET");
+        em.persist(ds);
+        em.flush();
+        return ds;
     }
 
     private SubscriptionEntity subscription(String externalId, String name, TimeseriesEntity... bound) {
@@ -92,13 +110,6 @@ class SubscriptionFilterIT {
 
     private SubscriptionEntity subscription(String externalId, TimeseriesEntity... bound) {
         return subscription(externalId, externalId, bound);
-    }
-
-    private SubscriptionEntity systemManaged(String externalId, TimeseriesEntity... bound) {
-        SubscriptionEntity sub = subscription(externalId, bound);
-        sub.setSystemManaged(true);
-        em.flush();
-        return sub;
     }
 
     /** {@code date_created} is a @CreationTimestamp, so it can only be pinned after the insert. */
@@ -116,9 +127,15 @@ class SubscriptionFilterIT {
     }
 
     private List<String> filter(SubscriptionFilter filter, int limit, SubscriptionSort sort, PageCursor cursor) {
+        // null grants: the all-datasets reader. The narrowing case has its own tests below.
+        return filter(filter, null, limit, sort, cursor);
+    }
+
+    private List<String> filter(SubscriptionFilter filter, Collection<Long> readableDataSetIds,
+                                int limit, SubscriptionSort sort, PageCursor cursor) {
         em.flush();
         em.clear();
-        return repository.filter(filter, limit, sort, cursor).stream()
+        return repository.filter(filter, readableDataSetIds, limit, sort, cursor).stream()
                 .map(SubscriptionEntity::getExternalId)
                 .toList();
     }
@@ -136,24 +153,13 @@ class SubscriptionFilterIT {
                 .containsExactlyInAnyOrder("fleet_dashboard", "plant_a_feed");
     }
 
-    /**
-     * There is no opt-in to see these, so the guard has to hold for every body — including the null
-     * one, which is why the predicate sits outside the null check rather than inside it.
-     */
     @Test
-    @DisplayName("A system-managed subscription is never returned, whatever the filter says")
-    void systemManagedRowsAreNeverReturned() {
+    @DisplayName("A null filter is treated as an empty one rather than throwing")
+    void nullFilterIsTreatedAsEmpty() {
         TimeseriesEntity ts = timeseries("sensor_temp_room_a");
         subscription("fleet_dashboard", ts);
-        systemManaged("fn_binding_7", ts);
 
         assertThat(filter(null)).containsExactly("fleet_dashboard");
-        assertThat(filter(new SubscriptionFilter())).containsExactly("fleet_dashboard");
-
-        // Not even when named outright.
-        SubscriptionFilter byName = new SubscriptionFilter();
-        byName.setExternalId(List.of("fn_binding_7"));
-        assertThat(filter(byName)).isEmpty();
     }
 
     @Test
@@ -311,6 +317,58 @@ class SubscriptionFilterIT {
         assertThat(seen).containsExactly("sub_0", "sub_1", "sub_2", "sub_3", "sub_4");
     }
 
+    // --- dataset grants ------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a subscription is visible only when every timeseries it streams is granted")
+    void aSubscriptionIsHiddenWhenAnyBoundTimeseriesIsOutsideTheGrants() {
+        DatasetEntity granted = dataSet("data_set_granted");
+        DatasetEntity ungranted = dataSet("data_set_ungranted");
+        TimeseriesEntity readable = timeseries("sensor_temp_room_a", granted);
+        TimeseriesEntity hidden = timeseries("sensor_temp_room_b", ungranted);
+
+        subscription("all_granted", readable);
+        subscription("partly_granted", readable, hidden);
+        subscription("none_granted", hidden);
+
+        // "Some readable member" would return partly_granted too — and it streams a timeseries the
+        // caller could not have subscribed to, since create asserts read on every one of them.
+        assertThat(filter(new SubscriptionFilter(), Set.of(granted.getId()), 100, SubscriptionSort.DEFAULT, null))
+                .containsExactly("all_granted");
+    }
+
+    @Test
+    @DisplayName("a subscription over a timeseries in no dataset is visible only to an all-datasets reader")
+    void orphanTimeseriesAreVisibleOnlyToAnAllDatasetsReader() {
+        DatasetEntity granted = dataSet("data_set_granted");
+        subscription("over_orphan", timeseries("sensor_no_data_set"));
+        subscription("over_granted", timeseries("sensor_temp_room_a", granted));
+
+        // The LEFT join is what makes this case reachable: an inner one drops the orphan row, and
+        // "no bound timeseries outside the grants" then reads as true for a subscription whose
+        // every member is outside them.
+        assertThat(filter(new SubscriptionFilter(), Set.of(granted.getId()), 100, SubscriptionSort.DEFAULT, null))
+                .containsExactly("over_granted");
+
+        assertThat(filter(new SubscriptionFilter()))
+                .containsExactlyInAnyOrder("over_orphan", "over_granted");
+    }
+
+    @Test
+    @DisplayName("the grant narrows the criteria rather than replacing them")
+    void grantsAndCriteriaBothApply() {
+        DatasetEntity granted = dataSet("data_set_granted");
+        TimeseriesEntity readable = timeseries("sensor_temp_room_a", granted);
+        subscription("fleet_dashboard", readable);
+        subscription("plant_a_alarms", readable);
+
+        SubscriptionFilter filter = new SubscriptionFilter();
+        filter.setExternalId(List.of("plant_a_*"));
+
+        assertThat(filter(filter, Set.of(granted.getId()), 100, SubscriptionSort.DEFAULT, null))
+                .containsExactly("plant_a_alarms");
+    }
+
     /** Page through everything, following nextCursor exactly as a client would. */
     private List<String> walk(SubscriptionSort sort, int pageSize) {
         List<String> seen = new ArrayList<>();
@@ -318,7 +376,7 @@ class SubscriptionFilterIT {
         while (true) {
             em.flush();
             em.clear();
-            List<SubscriptionEntity> page = repository.filter(new SubscriptionFilter(), pageSize, sort, cursor);
+            List<SubscriptionEntity> page = repository.filter(new SubscriptionFilter(), null, pageSize, sort, cursor);
             page.forEach(s -> seen.add(s.getExternalId()));
             if (page.size() < pageSize) {
                 return seen;

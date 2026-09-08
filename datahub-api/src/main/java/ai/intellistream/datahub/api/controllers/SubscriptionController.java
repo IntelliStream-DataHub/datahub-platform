@@ -140,7 +140,11 @@ public class SubscriptionController {
             summary = "Filter subscriptions",
             description = """
                     Structured filtering over subscriptions. Every criterion is optional and they
-                    AND together, so an empty `filter` returns every subscription.
+                    AND together, so an empty `filter` returns every subscription you may read.
+
+                    Only subscriptions whose bound timeseries you can *all* read are returned — the
+                    same rule `create` applies, since a subscription streams every timeseries bound
+                    to it. One ungranted timeseries hides the subscription entirely.
 
                     * `id` — subscriptions named directly by id. An empty list places no restriction.
                     * `externalId` / `name` — pattern lists, OR-ed within each list. `*` and `%` are
@@ -238,6 +242,9 @@ public class SubscriptionController {
                     The first `limit` subscriptions in your tenant, newest created first. No body,
                     no criteria — the cheap read for "what have I got", the same shape
                     `GET /timeseries` and `GET /labels` have.
+
+                    Scoped by your dataset grants exactly as `POST /subscriptions/filter` is: a
+                    subscription is listed only when you can read every timeseries it streams.
 
                     `limit` defaults to 1000 and may not exceed 10 000. There is no paging here: a
                     walk needs a `sort` and a `cursor` to continue, and both belong in a request

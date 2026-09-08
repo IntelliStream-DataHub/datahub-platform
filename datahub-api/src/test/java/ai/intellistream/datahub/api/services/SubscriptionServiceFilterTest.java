@@ -25,7 +25,9 @@ import org.springframework.context.ApplicationEventPublisher;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -161,8 +164,53 @@ class SubscriptionServiceFilterTest {
                 .isInstanceOf(MalformedCursorException.class);
     }
 
+    // --- dataset grants ------------------------------------------------------------------------
+
+    /**
+     * The read path used to apply no ACL at all, while {@code create} and {@code delete} asserted
+     * read access on every bound timeseries — so a caller could list subscriptions naming
+     * timeseries they were not allowed to read, and could not have created.
+     */
+    @Test
+    void anAllDatasetsReaderIsNotNarrowed() {
+        returning(List.of());
+
+        service.filter(new SubscriptionRetriever());
+
+        assertThat(scopePassedToRepository())
+                .as("null is 'no restriction in SQL'; an empty set would mean the opposite")
+                .isNull();
+    }
+
+    @Test
+    void aCallerWithGrantsIsNarrowedToThem() {
+        SubscriptionService scoped = serviceFor(TestDataSecurity.granting(Set.of(12L, 43L), Set.of()));
+        returning(List.of());
+
+        scoped.filter(new SubscriptionRetriever());
+
+        assertThat(scopePassedToRepository()).containsExactlyInAnyOrder(12L, 43L);
+    }
+
+    @Test
+    void aCallerWithNoGrantsSeesNothingWithoutQuerying() {
+        SubscriptionService scoped = serviceFor(TestDataSecurity.grantingNothing());
+
+        DataWrapper<Subscription> result = scoped.filter(new SubscriptionRetriever());
+
+        assertThat(result.getItems()).isEmpty();
+        assertThat(result.getNextCursor()).isNull();
+        // An empty grant set is not an empty IN: the answer is known without a query.
+        verify(subscriptionRepository, never()).filter(any(), any(), anyInt(), any(), any());
+    }
+
+    private SubscriptionService serviceFor(DataSecurity permissions) {
+        return new SubscriptionService(
+                subscriptionRepository, timeseriesRepository, pulsarAdmin, topicNames, eventPublisher, permissions);
+    }
+
     private void returning(List<SubscriptionEntity> entities) {
-        when(subscriptionRepository.filter(any(), anyInt(), any(), any())).thenReturn(entities);
+        when(subscriptionRepository.filter(any(), any(), anyInt(), any(), any())).thenReturn(entities);
     }
 
     private static List<SubscriptionEntity> page(int size) {
@@ -183,13 +231,21 @@ class SubscriptionServiceFilterTest {
     // one accessor per argument, so a call is verified once however many of its arguments a test
     // goes on to assert about.
     private final ArgumentCaptor<SubscriptionFilter> filterArg = ArgumentCaptor.forClass(SubscriptionFilter.class);
+    @SuppressWarnings("unchecked")
+    private final ArgumentCaptor<Collection<Long>> scopeArg = ArgumentCaptor.forClass(Collection.class);
     private final ArgumentCaptor<Integer> limitArg = ArgumentCaptor.forClass(Integer.class);
     private final ArgumentCaptor<SubscriptionSort> sortArg = ArgumentCaptor.forClass(SubscriptionSort.class);
     private final ArgumentCaptor<PageCursor> cursorArg = ArgumentCaptor.forClass(PageCursor.class);
 
     private void captureQuery() {
         verify(subscriptionRepository, atLeastOnce())
-                .filter(filterArg.capture(), limitArg.capture(), sortArg.capture(), cursorArg.capture());
+                .filter(filterArg.capture(), scopeArg.capture(), limitArg.capture(), sortArg.capture(),
+                        cursorArg.capture());
+    }
+
+    private Collection<Long> scopePassedToRepository() {
+        captureQuery();
+        return scopeArg.getValue();
     }
 
     private SubscriptionFilter filterPassedToRepository() {

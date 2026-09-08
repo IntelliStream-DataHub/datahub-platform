@@ -22,25 +22,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code source}, {@code description}, {@code labels} or {@code metadata} column — so the overlap
  * it does have is a convention, and a convention with nothing checking it is how this filter came
  * to carry a single {@code timeseries} criterion while every other one grew ids, patterns and time
- * windows. Same job as {@code FilterContractParityTest} does for {@code EventFilter}.
+ * windows.
+ *
+ * <p>The family rules themselves — that the shared criteria are named and typed as
+ * {@code NodeFilter} names and types them, and that every list accepts a bare value — live in
+ * {@code FilterContractParityTest} alongside the other five filters, not here. This class had its
+ * own copy of the first one, which is a second list to keep current and one the parity test cannot
+ * see; what is left here is the wire shape only this filter has.
  */
 class SubscriptionFilterWireContractTest {
 
     private final JsonMapper mapper = JsonMapper.builder().build();
-
-    /** What a subscription can be filtered by that a node can too, spelled the same way. */
-    private static final List<String> SHARED_WITH_NODES =
-            List.of("id", "externalId", "name", "createdTime", "lastUpdatedTime");
-
-    @Test
-    void everyCriterionSharedWithTheNodeFiltersIsNamedTheSameWay() {
-        for (String field : SHARED_WITH_NODES) {
-            assertTrue(hasField(SubscriptionFilter.class, field),
-                    "SubscriptionFilter is missing " + field + ", which NodeFilter calls by that name");
-            assertTrue(hasField(NodeFilter.class, field),
-                    "NodeFilter no longer declares " + field + " — this list is out of date");
-        }
-    }
 
     @Test
     @SuppressWarnings("unchecked")
@@ -61,10 +53,6 @@ class SubscriptionFilterWireContractTest {
         assertEquals(List.of(Map.of("id", "29")), m.get("timeseries"));
         assertTrue(m.containsKey("createdTime"));
 
-        assertFalse(m.containsKey("includeSystemManaged"),
-                "nothing in the platform sets system_managed, so a knob to include those rows is a "
-                        + "field in a public contract selecting between the rows and the same rows");
-
         // Derived, not part of the request contract — they must not leak onto the wire.
         assertFalse(m.containsKey("externalIdHashes"), "derivation helper, @JsonIgnore'd");
         assertFalse(m.containsKey("externalIdPatterns"), "derivation helper, @JsonIgnore'd");
@@ -78,12 +66,18 @@ class SubscriptionFilterWireContractTest {
     @Test
     void aBareValueIsAcceptedWhereAListIsDeclared() {
         SubscriptionFilter f = mapper.readValue(
-                "{\"externalId\":\"fleet_dashboard\",\"name\":\"Fleet dashboard\",\"id\":\"12\"}",
+                "{\"externalId\":\"fleet_dashboard\",\"name\":\"Fleet dashboard\",\"id\":\"12\","
+                        + "\"timeseries\":{\"externalId\":\"heater_2012_temp\"}}",
                 SubscriptionFilter.class);
 
         assertEquals(List.of("fleet_dashboard"), f.getExternalId());
         assertEquals(List.of("Fleet dashboard"), f.getName());
         assertEquals(List.of(12L), f.getId());
+        // timeseries was the one collection here without @SingleOrList, so the bare form that works
+        // for EventFilter.relatedResources and DataSetScopedFilter.dataSetId was a 400 on this
+        // endpoint alone.
+        assertEquals(List.of("heater_2012_temp"),
+                f.getTimeseries().stream().map(IdCollection::getExternalId).toList());
     }
 
     /**
@@ -105,14 +99,5 @@ class SubscriptionFilterWireContractTest {
     void noExternalIdAtAllIsDistinguishableFromOneThatMatchedNothing() {
         assertEquals(null, new SubscriptionFilter().getExternalIdHashes(),
                 "null in, null out — 'no restriction' is not 'restricted to nothing'");
-    }
-
-    private static boolean hasField(Class<?> type, String name) {
-        try {
-            type.getDeclaredField(name);
-            return true;
-        } catch (NoSuchFieldException e) {
-            return false;
-        }
     }
 }

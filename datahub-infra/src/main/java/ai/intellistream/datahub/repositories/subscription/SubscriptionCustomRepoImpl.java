@@ -13,6 +13,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.List;
 
 public class SubscriptionCustomRepoImpl implements SubscriptionCustomRepo {
@@ -22,13 +23,18 @@ public class SubscriptionCustomRepoImpl implements SubscriptionCustomRepo {
 
     @Override
     @Transactional(readOnly = true)
-    public List<SubscriptionEntity> filter(SubscriptionFilter filter, int maxResults,
-                                           SubscriptionSort sort, PageCursor cursor) {
+    public List<SubscriptionEntity> filter(SubscriptionFilter filter, Collection<Long> readableDataSetIds,
+                                           int maxResults, SubscriptionSort sort, PageCursor cursor) {
         CriteriaBuilder cb = entityManager.getCriteriaBuilder();
         CriteriaQuery<SubscriptionEntity> q = cb.createQuery(SubscriptionEntity.class);
         Root<SubscriptionEntity> root = q.from(SubscriptionEntity.class);
 
         List<Predicate> predicates = SubscriptionPredicateBuilder.build(cb, q, root, filter);
+        // Narrow to what the caller's grants cover, in SQL, the way the node filters do — a
+        // subscription is hidden when any timeseries it streams sits outside them.
+        if (readableDataSetIds != null) {
+            predicates.add(SubscriptionPredicateBuilder.readableDataSetScope(cb, q, root, readableDataSetIds));
+        }
         if (cursor != null) {
             predicates.add(SubscriptionPredicateBuilder.keyset(cb, root, sort, cursor));
         }
