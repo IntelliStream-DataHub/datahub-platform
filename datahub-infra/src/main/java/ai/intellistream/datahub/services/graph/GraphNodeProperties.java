@@ -69,7 +69,6 @@ final class GraphNodeProperties {
             props.put("valueType", ts.getValueType() == null ? null : getTableType(ts.getValueType()));
             props.put("unit", ts.getUnit());
             props.put("unitExternalId", ts.getUnitExternalId());
-            props.put("tableEngine", ts.getTableEngine() == null ? null : ts.getTableEngine().name());
         }
         return props;
     }

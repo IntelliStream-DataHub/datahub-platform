@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.jpa.domains;
 
-import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import jakarta.persistence.*;
 import org.hibernate.annotations.BatchSize;
 import jakarta.validation.constraints.NotNull;
@@ -23,9 +22,6 @@ public class TimeseriesEntity extends NodeEntity{
     private String unit;
 
     private String unitExternalId;
-
-    @Enumerated(EnumType.ORDINAL)
-    private TableEngine tableEngine;
 
     public void setValueType(@NotNull TimeseriesValueType valueType){
         this.valueType = valueType;
@@ -54,7 +50,6 @@ public class TimeseriesEntity extends NodeEntity{
                 ", valueType=" + valueType +
                 ", unit='" + unit + '\'' +
                 ", unitExternalId='" + unitExternalId + '\'' +
-                ", tableEngine=" + tableEngine +
                 '}';
     }
 }
