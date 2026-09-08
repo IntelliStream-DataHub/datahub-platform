@@ -41,10 +41,9 @@ import java.util.Set;
 public record SettingsGrants(boolean readAll, boolean writeAll,
                              Set<String> readScopes, Set<String> writeScopes) {
 
-    private static final String READ = "read";
-    private static final String WRITE = "write";
-    /** A new verb on settings starts here, and gets surfaced alongside canRead/canWrite. */
-    private static final GrantGrammar GRAMMAR = GrantGrammar.of("settings", READ, WRITE);
+    /** A new verb on settings is declared here, and gets surfaced alongside canRead/canWrite. */
+    private static final GrantGrammar GRAMMAR =
+            GrantGrammar.of("settings", GrantVerb.READ, GrantVerb.WRITE);
 
     private static final SettingsGrants NONE =
             new SettingsGrants(false, false, Collections.emptySet(), Collections.emptySet());
@@ -75,8 +74,8 @@ public record SettingsGrants(boolean readAll, boolean writeAll,
         if (grants.isEmpty()) {
             return NONE;
         }
-        return new SettingsGrants(grants.allowsAll(READ), grants.allowsAll(WRITE),
-                grants.objects(READ), grants.objects(WRITE));
+        return new SettingsGrants(grants.allowsAll(GrantVerb.READ), grants.allowsAll(GrantVerb.WRITE),
+                grants.objects(GrantVerb.READ), grants.objects(GrantVerb.WRITE));
     }
 
     /**

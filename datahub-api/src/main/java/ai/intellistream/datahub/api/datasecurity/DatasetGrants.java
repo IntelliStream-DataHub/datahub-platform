@@ -45,10 +45,9 @@ import java.util.Set;
 public record DatasetGrants(boolean readAll, boolean writeAll,
                             Set<String> readExternalIds, Set<String> writeExternalIds) {
 
-    private static final String READ = "read";
-    private static final String WRITE = "write";
-    /** A new verb on datasets starts here, and gets surfaced as accessors alongside read/write. */
-    private static final GrantGrammar GRAMMAR = GrantGrammar.of("datasets", READ, WRITE);
+    /** A new verb on datasets is declared here, and gets surfaced as accessors alongside these. */
+    private static final GrantGrammar GRAMMAR =
+            GrantGrammar.of("datasets", GrantVerb.READ, GrantVerb.WRITE);
 
     private static final DatasetGrants NONE =
             new DatasetGrants(false, false, Collections.emptySet(), Collections.emptySet());
@@ -67,7 +66,7 @@ public record DatasetGrants(boolean readAll, boolean writeAll,
         if (grants.isEmpty()) {
             return NONE;
         }
-        return new DatasetGrants(grants.allowsAll(READ), grants.allowsAll(WRITE),
-                grants.objects(READ), grants.objects(WRITE));
+        return new DatasetGrants(grants.allowsAll(GrantVerb.READ), grants.allowsAll(GrantVerb.WRITE),
+                grants.objects(GrantVerb.READ), grants.objects(GrantVerb.WRITE));
     }
 }

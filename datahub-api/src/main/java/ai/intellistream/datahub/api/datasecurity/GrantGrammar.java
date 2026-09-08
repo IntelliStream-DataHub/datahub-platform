@@ -5,13 +5,15 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.Collection;
 import java.util.Collections;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.TreeSet;
 
 /**
- * The one grammar every organization-group grant follows, bound to a subject and its verbs:
+ * The one grammar every organization-group grant follows, bound to a subject and the
+ * {@link GrantVerb}s that apply to it:
  *
  * <pre>
  *   /&lt;subject&gt;/&lt;object&gt;/&lt;verb&gt;      e.g.  /datasets/data_set_sap/read
@@ -26,13 +28,13 @@ import java.util.TreeSet;
  *
  * <h2>Extending</h2>
  * <ul>
- *   <li><b>A new verb</b> (say {@code manage}): add it to the facade's
- *       {@link #of(String, String...)} call and surface it there. Verbs never imply one another;
+ *   <li><b>A new verb</b>: a {@link GrantVerb} constant, declared in the facade's
+ *       {@link #of(String, GrantVerb...)} call and surfaced there. Verbs never imply one another;
  *       each is granted by its own group.</li>
  *   <li><b>A new subject</b> (a third thing grants attach to): a new facade holding its own
  *       {@code GrantGrammar.of("<subject>", ...)}. Do not widen an existing facade.</li>
  *   <li><b>Objects</b> are opaque: any string the subject's domain gives meaning to. The only
- *       reserved spelling is {@code *}.</li>
+ *       reserved spelling is {@code *}, so a new subject's object ids must not admit it.</li>
  * </ul>
  *
  * <h2>Parsing rules</h2>
@@ -40,8 +42,8 @@ import java.util.TreeSet;
  *   <li>The object segment is taken <b>verbatim</b> — never normalised or rewritten. Matching an
  *       object case-insensitively (or not) is the facade's domain decision; this parser only
  *       collapses duplicates that differ in case, since both spellings name the same grant.</li>
- *   <li>Verbs match case-insensitively (locale-independent), so {@code /datasets/x/READ} grants
- *       what {@code /datasets/x/read} does rather than silently nothing.</li>
+ *   <li>Verbs resolve through {@link GrantVerb#fromSpelling}, case-insensitively; a verb the
+ *       grammar does not declare grants nothing.</li>
  *   <li>{@code *} as the object sets the every-object flag for that verb; it cannot collide with
  *       a real object in either current subject (dataset external ids and settings scopes both
  *       exclude {@code *} from their charsets).</li>
@@ -62,32 +64,28 @@ final class GrantGrammar {
     /** The every-object grant. The one reserved object spelling. */
     static final String ALL_OBJECTS = "*";
 
-    private final String prefix;
-    /** Any-case spelling of a verb → the canonical spelling the grammar declares. */
-    private final Map<String, String> verbs;
-    private final Grants none;
+    private static final Grants NONE = new Grants(Set.of(), Map.of());
 
-    private GrantGrammar(String subject, String... verbs) {
+    private final String prefix;
+    private final Set<GrantVerb> verbs;
+
+    private GrantGrammar(String subject, GrantVerb... verbs) {
         this.prefix = "/" + subject + "/";
-        Map<String, String> canonical = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-        for (String verb : verbs) {
-            canonical.put(verb, verb);
-        }
-        this.verbs = canonical;
-        this.none = new Grants(Set.of(), Map.of());
+        this.verbs = EnumSet.noneOf(GrantVerb.class);
+        Collections.addAll(this.verbs, verbs);
     }
 
-    static GrantGrammar of(String subject, String... verbs) {
+    static GrantGrammar of(String subject, GrantVerb... verbs) {
         return new GrantGrammar(subject, verbs);
     }
 
     /** Parse organization group paths into whatever this grammar's subject they grant. */
     Grants parse(Collection<String> groupPaths) {
         if (groupPaths == null || groupPaths.isEmpty()) {
-            return none;
+            return NONE;
         }
-        Set<String> everyObject = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
-        Map<String, Set<String>> objectsByVerb = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Set<GrantVerb> everyObject = EnumSet.noneOf(GrantVerb.class);
+        Map<GrantVerb, Set<String>> objectsByVerb = new EnumMap<>(GrantVerb.class);
 
         for (String path : groupPaths) {
             if (path == null || !path.startsWith(prefix)) {
@@ -110,8 +108,8 @@ final class GrantGrammar {
             if (object.isBlank()) {
                 continue;
             }
-            String verb = verbs.get(verbSpelling);
-            if (verb == null) {
+            GrantVerb verb = GrantVerb.fromSpelling(verbSpelling);
+            if (verb == null || !verbs.contains(verb)) {
                 log.debug("Ignoring organization group with unknown permission '{}': {}",
                         verbSpelling, path);
                 continue;
@@ -125,20 +123,20 @@ final class GrantGrammar {
         }
 
         if (everyObject.isEmpty() && objectsByVerb.isEmpty()) {
-            return none;
+            return NONE;
         }
         objectsByVerb.replaceAll((verb, objects) -> Collections.unmodifiableSet(objects));
         return new Grants(Collections.unmodifiableSet(everyObject),
                 Collections.unmodifiableMap(objectsByVerb));
     }
 
-    /** What one caller holds under one subject's grammar. Verb lookups are case-insensitive. */
+    /** What one caller holds under one subject's grammar. */
     static final class Grants {
 
-        private final Set<String> everyObjectVerbs;
-        private final Map<String, Set<String>> objectsByVerb;
+        private final Set<GrantVerb> everyObjectVerbs;
+        private final Map<GrantVerb, Set<String>> objectsByVerb;
 
-        private Grants(Set<String> everyObjectVerbs, Map<String, Set<String>> objectsByVerb) {
+        private Grants(Set<GrantVerb> everyObjectVerbs, Map<GrantVerb, Set<String>> objectsByVerb) {
             this.everyObjectVerbs = everyObjectVerbs;
             this.objectsByVerb = objectsByVerb;
         }
@@ -148,12 +146,12 @@ final class GrantGrammar {
         }
 
         /** Whether the verb is granted over every object, the {@code *} grant. */
-        boolean allowsAll(String verb) {
+        boolean allowsAll(GrantVerb verb) {
             return everyObjectVerbs.contains(verb);
         }
 
         /** The objects the verb is granted on by name. Empty — not everything — under {@code *}. */
-        Set<String> objects(String verb) {
+        Set<String> objects(GrantVerb verb) {
             return objectsByVerb.getOrDefault(verb, Set.of());
         }
     }
