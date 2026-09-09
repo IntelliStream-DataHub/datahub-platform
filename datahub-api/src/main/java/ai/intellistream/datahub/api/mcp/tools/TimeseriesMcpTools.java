@@ -203,7 +203,8 @@ public class TimeseriesMcpTools {
             description = """
                     Append a single datapoint to a timeseries. Identify the target by
                     externalId OR id (supply exactly one). Timestamp accepts ISO-8601
-                    (e.g. '2026-04-23T14:05:00Z') or epoch milliseconds as a string.
+                    (e.g. '2026-04-23T14:05:00Z') or a UTC epoch as a string, read as
+                    seconds or milliseconds by its magnitude.
                     Value is the raw sample as a string — numeric series accept '12.34',
                     string series accept any text.
                     """
@@ -213,7 +214,7 @@ public class TimeseriesMcpTools {
             String externalId,
             @ToolParam(required = false, description = "Target timeseries id.")
             Long id,
-            @ToolParam(description = "ISO-8601 timestamp or epoch-ms as string.")
+            @ToolParam(description = "ISO-8601 timestamp, or epoch seconds or millis as string.")
             String timestamp,
             @ToolParam(description = "Sample value as a string.")
             String value

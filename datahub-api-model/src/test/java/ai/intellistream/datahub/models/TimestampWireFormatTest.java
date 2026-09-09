@@ -106,4 +106,20 @@ class TimestampWireFormatTest {
 
         assertEquals(T.toInstant(), quoted.getEventTime().toInstant());
     }
+
+    /**
+     * A seconds epoch is the other form clients send, and the unit is decided by magnitude rather
+     * than by the caller declaring it, so both land on the same instant.
+     */
+    @Test
+    void eventModelReadsATenDigitEventTimeAsEpochSeconds() {
+        long seconds = T.toInstant().getEpochSecond(); // 1718627696
+
+        EventModel fromSeconds = mapper.readValue("{\"eventTime\":" + seconds + "}", EventModel.class);
+        EventModel fromQuotedSeconds = mapper.readValue("{\"eventTime\":\"" + seconds + "\"}", EventModel.class);
+
+        assertEquals(T.toInstant(), fromSeconds.getEventTime().toInstant(),
+                "a 10-digit eventTime is epoch seconds, not millis 20 days after 1970");
+        assertEquals(T.toInstant(), fromQuotedSeconds.getEventTime().toInstant());
+    }
 }

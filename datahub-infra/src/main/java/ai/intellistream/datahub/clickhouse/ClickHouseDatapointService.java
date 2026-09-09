@@ -113,7 +113,7 @@ public class ClickHouseDatapointService extends ClickHouseService{
      * the {@code /timeseries/data/delete} endpoint always supplies at least a begin.
      */
     static DeleteQuery buildDeleteQuery(DataCollectionBin dc) {
-        // Tolerant of both timestamp forms the API accepts (ISO-8601 or epoch millis). The api
+        // Tolerant of every timestamp form the API accepts (ISO-8601, epoch seconds or millis). The api
         // normalises the bounds to ISO before publishing, so in practice only the first branch is
         // taken; parsing both here keeps messages from older producers (and the SDK) applicable
         // rather than dead-lettering them on a form the endpoint documents as valid.

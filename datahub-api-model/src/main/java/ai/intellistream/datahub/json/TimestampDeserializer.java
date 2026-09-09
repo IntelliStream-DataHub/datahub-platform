@@ -10,8 +10,9 @@ import java.time.ZonedDateTime;
 
 /**
  * Parses a timestamp sent by a client as either an ISO-8601 string (with time
- * zone / offset) or an epoch value. Epoch values are always interpreted as UTC
- * milliseconds; ISO strings keep their own zone/offset.
+ * zone / offset) or an epoch value. Epoch values are UTC, read as seconds or as
+ * milliseconds by magnitude ({@link DateTimeHandler#epochToMillis(long)}); ISO
+ * strings keep their own zone/offset.
  */
 public class TimestampDeserializer extends ValueDeserializer<ZonedDateTime> {
 
@@ -22,24 +23,23 @@ public class TimestampDeserializer extends ValueDeserializer<ZonedDateTime> {
             return null;
         }
         if (isEpoch(value)) {
-            return DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(Long.parseLong(value));
+            long millis = DateTimeHandler.epochToMillis(Long.parseLong(value));
+            return DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(millis);
         }
         return ZonedDateTime.parse(value);
     }
 
     /** True when the value looks like an epoch number (all digits, optional leading '-'). */
     private boolean isEpoch(String value) {
-        int length = value.length();
-        // Epoch timestamps are typically 10 (seconds) to 13 (milliseconds) digits,
-        // possibly negative; anything else is treated as an ISO-8601 string.
-        if (length < 10 || length > 14) {
+        // Digits only, so a negative epoch gets the same range as a positive one. Epoch timestamps
+        // are 10 (seconds) to 13 (milliseconds) digits; anything else is read as an ISO-8601
+        // string, which leaves a 9-digit seconds value (before 2001-09-09) rejected on this path.
+        int start = value.startsWith("-") ? 1 : 0;
+        int digits = value.length() - start;
+        if (digits < 10 || digits > 14) {
             return false;
         }
-        char first = value.charAt(0);
-        if (first != '-' && !Character.isDigit(first)) {
-            return false;
-        }
-        for (int i = 1; i < length; i++) {
+        for (int i = start; i < value.length(); i++) {
             if (!Character.isDigit(value.charAt(i))) {
                 return false;
             }

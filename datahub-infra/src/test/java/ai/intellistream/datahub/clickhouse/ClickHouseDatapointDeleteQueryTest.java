@@ -77,6 +77,15 @@ class ClickHouseDatapointDeleteQueryTest {
         assertEquals("2026-01-02 00:00:00.000", q.params().get("endTime"));
     }
 
+    /** Seconds is the other epoch form the API accepts; the unit follows from the magnitude. */
+    @Test
+    void epochSecondsBoundsAreAccepted() {
+        var q = ClickHouseDatapointService.buildDeleteQuery(item("1767225600", "1767312000"));
+
+        assertEquals("2026-01-01 00:00:00.000", q.params().get("startTime"));
+        assertEquals("2026-01-02 00:00:00.000", q.params().get("endTime"));
+    }
+
     /** Mixing the two forms in one window is fine — each bound is parsed on its own. */
     @Test
     void theTwoFormsCanBeMixedInOneWindow() {
