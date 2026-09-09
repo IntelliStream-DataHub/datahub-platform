@@ -12,6 +12,7 @@ import ai.intellistream.datahub.helpers.updates.UpdateListField;
 import ai.intellistream.datahub.helpers.utils.ColorHelper;
 import ai.intellistream.datahub.jpa.domains.Label;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
+import ai.intellistream.datahub.helpers.text.Labels;
 import ai.intellistream.datahub.jpa.domains.TypeLabels;
 import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.IdCollection;
@@ -210,6 +211,41 @@ public class LabelService {
         return label;
     }
 
+    /**
+     * Type-label rows are not ordinary vocabulary and their names are not editable.
+     *
+     * <p>{@link TypeLabels} calls a node's type intrinsic: decided at create time and fixed by the
+     * entity's discriminator thereafter. That invariant is enforced for the labels <em>on a node</em>
+     * ({@code resolveLabelUpdate}) but the row itself was left editable, and the name is what
+     * everything keys on. {@code Label.setName} derives {@code hash} from the canonical name and
+     * {@code NodeFilter.getLabelHashes()} matches on that hash, so renaming {@code ASSET} silently
+     * empties every filter for it; {@code TypeLabels.forEntity} still yields {@code ASSET}, so the
+     * next node update mints a second row; and the Neo4j projection writes the canonical name, so
+     * graph and Postgres disagree until each node is touched.
+     *
+     * <p>Only the name is load-bearing. Description, colour and i18n code stay editable — a type
+     * label still has to render in the UI like any other.
+     */
+    private static void assertRenameKeepsTypeLabelsIntact(Label existing, LabelForm form) {
+        if (form.getName() == null) {
+            return; // PATCH semantics: no name sent, nothing to check.
+        }
+        String requested = Labels.canonical(form.getName());
+        if (requested == null || requested.equals(existing.getName())) {
+            return; // Not a rename.
+        }
+        if (TypeLabels.isTypeLabel(existing.getName())) {
+            throw new IllegalArgumentException(
+                    "'" + existing.getName() + "' is a type-label and cannot be renamed. Node types are "
+                            + "intrinsic, and the name is what filters and the graph projection match on.");
+        }
+        if (TypeLabels.isTypeLabel(requested)) {
+            throw new IllegalArgumentException(
+                    "'" + requested + "' is a reserved type-label and cannot be assigned to an existing "
+                            + "label. Type-labels are created with the nodes that carry them.");
+        }
+    }
+
     private void bindLabelData(LabelForm form, Label label){
         // PATCH semantics on update — only apply fields the caller sent. On create, the
         // form validator upstream requires name, so the non-null branch always runs.
@@ -240,6 +276,7 @@ public class LabelService {
                 ? labelRepository.findById(form.getId()).orElse(null)
                 : labelRepository.findByHash(LongHashFunction.xx3().hashChars(form.getName()));
         if(label != null){
+            assertRenameKeepsTypeLabelsIntact(label, form);
             bindLabelData(form, label);
             return label;
         }
@@ -338,6 +375,21 @@ public class LabelService {
             labels.addAll(labelRepository.findAllByHashInFetchNodes(hashList));
         }
 
+        // A type-label row is never deletable, even with nothing attached. The in-use check below
+        // covers the common case — every ASSET node holds the ASSET label — but a type whose nodes
+        // have all been removed, or one whose first node has yet to be created, would otherwise be
+        // deletable, and TypeLabels.forEntity would mint a fresh row on the next node write.
+        List<String> reserved = labels.stream()
+                .map(Label::getName)
+                .filter(TypeLabels::isTypeLabel)
+                .sorted()
+                .toList();
+        if (!reserved.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Type-labels cannot be deleted: " + String.join(", ", reserved)
+                            + ". Node types are intrinsic and their labels are managed by the platform.");
+        }
+
         // Split into blocked (still referenced) and deletable, collecting EVERY blocker so a batch
         // delete reports all of them at once rather than failing on the first.
         List<EntityInUseException.Blocked> blocked = new ArrayList<>();
@@ -384,6 +436,23 @@ public class LabelService {
 
     @Transactional
     public Collection<Label> updateLabels(DataWrapper<LabelForm> form){
+        // Validate the fields the caller actually sent, not the whole bean. An update is a PATCH
+        // — identify by id, change one field — and LabelForm.name is @NotBlank, so whole-bean
+        // validation would reject a legitimate recolour. Per-property keeps @Size(3,128) on name
+        // and @Size(max=7) on colour honest without inventing a required field. Done here rather
+        // than with @Valid at the controller so the MCP label_update tool is covered too.
+        Set<ConstraintViolation<?>> violations = new HashSet<>();
+        for (LabelForm lf : form.getItems()) {
+            if (lf.getName() != null) {
+                violations.addAll(validator.validateProperty(lf, "name"));
+            }
+            if (lf.getColor() != null) {
+                violations.addAll(validator.validateProperty(lf, "color"));
+            }
+        }
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
         Collection<Label> savedLabels = new ArrayList<>();
         for(LabelForm lf : form.getItems()){
             Label label = updateLabel(lf);
