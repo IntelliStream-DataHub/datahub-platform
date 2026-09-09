@@ -10,6 +10,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.api.services.TimeseriesService;
+import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.api.services.UnitService;
 import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.IdCollection;
@@ -28,7 +29,6 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.List;
 
@@ -362,9 +362,9 @@ public class TimeseriesMcpTools {
             String externalId,
             @ToolParam(required = false, description = "Target id.")
             Long id,
-            @ToolParam(description = "Start of range (inclusive), ISO-8601.")
+            @ToolParam(description = "Start of range (inclusive), ISO-8601 or a UTC epoch.")
             String start,
-            @ToolParam(description = "End of range (exclusive), ISO-8601.")
+            @ToolParam(description = "End of range (exclusive), ISO-8601 or a UTC epoch.")
             String end,
             @ToolParam(required = false, description = "Max datapoints per timeseries (default 1000).")
             Integer limit,
@@ -381,8 +381,9 @@ public class TimeseriesMcpTools {
         RetrieveFilter filter = new RetrieveFilter();
         if (id != null) filter.setId(id);
         if (externalId != null) filter.setExternalId(externalId);
-        filter.setStart(ZonedDateTime.parse(start));
-        filter.setEnd(ZonedDateTime.parse(end));
+        // Same parse as the REST body, whose start/end already take either form.
+        filter.setStart(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(start));
+        filter.setEnd(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(end));
         if (limit != null) filter.setLimit(limit);
         if (aggregates != null && !aggregates.isBlank()) {
             filter.setAggregates(

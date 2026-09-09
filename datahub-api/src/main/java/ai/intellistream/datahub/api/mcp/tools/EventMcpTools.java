@@ -5,6 +5,7 @@ import ai.intellistream.datahub.api.mcp.McpResultConverter;
 import ai.intellistream.datahub.api.mcp.dto.McpList;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.EventService;
+import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.events.LeanEvent;
 import ai.intellistream.datahub.models.EventModel;
@@ -23,7 +24,6 @@ import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -61,7 +61,8 @@ public class EventMcpTools {
             String type,
             @ToolParam(description = "Id of the owning dataset.")
             Long dataSetId,
-            @ToolParam(description = "Event time as ISO-8601 (e.g. '2026-04-23T13:00:00Z').")
+            @ToolParam(description = "Event time as ISO-8601 (e.g. '2026-04-23T13:00:00Z'), "
+                    + "or a UTC epoch in seconds or milliseconds.")
             String eventTime,
             @ToolParam(required = false, description = "Optional subtype (3–128 chars).")
             String subType,
@@ -77,7 +78,8 @@ public class EventMcpTools {
         e.setExternalId(externalId);
         e.setType(type);
         e.setDataSetId(dataSetId);
-        e.setEventTime(java.time.ZonedDateTime.parse(eventTime));
+        // Same parse as the REST body, so an epoch works here too rather than only ISO-8601.
+        e.setEventTime(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(eventTime));
         if (subType != null) e.setSubType(subType);
         if (status != null) e.setStatus(status);
         if (description != null) e.setDescription(description);
@@ -214,9 +216,11 @@ public class EventMcpTools {
                     + "the event must be attached to every resource named either way.")
             List<String> relatedResourceExternalIds,
             @ToolParam(required = false, description =
-                    "Start of the eventTime window (inclusive), ISO-8601 e.g. '2026-06-24T00:00:00Z'.")
+                    "Start of the eventTime window (inclusive), ISO-8601 e.g. '2026-06-24T00:00:00Z', "
+                    + "or a UTC epoch in seconds or milliseconds.")
             String start,
-            @ToolParam(required = false, description = "End of the eventTime window (exclusive), ISO-8601.")
+            @ToolParam(required = false, description = "End of the eventTime window (exclusive), "
+                    + "ISO-8601 or a UTC epoch.")
             String end,
             @ToolParam(required = false, description =
                     "Aggregate into counts grouped by this field instead of returning events. "
@@ -247,8 +251,8 @@ public class EventMcpTools {
 
         if (start != null || end != null) {
             TimeFilter eventTime = new TimeFilter();
-            if (start != null) eventTime.setMin(ZonedDateTime.parse(start));
-            if (end != null) eventTime.setMax(ZonedDateTime.parse(end));
+            if (start != null) eventTime.setMin(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(start));
+            if (end != null) eventTime.setMax(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(end));
             filter.setEventTime(eventTime);
         }
 
