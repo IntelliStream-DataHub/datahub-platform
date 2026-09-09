@@ -4,8 +4,10 @@ package ai.intellistream.datahub.helpers.datetime;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * The seconds-or-millis rule, and the line between the overloads that apply it and the ones that
@@ -57,6 +59,23 @@ class DateTimeHandlerEpochTest {
 
         assertEquals(DateTimeHandler.fromEpochUTCTime(MILLIS),
                 DateTimeHandler.fromEpochUTCTime(String.valueOf(SECONDS)));
+    }
+
+    /**
+     * A short all-digit value is a mistake, not a timestamp: "2024" means a year to whoever typed
+     * it, and reading it as an epoch would silently store 1970-01-01T00:33:44Z instead of failing.
+     */
+    @Test
+    void shortNumbersAreNotEpochs() {
+        assertThrows(DateTimeParseException.class, () -> DateTimeHandler.parseClientTimestamp("2024"));
+        assertThrows(DateTimeParseException.class, () -> DateTimeHandler.parseClientTimestamp("0"));
+    }
+
+    /** Nine digits is seconds back to 1973, and every path takes it, not just datapoint ingest. */
+    @Test
+    void nineDigitSecondsAreAccepted() {
+        assertEquals(Instant.ofEpochSecond(900_000_000L),
+                DateTimeHandler.parseClientTimestamp("900000000").toInstant());
     }
 
     /** ISO still wins over the epoch branch on the String overloads. */
