@@ -54,9 +54,6 @@ public class TimeseriesTransformer {
             } else {
                 target.setValueType(TimeseriesValueType.getTableType(valueType).toUpperCase());
             }
-            if(source.getTableEngine() != null){
-                target.setTableEngine(source.getTableEngine().name());
-            }
         }
 
         target.setCreatedTime(source.getDateCreated());

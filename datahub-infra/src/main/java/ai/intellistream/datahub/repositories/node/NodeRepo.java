@@ -8,7 +8,6 @@ import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.NodeType;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
-import ai.intellistream.datahub.jpa.dto.NameAndExternalIdAndType;
 import ai.intellistream.datahub.models.DeleteDatapoint;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import jakarta.validation.constraints.NotNull;

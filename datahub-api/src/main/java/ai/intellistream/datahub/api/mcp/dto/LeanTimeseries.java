@@ -10,7 +10,7 @@ import java.util.Map;
 
 /**
  * Browse-sized projection of {@link Timeseries} for the list/search MCP tools. Drops the
- * full DTO's low-signal fields — {@code tableEngine}, {@code valueType}, empty
+ * full DTO's low-signal fields — {@code valueType}, empty
  * {@code relatedResources}, and both audit timestamps — which the LLM does not need to pick
  * a series. Use {@code timeseries_get} for the full record.
  */

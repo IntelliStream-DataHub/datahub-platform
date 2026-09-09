@@ -102,10 +102,10 @@ public final class NodeReadMapper {
      * than from a fixed message payload.
      *
      * <p><strong>Nothing here is a constructor default.</strong> A time series' {@code valueType},
-     * {@code unit}, {@code unitExternalId} and {@code tableEngine} are all projected, so all four
-     * are read. Every one of them is nonetheless <em>optional</em>: a node written before a given
-     * field was projected reports it absent, and defaulting would assert something the graph never
-     * said — which is exactly how a BIGINT series once read back as {@code float32}. Fetch the node
+     * {@code unit} and {@code unitExternalId} are all projected, so all three are read. Every one
+     * of them is nonetheless <em>optional</em>: a node written before a given field was projected
+     * reports it absent, and defaulting would assert something the graph never said — which is
+     * exactly how a BIGINT series once read back as {@code float32}. Fetch the node
      * by id when you need certainty. Geometry comes back as the graph's native WGS-84 point
      * reconstructed as a GeoJSON Point (lossy for non-point geometries, which Postgres holds in
      * full), and only on assets.
@@ -137,15 +137,13 @@ public final class NodeReadMapper {
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.TIMESERIES -> {
                     // Every one of these is written to the graph by GraphNodeProperties, so read
                     // them rather than assume. Clearing them was right while the Pulsar payload
-                    // carried none — reporting a constructor default would have asserted MERGETREE
-                    // for a series stored some other way — but the projection is written from the
-                    // entity now. A node written before a given field was projected reads null,
-                    // which is why none of these is defaulted.
+                    // carried none, but the projection is written from the entity now. A node
+                    // written before a given field was projected reads null, which is why none of
+                    // these is defaulted.
                     var ts = new ai.intellistream.datahub.timeseries.Timeseries();
                     ts.setValueType(asString(node, "valueType"));
                     ts.setUnit(asString(node, "unit"));
                     ts.setUnitExternalId(asString(node, "unitExternalId"));
-                    ts.setTableEngine(asString(node, "tableEngine"));
                     yield ts;
                 }
                 case ai.intellistream.datahub.jpa.domains.TypeLabels.DATASET -> new DataSetModel();

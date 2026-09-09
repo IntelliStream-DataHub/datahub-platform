@@ -17,7 +17,6 @@ import ai.intellistream.datahub.models.NodeModelSubtypes;
 import ai.intellistream.datahub.models.GeoLocation;
 import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.timeseries.Timeseries;
-import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -268,7 +267,6 @@ public class NodeService {
         node.setValueType(ts.getValueType());
         node.setUnit(ts.getUnit());
         node.setUnitExternalId(ts.getUnitExternalId());
-        node.setTableEngine(TableEngine.MERGETREE);
         // Timeseries IS a NodeModel, so the shared mapper covers name/externalId/source/dataset/
         // metadata/timestamps. No catch-and-return-null: a mapping failure must fail the create,
         // not surface later as a null element in saveAll.
