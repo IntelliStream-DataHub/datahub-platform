@@ -469,13 +469,13 @@ public class FileController {
                 List<INode> nodes;
                 if(foundPath.isEmpty() || foundPath.equals("/")){
                     nodes = readAll
-                            ? iNodeRepository.findAllByParentAndIsDeletedEquals(null, false, INode.class)
-                            : iNodeRepository.findReadableInRoot(false, allowed, INode.class);
+                            ? iNodeRepository.findAllByParentAndDeletedAtIsNull(null, INode.class)
+                            : iNodeRepository.findReadableInRoot(allowed, INode.class);
                 } else {
                     var pathHash = IdGenerator.xxHash(foundPath);
                     nodes = readAll
-                            ? iNodeRepository.findAllByParentPathHashAndIsDeletedEquals(pathHash, false, INode.class)
-                            : iNodeRepository.findReadableByParentPathHash(pathHash, false, allowed, INode.class);
+                            ? iNodeRepository.findAllByParentPathHashAndDeletedAtIsNull(pathHash, INode.class)
+                            : iNodeRepository.findReadableByParentPathHash(pathHash, allowed, INode.class);
                 }
                 data.setItems(fileTransformer.transformToIndexNode(nodes));
                 return new ResponseEntity<>(data, HttpStatus.OK);
@@ -521,9 +521,9 @@ public class FileController {
             return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
         }
         Optional<INode> maybeNode = hasExternalId
-                ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        ExternalIds.hash(externalId), false, INode.class)
-                : iNodeRepository.findByIdAndIsDeletedEquals(id, false, INode.class);
+                ? iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(
+                        ExternalIds.hash(externalId), INode.class)
+                : iNodeRepository.findByIdAndDeletedAtIsNull(id, INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
         }
@@ -582,13 +582,13 @@ public class FileController {
         try {
             List<INode> nodes;
             if (dataSecurity.hasReadAccessToEverything()) {
-                nodes = iNodeRepository.searchByName(q.trim(), false, cap);
+                nodes = iNodeRepository.searchByName(q.trim(), cap);
             } else {
                 Set<Long> allowed = dataSecurity.readableDataSetIds();
                 // Empty IN (...) is invalid SQL in a native query; a non-existent id keeps it valid and
                 // matches nothing, so only public (no-dataset) inodes come back.
                 Collection<Long> ids = allowed.isEmpty() ? List.of(-1L) : allowed;
-                nodes = iNodeRepository.searchReadableByName(q.trim(), false, ids, cap);
+                nodes = iNodeRepository.searchReadableByName(q.trim(), ids, cap);
             }
             data.setItems(fileTransformer.transformToIndexNode(nodes));
             return new ResponseEntity<>(data, HttpStatus.OK);
@@ -767,8 +767,10 @@ public class FileController {
     @Tag(name = "Files")
     @Operation(summary = "List deleted files",
             description = "The soft-deleted files in the tenant trash that the caller can read. Their "
-                    + "name and path are the pre-deletion values; the deletion time is encoded in the "
-                    + "externalId (DELETED_..._<epochMillis>). Restore them via POST /files/restore.")
+                    + "name, path and externalId are the pre-deletion values, and `deletedAt` carries "
+                    + "the deletion time. Restore them via POST /files/restore, by id or by that same "
+                    + "externalId. Files trashed before deletedAt existed still carry the old "
+                    + "rewritten id (DELETED_..._<epochMillis>) and no deletedAt.")
     @ApiResponse(responseCode = "200", description = "Deleted files in the trash.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -796,7 +798,7 @@ public class FileController {
     @Tag(name = "Files")
     @Operation(summary = "Restore deleted files",
             description = "Move soft-deleted files out of the trash back to their original location and "
-                    + "clear the deleted flag. Identify each by id or (trashed) externalId. Files only. "
+                    + "clear the deletion time. Identify each by id or externalId. Files only. "
                     + "Never overwrites: if a file's original name/path or externalId is already taken, or "
                     + "its original folder is gone, the request is refused (409) and nothing is restored.")
     @ApiResponse(responseCode = "200", description = "The restored files.",
@@ -918,9 +920,9 @@ public class FileController {
         }
 
         Optional<INode> maybeNode = (request.getExternalId() != null)
-                ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        ExternalIds.hash(request.getExternalId()), false, INode.class)
-                : iNodeRepository.findByIdAndIsDeletedEquals(request.getId(), false, INode.class);
+                ? iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(
+                        ExternalIds.hash(request.getExternalId()), INode.class)
+                : iNodeRepository.findByIdAndDeletedAtIsNull(request.getId(), INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
         }
@@ -1055,8 +1057,8 @@ public class FileController {
             long parsedId = Long.parseLong(id);
             if (parsedId > 0) {
                 inode = readAll
-                        ? iNodeRepository.findByIdAndIsDeletedEquals(parsedId, false, INodeDownload.class)
-                        : iNodeRepository.findReadableById(parsedId, false, allowed, INodeDownload.class);
+                        ? iNodeRepository.findByIdAndDeletedAtIsNull(parsedId, INodeDownload.class)
+                        : iNodeRepository.findReadableById(parsedId, allowed, INodeDownload.class);
             }
         } catch (NumberFormatException e){
             // Try external Id. This was the one read site that did match the old write model — it
@@ -1065,8 +1067,8 @@ public class FileController {
             // ExternalIds.hash is what makes the lookup case-insensitive.
             final long h = ExternalIds.hash(id);
             inode = readAll
-                    ? iNodeRepository.findByExternalIdHashAndIsDeletedEquals(h, false, INodeDownload.class)
-                    : iNodeRepository.findReadableByExternalIdHash(h, false, allowed, INodeDownload.class);
+                    ? iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(h, INodeDownload.class)
+                    : iNodeRepository.findReadableByExternalIdHash(h, allowed, INodeDownload.class);
         }
         inode.ifPresent(idxNode -> log.debug("Found inode: " + idxNode.getExternalId()));
         return inode;

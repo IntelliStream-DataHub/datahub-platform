@@ -19,14 +19,16 @@ import java.util.Map;
 /**
  * Permanently deletes soft-deleted (trashed) files once their retention window has elapsed.
  *
- * <p><b>Zero-schema.</b> The API delete path already moves a deleted file to the tenant trash folder,
- * marks its inode {@code is_deleted=true}, and renames its {@code external_id} to
- * {@code DELETED_<...>_<epochMillis>} (see {@code FileSystemService.moveNodeToTrash}) — so the
- * deletion time is already on the row, no new column needed. This janitor, per tenant, reads the
- * trashed inodes, recovers the {@code epochMillis} from {@code external_id}, and for anything older
- * than {@link FileCleanupProperties#getDeletedFileGrace()} (default 30 days): unlinks
- * {@code <trash>/<external_id>} and hard-deletes the row (+ its owned child rows) via
- * {@link TrashPurger}. Dry-run (default in the {@code dev} profile) logs and touches nothing.
+ * <p>The API delete path moves the file to the tenant trash folder and stamps {@code deleted_at} on
+ * its inode. This janitor, per tenant, reads the trashed inodes and for anything older than
+ * {@link FileCleanupProperties#getDeletedFileGrace()} (default 30 days) unlinks its file from the
+ * trash and hard-deletes the row (+ its owned child rows) via {@link TrashPurger}. Dry-run (default
+ * in the {@code dev} profile) logs and touches nothing.
+ *
+ * <p>The deletion time used to be recoverable only by parsing a trailing {@code _<epochMillis>} off
+ * an external id that delete had rewritten, so a row whose id did not parse was skipped every run
+ * and never purged. It is a column now, and the migration that added it backfilled the older rows
+ * from exactly that suffix, so nothing here parses anything.
  */
 @Component
 @RequiredArgsConstructor
@@ -78,13 +80,7 @@ public class DeletedFilePurgeTask {
     private int purgeTenant(String tenantId, Path trashDir, long cutoffMillis) {
         int purged = 0;
         for (TrashedNode node : trashPurger.findTrashed()) {
-            Long deletedAtMillis = deletionEpochMillis(node.externalId());
-            if (deletedAtMillis == null) {
-                log.warn("Trashed inode id={} has an unparseable external_id '{}'; leaving it (tenant {}).",
-                        node.id(), node.externalId(), tenantId);
-                continue;
-            }
-            if (deletedAtMillis >= cutoffMillis) {
+            if (node.deletedAt().toEpochMilli() >= cutoffMillis) {
                 continue; // still within the grace window — restorable
             }
             if (props.isDryRun()) {
@@ -93,10 +89,11 @@ public class DeletedFilePurgeTask {
                 purged++;
                 continue;
             }
-            // A trashed FILE is stored at <trash>/<external_id>; a trashed FOLDER keeps no bytes there,
-            // so deleteIfExists is a harmless no-op for it. Confine the resolved path to the trash dir
-            // so a crafted external_id can never unlink something outside it.
-            Path target = trashDir.resolve(node.externalId()).normalize();
+            // A trashed FILE is stored at <trash>/<id>; a trashed FOLDER keeps no bytes there, so
+            // deleteIfExists is a harmless no-op for it. Files trashed before deleted_at existed are
+            // still filed under their rewritten external id. The containment check stays: it is
+            // meaningless for a numeric id, and it is exactly what a legacy id still needs.
+            Path target = trashDir.resolve(trashFileName(node)).normalize();
             if (!target.startsWith(trashDir)) {
                 log.warn("Trashed path '{}' escapes trash dir '{}'; skipping inode id={} (tenant {}).",
                         target, trashDir, node.id(), tenantId);
@@ -117,22 +114,13 @@ public class DeletedFilePurgeTask {
     }
 
     /**
-     * Recover the deletion instant a trashed inode carries as the trailing {@code _<epochMillis>}
-     * segment of its {@code DELETED_..._<epochMillis>} external id. Returns null if it can't be parsed
-     * (leave the node alone rather than guess its age).
+     * What a trashed node is called under the tenant trash folder: its id, or its rewritten external
+     * id if it was trashed before {@code deleted_at} existed and is still filed under the old name.
      */
-    static Long deletionEpochMillis(String externalId) {
-        if (externalId == null) {
-            return null;
-        }
-        int idx = externalId.lastIndexOf('_');
-        if (idx < 0 || idx == externalId.length() - 1) {
-            return null;
-        }
-        try {
-            return Long.parseLong(externalId.substring(idx + 1));
-        } catch (NumberFormatException e) {
-            return null;
-        }
+    static String trashFileName(TrashedNode node) {
+        String externalId = node.externalId();
+        return (externalId != null && externalId.startsWith("DELETED_"))
+                ? externalId
+                : String.valueOf(node.id());
     }
 }

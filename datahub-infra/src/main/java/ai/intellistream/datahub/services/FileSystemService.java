@@ -180,25 +180,31 @@ public class FileSystemService {
         collectNodesRecursively(inode, nodesToMarkAsDeleted);
         sortINodes(nodesToMarkAsDeleted);
 
+        // One instant for the whole subtree, so a folder and its contents record the same deletion
+        // time rather than a spread of milliseconds across the loop.
+        ZonedDateTime deletedAt = ZonedDateTime.now(ZoneOffset.UTC);
         for (INodeProxy nodeToMark : nodesToMarkAsDeleted) {
-
-            String newExternalId = "DELETED_";
-            if( nodeToMark.getNodeType() == INode.INodeType.FILE ){
-                String checksum = HexFormat.of().formatHex(nodeToMark.getChecksum());
-                newExternalId = newExternalId + checksum + "_" + nodeToMark.getExternalId();
-            } else {
-                newExternalId = newExternalId + "_" + nodeToMark.getExternalId();
-            }
-            newExternalId = newExternalId + "_" + ZonedDateTime.now().withZoneSameInstant(ZoneOffset.UTC).toInstant().toEpochMilli();
             // Move THIS node's filesystem object (not the top-level inode) to trash. The sort above
             // guarantees descendant files are processed before their containing folders, so each
             // folder is empty by the time it is removed.
-            moveFileSystemObjectToTrash(nodeToMark, newExternalId);
-            long newHash = ExternalIds.hash(newExternalId);
-            log.debug("deleted with externalId: " + newExternalId + " and hash: " + newHash);
-            iNodeRepository.markDeleted(nodeToMark.getId(), newExternalId, newHash, true);
+            moveFileSystemObjectToTrash(nodeToMark, trashFileName(nodeToMark));
+            log.debug("deleted inode {} at {}", nodeToMark.getId(), deletedAt);
+            iNodeRepository.markDeleted(nodeToMark.getId(), deletedAt);
         }
 
+    }
+
+    /**
+     * What a trashed node is called on disk: its numeric id.
+     *
+     * <p>This used to be the rewritten external id
+     * ({@code DELETED_<checksum>_<originalId>_<epochMillis>}), which made a user-supplied string
+     * part of a filesystem path and meant the upload had to guarantee it contained no path
+     * separator. The id is generated, unique and unambiguous, so the trash layout no longer depends
+     * on anything the caller sends.
+     */
+    static String trashFileName(INodeProxy node) {
+        return String.valueOf(node.getId());
     }
 
     /**
@@ -212,7 +218,7 @@ public class FileSystemService {
 
         if (node.getNodeType() == INode.INodeType.FOLDER) {
             // Use the repository to find all direct children of the current folder
-            List<INodeProxy> children = iNodeRepository.findAllWhereParentIdAndIsDeleted(node.getId(), false);
+            List<INodeProxy> children = iNodeRepository.findLiveChildrenOf(node.getId());
             for (INodeProxy child : children) {
                 // Recurse for each child
                 collectNodesRecursively(child, collectedNodes);
@@ -314,13 +320,16 @@ public class FileSystemService {
         if (node.getNodeType() != INode.INodeType.FILE) {
             throw new IllegalStateException("Only files can be restored: '" + node.getName() + "'.");
         }
-        String original = recoverOriginalExternalId(node.getExternalId());
-        if (original == null || original.isBlank()) {
-            throw new IllegalStateException("Could not recover the original external id for '" + node.getName() + "'.");
-        }
-        long originalHash = ExternalIds.hash(original);
-        // Delete frees the original external id for reuse; refuse if a live file has since taken it.
-        if (iNodeRepository.findByExternalIdHashAndIsDeletedIs(originalHash, false, INode.class).isPresent()) {
+        // Pre-V47 tombstones still carry a rewritten external id and a trash file named after it.
+        // Everything deleted since keeps its own id and is filed under its node id.
+        String legacyOriginalId = recoverLegacyOriginalExternalId(node.getExternalId());
+        boolean legacy = legacyOriginalId != null;
+        String restoredExternalId = legacy ? legacyOriginalId : node.getExternalId();
+        long restoredHash = legacy ? ExternalIds.hash(legacyOriginalId) : node.getExternalIdHash();
+
+        // Uniqueness covers live rows only, so the id a tombstone holds may have been taken while it
+        // sat in the trash. Refuse here rather than let the restore fail on the index.
+        if (iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(restoredHash, INode.class).isPresent()) {
             throw new IllegalStateException("A file with the original external id already exists.");
         }
         Path dest = Paths.get(filesConfig.getRoot().toString(), node.getPath()).toAbsolutePath().normalize();
@@ -331,29 +340,42 @@ public class FileSystemService {
         if (destParent == null || !Files.isDirectory(destParent)) {
             throw new IllegalStateException("The original folder no longer exists; cannot restore '" + node.getPath() + "'.");
         }
-        Path trashFile = Paths.get(filesConfig.getTrash().toString(), node.getExternalId()).toAbsolutePath().normalize();
+        String trashName = legacy ? node.getExternalId() : String.valueOf(node.getId());
+        Path trashFile = Paths.get(filesConfig.getTrash().toString(), trashName).toAbsolutePath().normalize();
         Files.move(trashFile, dest); // throws FileAlreadyExistsException / IOException on failure
-        // Disk moved back — clear is_deleted and put the original external id (and its hash) back.
-        iNodeRepository.markDeleted(node.getId(), original, originalHash, false);
+        // Disk moved back. For anything deleted since V47 clearing the time is the whole of the
+        // database side; a legacy tombstone also has its original external id put back.
+        if (legacy) {
+            iNodeRepository.markRestoredFromLegacyTombstone(node.getId(), restoredExternalId, restoredHash);
+        } else {
+            iNodeRepository.markRestored(node.getId());
+        }
     }
 
+
     /**
-     * Recover the original external id from a trashed FILE's external id, which {@code moveNodeToTrash}
-     * formed as {@code DELETED_<checksumHex>_<originalExternalId>_<epochMillis>} — the original is
-     * everything between the checksum and the trailing epoch. Returns null if the shape isn't recognized.
+     * The original external id inside a pre-V47 tombstone, or null if this is not one.
+     *
+     * <p>Delete used to rewrite the external id to
+     * {@code DELETED_<checksumHex>_<originalExternalId>_<epochMillis>} (files) or
+     * {@code DELETED__<originalExternalId>_<epochMillis>} (folders); the original is everything
+     * between the first and last underscore of the remainder, which is why an original containing
+     * underscores survives. Nothing writes this shape any more — it exists so files already in the
+     * trash when V47 ran can still be restored, and can go once none are left.
      */
-    static String recoverOriginalExternalId(String deletedExternalId) {
+    static String recoverLegacyOriginalExternalId(String externalId) {
         final String prefix = "DELETED_";
-        if (deletedExternalId == null || !deletedExternalId.startsWith(prefix)) {
+        if (externalId == null || !externalId.startsWith(prefix)) {
             return null;
         }
-        String rest = deletedExternalId.substring(prefix.length()); // <checksum>_<originalId>_<epoch>
+        String rest = externalId.substring(prefix.length()); // <checksum>_<originalId>_<epoch>
         int firstUnderscore = rest.indexOf('_');
         int lastUnderscore = rest.lastIndexOf('_');
         if (firstUnderscore < 0 || lastUnderscore <= firstUnderscore) {
             return null;
         }
-        return rest.substring(firstUnderscore + 1, lastUnderscore);
+        String original = rest.substring(firstUnderscore + 1, lastUnderscore);
+        return original.isBlank() ? null : original;
     }
 
     /**

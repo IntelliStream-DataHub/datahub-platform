@@ -450,8 +450,17 @@
 		viewTrash.hidden = false;
 		loadTrash();
 	}
-	function deletedDate(externalId){
-		const m = /_(\d+)$/.exec(externalId || '');
+	// The api returns deletedAt as a real timestamp. It used to be recoverable only by parsing a
+	// trailing _<epochMillis> off the externalId, which delete rewrote; the trash listing now
+	// returns the file's actual external id, so there is nothing to parse. Files trashed before
+	// that change still carry the old shape, hence the fallback.
+	function deletedDate(node){
+		const raw = node && node.deletedAt;
+		if (raw) {
+			const d = new Date(raw);
+			if (!isNaN(d.getTime())) return d.toLocaleString();
+		}
+		const m = /_(\d+)$/.exec((node && node.externalId) || '');
 		if (!m) return '';
 		const d = new Date(Number(m[1]));
 		return isNaN(d.getTime()) ? '' : d.toLocaleString();
@@ -478,7 +487,7 @@
 		const name = document.createElement('span'); name.textContent = n.name || '';
 		nameTd.appendChild(icon); nameTd.appendChild(document.createTextNode(' ')); nameTd.appendChild(name);
 		const pathTd = document.createElement('td'); pathTd.className = 'fs-path'; pathTd.textContent = n.path || '';
-		const whenTd = document.createElement('td'); whenTd.textContent = deletedDate(n.externalId);
+		const whenTd = document.createElement('td'); whenTd.textContent = deletedDate(n);
 		const actTd = document.createElement('td');
 		const btn = document.createElement('button');
 		btn.type = 'button'; btn.className = 'dh-btn small'; btn.textContent = i18n.restore;

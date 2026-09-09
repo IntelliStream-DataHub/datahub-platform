@@ -67,6 +67,22 @@ public class IndexNode implements Comparable<IndexNode> {
     @Schema(description = "When file was last updated in IntelliStream DataHub.", example = "2024-01-01 18:00")
     private ZonedDateTime lastUpdated;
 
+    /**
+     * When the file was moved to the trash, or absent while it is live.
+     *
+     * <p>Only {@code GET /files/trash} returns nodes that have it. Absent rather than null on a live
+     * node, so nothing changes for a client reading a normal listing — the same way {@code warnings}
+     * and {@code nextCursor} were added to the response envelope.
+     *
+     * <p>Before this field the deletion time was only available by parsing it out of the
+     * {@code externalId}, which delete rewrote to {@code DELETED_..._<epochMillis>}. The trash
+     * listing now returns the file's real external id and the time as a proper timestamp.
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Schema(description = "When the file was moved to the trash. Absent unless the file is in the trash.",
+            example = "2026-01-01 18:00")
+    private ZonedDateTime deletedAt;
+
     @Schema(description = "Parent Index Node id, always a folder.", example = "MyDocuments")
     @JsonSerialize(using = ToStringSerializer.class)
     private Long parentId;

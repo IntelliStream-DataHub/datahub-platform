@@ -43,20 +43,20 @@ public class IINodeRepoImpl implements IINodeRepo {
         if (hasIds && hasExternalIds) {
             sql = """
             SELECT id, external_id, node_type, path, checksum, parent_id FROM inodes t1
-            WHERE t1.id IN (:ids) AND t1.is_deleted IS false
+            WHERE t1.id IN (:ids) AND t1.deleted_at IS NULL
             UNION
             SELECT id, external_id, node_type, path, checksum, parent_id FROM inodes t2
-            WHERE t2.external_id_hash IN (:exIds) AND t2.is_deleted IS false
+            WHERE t2.external_id_hash IN (:exIds) AND t2.deleted_at IS NULL
         """;
         } else if (hasIds) {
             sql = """
             SELECT id, external_id, node_type, path, checksum, parent_id FROM inodes t1
-            WHERE t1.id IN (:ids) AND t1.is_deleted IS false
+            WHERE t1.id IN (:ids) AND t1.deleted_at IS NULL
         """;
         } else { // hasExternalIds
             sql = """
             SELECT id, external_id, node_type, path, checksum, parent_id FROM inodes t1
-            WHERE t1.external_id_hash IN (:exIds) AND t1.is_deleted IS false
+            WHERE t1.external_id_hash IN (:exIds) AND t1.deleted_at IS NULL
         """;
         }
 

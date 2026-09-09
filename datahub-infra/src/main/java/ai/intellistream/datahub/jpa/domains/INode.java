@@ -75,8 +75,23 @@ public class INode {
     @Column(name = "last_updated")
     private ZonedDateTime lastUpdated;
 
-    @Column(name = "is_deleted")
-    private boolean isDeleted = false;
+    /**
+     * When this node was soft-deleted, or null while it is live.
+     *
+     * <p>A timestamp rather than the {@code is_deleted} boolean it replaced, because the deletion
+     * time had nowhere to live and was smuggled into the external id: delete rewrote it to
+     * {@code DELETED_<checksum>_<originalId>_<epochMillis>} and the trash listing recovered both the
+     * original id and the time by counting underscores. With a column for the time and uniqueness
+     * scoped to live rows, delete leaves the external id alone and restore is a single write of
+     * null.
+     */
+    @Column(name = "deleted_at")
+    private ZonedDateTime deletedAt;
+
+    /** Whether this node is in the trash. Reads better than a null check at the call sites. */
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
 
     @OneToOne(fetch = FetchType.EAGER, cascade = CascadeType.ALL)
     @JoinColumn(name = "data_set_id")
@@ -204,7 +219,7 @@ public class INode {
                 .add("sourceLastUpdated=" + sourceLastUpdated)
                 .add("dateCreated=" + dateCreated)
                 .add("lastUpdated=" + lastUpdated)
-                .add("isDeleted=" + isDeleted)
+                .add("deletedAt=" + deletedAt)
                 .add("dataSet=" + dataSet)
                 .add("metadata=" + metadata)
                 .add("labelEntities=" + labelEntities)

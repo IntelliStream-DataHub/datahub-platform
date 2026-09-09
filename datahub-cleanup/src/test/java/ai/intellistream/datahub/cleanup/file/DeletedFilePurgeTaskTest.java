@@ -30,8 +30,8 @@ class DeletedFilePurgeTaskTest {
     private static final VaultProperties VAULT =
             VaultProperties.of("http://vault.invalid:8200", "test", "test");
 
-    private static final long OLD = Instant.now().minus(40, ChronoUnit.DAYS).toEpochMilli();   // > 30d grace
-    private static final long RECENT = Instant.now().toEpochMilli();
+    private static final Instant OLD = Instant.now().minus(40, ChronoUnit.DAYS);   // > 30d grace
+    private static final Instant RECENT = Instant.now();
 
     private static Tenant tenant(Path trash) {
         Tenant t = new Tenant();
@@ -51,14 +51,13 @@ class DeletedFilePurgeTaskTest {
 
     @Test
     void purgesOnlyFilesPastTheGrace(@TempDir Path trash) throws Exception {
-        String oldId = "DELETED_abc_myfile_" + OLD;
-        String freshId = "DELETED_def_other_" + RECENT;
-        Path oldFile = Files.writeString(trash.resolve(oldId), "x");
-        Path freshFile = Files.writeString(trash.resolve(freshId), "y");
+        // Trashed files are named by inode id now, not by a rewritten external id.
+        Path oldFile = Files.writeString(trash.resolve("1"), "x");
+        Path freshFile = Files.writeString(trash.resolve("2"), "y");
 
         TrashPurger purger = mock(TrashPurger.class);
         when(purger.findTrashed()).thenReturn(List.of(
-                new TrashedNode(1, oldId), new TrashedNode(2, freshId)));
+                new TrashedNode(1, "report_2026_q2", OLD), new TrashedNode(2, "other_file", RECENT)));
 
         new DeletedFilePurgeTask(serviceWith(tenant(trash)), purger, new FileCleanupProperties())
                 .purgeExpiredTrash();
@@ -71,10 +70,9 @@ class DeletedFilePurgeTaskTest {
 
     @Test
     void dryRunDeletesNothing(@TempDir Path trash) throws Exception {
-        String oldId = "DELETED_abc_myfile_" + OLD;
-        Path oldFile = Files.writeString(trash.resolve(oldId), "x");
+        Path oldFile = Files.writeString(trash.resolve("1"), "x");
         TrashPurger purger = mock(TrashPurger.class);
-        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(1, oldId)));
+        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(1, "report_2026_q2", OLD)));
 
         FileCleanupProperties props = new FileCleanupProperties();
         props.setDryRun(true);
@@ -84,24 +82,51 @@ class DeletedFilePurgeTaskTest {
         verify(purger, never()).hardDelete(anyLong());
     }
 
+    /**
+     * A file trashed before {@code deleted_at} existed is still filed under its rewritten external
+     * id, and must still be purged from there.
+     */
     @Test
-    void leavesInodesWithAnUnparseableExternalId(@TempDir Path trash) {
+    void purgesALegacyTrashEntryUnderItsOldName(@TempDir Path trash) throws Exception {
+        String legacyId = "DELETED_abc_myfile_" + OLD.toEpochMilli();
+        Path legacyFile = Files.writeString(trash.resolve(legacyId), "x");
+
         TrashPurger purger = mock(TrashPurger.class);
-        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(1, "DELETED_bad_noepoch")));
+        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(1, legacyId, OLD)));
 
         new DeletedFilePurgeTask(serviceWith(tenant(trash)), purger, new FileCleanupProperties())
                 .purgeExpiredTrash();
 
-        verify(purger, never()).hardDelete(anyLong());
+        assertFalse(Files.exists(legacyFile), "a legacy trash entry must still be purged");
+        verify(purger).hardDelete(1L);
+    }
+
+    /**
+     * The age now comes from a column, so a row the old parser could not read is purged on schedule
+     * instead of being skipped every run and kept for ever.
+     */
+    @Test
+    void purgesARowTheOldEpochParserWouldHaveSkipped(@TempDir Path trash) throws Exception {
+        Path file = Files.writeString(trash.resolve("1"), "x");
+        TrashPurger purger = mock(TrashPurger.class);
+        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(1, "DELETED_bad_noepoch", OLD)));
+
+        new DeletedFilePurgeTask(serviceWith(tenant(trash)), purger, new FileCleanupProperties())
+                .purgeExpiredTrash();
+
+        // Filed under the legacy name, which does not exist here, so only the row is reaped.
+        assertTrue(Files.exists(file));
+        verify(purger).hardDelete(1L);
     }
 
     @Test
     void refusesToUnlinkOutsideTheTrashDir(@TempDir Path base) throws Exception {
         Path trash = Files.createDirectories(base.resolve("trash"));
-        Path secret = Files.writeString(base.resolve("secret_" + OLD), "keep me");
-        // Parseable epoch (so it isn't skipped earlier) but the path escapes the trash dir.
+        Path secret = Files.writeString(base.resolve("secret"), "keep me");
+        // A current row is named by its numeric id and cannot carry separators at all, so this can
+        // only arise from a legacy id — or a hand-edited row. The guard is what makes that harmless.
         TrashPurger purger = mock(TrashPurger.class);
-        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(9, "../secret_" + OLD)));
+        when(purger.findTrashed()).thenReturn(List.of(new TrashedNode(9, "DELETED_abc/../../secret", OLD)));
 
         new DeletedFilePurgeTask(serviceWith(tenant(trash)), purger, new FileCleanupProperties())
                 .purgeExpiredTrash();
@@ -111,12 +136,10 @@ class DeletedFilePurgeTaskTest {
     }
 
     @Test
-    void deletionEpochMillisParsesTheTrailingSegment() {
-        assertEquals(1783494804120L, DeletedFilePurgeTask.deletionEpochMillis("DELETED_abc_my_file_name_1783494804120"));
-        assertEquals(1783494804120L, DeletedFilePurgeTask.deletionEpochMillis("DELETED__folder_1783494804120"));
-        assertNull(DeletedFilePurgeTask.deletionEpochMillis("DELETED_no_epoch_here"));
-        assertNull(DeletedFilePurgeTask.deletionEpochMillis("nounderscore"));
-        assertNull(DeletedFilePurgeTask.deletionEpochMillis("trailing_"));
-        assertNull(DeletedFilePurgeTask.deletionEpochMillis(null));
+    void trashFileNameIsTheIdUnlessTheRowIsALegacyTombstone() {
+        assertEquals("7", DeletedFilePurgeTask.trashFileName(new TrashedNode(7, "report_2026_q2", OLD)));
+        assertEquals("DELETED_abc_myfile_1783494804120",
+                DeletedFilePurgeTask.trashFileName(new TrashedNode(7, "DELETED_abc_myfile_1783494804120", OLD)));
+        assertEquals("7", DeletedFilePurgeTask.trashFileName(new TrashedNode(7, null, OLD)));
     }
 }

@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -22,21 +23,29 @@ import java.util.List;
 @Slf4j
 public class TrashPurger {
 
-    /** A trashed inode: its id and its {@code DELETED_..._<epochMillis>} external id — which is also
-     *  its filename under the tenant trash folder. */
-    public record TrashedNode(long id, String externalId) {}
+    /**
+     * A trashed inode: its id, its external id, and when it was deleted.
+     *
+     * <p>{@code deletedAt} is a column now. It used to be recoverable only by parsing the trailing
+     * {@code _<epochMillis>} off an external id that delete had rewritten, which also meant the
+     * purge silently skipped any row whose id did not parse.
+     */
+    public record TrashedNode(long id, String externalId, Instant deletedAt) {}
 
     @PersistenceContext
     private EntityManager em;
 
-    /** Every soft-deleted inode for the current tenant (uses the existing {@code is_deleted} index). */
+    /** Every soft-deleted inode for the current tenant (uses {@code inodes_deleted_at_idx}). */
     @Transactional(readOnly = true)
     public List<TrashedNode> findTrashed() {
         @SuppressWarnings("unchecked")
         List<Object[]> rows = em.createNativeQuery(
-                "SELECT id, external_id FROM inodes WHERE is_deleted = true").getResultList();
+                "SELECT id, external_id, deleted_at FROM inodes WHERE deleted_at IS NOT NULL").getResultList();
         return rows.stream()
-                .map(r -> new TrashedNode(((Number) r[0]).longValue(), (String) r[1]))
+                .map(r -> new TrashedNode(
+                        ((Number) r[0]).longValue(),
+                        (String) r[1],
+                        ((java.sql.Timestamp) r[2]).toInstant()))
                 .toList();
     }
 
