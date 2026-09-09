@@ -1348,12 +1348,25 @@ public class ClickHouseEventService extends ClickHouseService {
         }
     }
 
-    public long count() {
+    /**
+     * Total events the caller may read: {@code allowedDataSetIds == null} counts every event
+     * (read-all), an empty collection counts none, otherwise the count is constrained to
+     * {@code data_set_id IN (...)}.
+     *
+     * <p>Takes the ACL like every other read on this class. It was the one that did not, so
+     * {@code GET /events/count} answered with the tenant's total however few datasets the caller
+     * could actually read — a row count is a small leak on its own and a precise oracle when the
+     * caller can re-ask it while changing one thing at a time.
+     */
+    public long count(Collection<Long> allowedDataSetIds) {
         AtomicLong count = new AtomicLong();
-        String query = "SELECT count(1) as count FROM events";
+        Map<String, Object> params = new HashMap<>();
+        String acl = datasetAclCondition(allowedDataSetIds, "data_set_id", params);
+        String query = "SELECT count(1) as count FROM events"
+                + (acl == null ? "" : " WHERE " + acl);
 
         Client client = getClickhouseClient();
-        client.queryAll(query).forEach(r -> {
+        client.queryAll(query, params).forEach(r -> {
             count.set(r.getLong("count"));
         });
 

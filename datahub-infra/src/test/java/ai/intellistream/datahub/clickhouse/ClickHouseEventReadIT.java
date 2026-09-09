@@ -124,7 +124,28 @@ class ClickHouseEventReadIT {
     @Test
     void countReturnsTotalRows() {
         // Before the fix this threw (getLong(0) — the client is 1-based), surfacing as a 500.
-        assertEquals(3L, service.count());
+        // null = the caller may read every dataset.
+        assertEquals(3L, service.count(null));
+    }
+
+    /**
+     * The rows are seeded 2-in-12 and 1-in-34, so a count that ignores the ACL is visibly the wrong
+     * number rather than coincidentally right. GET /events/count used to answer 3 to all three of
+     * these callers.
+     */
+    @Test
+    void countIsNarrowedToTheCallersDatasets() {
+        assertEquals(2L, service.count(List.of(12L)), "only the two events in dataset 12");
+        assertEquals(1L, service.count(List.of(34L)), "only the one event in dataset 34");
+        assertEquals(3L, service.count(List.of(12L, 34L)), "both datasets, so everything");
+    }
+
+    @Test
+    void countIsZeroForACallerWithNoReadableDatasets() {
+        // The empty case must mean "nothing", never "no filter" — that inversion is how an ACL
+        // becomes a no-op for exactly the caller it exists to stop.
+        assertEquals(0L, service.count(List.of()));
+        assertEquals(0L, service.count(List.of(99L)), "a dataset with no events here");
     }
 
     @Test

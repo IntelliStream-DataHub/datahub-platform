@@ -32,7 +32,19 @@ public class ClickHouseDashboardService extends ClickHouseService {
         super(tenantConfigService, valkeyService, clickHouseClientPool);
     }
 
-    /** Total events for the current tenant. */
+    /**
+     * Every event the tenant holds, with no dataset ACL — deliberately, and the only query here
+     * that should stay that way.
+     *
+     * <p>This is not a user-facing read. It is the source of truth {@code eventIngestCounter}
+     * reconciles its Valkey tally against ({@code LiveIngestCounterConfig}), and that tally is what
+     * bounds ingest quotas. "Events this tenant has ingested, narrowed to one caller's dataset
+     * grants" is not a number that means anything for a quota. Narrowing it would under-count the
+     * tenant and let the quota be evaded by whoever happens to trigger the reconcile.
+     *
+     * <p>The user-facing total is {@code ClickHouseEventService.count(allowedDataSetIds)}, which
+     * does take the ACL. Do not swap one for the other.
+     */
     public long countEvents() {
         AtomicLong count = new AtomicLong();
         Client client = getClickhouseClient();

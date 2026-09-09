@@ -973,7 +973,7 @@ public class EventService {
     }
 
     public long count(){
-        return clickHouseEventService.count();
+        return clickHouseEventService.count(readAclOrNull());
     }
 
     public DataWrapper<EventModel> findById(@NotNull String id) {
