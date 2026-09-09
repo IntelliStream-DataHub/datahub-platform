@@ -50,10 +50,12 @@ class SubscriptionListenIT {
         Timeseries seriesA = new Timeseries();
         seriesA.setExternalId(tsA);
         seriesA.setName("SDK Listen TS A");
+        seriesA.setUnit("Celsius");
         seriesA.setUnitExternalId("Celsius");
         Timeseries seriesB = new Timeseries();
         seriesB.setExternalId(tsB);
         seriesB.setName("SDK Listen TS B");
+        seriesB.setUnit("Celsius");
         seriesB.setUnitExternalId("Celsius");
         client.timeseries().create(seriesA, seriesB);
 
