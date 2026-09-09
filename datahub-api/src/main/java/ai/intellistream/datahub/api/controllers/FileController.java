@@ -6,6 +6,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FileDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.config.FilesConfig;
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.HttpHelper;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
@@ -20,12 +21,10 @@ import ai.intellistream.datahub.repositories.files.INodeRepository;
 import ai.intellistream.datahub.services.DirectoryService;
 import ai.intellistream.datahub.services.FileSystemService;
 import ai.intellistream.datahub.transformers.FileTransformer;
-import com.nimbusds.jose.shaded.gson.JsonIOException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -37,7 +36,6 @@ import lombok.extern.slf4j.Slf4j;
 import ai.intellistream.datahub.api.config.UploadProperties;
 import ai.intellistream.datahub.helpers.checksum.ChecksumFactory;
 import ai.intellistream.datahub.helpers.checksum.FileChecksum;
-import net.openhft.hashing.LongHashFunction;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -45,13 +43,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.bind.annotation.PathVariable;
+// Spring's, not io.swagger...parameters.RequestBody: only this one makes a message converter read
+// the body. Importing the Swagger one instead left every JSON body on this controller unbound —
+// model-attribute binding handed the method an empty object and no converter ever ran. The Swagger
+// annotation is documentation, and is fully qualified at its one use (the upload's octet-stream
+// body) so the two can never be confused again.
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JavaType;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -97,8 +98,6 @@ public class FileController {
 
     private final HttpHelper httpHelper;
 
-    private final JsonMapper jsonMapper;
-
     private final TenantConfigService tenantConfigService;
 
     private final DataSecurity dataSecurity;
@@ -116,7 +115,6 @@ public class FileController {
             Validator validator,
             FileSystemService fileSystemService,
             HttpHelper httpHelper,
-            JsonMapper jsonMapper,
             TenantConfigService tenantConfigService,
             DataSecurity dataSecurity,
             ChecksumFactory checksumFactory,
@@ -129,7 +127,6 @@ public class FileController {
         this.validator = validator;
         this.fileSystemService = fileSystemService;
         this.httpHelper = httpHelper;
-        this.jsonMapper = jsonMapper;
         this.tenantConfigService = tenantConfigService;
         this.dataSecurity = dataSecurity;
         this.checksumFactory = checksumFactory;
@@ -158,9 +155,9 @@ public class FileController {
                     "'X-Datahub-Metadata' (a JSON object) and 'X-Datahub-Related-Resources' (a JSON " +
                     "array of resource ids). 'Content-Type' is the file's MIME type; omit it or send " +
                     "'application/octet-stream' to have the server auto-detect it.",
-            requestBody = @RequestBody(content = @Content(mediaType = "application/octet-stream",
-                    schema = @Schema(type = "string", format = "binary")
-            ))
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    content = @Content(mediaType = "application/octet-stream",
+                            schema = @Schema(type = "string", format = "binary")))
     )
     @ApiResponse(responseCode = "200", description = "The uploaded file.",
             content = @Content(
@@ -211,17 +208,35 @@ public class FileController {
             datahubFile.setPath(filePath.endsWith("/") ? filePath + filename : filePath + "/" + filename);
 
             // External id: a client-supplied value (percent-decoded like the other headers), or a
-            // default derived from the filename when the header is omitted. Either way it is ALWAYS
-            // run through the slug sanitizer - that is the server-side protection that guarantees
-            // external ids are safe (lowercased, alphanumerics and underscores only, no path or
-            // control characters). Never omit this check, even for client-supplied ids.
-            String externalId = request.getHeader("X-Datahub-External-Id");
-            if (externalId == null || externalId.isBlank()) {
-                externalId = filename;
+            // default derived from the filename when the header is omitted. The two are treated
+            // differently, and deliberately.
+            //
+            // A CLIENT-SUPPLIED id is stored verbatim and VALIDATED — rejected, never rewritten —
+            // so `COM-99-PT-1034` survives the round trip the way it does on every other entity.
+            // The charset is the platform floor (letters, digits and . _ : + = -), which excludes
+            // path separators, spaces and control characters. That check is load-bearing, not
+            // cosmetic: moveNodeToTrash builds the trash FILENAME out of this value, so a slash
+            // here would write outside the trash directory. The slug sanitizer used to provide
+            // that protection as a side effect of rewriting; validation provides it now. Never
+            // omit it.
+            //
+            // A FILENAME-DERIVED default is server-generated, so it is still slugged rather than
+            // validated: a legitimate upload of "My Report.pdf" must not be refused for a header
+            // the caller never sent.
+            String suppliedExternalId = request.getHeader("X-Datahub-External-Id");
+            String externalId;
+            if (suppliedExternalId == null || suppliedExternalId.isBlank()) {
+                externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(filename);
             } else {
-                externalId = URLDecoder.decode(externalId, StandardCharsets.UTF_8);
+                externalId = URLDecoder.decode(suppliedExternalId, StandardCharsets.UTF_8);
+                if (!TextValidator.validateExternalIdCharset(externalId)) {
+                    return new ResponseEntity<>(
+                            "X-Datahub-External-Id may contain letters, digits and the characters "
+                                    + ". _ : + = - only. Spaces, slashes and control characters are "
+                                    + "not allowed. It is stored exactly as sent.",
+                            HttpStatus.BAD_REQUEST);
+                }
             }
-            externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(externalId);
             fileTransformer.setProperty(datahubFile, "externalId", externalId);
             // Optional metadata headers, each percent-encoded by the client. The two source dates
             // are epoch millis (UTC). These mirror the fields the old multipart form set.
@@ -507,7 +522,7 @@ public class FileController {
         }
         Optional<INode> maybeNode = hasExternalId
                 ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        LongHashFunction.xx3().hashChars(externalId), false, INode.class)
+                        ExternalIds.hash(externalId), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(id, false, INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
@@ -706,7 +721,6 @@ public class FileController {
             produces = { "application/json", "application/xml" }
     )
     public ResponseEntity<?> delete(
-            HttpServletRequest req,
             @RequestBody
             @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> data
@@ -714,26 +728,6 @@ public class FileController {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        // Manually parse the JSON here, something weird is going on with Spring Boot
-        try {
-            // Read the entire input stream into a byte array
-            byte[] rawRequestBodyBytes = req.getInputStream().readAllBytes();
-            // Convert byte array to String using UTF-8 encoding
-            String rawRequestBody = new String(rawRequestBodyBytes, StandardCharsets.UTF_8);
-
-            // Manually deserialize using ObjectMapper for demonstration
-            try {
-                // Construct JavaType for DataWrapper<IdCollection>
-                JavaType type = jsonMapper.getTypeFactory().constructParametricType(DataWrapper.class, IdCollection.class);
-                data = jsonMapper.readValue(rawRequestBody, type);
-            } catch (JsonIOException e) {
-                log.error("Error during manual JSON deserialization: {}", e.getMessage(), e);
-            }
-
-        } catch (IOException e) {
-            log.error("Error reading raw request body: {}", e.getMessage(), e);
-        }
-
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
         Set<String> externalIdHashes = data.getItems().stream()
                 .map(IdCollection::getExternalId)
@@ -747,7 +741,7 @@ public class FileController {
         // (no-dataset) nodes are deletable by anyone.
         if (!dataSecurity.hasWriteAccessToEverything()) {
             Set<Long> extHashes = externalIdHashes.stream()
-                    .map(it -> LongHashFunction.xx3().hashChars(it))
+                    .map(ExternalIds::hash)
                     .collect(Collectors.toSet());
             Set<Long> rootIds = iNodeRepository.findAllByIdOrExternalIdHashAndNotDeleted(idList, extHashes)
                     .stream().map(INode::getId).collect(Collectors.toSet());
@@ -830,26 +824,17 @@ public class FileController {
             produces = { "application/json" })
     @Transactional
     public ResponseEntity<?> restore(
-            HttpServletRequest req,
             @RequestBody @Schema(implementation = IdCollectionDataWrapper.class) DataWrapper<IdCollection> data
     ) {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        // Same manual parse as delete (Spring Boot binding quirk on this body shape).
-        try {
-            String raw = new String(req.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            JavaType type = jsonMapper.getTypeFactory().constructParametricType(DataWrapper.class, IdCollection.class);
-            data = jsonMapper.readValue(raw, type);
-        } catch (Exception e) {
-            log.error("Error reading restore request body: {}", e.getMessage(), e);
-            return new ResponseEntity<>("Invalid request body.", HttpStatus.BAD_REQUEST);
-        }
-
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
-        // Hash the RAW external id (getExternalIdHash), NOT getExternalId() — the latter
-        // snake-lowercases it, but a trashed id is DELETED_<checksum>_<id>_<epoch> (uppercase
-        // DELETED), so sanitizing would change the hash and never match the stored value.
+        // getExternalIdHash() is ExternalIds.hash, the one identity function every inode row now
+        // uses on both write and read — tombstones included. It case-folds, so the uppercase
+        // DELETED_ prefix no longer carves out a namespace user input cannot reach; the partial
+        // unique index added in V45 (live rows only) is what keeps a tombstone from colliding with
+        // a live node instead.
         Set<Long> extHashes = data.getItems().stream().map(IdCollection::getExternalIdHash).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
@@ -922,32 +907,19 @@ public class FileController {
             produces = { "application/json", "application/xml" }
     )
     @Transactional
-    public ResponseEntity<?> update(HttpServletRequest httpRequest) {
+    public ResponseEntity<?> update(
+            @RequestBody FileUpdate request
+    ) {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        // Deserialize the body by hand: on /files/* POST endpoints the @RequestBody converter receives
-        // an empty body (a long-standing Spring Boot quirk on this controller), so read the raw stream
-        // directly — the same workaround delete() uses.
-        FileUpdate request = null;
-        try {
-            String rawBody = new String(httpRequest.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!rawBody.isBlank()) {
-                request = jsonMapper.readValue(rawBody, FileUpdate.class);
-            }
-        } catch (IOException | JacksonException e) {
-            // Jackson 3's parse/bind failures (JacksonException) extend RuntimeException, not
-            // IOException as in Jackson 2 — so a malformed body slipped past a bare IOException
-            // catch and became a 500. Catch both; request stays null and yields the 400 below.
-            log.error("Error reading /files/update request body: {}", e.getMessage(), e);
-        }
-        if (request == null || (request.getExternalId() == null && request.getId() == null)) {
+        if (request.getExternalId() == null && request.getId() == null) {
             return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
         }
 
         Optional<INode> maybeNode = (request.getExternalId() != null)
                 ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        LongHashFunction.xx3().hashChars(request.getExternalId()), false, INode.class)
+                        ExternalIds.hash(request.getExternalId()), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(request.getId(), false, INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
@@ -1087,9 +1059,11 @@ public class FileController {
                         : iNodeRepository.findReadableById(parsedId, false, allowed, INodeDownload.class);
             }
         } catch (NumberFormatException e){
-            // Try external Id
-            String externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(id);
-            final long h = IdGenerator.xxHash(externalId);
+            // Try external Id. This was the one read site that did match the old write model — it
+            // slugged before hashing, exactly as setExternalId did. Under the verbatim model the
+            // slug step is what has to go: the stored id is the caller's own string, and
+            // ExternalIds.hash is what makes the lookup case-insensitive.
+            final long h = ExternalIds.hash(id);
             inode = readAll
                     ? iNodeRepository.findByExternalIdHashAndIsDeletedEquals(h, false, INodeDownload.class)
                     : iNodeRepository.findReadableByExternalIdHash(h, false, allowed, INodeDownload.class);
