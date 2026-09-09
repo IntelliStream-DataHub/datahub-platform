@@ -176,6 +176,15 @@ Where the numbers come from, and what to check on the live box.
 - **Logs** are buffered (`buffer=256k flush=5s`): one write per 256 KB instead of one per
   request. The `datahub_lb` format adds upstream address, request and upstream timings,
   and the negotiated TLS protocol and cipher.
+- **The WebSocket location logs without the query string.** `/timeseries/datapoints/`
+  uses `datahub_lb_noquery`, which is `datahub_lb` with the request line rebuilt from
+  `$request_method $uri $server_protocol` instead of `$request`. The live-tail handshake
+  carries the caller's JWT as `?token=`, and `$request` would write it to the access log
+  in plaintext — replayable until it expires, and readable by anyone with log or SIEM
+  access. If you add another location that can receive a credential in the query string,
+  give it the same treatment. **If you are upgrading an existing deployment, the tokens
+  already in your rotated access logs stay there:** treat them as exposed, and rely on
+  their expiry rather than on the logs being private.
 
 ## Dual stack (IPv4 and IPv6)
 
