@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
+import tools.jackson.databind.annotation.JsonDeserialize;
 import tools.jackson.databind.annotation.JsonSerialize;
+import ai.intellistream.datahub.json.TimestampDeserializer;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
@@ -133,7 +135,12 @@ public class EventModel extends AbstractResource{
         return this.externalId;
     }
 
+    // TimestampDeserializer, not Jackson's default: it reads an epoch as UTC *millis*, which is what
+    // the @Schema above promises and what every TimeFilter bound already does. Jackson's own
+    // ZonedDateTime handling reads a bare number as epoch seconds, so the millis a caller was told
+    // to send landed ~56 000 years out.
     @JsonSetter("eventTime")
+    @JsonDeserialize(using = TimestampDeserializer.class)
     public void setEventTime(ZonedDateTime dateTime) {
         // Null-safe: a missing eventTime stays null so @NotNull validation reports it cleanly,
         // rather than NPEing in DateTimeHandler during request deserialization.

@@ -8,6 +8,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.ZonedDateTime;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -74,5 +75,35 @@ class TimestampWireFormatTest {
                 "eventTime must be an ISO-8601 string: " + json);
         assertFalse(json.contains("\"eventTime\":1718"),
                 "eventTime emitted an epoch number, not ISO: " + json);
+    }
+
+    /**
+     * The input side of the same field. {@code @Schema} advertises "either epoch millis [UTC] or
+     * ISO-8601", and {@link ai.intellistream.datahub.json.TimestampDeserializer} — which every
+     * {@code TimeFilter} bound already uses — reads an epoch as millis. Without it here, Jackson's
+     * default {@code ZonedDateTime} handling reads a bare number as epoch *seconds*, so the millis
+     * the schema asks for land some 56 000 years out.
+     */
+    @Test
+    void eventModelReadsNumericEventTimeAsEpochMillis() {
+        long millis = T.toInstant().toEpochMilli(); // 1718627696000
+
+        EventModel fromNumber = mapper.readValue("{\"eventTime\":" + millis + "}", EventModel.class);
+        EventModel fromIso = mapper.readValue("{\"eventTime\":\"2024-06-17T12:34:56Z\"}", EventModel.class);
+
+        assertEquals(T.toInstant(), fromNumber.getEventTime().toInstant(),
+                "a numeric eventTime is epoch millis, as the schema says");
+        assertEquals(T.toInstant(), fromIso.getEventTime().toInstant(),
+                "an ISO-8601 eventTime keeps its instant");
+    }
+
+    /** A quoted epoch is the same value as a bare one — the deserializer reads the token as text. */
+    @Test
+    void eventModelReadsQuotedEpochMillisTheSameWay() {
+        long millis = T.toInstant().toEpochMilli();
+
+        EventModel quoted = mapper.readValue("{\"eventTime\":\"" + millis + "\"}", EventModel.class);
+
+        assertEquals(T.toInstant(), quoted.getEventTime().toInstant());
     }
 }
