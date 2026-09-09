@@ -60,14 +60,25 @@ class TimeseriesWireContractTest {
         // is also the discriminator that routes it to the timeseries path on /resources/create.
         assertEquals(List.of("TIMESERIES"), m.get("labels"));
 
-        // tableEngine is deliberately absent: which ClickHouse engine backs the series is an
-        // internal storage decision a caller cannot act on, so it is @JsonIgnore'd. It is still a
-        // field — the graph projection carries it and in-process readers use it — just not a
-        // wire one.
+        // tableEngine is deliberately absent: it was an internal storage decision a caller could
+        // not act on, and the platform no longer stores it at all.
         assertFalse(m.containsKey("tableEngine"), m.toString());
 
         assertEquals(Set.of("id", "externalId", "name", "metadata", "unit", "unitExternalId",
                 "relatedResources", "description", "dataSetId", "source", "labels",
                 "valueType", "createdTime", "lastUpdatedTime"), m.keySet());
+    }
+
+    /**
+     * {@code tableEngine} was once on the wire, so SDKs built against that contract still send it.
+     * It must stay listed in {@code @JsonIgnoreProperties}: the api rejects unknown body fields,
+     * and dropping it from the tolerated list would turn those requests into 400s.
+     */
+    @Test
+    void toleratesTheRetiredTableEngineField() {
+        Timeseries ts = mapper.readValue(
+                "{\"externalId\":\"engine_temp\",\"tableEngine\":\"MERGETREE\"}", Timeseries.class);
+
+        assertEquals("engine_temp", ts.getExternalId());
     }
 }

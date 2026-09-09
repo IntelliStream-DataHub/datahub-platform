@@ -8,7 +8,6 @@ import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.validation.AllowedValueType;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
-import ai.intellistream.datahub.timeseries.enums.TableEngine;
 import com.fasterxml.jackson.annotation.*;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
@@ -46,7 +45,10 @@ import java.util.*;
 @Schema(name="Timeseries", description="Timeseries description")
 @Getter
 @Setter
-@JsonIgnoreProperties(value = { "createdTimeHR", "lastUpdatedTimeHR", "elementId" })
+// tableEngine is a retired wire field the platform no longer stores at all. It stays in this
+// list so the strict request-body handling ignores it instead of rejecting older SDKs that
+// still send it.
+@JsonIgnoreProperties(value = { "createdTimeHR", "lastUpdatedTimeHR", "elementId", "tableEngine" })
 @JsonPropertyOrder({"id", "externalId", "name", "*"})
 public class Timeseries extends NodeModel {
 
@@ -59,16 +61,6 @@ public class Timeseries extends NodeModel {
     @ForbiddenValues(message = "Forbidden value for external id.")
     @Schema(description = "The external id of the unit that the time series use.", example = "mass_flow_rate_kghr")
     private String unitExternalId;
-
-    /**
-     * Which ClickHouse table engine backs this series.
-     *
-     * <p>An internal storage decision, not something a caller chooses or can act on, so it does not
-     * belong on the wire. It stays a field because the graph projection carries it and in-process
-     * readers use it; {@code @JsonIgnore} keeps it off the REST contract in both directions.
-     */
-    @JsonIgnore
-    private String tableEngine = TableEngine.MERGETREE.name();
 
     /** Value type used when the caller doesn't specify one (or sends null). */
     public static final String DEFAULT_VALUE_TYPE = "float32";

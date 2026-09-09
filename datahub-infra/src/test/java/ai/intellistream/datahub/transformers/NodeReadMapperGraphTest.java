@@ -111,37 +111,31 @@ class NodeReadMapperGraphTest {
     }
 
     /**
-     * The projection carries a series' unit and engine, so a graph read must return them.
+     * The projection carries a series' unit, so a graph read must return it.
      *
      * <p>These were cleared while the Pulsar payload carried none. The graph is written from the
-     * entity now and {@code GraphNodeProperties} projects all four, so clearing them would throw
+     * entity now and {@code GraphNodeProperties} projects them, so clearing them would throw
      * away something the graph actually said.
      */
     @Test
-    void readsTheUnitAndEngineTheProjectionCarries() {
+    void readsTheUnitTheProjectionCarries() {
         Timeseries dto = (Timeseries) NodeReadMapper.fromGraphNode(graphNode(
                 List.of("TIMESERIES"), Map.of("id", 5L, "externalId", "flow_1",
-                        "unit", "kg/hr", "unitExternalId", "mass_flow_rate_kghr",
-                        "tableEngine", "MERGETREE")));
+                        "unit", "kg/hr", "unitExternalId", "mass_flow_rate_kghr")));
 
         assertThat(dto.getUnit()).isEqualTo("kg/hr");
         assertThat(dto.getUnitExternalId()).isEqualTo("mass_flow_rate_kghr");
-        assertThat(dto.getTableEngine()).isEqualTo("MERGETREE");
     }
 
     /**
-     * A node written before a field was projected reports it absent, never defaulted.
-     *
-     * <p>The constructor seeds {@code tableEngine = MERGETREE}, which would otherwise assert an
-     * engine the graph never named — the same class of bug as a BIGINT series reading back as
-     * float32.
+     * A node written before a field was projected reports it absent, never defaulted — the same
+     * class of bug as a BIGINT series reading back as float32.
      */
     @Test
     void defaultsNothingTheNodeDoesNotCarry() {
         Timeseries dto = (Timeseries) NodeReadMapper.fromGraphNode(graphNode(
                 List.of("TIMESERIES"), Map.of("id", 5L, "externalId", "flow_1")));
 
-        assertThat(dto.getTableEngine()).isNull();
         assertThat(dto.getUnit()).isNull();
         assertThat(dto.getUnitExternalId()).isNull();
     }
