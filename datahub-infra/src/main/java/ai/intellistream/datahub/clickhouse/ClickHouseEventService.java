@@ -716,7 +716,12 @@ public class ClickHouseEventService extends ClickHouseService {
 
         AtomicReference<List<EventModel>> results = new AtomicReference<>(new ArrayList<>());
 
-        Client client = getClickhouseClient();
+        // The SELECT-only client, not the owner's. This is the one query the caller writes part of:
+        // advancedFilter is an expression they author, and although EventFilterRenderer emits every
+        // character of the resulting SQL itself, running it as a user with nothing but SELECT on
+        // this database means a hole in that renderer still cannot write, drop, or reach another
+        // tenant. Nothing on this path needs write rights, so there is no cost to it.
+        Client client = getReadOnlyClickhouseClient();
         try {
 
             EventFilter filter = retreiver.getFilter();

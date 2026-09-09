@@ -65,6 +65,17 @@ public class ClickHouseService {
     }
 
     /**
+     * The current tenant's {@code SELECT}-only client. Use this for a query built from
+     * caller-authored input — the events filter language — so that a mistake in the SQL the
+     * renderer emits cannot become a write. Falls back to the owner client for a tenant whose
+     * Vault config predates the read-only user.
+     */
+    public Client getReadOnlyClickhouseClient(){
+        return clickHouseClientPool.getReadOnlyClient(
+                this.tenantConfigService.getConfig(TenantContext.getTenantId()));
+    }
+
+    /**
      * Evict and close the cached ClickHouse client for a tenant — call when a tenant is removed or
      * its ClickHouse credentials are rotated. A new client is built lazily on the next access.
      */

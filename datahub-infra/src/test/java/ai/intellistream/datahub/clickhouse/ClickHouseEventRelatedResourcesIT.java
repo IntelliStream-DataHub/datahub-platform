@@ -111,6 +111,10 @@ class ClickHouseEventRelatedResourcesIT {
         tenant.setOrganizationId(TENANT);
         when(tenantConfigService.getConfig(anyString())).thenReturn(tenant);
         when(pool.getClient(any(Tenant.class))).thenReturn(client);
+        // filter() reads through the SELECT-only client. The container has a single user, so
+        // both hand back the same one here; the split itself is asserted in
+        // ClickHouseReadOnlyClientIT.
+        when(pool.getReadOnlyClient(any(Tenant.class))).thenReturn(client);
 
         service = new ClickHouseEventService(tenantConfigService, valkey, pool);
         TenantContext.setTenantId(TENANT);

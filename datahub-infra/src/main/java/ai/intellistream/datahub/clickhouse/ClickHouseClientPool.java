@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -28,8 +30,15 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li><b>Tenant config changed at runtime</b> (Vault refresh) — the next access sees a different
  *       connection identity and transparently rebuilds, closing the stale client.</li>
  * </ul>
- * {@link #invalidate(String)} force-evicts a tenant (e.g. on tenant removal); all clients are
- * closed on shutdown. Callers must NOT close a returned client — it is shared.
+ *
+ * <p><b>Two clients per tenant, not one.</b> {@link #getClient} hands back the owner's client — the
+ * one that ingests and migrates. {@link #getReadOnlyClient} hands back one bound to the tenant's
+ * {@code SELECT}-only user, which is what the caller-authored events filter language runs as. They
+ * are separate entries because they are separate credentials; both are built lazily, so a tenant
+ * that never takes a filter query never opens the second one.
+ *
+ * <p>{@link #invalidate(String)} force-evicts a tenant from both (e.g. on tenant removal); all
+ * clients are closed on shutdown. Callers must NOT close a returned client — it is shared.
  */
 @Component
 @Slf4j
@@ -37,35 +46,79 @@ public class ClickHouseClientPool {
 
     private record Entry(String connKey, Client client) {}
 
-    private final ConcurrentHashMap<String, Entry> clientsByTenant = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Entry> ownerClients = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Entry> readOnlyClients = new ConcurrentHashMap<>();
 
+    /** Tenants already warned about having no read-only user, so the warning is one per tenant. */
+    private final Set<String> readOnlyFallbackWarned = ConcurrentHashMap.newKeySet();
+
+    /** The tenant's owner client: full rights on its database. Inserts and migrations go here. */
     public Client getClient(Tenant t) {
+        var ch = t.getClickHouseTenant();
+        return cached(ownerClients, t, ch.getUsername(), ch.getPassword());
+    }
+
+    /**
+     * The tenant's {@code SELECT}-only client, for reads built from caller-authored input — the
+     * events filter language above all.
+     *
+     * <p>A tenant provisioned before the tenant manager created a read-only user has no such
+     * credentials, and falls back to the owner client rather than failing: refusing the query
+     * would break every existing tenant's event filtering to gain a defence that only matters if
+     * the renderer is already wrong. The fallback is warned about once per tenant, because it is a
+     * state an operator wants to clear rather than one to live with.
+     */
+    public Client getReadOnlyClient(Tenant t) {
+        var ch = t.getClickHouseTenant();
+        if (!ch.hasReadOnlyUser()) {
+            if (readOnlyFallbackWarned.add(t.getOrganizationId())) {
+                log.warn("Tenant {} has no read-only ClickHouse user in its Vault config; event "
+                                + "filter queries run as the owner '{}'. Re-provision the tenant to "
+                                + "get the SELECT-only user.",
+                        t.getOrganizationId(), ch.getUsername());
+            }
+            return getClient(t);
+        }
+        return cached(readOnlyClients, t, ch.getReadOnlyUsername(), ch.getReadOnlyPassword());
+    }
+
+    private Client cached(ConcurrentHashMap<String, Entry> clients, Tenant t,
+                          String username, String password) {
         String tenantId = t.getOrganizationId();
-        String connKey = connKey(t);
+        String connKey = connKey(t, username, password);
         // Close any client we replace OUTSIDE the per-key compute lock to keep the lock hold short.
         AtomicReference<Client> stale = new AtomicReference<>();
-        Entry entry = clientsByTenant.compute(tenantId, (id, existing) -> {
+        Entry entry = clients.compute(tenantId, (id, existing) -> {
             if (existing != null && existing.connKey().equals(connKey)) {
                 return existing;                  // still valid — reuse
             }
             if (existing != null) {
                 stale.set(existing.client());     // config changed — rebuild, close old below
             }
-            return new Entry(connKey, build(t));
+            return new Entry(connKey, build(t, username, password));
         });
         closeQuietly(stale.get());
         return entry.client();
     }
 
     /**
-     * Force-evict and close a tenant's cached client. Call when a tenant is removed or its
-     * ClickHouse credentials are rotated; the next access rebuilds lazily.
+     * Force-evict and close a tenant's cached clients, owner and read-only alike. Call when a
+     * tenant is removed or its ClickHouse credentials are rotated; the next access rebuilds lazily.
      */
     public void invalidate(String tenantId) {
-        Entry removed = clientsByTenant.remove(tenantId);
-        if (removed != null) {
-            closeQuietly(removed.client());
-            log.info("Invalidated ClickHouse client for tenant {}", tenantId);
+        boolean any = false;
+        for (ConcurrentHashMap<String, Entry> clients : List.of(ownerClients, readOnlyClients)) {
+            Entry removed = clients.remove(tenantId);
+            if (removed != null) {
+                closeQuietly(removed.client());
+                any = true;
+            }
+        }
+        // Cleared with the clients, so a re-provisioned tenant that still has no read-only user
+        // says so again rather than being silently remembered as already warned.
+        readOnlyFallbackWarned.remove(tenantId);
+        if (any) {
+            log.info("Invalidated ClickHouse clients for tenant {}", tenantId);
         }
     }
 
@@ -75,17 +128,17 @@ public class ClickHouseClientPool {
         invalidate(event.tenantId());
     }
 
-    private static String connKey(Tenant t) {
+    private static String connKey(Tenant t, String username, String password) {
         var ch = t.getClickHouseTenant();
-        return ch.getHost() + "|" + ch.getDatabaseName() + "|" + ch.getUsername() + "|" + ch.getPassword();
+        return ch.getHost() + "|" + ch.getDatabaseName() + "|" + username + "|" + password;
     }
 
-    private Client build(Tenant t) {
+    private Client build(Tenant t, String username, String password) {
         var ch = t.getClickHouseTenant();
         return new Client.Builder()
                 .addEndpoint("http://" + ch.getHost() + ":8123")
-                .setUsername(ch.getUsername())
-                .setPassword(ch.getPassword())
+                .setUsername(username)
+                .setPassword(password)
                 .setDefaultDatabase(ch.getDatabaseName())
                 .useHttpCompression(true)
                 .compressClientRequest(true)
@@ -102,8 +155,10 @@ public class ClickHouseClientPool {
 
     @PreDestroy
     void closeAll() {
-        clientsByTenant.values().forEach(e -> closeQuietly(e.client()));
-        clientsByTenant.clear();
+        for (ConcurrentHashMap<String, Entry> clients : List.of(ownerClients, readOnlyClients)) {
+            clients.values().forEach(e -> closeQuietly(e.client()));
+            clients.clear();
+        }
     }
 
     private void closeQuietly(Client c) {
