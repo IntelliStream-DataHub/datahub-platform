@@ -28,7 +28,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -79,7 +78,6 @@ class FileControllerUploadTest {
         Validator validator = mock(Validator.class);
         FileSystemService fileSystemService = mock(FileSystemService.class);
         HttpHelper httpHelper = mock(HttpHelper.class);
-        JsonMapper jsonMapper = mock(JsonMapper.class);
         TenantConfigService tenantConfigService = mock(TenantConfigService.class);
         DataSecurity dataSecurity = mock(DataSecurity.class);
         DirectoryService directoryService = mock(DirectoryService.class);
@@ -88,7 +86,7 @@ class FileControllerUploadTest {
 
         FileController controller = new FileController(
                 fileTransformer, iNodeRepository, filesConfig, validator, fileSystemService,
-                httpHelper, jsonMapper, tenantConfigService, dataSecurity,
+                httpHelper, tenantConfigService, dataSecurity,
                 checksumFactory, directoryService, uploadProperties);
 
         // Files feature enabled for the tenant.
@@ -152,7 +150,6 @@ class FileControllerUploadTest {
         Validator validator = mock(Validator.class);
         FileSystemService fileSystemService = mock(FileSystemService.class);
         HttpHelper httpHelper = mock(HttpHelper.class);
-        JsonMapper jsonMapper = mock(JsonMapper.class);
         TenantConfigService tenantConfigService = mock(TenantConfigService.class);
         DataSecurity dataSecurity = mock(DataSecurity.class);
         DirectoryService directoryService = mock(DirectoryService.class);
@@ -161,7 +158,7 @@ class FileControllerUploadTest {
 
         FileController controller = new FileController(
                 fileTransformer, iNodeRepository, filesConfig, validator, fileSystemService,
-                httpHelper, jsonMapper, tenantConfigService, dataSecurity,
+                httpHelper, tenantConfigService, dataSecurity,
                 checksumFactory, directoryService, uploadProperties);
 
         TenantContext.setTenantId("tenant-1");
@@ -244,7 +241,6 @@ class FileControllerUploadTest {
         Validator validator = mock(Validator.class);
         FileSystemService fileSystemService = mock(FileSystemService.class);
         HttpHelper httpHelper = mock(HttpHelper.class);
-        JsonMapper jsonMapper = mock(JsonMapper.class);
         TenantConfigService tenantConfigService = mock(TenantConfigService.class);
         DataSecurity dataSecurity = mock(DataSecurity.class);
         DirectoryService directoryService = mock(DirectoryService.class);
@@ -255,7 +251,7 @@ class FileControllerUploadTest {
         // success return without touching the filesystem.
         FileController controller = spy(new FileController(
                 fileTransformer, iNodeRepository, filesConfig, validator, fileSystemService,
-                httpHelper, jsonMapper, tenantConfigService, dataSecurity,
+                httpHelper, tenantConfigService, dataSecurity,
                 checksumFactory, directoryService, uploadProperties));
         doNothing().when(controller).handleUploadStream(any(), any(), any(INode.class));
 
@@ -317,7 +313,6 @@ class FileControllerUploadTest {
         Validator validator = mock(Validator.class);
         FileSystemService fileSystemService = mock(FileSystemService.class);
         HttpHelper httpHelper = mock(HttpHelper.class);
-        JsonMapper jsonMapper = mock(JsonMapper.class);
         TenantConfigService tenantConfigService = mock(TenantConfigService.class);
         DataSecurity dataSecurity = mock(DataSecurity.class);
         DirectoryService directoryService = mock(DirectoryService.class);
@@ -326,7 +321,7 @@ class FileControllerUploadTest {
 
         FileController controller = new FileController(
                 fileTransformer, iNodeRepository, filesConfig, validator, fileSystemService,
-                httpHelper, jsonMapper, tenantConfigService, dataSecurity,
+                httpHelper, tenantConfigService, dataSecurity,
                 checksumFactory, directoryService, uploadProperties);
 
         TenantContext.setTenantId("tenant-1");

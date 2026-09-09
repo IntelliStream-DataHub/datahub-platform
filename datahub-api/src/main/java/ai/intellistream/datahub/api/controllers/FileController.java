@@ -20,12 +20,10 @@ import ai.intellistream.datahub.repositories.files.INodeRepository;
 import ai.intellistream.datahub.services.DirectoryService;
 import ai.intellistream.datahub.services.FileSystemService;
 import ai.intellistream.datahub.transformers.FileTransformer;
-import com.nimbusds.jose.shaded.gson.JsonIOException;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
-import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -45,13 +43,16 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.bind.annotation.PathVariable;
+// Spring's, not io.swagger...parameters.RequestBody: only this one makes a message converter read
+// the body. Importing the Swagger one instead left every JSON body on this controller unbound —
+// model-attribute binding handed the method an empty object and no converter ever ran. The Swagger
+// annotation is documentation, and is fully qualified at its one use (the upload's octet-stream
+// body) so the two can never be confused again.
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import tools.jackson.core.JacksonException;
-import tools.jackson.databind.JavaType;
-import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -97,8 +98,6 @@ public class FileController {
 
     private final HttpHelper httpHelper;
 
-    private final JsonMapper jsonMapper;
-
     private final TenantConfigService tenantConfigService;
 
     private final DataSecurity dataSecurity;
@@ -116,7 +115,6 @@ public class FileController {
             Validator validator,
             FileSystemService fileSystemService,
             HttpHelper httpHelper,
-            JsonMapper jsonMapper,
             TenantConfigService tenantConfigService,
             DataSecurity dataSecurity,
             ChecksumFactory checksumFactory,
@@ -129,7 +127,6 @@ public class FileController {
         this.validator = validator;
         this.fileSystemService = fileSystemService;
         this.httpHelper = httpHelper;
-        this.jsonMapper = jsonMapper;
         this.tenantConfigService = tenantConfigService;
         this.dataSecurity = dataSecurity;
         this.checksumFactory = checksumFactory;
@@ -158,9 +155,9 @@ public class FileController {
                     "'X-Datahub-Metadata' (a JSON object) and 'X-Datahub-Related-Resources' (a JSON " +
                     "array of resource ids). 'Content-Type' is the file's MIME type; omit it or send " +
                     "'application/octet-stream' to have the server auto-detect it.",
-            requestBody = @RequestBody(content = @Content(mediaType = "application/octet-stream",
-                    schema = @Schema(type = "string", format = "binary")
-            ))
+            requestBody = @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    content = @Content(mediaType = "application/octet-stream",
+                            schema = @Schema(type = "string", format = "binary")))
     )
     @ApiResponse(responseCode = "200", description = "The uploaded file.",
             content = @Content(
@@ -706,7 +703,6 @@ public class FileController {
             produces = { "application/json", "application/xml" }
     )
     public ResponseEntity<?> delete(
-            HttpServletRequest req,
             @RequestBody
             @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> data
@@ -714,26 +710,6 @@ public class FileController {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        // Manually parse the JSON here, something weird is going on with Spring Boot
-        try {
-            // Read the entire input stream into a byte array
-            byte[] rawRequestBodyBytes = req.getInputStream().readAllBytes();
-            // Convert byte array to String using UTF-8 encoding
-            String rawRequestBody = new String(rawRequestBodyBytes, StandardCharsets.UTF_8);
-
-            // Manually deserialize using ObjectMapper for demonstration
-            try {
-                // Construct JavaType for DataWrapper<IdCollection>
-                JavaType type = jsonMapper.getTypeFactory().constructParametricType(DataWrapper.class, IdCollection.class);
-                data = jsonMapper.readValue(rawRequestBody, type);
-            } catch (JsonIOException e) {
-                log.error("Error during manual JSON deserialization: {}", e.getMessage(), e);
-            }
-
-        } catch (IOException e) {
-            log.error("Error reading raw request body: {}", e.getMessage(), e);
-        }
-
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
         Set<String> externalIdHashes = data.getItems().stream()
                 .map(IdCollection::getExternalId)
@@ -830,22 +806,11 @@ public class FileController {
             produces = { "application/json" })
     @Transactional
     public ResponseEntity<?> restore(
-            HttpServletRequest req,
             @RequestBody @Schema(implementation = IdCollectionDataWrapper.class) DataWrapper<IdCollection> data
     ) {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        // Same manual parse as delete (Spring Boot binding quirk on this body shape).
-        try {
-            String raw = new String(req.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            JavaType type = jsonMapper.getTypeFactory().constructParametricType(DataWrapper.class, IdCollection.class);
-            data = jsonMapper.readValue(raw, type);
-        } catch (Exception e) {
-            log.error("Error reading restore request body: {}", e.getMessage(), e);
-            return new ResponseEntity<>("Invalid request body.", HttpStatus.BAD_REQUEST);
-        }
-
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
         // Hash the RAW external id (getExternalIdHash), NOT getExternalId() — the latter
         // snake-lowercases it, but a trashed id is DELETED_<checksum>_<id>_<epoch> (uppercase
@@ -922,26 +887,13 @@ public class FileController {
             produces = { "application/json", "application/xml" }
     )
     @Transactional
-    public ResponseEntity<?> update(HttpServletRequest httpRequest) {
+    public ResponseEntity<?> update(
+            @RequestBody FileUpdate request
+    ) {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        // Deserialize the body by hand: on /files/* POST endpoints the @RequestBody converter receives
-        // an empty body (a long-standing Spring Boot quirk on this controller), so read the raw stream
-        // directly — the same workaround delete() uses.
-        FileUpdate request = null;
-        try {
-            String rawBody = new String(httpRequest.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            if (!rawBody.isBlank()) {
-                request = jsonMapper.readValue(rawBody, FileUpdate.class);
-            }
-        } catch (IOException | JacksonException e) {
-            // Jackson 3's parse/bind failures (JacksonException) extend RuntimeException, not
-            // IOException as in Jackson 2 — so a malformed body slipped past a bare IOException
-            // catch and became a 500. Catch both; request stays null and yields the 400 below.
-            log.error("Error reading /files/update request body: {}", e.getMessage(), e);
-        }
-        if (request == null || (request.getExternalId() == null && request.getId() == null)) {
+        if (request.getExternalId() == null && request.getId() == null) {
             return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
         }
 
