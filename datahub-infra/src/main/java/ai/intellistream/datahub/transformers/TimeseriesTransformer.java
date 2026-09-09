@@ -59,6 +59,12 @@ public class TimeseriesTransformer {
         target.setCreatedTime(source.getDateCreated());
         target.setLastUpdatedTime(source.getLastUpdated());
         target.setExternalId(source.getExternalId());
+        // The row's own labels, like every other node type. This transformer never set them, so a
+        // timeseries read back carrying only the TIMESERIES its constructor seeds — the domain
+        // labels it was created or updated with were stored, matched by /timeseries/filter, and
+        // then dropped from every response. setLabels re-adds the type-label if the column lacks
+        // it, so the type is still guaranteed.
+        target.setLabels(NodeBaseFields.labelsOf(source));
         return target;
     }
 
