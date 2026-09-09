@@ -27,6 +27,7 @@ public final class TokenProvider {
 
     private static final long EXPIRY_SKEW_SECONDS = 30;
     private static final String JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+    private static final String OPENID_SCOPE = "openid";
 
     private final DatahubConfig config;
     private final HttpClient http;
@@ -72,10 +73,32 @@ public final class TokenProvider {
 
     private TokenResponse requestClientCredentials() {
         StringBuilder body = new StringBuilder("grant_type=client_credentials");
-        appendParam(body, "scope", config.scope());
+        appendParam(body, "scope", effectiveScope(config.scope()));
         appendParam(body, "audience", config.audience());
         return post(config.tokenUri(), config.clientId(), config.clientSecret(), body.toString(),
                 "client-credentials token request failed");
+    }
+
+    /**
+     * The scope for an exchange at {@code tokenUri}: always {@code openid}, plus whatever is
+     * configured. The API resolves the caller's dataset grants by calling the identity provider's
+     * UserInfo endpoint with the caller's own token, and Keycloak refuses UserInfo with 403 for a
+     * token whose scope omits {@code openid} — so without it every permission-checked call fails
+     * opaquely, with nothing pointing at the scope. Added rather than defaulted so that setting
+     * {@code SCOPE=organization:acme} to pin a tenant does not silently drop it. Mirrors the Rust
+     * SDK's {@code OAuthConfig::effective_scope}. The assertion leg keeps its scope verbatim:
+     * it goes to an external provider, and Entra ID rejects {@code openid} next to {@code .default}.
+     */
+    private static String effectiveScope(String configured) {
+        if (configured == null || configured.isBlank()) {
+            return OPENID_SCOPE;
+        }
+        for (String scope : configured.strip().split("\\s+")) {
+            if (scope.equals(OPENID_SCOPE)) {
+                return configured;
+            }
+        }
+        return OPENID_SCOPE + " " + configured.strip();
     }
 
     /**
@@ -90,7 +113,7 @@ public final class TokenProvider {
         StringBuilder body = new StringBuilder("grant_type=")
                 .append(URLEncoder.encode(JWT_BEARER_GRANT, StandardCharsets.UTF_8));
         appendParam(body, "assertion", assertion());
-        appendParam(body, "scope", config.scope());
+        appendParam(body, "scope", effectiveScope(config.scope()));
         appendParam(body, "audience", config.audience());
         return post(config.tokenUri(), config.clientId(), config.clientSecret(), body.toString(),
                 "jwt-bearer token request failed");

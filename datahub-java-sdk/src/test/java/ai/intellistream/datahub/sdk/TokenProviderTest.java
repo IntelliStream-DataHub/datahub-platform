@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class TokenProviderTest {
 
     @Test
-    void omitsScopeAndAudienceWhenUnset() throws Exception {
+    void sendsOpenidScopeWhenUnset() throws Exception {
         withTokenEndpoint((baseUrl, lastBody) -> {
             DatahubConfig config = DatahubConfig.builder()
                     .baseUrl("https://api.example.com")
@@ -28,25 +28,41 @@ class TokenProviderTest {
                     .build();
 
             assertEquals("tok-1", newProvider(config).getToken());
-            assertEquals("grant_type=client_credentials", lastBody.get());
+            // openid is mandatory for the API's UserInfo-based grant resolution, so it is
+            // always requested — see TokenProvider#effectiveScope.
+            assertEquals("grant_type=client_credentials&scope=openid", lastBody.get());
         });
     }
 
     @Test
-    void sendsScopeAndAudienceWhenSet() throws Exception {
+    void prependsOpenidToConfiguredScope() throws Exception {
         withTokenEndpoint((baseUrl, lastBody) -> {
             DatahubConfig config = DatahubConfig.builder()
                     .baseUrl("https://api.example.com")
                     .clientCredentials("svc", "sshh", baseUrl + "/token")
-                    .scope("api://datahub/.default")
+                    .scope("organization:*")
                     .audience("https://api.example.com")
                     .build();
 
             assertEquals("tok-1", newProvider(config).getToken());
             String body = lastBody.get();
             assertTrue(body.startsWith("grant_type=client_credentials"), body);
-            assertTrue(body.contains("&scope=api%3A%2F%2Fdatahub%2F.default"), body);
+            assertTrue(body.contains("&scope=openid+organization%3A*"), body);
             assertTrue(body.contains("&audience=https%3A%2F%2Fapi.example.com"), body);
+        });
+    }
+
+    @Test
+    void doesNotDoubleAnAlreadyConfiguredOpenid() throws Exception {
+        withTokenEndpoint((baseUrl, lastBody) -> {
+            DatahubConfig config = DatahubConfig.builder()
+                    .baseUrl("https://api.example.com")
+                    .clientCredentials("svc", "sshh", baseUrl + "/token")
+                    .scope("organization:* openid")
+                    .build();
+
+            assertEquals("tok-1", newProvider(config).getToken());
+            assertTrue(lastBody.get().contains("&scope=organization%3A*+openid"), lastBody.get());
         });
     }
 
