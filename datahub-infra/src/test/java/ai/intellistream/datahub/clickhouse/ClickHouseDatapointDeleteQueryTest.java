@@ -4,8 +4,11 @@ package ai.intellistream.datahub.clickhouse;
 import ai.intellistream.datahub.api.responses.DataCollectionBin;
 import org.junit.jupiter.api.Test;
 
+import java.time.format.DateTimeParseException;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -77,13 +80,16 @@ class ClickHouseDatapointDeleteQueryTest {
         assertEquals("2026-01-02 00:00:00.000", q.params().get("endTime"));
     }
 
-    /** Seconds is the other epoch form the API accepts; the unit follows from the magnitude. */
+    /**
+     * Seconds are not an epoch form the API accepts, and this consumer must not invent one. The api
+     * normalises the bounds to ISO before publishing, so a seconds value reaching here came from a
+     * producer that never had it validated — deleting a window a thousand times too narrow is worse
+     * than dead-lettering the message.
+     */
     @Test
-    void epochSecondsBoundsAreAccepted() {
-        var q = ClickHouseDatapointService.buildDeleteQuery(item("1767225600", "1767312000"));
-
-        assertEquals("2026-01-01 00:00:00.000", q.params().get("startTime"));
-        assertEquals("2026-01-02 00:00:00.000", q.params().get("endTime"));
+    void epochSecondsBoundsAreRejected() {
+        assertThrows(DateTimeParseException.class,
+                () -> ClickHouseDatapointService.buildDeleteQuery(item("1767225600", "1767312000")));
     }
 
     /** Mixing the two forms in one window is fine — each bound is parsed on its own. */

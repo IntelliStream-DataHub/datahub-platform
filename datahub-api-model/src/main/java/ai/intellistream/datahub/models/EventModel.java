@@ -126,8 +126,8 @@ public class EventModel extends AbstractResource{
     // accepted (the setter takes a ZonedDateTime). The @Schema must describe the wire type, not the
     // internal Long, or the OpenAPI spec would advertise a numeric epoch the endpoint never emits.
     @Schema(description = "The event time for this event. On output this is an ISO-8601 string; on "
-            + "input, either ISO-8601 or a UTC epoch is accepted. An epoch is read as seconds or "
-            + "milliseconds by its magnitude.",
+            + "input, either ISO-8601 with an offset or a UTC epoch in milliseconds is accepted. "
+            + "For a time before 1973-03-03, use ISO-8601.",
             type = "string", format = "date-time", example = "2024-08-30T22:00:00Z",
             requiredMode = Schema.RequiredMode.REQUIRED)
     private Long eventTime;
@@ -136,10 +136,10 @@ public class EventModel extends AbstractResource{
         return this.externalId;
     }
 
-    // TimestampDeserializer, not Jackson's default: it reads an epoch as UTC seconds or millis by
-    // magnitude, which is what the @Schema above promises and what every TimeFilter bound already
-    // does. Jackson's own ZonedDateTime handling reads a bare number as seconds and nothing else,
-    // so the millis a caller was told to send landed ~56 000 years out.
+    // TimestampDeserializer, not Jackson's default: it reads an epoch as UTC milliseconds, which
+    // is what the @Schema above promises and what every TimeFilter bound already does. Jackson's
+    // own ZonedDateTime handling reads a bare number as seconds and nothing else, so the millis a
+    // caller was told to send landed ~56 000 years out.
     @JsonSetter("eventTime")
     @JsonDeserialize(using = TimestampDeserializer.class)
     public void setEventTime(ZonedDateTime dateTime) {

@@ -54,9 +54,9 @@ public class AnalysisMcpTools {
             @ToolParam(description = "ExternalId of the focus timeseries.")
             String focusExternalId,
             @ToolParam(description = "Start of the window (inclusive), ISO-8601 "
-                    + "(e.g. '2026-08-01T00:00:00Z') or a UTC epoch.")
+                    + "(e.g. '2026-08-01T00:00:00Z') or a UTC epoch in milliseconds.")
             String start,
-            @ToolParam(description = "End of the window (exclusive), ISO-8601 or a UTC epoch.")
+            @ToolParam(description = "End of the window (exclusive), ISO-8601 or a UTC epoch in millis.")
             String end,
             @ToolParam(required = false, description =
                     "Max candidate series to analyse, nearest-first by graph distance (default 10, max 200).")

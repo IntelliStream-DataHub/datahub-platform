@@ -7,6 +7,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * POST /analysis takes the same timestamp forms as the rest of the API. Without the explicit
@@ -26,9 +27,14 @@ class AnalysisFormTimestampTest {
     }
 
     @Test
-    void theWindowTakesIsoSecondsAndMillisAlike() {
+    void theWindowTakesIsoAndEpochMillis() {
         assertEquals(T, start("\"2024-06-17T12:34:56Z\""));
-        assertEquals(T, start("1718627696"));
         assertEquals(T, start("1718627696000"));
+    }
+
+    /** And refuses seconds, the same as every other timestamp the API takes. */
+    @Test
+    void theWindowRefusesEpochSeconds() {
+        assertThrows(RuntimeException.class, () -> start("1718627696"));
     }
 }

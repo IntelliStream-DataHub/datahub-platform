@@ -62,7 +62,7 @@ public class EventMcpTools {
             @ToolParam(description = "Id of the owning dataset.")
             Long dataSetId,
             @ToolParam(description = "Event time as ISO-8601 (e.g. '2026-04-23T13:00:00Z'), "
-                    + "or a UTC epoch in seconds or milliseconds.")
+                    + "or a UTC epoch in milliseconds.")
             String eventTime,
             @ToolParam(required = false, description = "Optional subtype (3–128 chars).")
             String subType,
@@ -217,10 +217,10 @@ public class EventMcpTools {
             List<String> relatedResourceExternalIds,
             @ToolParam(required = false, description =
                     "Start of the eventTime window (inclusive), ISO-8601 e.g. '2026-06-24T00:00:00Z', "
-                    + "or a UTC epoch in seconds or milliseconds.")
+                    + "or a UTC epoch in milliseconds.")
             String start,
             @ToolParam(required = false, description = "End of the eventTime window (exclusive), "
-                    + "ISO-8601 or a UTC epoch.")
+                    + "ISO-8601 or a UTC epoch in milliseconds.")
             String end,
             @ToolParam(required = false, description =
                     "Aggregate into counts grouped by this field instead of returning events. "

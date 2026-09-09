@@ -58,8 +58,8 @@ class DateTimeHandlerZoneTest {
     /** An epoch has no zone of its own, so it is UTC by definition. */
     @Test
     void anEpochParsesAsUtc() {
-        assertEquals(ZoneOffset.UTC, DateTimeHandler.parseClientTimestamp("1718627696").getOffset());
-        assertEquals(T, DateTimeHandler.parseClientTimestamp("1718627696").toInstant());
+        assertEquals(ZoneOffset.UTC, DateTimeHandler.parseClientTimestamp("1718627696000").getOffset());
+        assertEquals(T, DateTimeHandler.parseClientTimestamp("1718627696000").toInstant());
     }
 
     /**

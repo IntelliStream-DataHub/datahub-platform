@@ -10,6 +10,7 @@ import java.time.ZonedDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -81,7 +82,7 @@ class TimestampWireFormatTest {
      * The input side of the same field. {@code @Schema} advertises "either epoch millis [UTC] or
      * ISO-8601", and {@link ai.intellistream.datahub.json.TimestampDeserializer} — which every
      * {@code TimeFilter} bound already uses — reads an epoch as millis. Without it here, Jackson's
-     * default {@code ZonedDateTime} handling reads a bare number as epoch *seconds*, so the millis
+     * default {@code ZonedDateTime} handling reads a bare number as epoch seconds, so the millis
      * the schema asks for land some 56 000 years out.
      */
     @Test
@@ -108,18 +109,18 @@ class TimestampWireFormatTest {
     }
 
     /**
-     * A seconds epoch is the other form clients send, and the unit is decided by magnitude rather
-     * than by the caller declaring it, so both land on the same instant.
+     * The unit is the caller's to get right, and getting it wrong is refused rather than guessed
+     * at. This is the field the whole contract turns on: read as seconds it stored events 56 000
+     * years out, and scaling it by magnitude instead would have moved the silence rather than
+     * ending it.
      */
     @Test
-    void eventModelReadsATenDigitEventTimeAsEpochSeconds() {
+    void eventModelRefusesATenDigitEventTime() {
         long seconds = T.toInstant().getEpochSecond(); // 1718627696
 
-        EventModel fromSeconds = mapper.readValue("{\"eventTime\":" + seconds + "}", EventModel.class);
-        EventModel fromQuotedSeconds = mapper.readValue("{\"eventTime\":\"" + seconds + "\"}", EventModel.class);
-
-        assertEquals(T.toInstant(), fromSeconds.getEventTime().toInstant(),
-                "a 10-digit eventTime is epoch seconds, not millis 20 days after 1970");
-        assertEquals(T.toInstant(), fromQuotedSeconds.getEventTime().toInstant());
+        assertThrows(RuntimeException.class,
+                () -> mapper.readValue("{\"eventTime\":" + seconds + "}", EventModel.class));
+        assertThrows(RuntimeException.class,
+                () -> mapper.readValue("{\"eventTime\":\"" + seconds + "\"}", EventModel.class));
     }
 }

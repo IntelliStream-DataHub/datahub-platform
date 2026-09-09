@@ -30,8 +30,8 @@ public class AnalysisForm {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String focusExternalId;
 
-    // The same ISO-or-epoch reading as every other timestamp the API takes. Without it, Jackson's
-    // default reads a bare number as epoch seconds only, so millis landed ~56 000 years out.
+    // The same ISO-or-epoch-millis reading as every other timestamp the API takes. Without it,
+    // Jackson's default reads a bare number as epoch seconds, so millis landed ~56 000 years out.
     @JsonDeserialize(using = TimestampDeserializer.class)
     private ZonedDateTime start;
 

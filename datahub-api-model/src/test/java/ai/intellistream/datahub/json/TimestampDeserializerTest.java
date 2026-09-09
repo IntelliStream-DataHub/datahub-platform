@@ -32,16 +32,20 @@ class TimestampDeserializerTest {
         assertEquals(T, min("1718627696000"));
     }
 
-    @Test
-    void tenDigitEpochIsSeconds() {
-        assertEquals(T, min("1718627696"));
-    }
-
-    /** Both forms quoted: the deserializer reads the token as text, so the unit rule is the same. */
+    /** A quoted epoch is the same value as a bare one — the deserializer reads the token as text. */
     @Test
     void quotedEpochsReadTheSameAsBareOnes() {
         assertEquals(T, min("\"1718627696000\""));
-        assertEquals(T, min("\"1718627696\""));
+    }
+
+    /**
+     * Seconds are refused rather than scaled, on the JSON path as everywhere else. The caller finds
+     * out on the first request instead of from a window that quietly covered the wrong century.
+     */
+    @Test
+    void tenDigitSecondsAreRefused() {
+        assertThrows(RuntimeException.class, () -> min("1718627696"));
+        assertThrows(RuntimeException.class, () -> min("\"1718627696\""));
     }
 
     @Test
@@ -50,23 +54,18 @@ class TimestampDeserializerTest {
         assertEquals(T, min("\"2024-06-17T14:34:56+02:00\""));
     }
 
-    /** The seconds/millis split: below the ceiling is seconds, at it and above is milliseconds. */
+    /** The accepted width, at both edges. Everything inside it is milliseconds. */
     @Test
-    void theCeilingDecidesTheUnit() {
-        assertEquals(Instant.ofEpochSecond(999_999_999_999L), min("999999999999"));
-        assertEquals(Instant.ofEpochMilli(1_000_000_000_000L), min("1000000000000"));
+    void theWidthDecidesWhetherItIsAnEpochAtAll() {
+        assertEquals(Instant.ofEpochMilli(100_000_000_000L), min("100000000000"));
+        assertEquals(Instant.ofEpochMilli(99_999_999_999_999L), min("99999999999999"));
+        assertThrows(RuntimeException.class, () -> min("17889441699"));
+        assertThrows(RuntimeException.class, () -> min("999999999999999"));
     }
 
-    /** Eleven digits is under the ceiling, so it scales up rather than being taken as millis. */
-    @Test
-    void anElevenDigitEpochIsSeconds() {
-        assertEquals(Instant.ofEpochMilli(17_889_441_699_000L), min("17889441699"));
-    }
-
-    /** A negative epoch is pre-1970 and splits on magnitude the same way. */
+    /** A negative epoch is pre-1970 millis, counted the same way. */
     @Test
     void negativeEpochsAreAccepted() {
-        assertEquals(Instant.ofEpochSecond(-1_000_000_000L), min("-1000000000"));
         assertEquals(Instant.ofEpochMilli(-2_000_000_000_000L), min("-2000000000000"));
     }
 

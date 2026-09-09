@@ -2,6 +2,8 @@
 package ai.intellistream.datahub.api.controllers.errors;
 
 import ai.intellistream.datahub.api.controllers.errors.UnknownRequestFieldsException.UnknownField;
+import ai.intellistream.datahub.models.EventModel;
+import ai.intellistream.datahub.models.datafilters.TimeFilter;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 import org.springframework.http.HttpStatus;
@@ -129,11 +131,73 @@ class UnreadableRequestBodyExceptionHandlerTest {
         assertThat(problem.getProperties()).isNullOrEmpty();
     }
 
+    /**
+     * The advice a timestamp failure carries is written for the caller, so it is forwarded rather
+     * than flattened. Naming the unit is the point: "could not be read" plus a line and column
+     * leaves someone sending Unix seconds with no idea that a factor of 1000 is the whole problem.
+     */
+    @Test
+    void aBadTimestampSaysWhatToSendInstead() {
+        ProblemDetail problem = handler.handleUnreadableBody(
+                bindFailure("{\"min\":1718627696}", TimeFilter.class));
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(problem.getDetail())
+                .contains("epoch seconds")
+                .contains("multiply it by 1000")
+                .contains("epoch milliseconds");
+    }
+
+    /** And where it was, since a body may carry several timestamps. */
+    @Test
+    void aBadTimestampPointsAtTheField() {
+        ProblemDetail problem = handler.handleUnreadableBody(
+                bindFailure("{\"eventTime\":1718627696}", EventModel.class));
+
+        assertThat(problem.getProperties()).containsEntry("pointer", "#/eventTime");
+    }
+
+    /** The other half of the contract: an ISO string without an offset says an offset is required. */
+    @Test
+    void aTimestampWithoutAnOffsetSaysSo() {
+        ProblemDetail problem = handler.handleUnreadableBody(
+                bindFailure("{\"min\":\"2024-06-17T12:34:56\"}", TimeFilter.class));
+
+        assertThat(problem.getDetail()).contains("an offset is required, never assumed");
+    }
+
+    /** Forwarding one message must not become forwarding Jackson's, which quote Java types. */
+    @Test
+    void aBadTimestampDoesNotLeakInternals() {
+        ProblemDetail problem = handler.handleUnreadableBody(
+                bindFailure("{\"min\":1718627696}", TimeFilter.class));
+
+        assertThat(problem.getDetail()).doesNotContain("ai.intellistream", "java.time", "class ");
+    }
+
+    /**
+     * A binding failure that is not a timestamp keeps the generic wording — its message would read
+     * "cannot deserialize value of type `java.lang.Long` from String", which is the server's
+     * internals, not the caller's mistake.
+     */
+    @Test
+    void otherBindingFailuresStayGeneric() {
+        ProblemDetail problem = handler.handleUnreadableBody(
+                bindFailure("{\"dataSetId\":\"not-a-number\"}", EventModel.class));
+
+        assertThat(problem.getDetail()).isEqualTo("The request body could not be read.");
+    }
+
     /** Built from a real parse so the exception shape stays honest. */
     private static HttpMessageNotReadableException parseFailure(String malformedJson) {
+        return bindFailure(malformedJson, java.util.Map.class);
+    }
+
+    /** The same, against a real DTO, so the field path Jackson attaches is the real one. */
+    private static HttpMessageNotReadableException bindFailure(String json, Class<?> target) {
         try {
-            JsonMapper.builder().build().readValue(malformedJson, java.util.Map.class);
-            throw new AssertionError("expected a parse failure for: " + malformedJson);
+            JsonMapper.builder().build().readValue(json, target);
+            throw new AssertionError("expected a parse failure for: " + json);
         } catch (RuntimeException jackson) {
             return new HttpMessageNotReadableException(
                     jackson.getMessage(), jackson, new MockHttpInputMessage(new byte[0]));
