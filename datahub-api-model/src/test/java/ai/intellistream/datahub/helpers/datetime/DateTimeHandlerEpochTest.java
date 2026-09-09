@@ -25,14 +25,20 @@ class DateTimeHandlerEpochTest {
 
     @Test
     void theCeilingIsTheOnlyThingThatDecides() {
-        assertEquals(9_999_999_999_000L, DateTimeHandler.epochToMillis(9_999_999_999L));
-        assertEquals(10_000_000_000L, DateTimeHandler.epochToMillis(10_000_000_000L));
+        assertEquals(999_999_999_999_000L, DateTimeHandler.epochToMillis(999_999_999_999L));
+        assertEquals(1_000_000_000_000L, DateTimeHandler.epochToMillis(1_000_000_000_000L));
+    }
+
+    /** An 11-digit epoch is under the ceiling, so it scales like any other seconds value. */
+    @Test
+    void anElevenDigitEpochStillScalesUp() {
+        assertEquals(17_889_441_699_000L, DateTimeHandler.epochToMillis(17_889_441_699L));
     }
 
     @Test
     void negativeEpochsSplitSymmetrically() {
         assertEquals(-1_000_000_000_000L, DateTimeHandler.epochToMillis(-1_000_000_000L));
-        assertEquals(-100_000_000_000L, DateTimeHandler.epochToMillis(-100_000_000_000L));
+        assertEquals(-2_000_000_000_000L, DateTimeHandler.epochToMillis(-2_000_000_000_000L));
     }
 
     @Test

@@ -11,15 +11,15 @@ public class DateTimeHandler {
     public static final DateTimeFormatter DATETIME_FORMATTER =
             DateTimeFormatter.ofPattern(DATETIME_PATTERN);
 
-    // Below this an epoch reads as seconds, at or above it as milliseconds.
-    private static final long EPOCH_SECONDS_CEILING = 10_000_000_000L;
+    // Below this an epoch reads as seconds, at or above it as milliseconds. The ceiling is 13
+    // digits, where present-day milliseconds sit; present-day seconds are 10.
+    private static final long EPOCH_SECONDS_CEILING = 1_000_000_000_000L;
 
     /**
      * Normalises a client-supplied epoch to milliseconds. The digits alone do not say which unit
-     * the caller meant, so magnitude decides: as seconds the range under the ceiling covers 2001
-     * to 2286, which is every value anyone sends, while as milliseconds it is only 1970-01-01 to
-     * 1970-04-26. The two costs of that split: a millisecond value before 1970-04-26 is read as
-     * seconds, and a second value after year 2286 is read as milliseconds.
+     * the caller meant, so magnitude decides: below the ceiling is seconds and scales up, at or
+     * above it is already milliseconds. The cost of the split is the range it gives up, a
+     * millisecond value from before 2001-09-09, which is read as seconds instead.
      *
      * <p>Only for values off the wire. Epochs already held as milliseconds internally (the graph,
      * ClickHouse, {@code EventModel}'s own field) must not pass through here.

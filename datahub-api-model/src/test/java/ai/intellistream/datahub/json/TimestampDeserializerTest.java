@@ -50,21 +50,24 @@ class TimestampDeserializerTest {
         assertEquals(T, min("\"2024-06-17T14:34:56+02:00\""));
     }
 
-    /**
-     * The seconds/millis split. Below the ceiling is seconds, which as milliseconds would be a
-     * 1970 date no caller means; at the ceiling and above is milliseconds.
-     */
+    /** The seconds/millis split: below the ceiling is seconds, at it and above is milliseconds. */
     @Test
     void theCeilingDecidesTheUnit() {
-        assertEquals(Instant.ofEpochSecond(9_999_999_999L), min("9999999999"));
-        assertEquals(Instant.ofEpochMilli(10_000_000_000L), min("10000000000"));
+        assertEquals(Instant.ofEpochSecond(999_999_999_999L), min("999999999999"));
+        assertEquals(Instant.ofEpochMilli(1_000_000_000_000L), min("1000000000000"));
+    }
+
+    /** Eleven digits is under the ceiling, so it scales up rather than being taken as millis. */
+    @Test
+    void anElevenDigitEpochIsSeconds() {
+        assertEquals(Instant.ofEpochMilli(17_889_441_699_000L), min("17889441699"));
     }
 
     /** A negative epoch is pre-1970 and splits on magnitude the same way. */
     @Test
     void negativeEpochsAreAccepted() {
         assertEquals(Instant.ofEpochSecond(-1_000_000_000L), min("-1000000000"));
-        assertEquals(Instant.ofEpochMilli(-100_000_000_000L), min("-100000000000"));
+        assertEquals(Instant.ofEpochMilli(-2_000_000_000_000L), min("-2000000000000"));
     }
 
     @Test
