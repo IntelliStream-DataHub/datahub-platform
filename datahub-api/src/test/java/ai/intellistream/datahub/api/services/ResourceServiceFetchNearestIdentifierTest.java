@@ -84,7 +84,7 @@ class ResourceServiceFetchNearestIdentifierTest {
         NodeEntity pump = node(42L, "21-p-101a");
         when(nodeRepository.findByExternalId("21-p-101a")).thenReturn(pump);
         when(nodeRepository.findById(42L)).thenReturn(Optional.of(pump));
-        when(neo4JService.fetchNearestNodesByEndLabel(eq(42L), anyList(), any(), any(), anyList()))
+        when(neo4JService.fetchNearestNodesByEndLabel(eq(42L), anyList(), any(), any(), anyList(), any()))
                 .thenReturn(new ResourceNetwork(Set.of(), Set.of(), Set.of()));
 
         FetchNearestResourcesForm form = new FetchNearestResourcesForm();
@@ -94,7 +94,7 @@ class ResourceServiceFetchNearestIdentifierTest {
         service.fetchNearestRelatedResources(form);
 
         verify(neo4JService).fetchNearestNodesByEndLabel(eq(42L), eq(List.of("TIMESERIES")),
-                eq(10), any(), anyList());
+                eq(10), any(), anyList(), any());
         verify(dataSecurity).assertCanRead(pump);
     }
 
@@ -117,7 +117,7 @@ class ResourceServiceFetchNearestIdentifierTest {
     void numericIdSkipsResolution() {
         NodeEntity pump = node(42L, "21-p-101a");
         when(nodeRepository.findById(42L)).thenReturn(Optional.of(pump));
-        when(neo4JService.fetchNearestNodesByEndLabel(eq(42L), anyList(), any(), any(), anyList()))
+        when(neo4JService.fetchNearestNodesByEndLabel(eq(42L), anyList(), any(), any(), anyList(), any()))
                 .thenReturn(new ResourceNetwork(Set.of(), Set.of(), Set.of()));
 
         FetchNearestResourcesForm form = new FetchNearestResourcesForm();

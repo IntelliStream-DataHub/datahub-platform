@@ -27,22 +27,55 @@ public record ResourceNetwork(Set<NodeModel> nodes, Set<EdgeProxy> edges, Set<La
      * still collect into {@link Set}s to be defensive.
      */
     public static ResourceNetwork from(List<Record> records, Set<Label> labels){
+        return from(records, labels, GraphReadScope.readEverything());
+    }
+
+    /**
+     * As above, but drops what {@code scope} does not permit: any node in a dataset the caller
+     * cannot read, and any relationship with an endpoint that is not itself visible.
+     *
+     * <p>The filtering happens here, before {@link #attachRelatedResources}, and that ordering is
+     * the point. {@code relatedResources} is derived from the edge set, so filtering afterwards
+     * would leave every visible node advertising its hidden neighbours by {@code externalId} — the
+     * denied nodes would be gone from {@code nodes} and still named in the response.
+     *
+     * <p>Nodes are collected first and relationships second so an edge is judged against the whole
+     * visible set rather than the part seen so far.
+     */
+    public static ResourceNetwork from(List<Record> records, Set<Label> labels, GraphReadScope scope){
         var resourceNetwork = new ResourceNetwork(new HashSet<>(), new HashSet<>(), labels);
+        Set<Long> visibleIds = new HashSet<>();
+
         for(Record record : records){
             Value nodes = record.get("nodes");
             if(!nodes.isNull()){
                 for(Value node : nodes.values()){
-                    resourceNetwork.nodes.add(NodeReadMapper.fromGraphNode(node.asNode()));
-                }
-            }
-
-            Value relationships = record.get("relationships");
-            if(!relationships.isNull()){
-                for(Value relationship : relationships.values()){
-                    resourceNetwork.edges.add(EdgeProxyTransformer.from(relationship.asRelationship()));
+                    NodeModel model = NodeReadMapper.fromGraphNode(node.asNode());
+                    if(!scope.permits(model.getDataSetId())){
+                        continue;
+                    }
+                    resourceNetwork.nodes.add(model);
+                    if(model.getId() != null){
+                        visibleIds.add(model.getId());
+                    }
                 }
             }
         }
+
+        for(Record record : records){
+            Value relationships = record.get("relationships");
+            if(!relationships.isNull()){
+                for(Value relationship : relationships.values()){
+                    EdgeProxy edge = EdgeProxyTransformer.from(relationship.asRelationship());
+                    // A null endpoint cannot be shown to be visible, so it is dropped with the rest.
+                    if(!visibleIds.contains(edge.getStart()) || !visibleIds.contains(edge.getEnd())){
+                        continue;
+                    }
+                    resourceNetwork.edges.add(edge);
+                }
+            }
+        }
+
         attachRelatedResources(resourceNetwork);
         return resourceNetwork;
     }

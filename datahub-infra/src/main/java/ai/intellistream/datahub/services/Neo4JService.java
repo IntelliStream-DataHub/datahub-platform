@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.services;
 
+import ai.intellistream.datahub.asset.GraphReadScope;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.config.Neo4j;
 import lombok.AllArgsConstructor;
@@ -42,10 +43,13 @@ public class Neo4JService {
      *                          (plus every relationship between them)
      * @param excludedLabels    node labels the traversal must neither pass through nor return;
      *                          {@code null}/empty disables label filtering
+     * @param scope             which datasets the caller may see. Reachability does not stop at a
+     *                          dataset boundary, so without this the component comes back whole
+     *                          however little of it the caller is entitled to
      */
     public ResourceNetwork fetchRelatedNodes(Serializable id, Integer depth,
                                              List<String> relationshipTypes, Integer limit,
-                                             List<String> excludedLabels){
+                                             List<String> excludedLabels, GraphReadScope scope){
         // Empty filter => APOC follows every relationship type in both directions. A non-empty
         // list is joined with "|" (APOC's OR separator); the types carry no direction prefix, so
         // the traversal stays undirected like the original query.
@@ -81,7 +85,7 @@ public class Neo4JService {
                         "labelFilter", labelFilter,
                         "limit", nodeLimit));
                 var records = result.list();
-                var rn = ResourceNetwork.from(records, new HashSet<>(labelService.list()));
+                var rn = ResourceNetwork.from(records, new HashSet<>(labelService.list()), scope);
                 log.debug("{}, {}", result.consume().query().text(), result.consume().query().parameters() );
                 return rn;
             });
@@ -100,7 +104,8 @@ public class Neo4JService {
      * as its own node.
      */
     public ResourceNetwork fetchNearestNodesByEndLabel(Serializable id, List<String> endLabels, Integer limit,
-                                                       List<String> relationshipTypes, List<String> excludedLabels){
+                                                       List<String> relationshipTypes, List<String> excludedLabels,
+                                                       GraphReadScope scope){
         String relationshipFilter = (relationshipTypes == null || relationshipTypes.isEmpty())
                 ? ""
                 // Relationship types are stored upper-cased on create (RelationshipType#setName),
@@ -138,7 +143,7 @@ public class Neo4JService {
                         "relationshipFilter", relationshipFilter,
                         "labelFilter", labelFilter,
                         "limit", nodeLimit));
-                var rn = ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()));
+                var rn = ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()), scope);
                 log.debug("{}, {}", result.consume().query().text(), result.consume().query().parameters());
                 return rn;
             });
@@ -187,6 +192,11 @@ public class Neo4JService {
             """;
             return session.executeRead( tx -> {
                 var result = tx.run(query, parameters("ids", new ArrayList<>(anchorIds)));
+                // Deliberately unscoped, unlike the two traversals above. This answers "would
+                // deleting these nodes disjoint a survivor from the root?", and that is a property
+                // of the whole graph: hiding the part of the component the caller cannot read
+                // would report a still-connected node as orphaned and refuse a legal delete. The
+                // result is never returned to a caller — only counted — so nothing leaks.
                 return ResourceNetwork.from(result.list(), new HashSet<>(labelService.list()));
             });
 

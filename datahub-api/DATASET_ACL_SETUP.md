@@ -190,8 +190,17 @@ the directly targeted nodes, not each descendant.)
 
 - **Resource search across datasets:** datasets themselves have no `data_set_id`, so for non-all
   readers dataset rows are excluded from `/resources/search`; other node types are dataset-filtered.
-- **Graph traversal** (`/resources/fetch-related`) gates on read access to the *starting* resource's
-  dataset; the reachable network returned by Neo4j is not itself dataset-filtered.
+- **Graph traversal** (`/resources/fetch-related`, `/resources/fetch-nearest`,
+  `GET /resources/export/{id}`) gates on read access to the *starting* resource's dataset **and**
+  narrows the returned network to the datasets the caller may read. A node in a dataset they cannot
+  read is dropped, and so is every relationship touching it — including the neighbour entry it would
+  otherwise contribute to a visible node's `relatedResources`. An orphan node (no dataset) needs
+  all-datasets read, the same rule as everywhere else.
+
+  Consequences worth knowing: a traversal can return two visible nodes with no path between them,
+  because the nodes joining them were not visible; and a `limit` is applied by Neo4j before this
+  narrowing, so a capped traversal may return fewer nodes than the limit. The export's node ceiling
+  counts visible nodes for the same reason.
 
 ## Keycloak configuration
 
