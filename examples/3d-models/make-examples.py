@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Write one small example model per format the console's 3D viewer accepts.
 
 Every file is the same shape, a 1 m cube with one corner cut off, so a format that loads wrong is

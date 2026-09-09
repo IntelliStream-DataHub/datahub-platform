@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Write a 1 m cube as a STEP AP214 manifold solid B-rep.
 
 The fixture for the console viewer's CAD path: STEP is decoded by occt-import-js rather than by the

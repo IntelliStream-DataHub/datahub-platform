@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Write a small industrial assembly: a flanged pipe run and a pair of meshing spur gears.
 
 Where cut-cube exercises the format layer, this exercises what a real model brings with it: named
