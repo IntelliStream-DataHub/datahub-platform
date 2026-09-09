@@ -10,7 +10,7 @@ name: DCO
 
 on:
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   check-sign-off:
@@ -53,7 +53,7 @@ jobs:
             echo ""
             echo "Add one with:    git commit -s"
             echo "Fix the last:    git commit --amend -s --no-edit"
-            echo "Fix a branch:    git rebase --signoff origin/master"
+            echo "Fix a branch:    git rebase --signoff origin/main"
             echo "then force-push. See CONTRIBUTING.md."
             exit 1
           fi
