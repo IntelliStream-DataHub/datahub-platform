@@ -3,12 +3,12 @@ package ai.intellistream.datahub.analysis.mcp;
 
 import ai.intellistream.datahub.analysis.compute.AnalysisService;
 import ai.intellistream.datahub.analysis.mcp.dto.LeanAnalysisResponse;
+import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.models.forms.AnalysisForm;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
-import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -53,9 +53,10 @@ public class AnalysisMcpTools {
     public LeanAnalysisResponse relatedSeries(
             @ToolParam(description = "ExternalId of the focus timeseries.")
             String focusExternalId,
-            @ToolParam(description = "Start of the window (inclusive), ISO-8601 (e.g. '2026-08-01T00:00:00Z').")
+            @ToolParam(description = "Start of the window (inclusive), ISO-8601 "
+                    + "(e.g. '2026-08-01T00:00:00Z') or a UTC epoch.")
             String start,
-            @ToolParam(description = "End of the window (exclusive), ISO-8601.")
+            @ToolParam(description = "End of the window (exclusive), ISO-8601 or a UTC epoch.")
             String end,
             @ToolParam(required = false, description =
                     "Max candidate series to analyse, nearest-first by graph distance (default 10, max 200).")
@@ -69,8 +70,9 @@ public class AnalysisMcpTools {
     ) {
         AnalysisForm form = new AnalysisForm();
         form.setFocusExternalId(focusExternalId);
-        form.setStart(ZonedDateTime.parse(start));
-        form.setEnd(ZonedDateTime.parse(end));
+        // Same parse as the POST /analysis body, so an epoch works here too.
+        form.setStart(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(start));
+        form.setEnd(DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(end));
         if (limit != null) {
             form.setLimit(limit);
         }
