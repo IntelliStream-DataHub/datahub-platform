@@ -6,6 +6,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FileDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.config.FilesConfig;
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.HttpHelper;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
@@ -35,7 +36,6 @@ import lombok.extern.slf4j.Slf4j;
 import ai.intellistream.datahub.api.config.UploadProperties;
 import ai.intellistream.datahub.helpers.checksum.ChecksumFactory;
 import ai.intellistream.datahub.helpers.checksum.FileChecksum;
-import net.openhft.hashing.LongHashFunction;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -208,17 +208,35 @@ public class FileController {
             datahubFile.setPath(filePath.endsWith("/") ? filePath + filename : filePath + "/" + filename);
 
             // External id: a client-supplied value (percent-decoded like the other headers), or a
-            // default derived from the filename when the header is omitted. Either way it is ALWAYS
-            // run through the slug sanitizer - that is the server-side protection that guarantees
-            // external ids are safe (lowercased, alphanumerics and underscores only, no path or
-            // control characters). Never omit this check, even for client-supplied ids.
-            String externalId = request.getHeader("X-Datahub-External-Id");
-            if (externalId == null || externalId.isBlank()) {
-                externalId = filename;
+            // default derived from the filename when the header is omitted. The two are treated
+            // differently, and deliberately.
+            //
+            // A CLIENT-SUPPLIED id is stored verbatim and VALIDATED — rejected, never rewritten —
+            // so `COM-99-PT-1034` survives the round trip the way it does on every other entity.
+            // The charset is the platform floor (letters, digits and . _ : + = -), which excludes
+            // path separators, spaces and control characters. That check is load-bearing, not
+            // cosmetic: moveNodeToTrash builds the trash FILENAME out of this value, so a slash
+            // here would write outside the trash directory. The slug sanitizer used to provide
+            // that protection as a side effect of rewriting; validation provides it now. Never
+            // omit it.
+            //
+            // A FILENAME-DERIVED default is server-generated, so it is still slugged rather than
+            // validated: a legitimate upload of "My Report.pdf" must not be refused for a header
+            // the caller never sent.
+            String suppliedExternalId = request.getHeader("X-Datahub-External-Id");
+            String externalId;
+            if (suppliedExternalId == null || suppliedExternalId.isBlank()) {
+                externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(filename);
             } else {
-                externalId = URLDecoder.decode(externalId, StandardCharsets.UTF_8);
+                externalId = URLDecoder.decode(suppliedExternalId, StandardCharsets.UTF_8);
+                if (!TextValidator.validateExternalIdCharset(externalId)) {
+                    return new ResponseEntity<>(
+                            "X-Datahub-External-Id may contain letters, digits and the characters "
+                                    + ". _ : + = - only. Spaces, slashes and control characters are "
+                                    + "not allowed. It is stored exactly as sent.",
+                            HttpStatus.BAD_REQUEST);
+                }
             }
-            externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(externalId);
             fileTransformer.setProperty(datahubFile, "externalId", externalId);
             // Optional metadata headers, each percent-encoded by the client. The two source dates
             // are epoch millis (UTC). These mirror the fields the old multipart form set.
@@ -504,7 +522,7 @@ public class FileController {
         }
         Optional<INode> maybeNode = hasExternalId
                 ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        LongHashFunction.xx3().hashChars(externalId), false, INode.class)
+                        ExternalIds.hash(externalId), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(id, false, INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
@@ -723,7 +741,7 @@ public class FileController {
         // (no-dataset) nodes are deletable by anyone.
         if (!dataSecurity.hasWriteAccessToEverything()) {
             Set<Long> extHashes = externalIdHashes.stream()
-                    .map(it -> LongHashFunction.xx3().hashChars(it))
+                    .map(ExternalIds::hash)
                     .collect(Collectors.toSet());
             Set<Long> rootIds = iNodeRepository.findAllByIdOrExternalIdHashAndNotDeleted(idList, extHashes)
                     .stream().map(INode::getId).collect(Collectors.toSet());
@@ -812,9 +830,11 @@ public class FileController {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
-        // Hash the RAW external id (getExternalIdHash), NOT getExternalId() — the latter
-        // snake-lowercases it, but a trashed id is DELETED_<checksum>_<id>_<epoch> (uppercase
-        // DELETED), so sanitizing would change the hash and never match the stored value.
+        // getExternalIdHash() is ExternalIds.hash, the one identity function every inode row now
+        // uses on both write and read — tombstones included. It case-folds, so the uppercase
+        // DELETED_ prefix no longer carves out a namespace user input cannot reach; the partial
+        // unique index added in V45 (live rows only) is what keeps a tombstone from colliding with
+        // a live node instead.
         Set<Long> extHashes = data.getItems().stream().map(IdCollection::getExternalIdHash).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
@@ -899,7 +919,7 @@ public class FileController {
 
         Optional<INode> maybeNode = (request.getExternalId() != null)
                 ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        LongHashFunction.xx3().hashChars(request.getExternalId()), false, INode.class)
+                        ExternalIds.hash(request.getExternalId()), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(request.getId(), false, INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
@@ -1039,9 +1059,11 @@ public class FileController {
                         : iNodeRepository.findReadableById(parsedId, false, allowed, INodeDownload.class);
             }
         } catch (NumberFormatException e){
-            // Try external Id
-            String externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(id);
-            final long h = IdGenerator.xxHash(externalId);
+            // Try external Id. This was the one read site that did match the old write model — it
+            // slugged before hashing, exactly as setExternalId did. Under the verbatim model the
+            // slug step is what has to go: the stored id is the caller's own string, and
+            // ExternalIds.hash is what makes the lookup case-insensitive.
+            final long h = ExternalIds.hash(id);
             inode = readAll
                     ? iNodeRepository.findByExternalIdHashAndIsDeletedEquals(h, false, INodeDownload.class)
                     : iNodeRepository.findReadableByExternalIdHash(h, false, allowed, INodeDownload.class);

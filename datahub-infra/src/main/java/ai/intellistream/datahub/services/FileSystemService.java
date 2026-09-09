@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.services;
 
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.config.FilesConfig;
 import ai.intellistream.datahub.helpers.text.TextValidator;
-import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.INode;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.dto.INodeProxy;
@@ -194,7 +194,7 @@ public class FileSystemService {
             // guarantees descendant files are processed before their containing folders, so each
             // folder is empty by the time it is removed.
             moveFileSystemObjectToTrash(nodeToMark, newExternalId);
-            long newHash = IdGenerator.xxHash(newExternalId);
+            long newHash = ExternalIds.hash(newExternalId);
             log.debug("deleted with externalId: " + newExternalId + " and hash: " + newHash);
             iNodeRepository.markDeleted(nodeToMark.getId(), newExternalId, newHash, true);
         }
@@ -318,7 +318,7 @@ public class FileSystemService {
         if (original == null || original.isBlank()) {
             throw new IllegalStateException("Could not recover the original external id for '" + node.getName() + "'.");
         }
-        long originalHash = IdGenerator.xxHash(original);
+        long originalHash = ExternalIds.hash(original);
         // Delete frees the original external id for reuse; refuse if a live file has since taken it.
         if (iNodeRepository.findByExternalIdHashAndIsDeletedIs(originalHash, false, INode.class).isPresent()) {
             throw new IllegalStateException("A file with the original external id already exists.");

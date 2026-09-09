@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.jpa.domains;
 
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import jakarta.persistence.*;
@@ -10,7 +11,6 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.hashing.LongHashFunction;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -130,9 +130,23 @@ public class INode {
     @Column(name = "security_category")
     private Set<Integer> securityCategories = new TreeSet<>();
 
+    /**
+     * Store the external id verbatim and derive its identity hash.
+     *
+     * <p>Verbatim since the files migration to the platform-wide rule: this used to rewrite the
+     * value to a lowercase slug, so a caller who uploaded {@code COM-99-PT-1034} could never read
+     * that string back and could not look the file up by it either. Case- and separator-insensitive
+     * matching now lives in {@link ExternalIds#hash} instead of in the stored value, which is how
+     * every other entity has worked since the naming-policy change.
+     *
+     * <p>The rewrite was also the upload path's charset guard — the trash filename embeds the
+     * external id — so {@code FileController} now validates the charset and rejects instead, and
+     * only the filename-derived default is still slugged. See
+     * {@link ai.intellistream.datahub.helpers.text.TextValidator#validateExternalIdCharset}.
+     */
     public void setExternalId(String externalId){
-        this.externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(externalId);
-        this.externalIdHash = LongHashFunction.xx3().hashChars(this.externalId);
+        this.externalId = externalId;
+        this.externalIdHash = ExternalIds.hash(externalId);
     }
 
     public void setPath(String path){
