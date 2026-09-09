@@ -224,6 +224,22 @@ public class ClickHouseEventService extends ClickHouseService {
                     setClauses.add("source = {source:String}");
                     params.put("source", fields.getSource().getSet());
                 }
+                // The dataset does move, unlike the two immutable fields either side of it:
+                // data_set_id is neither the sorting key (ORDER BY id) nor the partition key
+                // (toYYYYMM(event_time)), so a mutation can change it. The clause was simply
+                // missing — EventService applied the move to its in-memory EventModel and returned
+                // that in the 200, while storage kept the old dataset. A silent wrong answer about
+                // which dataset an event belongs to, on the column the read ACL filters by.
+                if (fields.getDataSetId() != null) {
+                    if (fields.getDataSetId().getSet() != null) {
+                        setClauses.add("data_set_id = {data_set_id:Int64}");
+                        params.put("data_set_id", fields.getDataSetId().getSet());
+                    } else if (Boolean.TRUE.equals(fields.getDataSetId().getSetNull())) {
+                        // The column is non-nullable; 0 is the "no dataset" sentinel
+                        // BatchedEventsListener maps a null id onto on the way in.
+                        setClauses.add("data_set_id = 0");
+                    }
+                }
                 // No event_time clause: the table is PARTITION BY toYYYYMM(event_time) and a
                 // mutation cannot move a row between partitions, so ClickHouse refuses the update
                 // outright (CANNOT_UPDATE_COLUMN). The field is gone from EventFields for the same
