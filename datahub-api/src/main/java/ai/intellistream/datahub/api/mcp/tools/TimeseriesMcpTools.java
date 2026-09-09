@@ -15,7 +15,6 @@ import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.models.SearchForm;
-import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.TimeseriesFields;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
@@ -44,7 +43,10 @@ import java.util.List;
  *     <li>The security filter chain requires {@code ROLE_DATAHUB_ACCESS} on every
  *         non-public request (see {@code SecurityConfig}), and these tools run as MVC
  *         endpoints on that chain, so the role check is applied before any tool method
- *         executes — no additional per-method guard is needed.</li>
+ *         executes. That role is authentication, <em>not</em> a dataset grant: every tool
+ *         must still reach its data through {@link TimeseriesService}, which narrows to the
+ *         caller's readable datasets. Going to a repository directly bypasses the ACL —
+ *         {@code timeseries_list} did exactly that and returned the whole tenant.</li>
  * </ul>
  *
  * <p>Tool signatures favour single-item operations with scalar parameters — the LLM
@@ -57,16 +59,13 @@ import java.util.List;
 public class TimeseriesMcpTools {
 
     private final TimeseriesService timeseriesService;
-    private final TimeseriesRepository timeseriesRepository;
     private final UnitService unitService;
 
     public TimeseriesMcpTools(
             TimeseriesService timeseriesService,
-            TimeseriesRepository timeseriesRepository,
             UnitService unitService
     ) {
         this.timeseriesService = timeseriesService;
-        this.timeseriesRepository = timeseriesRepository;
         this.unitService = unitService;
     }
 
@@ -309,7 +308,7 @@ public class TimeseriesMcpTools {
             Integer limit
     ) {
         int cap = (limit == null) ? 100 : Math.min(limit, 1000);
-        var entities = timeseriesRepository.list(cap);
+        var entities = timeseriesService.readList(cap);
         List<LeanTimeseries> items = TimeseriesTransformer.from(entities).stream()
                 .map(LeanTimeseries::from).toList();
         return McpList.of(items, cap);

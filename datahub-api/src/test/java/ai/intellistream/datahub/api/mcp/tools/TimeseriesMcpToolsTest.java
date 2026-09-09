@@ -5,10 +5,11 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.TimeseriesService;
 import ai.intellistream.datahub.api.services.UnitService;
 import ai.intellistream.datahub.jpa.domains.Unit;
-import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -24,14 +25,20 @@ import static org.mockito.Mockito.when;
  * without a unit fails whatever the caller sends — the tool used to let the model discover that as
  * a {@code ConstraintViolationException} from deep in the service, and offered no way to name a
  * unit from the catalogue at all.
+ *
+ * <p>Also covers {@code timeseries_list}'s route to its data. That tool read
+ * {@code TimeseriesRepository.list(cap)} — the unrestricted overload — while
+ * {@code GET /timeseries} went through {@link TimeseriesService#readList(int)}, which narrows to
+ * the caller's readable datasets. {@code ROLE_DATAHUB_ACCESS} on the filter chain is
+ * authentication, not a dataset grant, so the tool returned every series in the tenant to a caller
+ * holding no grants at all.
  */
 class TimeseriesMcpToolsTest {
 
     private final TimeseriesService timeseriesService = mock(TimeseriesService.class);
-    private final TimeseriesRepository timeseriesRepository = mock(TimeseriesRepository.class);
     private final UnitService unitService = mock(UnitService.class);
     private final TimeseriesMcpTools tools =
-            new TimeseriesMcpTools(timeseriesService, timeseriesRepository, unitService);
+            new TimeseriesMcpTools(timeseriesService, unitService);
 
     private Timeseries captureSaved() throws Exception {
         @SuppressWarnings("unchecked")
@@ -112,6 +119,26 @@ class TimeseriesMcpToolsTest {
                 .hasMessageContaining("unit_list");
 
         verifyNoInteractions(timeseriesService);
+    }
+
+    @Test
+    void listGoesThroughTheServiceSoTheDatasetAclApplies() {
+        when(timeseriesService.readList(100)).thenReturn(List.of());
+
+        tools.listTimeseries(null);
+
+        // The point of the test is the route, not the payload: readList() is the only listing path
+        // that intersects the caller's readable datasets.
+        verify(timeseriesService).readList(100);
+    }
+
+    @Test
+    void listPassesTheCallersLimitThroughToTheNarrowedRead() {
+        when(timeseriesService.readList(25)).thenReturn(List.of());
+
+        tools.listTimeseries(25);
+
+        verify(timeseriesService).readList(25);
     }
 
     private static Unit unit(String externalId, String name, String symbol) {
