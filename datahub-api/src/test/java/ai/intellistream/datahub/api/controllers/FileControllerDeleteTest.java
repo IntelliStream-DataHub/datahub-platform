@@ -24,11 +24,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.access.AccessDeniedException;
-import tools.jackson.databind.json.JsonMapper;
 
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -60,8 +57,6 @@ class FileControllerDeleteTest {
         Validator validator = mock(Validator.class);
         fileSystemService = mock(FileSystemService.class);
         HttpHelper httpHelper = mock(HttpHelper.class);
-        // Real JsonMapper — delete() manually parses the request body.
-        JsonMapper jsonMapper = JsonMapper.builder().build();
         tenantConfigService = mock(TenantConfigService.class);
         dataSecurity = mock(DataSecurity.class);
 
@@ -76,17 +71,13 @@ class FileControllerDeleteTest {
         when(features.isFilesEnabled()).thenReturn(true);
 
         return new FileController(fileTransformer, iNodeRepository, filesConfig, validator,
-                fileSystemService, httpHelper, jsonMapper, tenantConfigService, dataSecurity,
+                fileSystemService, httpHelper, tenantConfigService, dataSecurity,
                 new ChecksumFactory(ChecksumAlgorithm.SHA_256), mock(DirectoryService.class),
                 new UploadProperties());
     }
 
-    private static MockHttpServletRequest deleteRequestForId(long id) {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setMethod("POST");
-        request.setContentType("application/json");
-        request.setContent(("{\"items\":[{\"id\":" + id + "}]}").getBytes(StandardCharsets.UTF_8));
-        return request;
+    private static DataWrapper<IdCollection> deleteBodyForId(long id) {
+        return new DataWrapper<IdCollection>().setItems(List.of(IdCollection.createFromId(id)));
     }
 
     private static INode folder(long id) {
@@ -115,10 +106,8 @@ class FileControllerDeleteTest {
         doThrow(new DatasetAccessDeniedException("write", 55L))
                 .when(dataSecurity).assertCanWriteDataSet(55L);
 
-        MockHttpServletRequest request = deleteRequestForId(999L);
-
         AccessDeniedException ex = assertThrows(AccessDeniedException.class,
-                () -> controller.delete(request, new DataWrapper<IdCollection>()));
+                () -> controller.delete(deleteBodyForId(999L)));
         assertEquals(55L, ((DatasetAccessDeniedException) ex).getDataSetId());
 
         // Nothing was deleted.
@@ -135,9 +124,7 @@ class FileControllerDeleteTest {
         // Entirely public subtree → no dataset to check.
         when(iNodeRepository.findSubtreeDataSetIds(any())).thenReturn(List.of());
 
-        MockHttpServletRequest request = deleteRequestForId(1000L);
-
-        ResponseEntity<?> response = (ResponseEntity<?>) controller.delete(request, new DataWrapper<IdCollection>());
+        ResponseEntity<?> response = controller.delete(deleteBodyForId(1000L));
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         // The delete proceeded to the filesystem layer.
