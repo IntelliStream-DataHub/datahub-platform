@@ -7,8 +7,10 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * One instant, written four ways. An ISO-8601 string carries its own offset, so dropping it
@@ -58,6 +60,27 @@ class DateTimeHandlerZoneTest {
     void anEpochParsesAsUtc() {
         assertEquals(ZoneOffset.UTC, DateTimeHandler.parseClientTimestamp("1718627696").getOffset());
         assertEquals(T, DateTimeHandler.parseClientTimestamp("1718627696").toInstant());
+    }
+
+    /**
+     * A timestamp with no offset is ambiguous, so it is rejected rather than assumed to be UTC.
+     * Guessing here would be the same class of silent hours-out error as dropping an offset.
+     */
+    @Test
+    void aTimestampWithoutAZoneIsRejected() {
+        assertThrows(DateTimeParseException.class,
+                () -> DateTimeHandler.parseClientTimestamp("2024-06-17T12:34:56"));
+        assertThrows(DateTimeParseException.class,
+                () -> DateTimeHandler.parseClientTimestamp("2024-06-17"));
+    }
+
+    /** Precision either way of seconds is fine, as long as the offset is there. */
+    @Test
+    void fractionalSecondsAndMinutePrecisionBothParse() {
+        assertEquals(T.plusMillis(123),
+                DateTimeHandler.parseClientTimestamp("2024-06-17T12:34:56.123Z").toInstant());
+        assertEquals(Instant.parse("2024-06-17T12:34:00Z"),
+                DateTimeHandler.parseClientTimestamp("2024-06-17T14:34+02:00").toInstant());
     }
 
     /** This one returns a LocalDateTime, and the contract says that local time is UTC. */
