@@ -1206,8 +1206,10 @@ public class TimeseriesService {
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         } catch (DateTimeParseException | NumberFormatException e) {
             var badRequestError = new BadRequestError();
-            badRequestError.setMessage(("'%s' is not a valid %s. Use ISO-8601 (2026-01-01T00:00:00Z) "
-                    + "or epoch milliseconds (1767225600000).").formatted(bound, fieldName));
+            badRequestError.setMessage(("'%s' is not a valid %s. Use ISO-8601 with an offset "
+                    + "(2026-01-01T00:00:00Z) or epoch milliseconds (1767225600000). A 10-digit "
+                    + "value is epoch seconds — multiply it by 1000. For a time before 1973-03-03, "
+                    + "use ISO-8601.").formatted(bound, fieldName));
             badRequestError.setFields(List.of(Map.of(
                     fieldName, bound,
                     "externalId", String.valueOf(ddp.getExternalId()))));

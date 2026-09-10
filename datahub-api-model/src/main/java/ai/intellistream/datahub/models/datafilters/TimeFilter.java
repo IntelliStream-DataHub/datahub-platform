@@ -13,7 +13,8 @@ import java.time.ZonedDateTime;
  * {@code lastUpdatedTime}, and {@code eventTime}.
  *
  * <p>Either bound may be omitted: {@code min} alone is "since", {@code max} alone is "until", both
- * is a range. Values are ISO-8601 or epoch millis, resolved by {@link TimestampDeserializer}.
+ * is a range. Values are ISO-8601 with an offset, or a UTC epoch in milliseconds, resolved by
+ * {@link TimestampDeserializer}.
  *
  * <p>There used to be two empty subclasses of this, {@code CreatedTimeFilter} and
  * {@code LastUpdatedTimeFilter}, which added no field and no behaviour — the type a window was
@@ -26,11 +27,13 @@ import java.time.ZonedDateTime;
 @Data
 public class TimeFilter {
 
-    @Schema(description = "The minimum ISO 8601 time or epoch time.", example = "2024-01-01T00:00Z or 1710069401321")
+    @Schema(description = "The minimum ISO 8601 time (offset required), or epoch milliseconds.",
+            example = "2024-01-01T00:00Z or 1710069401321")
     @JsonDeserialize(using = TimestampDeserializer.class)
     private ZonedDateTime min;
 
-    @Schema(description = "The maximum ISO 8601 time or epoch time.", example = "2024-01-02T03:00Z or 1714461401221")
+    @Schema(description = "The maximum ISO 8601 time (offset required), or epoch milliseconds.",
+            example = "2024-01-02T03:00Z or 1714461401221")
     @JsonDeserialize(using = TimestampDeserializer.class)
     private ZonedDateTime max;
 }

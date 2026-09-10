@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.models.forms;
 
+import ai.intellistream.datahub.json.TimestampDeserializer;
 import ai.intellistream.datahub.validation.resources.AtLeastOneNotNull;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import lombok.Data;
+import tools.jackson.databind.annotation.JsonDeserialize;
 
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -28,8 +30,12 @@ public class AnalysisForm {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     private String focusExternalId;
 
+    // The same ISO-or-epoch-millis reading as every other timestamp the API takes. Without it,
+    // Jackson's default reads a bare number as epoch seconds, so millis landed ~56 000 years out.
+    @JsonDeserialize(using = TimestampDeserializer.class)
     private ZonedDateTime start;
 
+    @JsonDeserialize(using = TimestampDeserializer.class)
     private ZonedDateTime end;
 
     /**

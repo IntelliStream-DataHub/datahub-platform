@@ -15,6 +15,9 @@ import tools.jackson.core.TokenStreamLocation;
 import tools.jackson.core.exc.StreamReadException;
 
 import java.net.URI;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -76,18 +79,37 @@ public class UnreadableRequestBodyExceptionHandler {
      * needle-in-a-haystack instruction. For a pure syntax error Jackson's own wording is used
      * verbatim — it is precise and it names characters, not classes. Other parse failures keep the
      * generic wording, since their messages quote the Java types involved.
+     *
+     * <p>A bad timestamp is the exception: its message comes from {@code DateTimeHandler}, is
+     * written for the caller, and names the two accepted forms and what to do about a seconds
+     * value — so it is forwarded along with a pointer to the field. Flattening that to "could not
+     * be read" would leave the caller with a line and column and no idea the unit was the problem.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ProblemDetail handleUnreadableBody(HttpMessageNotReadableException ex) {
         JacksonException jackson = ex.getCause() instanceof JacksonException cause ? cause : null;
         boolean syntaxError = jackson instanceof StreamReadException;
+        DateTimeParseException badTimestamp = timestampFailure(jackson);
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST,
-                syntaxError && jackson.getOriginalMessage() != null
-                        ? jackson.getOriginalMessage()
-                        : "The request body could not be read.");
+        String detail;
+        if (badTimestamp != null) {
+            detail = badTimestamp.getMessage();
+        } else if (syntaxError && jackson.getOriginalMessage() != null) {
+            detail = jackson.getOriginalMessage();
+        } else {
+            detail = "The request body could not be read.";
+        }
+
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
         problem.setTitle("Bad Request");
         problem.setType(URI.create("https://intellistream.ai/errors/unreadable-request-body"));
+
+        if (badTimestamp != null) {
+            String pointer = pointerOf(jackson);
+            if (pointer != null) {
+                problem.setProperty("pointer", pointer);
+            }
+        }
 
         TokenStreamLocation location = jackson == null ? null : jackson.getLocation();
         if (location != null && location.getLineNr() > 0) {
@@ -99,5 +121,50 @@ public class UnreadableRequestBodyExceptionHandler {
         // response. Logging every one at warn hands any client a way to fill this service's logs.
         log.debug("Unreadable request body: {}", ex.getMessage());
         return problem;
+    }
+
+    /**
+     * The {@link DateTimeParseException} behind an unreadable body, or {@code null} if the failure
+     * was something else.
+     *
+     * <p>Only this one exception type has its message forwarded. Jackson's other binding failures
+     * quote Java types — "cannot deserialize value of type {@code java.lang.Long}" — and this api
+     * does not hand callers its internals; {@code DateTimeParseException} from
+     * {@code DateTimeHandler} is written for the caller and names the accepted forms.
+     */
+    private static DateTimeParseException timestampFailure(Throwable ex) {
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            if (cause instanceof DateTimeParseException parse) {
+                return parse;
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The RFC 6901 pointer for the field that failed, from the path Jackson attached on the way
+     * out. Same shape as the unknown-field pointers above, so a caller parses one rule, not two.
+     */
+    private static String pointerOf(JacksonException jackson) {
+        if (jackson == null || jackson.getPath().isEmpty()) {
+            return null;
+        }
+        Deque<String> segments = new ArrayDeque<>();
+        for (JacksonException.Reference reference : jackson.getPath()) {
+            if (reference.getPropertyName() != null) {
+                segments.addLast(escape(reference.getPropertyName()));
+            } else if (reference.getIndex() >= 0) {
+                segments.addLast(String.valueOf(reference.getIndex()));
+            }
+        }
+        return segments.isEmpty() ? null : "#/" + String.join("/", segments);
+    }
+
+    /** RFC 6901 requires {@code ~} and {@code /} to be escaped inside a pointer segment. */
+    private static String escape(String segment) {
+        return segment.replace("~", "~0").replace("/", "~1");
     }
 }

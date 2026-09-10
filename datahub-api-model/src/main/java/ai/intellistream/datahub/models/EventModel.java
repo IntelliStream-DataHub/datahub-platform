@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
+import tools.jackson.databind.annotation.JsonDeserialize;
 import tools.jackson.databind.annotation.JsonSerialize;
+import ai.intellistream.datahub.json.TimestampDeserializer;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
@@ -120,11 +122,12 @@ public class EventModel extends AbstractResource{
     @NotNull
     // The field is a Long (epoch millis) because these DTOs double as Avro payloads and Avro can't
     // handle ZonedDateTime, but the @JsonGetter below serializes it as an ISO-8601 string — so the
-    // wire type is "string"/date-time, not a number. On input, either epoch millis or ISO-8601 is
+    // wire type is "string"/date-time, not a number. On input, either an epoch or ISO-8601 is
     // accepted (the setter takes a ZonedDateTime). The @Schema must describe the wire type, not the
     // internal Long, or the OpenAPI spec would advertise a numeric epoch the endpoint never emits.
     @Schema(description = "The event time for this event. On output this is an ISO-8601 string; on "
-            + "input, either epoch millis [UTC] or ISO-8601 is accepted.",
+            + "input, either ISO-8601 with an offset or a UTC epoch in milliseconds is accepted. "
+            + "For a time before 1973-03-03, use ISO-8601.",
             type = "string", format = "date-time", example = "2024-08-30T22:00:00Z",
             requiredMode = Schema.RequiredMode.REQUIRED)
     private Long eventTime;
@@ -133,7 +136,12 @@ public class EventModel extends AbstractResource{
         return this.externalId;
     }
 
+    // TimestampDeserializer, not Jackson's default: it reads an epoch as UTC milliseconds, which
+    // is what the @Schema above promises and what every TimeFilter bound already does. Jackson's
+    // own ZonedDateTime handling reads a bare number as seconds and nothing else, so the millis a
+    // caller was told to send landed ~56 000 years out.
     @JsonSetter("eventTime")
+    @JsonDeserialize(using = TimestampDeserializer.class)
     public void setEventTime(ZonedDateTime dateTime) {
         // Null-safe: a missing eventTime stays null so @NotNull validation reports it cleanly,
         // rather than NPEing in DateTimeHandler during request deserialization.

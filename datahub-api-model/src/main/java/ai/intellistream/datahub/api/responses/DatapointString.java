@@ -38,7 +38,8 @@ import lombok.NoArgsConstructor;
 public class DatapointString {
 
     @NotNull
-    @Schema(description = "The timestamp of the data point. Can be either ISO 8601 formatted \"2024-08-30T22:00:00Z\" or epoch time",
+    @Schema(description = "The timestamp of the data point. Can be either ISO 8601 formatted \"2024-08-30T22:00:00Z\" "
+            + "or a UTC epoch in milliseconds",
             example = "2024-08-30T22:00:00Z or 1723759200000",
             requiredMode = Schema.RequiredMode.REQUIRED)
     private String timestamp;

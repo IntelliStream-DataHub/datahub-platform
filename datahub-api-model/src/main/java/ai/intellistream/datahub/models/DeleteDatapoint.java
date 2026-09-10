@@ -27,7 +27,8 @@ public class DeleteDatapoint {
     // @Valid, so a constraint here would never have been enforced, and it would have advertised a
     // rule the service does not apply. An absent bound means "unbounded on that side".
     @Schema(description = """
-            Start of the window to clear, inclusive. Either ISO-8601 or epoch milliseconds. \
+            Start of the window to clear, inclusive. Either ISO-8601 with an offset, or a UTC \
+            epoch in milliseconds. \
             Optional: leave it out to delete everything up to `exclusiveEnd`, and leave both \
             bounds out to clear every data point of the series.""",
             example = "2026-01-01T00:00:00Z",
@@ -36,7 +37,8 @@ public class DeleteDatapoint {
     private String inclusiveBegin;
 
     @Schema(description = """
-            End of the window to clear, exclusive. Either ISO-8601 or epoch milliseconds. \
+            End of the window to clear, exclusive. Either ISO-8601 with an offset, or a UTC \
+            epoch in milliseconds. \
             Optional: leave it out to delete everything from `inclusiveBegin` onward.""",
             example = "2026-02-01T00:00:00Z",
             requiredMode = Schema.RequiredMode.NOT_REQUIRED
