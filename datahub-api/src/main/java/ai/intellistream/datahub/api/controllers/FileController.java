@@ -37,6 +37,8 @@ import ai.intellistream.datahub.helpers.checksum.ChecksumFactory;
 import ai.intellistream.datahub.helpers.checksum.FileChecksum;
 import net.openhft.hashing.LongHashFunction;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpRange;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -49,6 +51,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 // annotation is documentation, and is fully qualified at its one use (the upload's octet-stream
 // body) so the two can never be confused again.
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -582,18 +585,45 @@ public class FileController {
 
     @Tag(name = "Files")
     @Operation(summary = "Download file",
-            description = "Download file"
+            description = "Downloads the file as a binary stream. The reply advertises " +
+                    "'Accept-Ranges: bytes' and carries a strong 'ETag' taken from the stored " +
+                    "SHA-256, so a client can resume an interrupted transfer with 'Range' and skip " +
+                    "an unchanged file with 'If-None-Match'. One byte range is served per request; " +
+                    "a multi-range or malformed 'Range' is ignored and the whole file is sent."
     )
     @ApiResponse(responseCode = "200", description = "The file content as a binary stream.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
                     schema = @Schema(type = "string", format = "binary")
             ))
+    @ApiResponse(responseCode = "206", description = "The requested byte range, delimited by 'Content-Range'.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_OCTET_STREAM_VALUE,
+                    schema = @Schema(type = "string", format = "binary")
+            ))
+    @ApiResponse(responseCode = "304",
+            description = "An 'If-None-Match' etag is still current. No body.",
+            content = @Content)
+    @ApiResponse(responseCode = "416",
+            description = "The range starts past the end of the file. 'Content-Range: bytes */<size>' "
+                    + "reports the current size. No body.",
+            content = @Content)
     @RequestMapping(
             value = { "/download/{id}"},
             method = RequestMethod.GET,
             produces = { "application/octet-stream" })
-    public ResponseEntity<?> download(HttpServletResponse res, @Parameter(description = "Numeric id of the file to download.", example = "5677892") @PathVariable Optional<String> id){
+    public ResponseEntity<?> download(
+            HttpServletResponse res,
+            @Parameter(description = "Numeric id of the file to download.", example = "5677892")
+            @PathVariable Optional<String> id,
+            @Parameter(description = "A single byte range to serve, counted from zero.", example = "bytes=0-1023")
+            @RequestHeader(value = HttpHeaders.RANGE, required = false) String range,
+            @Parameter(description = "Serve the range only while this etag is current, otherwise "
+                    + "send the whole file rather than splice a stale slice into a changed one.")
+            @RequestHeader(value = HttpHeaders.IF_RANGE, required = false) String ifRange,
+            @Parameter(description = "A comma-separated etag list, or '*'. Answers 304 when one of "
+                    + "them is current.")
+            @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
@@ -604,7 +634,7 @@ public class FileController {
                 inode = findIndexNode(id.get(), inode);
                 if (inode.isPresent()) {
                     String filesystemPath = filesConfig.getRoot().toString();
-                    return doFileDownload(res, filesystemPath, inode.get());
+                    return doFileDownload(res, filesystemPath, inode.get(), range, ifRange, ifNoneMatch);
                 } else {
                     return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
                 }
@@ -618,11 +648,25 @@ public class FileController {
     private static ResponseEntity<?> doFileDownload(
             HttpServletResponse res,
             String filesystemPath,
-            @NotNull INodeDownload inode
+            @NotNull INodeDownload inode,
+            String range,
+            String ifRange,
+            String ifNoneMatch
     ) {
         final Path sourcePath = Paths.get(filesystemPath, inode.getPath())
                 .toAbsolutePath()
                 .normalize();
+
+        // The stored SHA-256 doubles as a strong validator: content is written once at a path and
+        // never mutated in place, so a different body always means a different etag.
+        final String etag = entityTag(inode);
+        if (etag != null) {
+            res.setHeader(HttpHeaders.ETAG, etag);
+            if (matchesEtag(ifNoneMatch, etag)) {
+                res.setStatus(HttpStatus.NOT_MODIFIED.value());
+                return null;
+            }
+        }
 
         // Only the input file is ours to close. The servlet output stream is owned by the
         // container; closing it here throws AsyncRequestNotUsableException once the client has
@@ -630,7 +674,6 @@ public class FileController {
         try (FileChannel inputChannel = FileChannel.open(sourcePath, StandardOpenOption.READ)) {
             res.setHeader("Content-Disposition",
                     "attachment; filename=\"" + inode.getName() + "\"");
-            res.setContentLengthLong(inode.getSize());
 
             String mimeType = inode.getMimeType();
             if (mimeType == null || mimeType.isBlank() ||
@@ -639,9 +682,40 @@ public class FileController {
             }
             res.setContentType(mimeType);
 
+            final long size = inputChannel.size();
+            res.setHeader(HttpHeaders.ACCEPT_RANGES, "bytes");
+
+            long start = 0;
+            long length = size;
+            HttpRange served = singleRange(range, ifRange, etag);
+            if (served != null) {
+                if (size == 0 || served.getRangeStart(size) >= size) {
+                    res.setHeader(HttpHeaders.CONTENT_RANGE, "bytes */" + size);
+                    res.setStatus(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE.value());
+                    return null;
+                }
+                start = served.getRangeStart(size);
+                length = served.getRangeEnd(size) - start + 1;
+                res.setStatus(HttpStatus.PARTIAL_CONTENT.value());
+                res.setHeader(HttpHeaders.CONTENT_RANGE,
+                        "bytes " + start + "-" + (start + length - 1) + "/" + size);
+            }
+            res.setContentLengthLong(length);
+
             WritableByteChannel outputChannel = Channels.newChannel(res.getOutputStream());
-            inputChannel.transferTo(0, inputChannel.size(), outputChannel);
-            return new ResponseEntity<>(HttpStatus.OK);
+            // transferTo is contractually allowed to move fewer bytes than asked for, so loop
+            // rather than trust one call to finish.
+            long position = start;
+            long remaining = length;
+            while (remaining > 0) {
+                long transferred = inputChannel.transferTo(position, remaining, outputChannel);
+                if (transferred <= 0) {
+                    break;
+                }
+                position += transferred;
+                remaining -= transferred;
+            }
+            return served != null ? null : new ResponseEntity<>(HttpStatus.OK);
         } catch (IOException e) {
             if (isClientAbort(e)) {
                 // The client cancelled or disconnected mid-download. Normal, not a server error;
@@ -655,6 +729,62 @@ public class FileController {
                     HttpStatus.INTERNAL_SERVER_ERROR
             );
         }
+    }
+
+    /**
+     * The single byte range the caller asked for, or null to serve the whole file.
+     *
+     * <p>Null covers every case where the request is not a plain single-range read: no header, a
+     * malformed one (RFC 9110 says ignore rather than reject), a unit other than bytes, several
+     * ranges at once (multipart/byteranges is optional and nothing we serve needs it), and an
+     * If-Range that no longer matches, which means the client is resuming against a file that has
+     * changed and would otherwise splice two different bodies together. If-Range compares strongly,
+     * unlike If-None-Match below, so the match here is exact on purpose.
+     */
+    private static HttpRange singleRange(String range, String ifRange, String etag) {
+        if (range == null || range.isBlank()) {
+            return null;
+        }
+        if (ifRange != null && !ifRange.equals(etag)) {
+            return null;
+        }
+        try {
+            List<HttpRange> ranges = HttpRange.parseRanges(range);
+            return ranges.size() == 1 ? ranges.getFirst() : null;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** Strong entity tag from the stored SHA-256, or null for a row that has no checksum. */
+    private static String entityTag(INodeDownload inode) {
+        byte[] checksum = inode.getChecksum();
+        if (checksum == null || checksum.length == 0) {
+            return null;
+        }
+        return "\"" + HexFormat.of().formatHex(checksum) + "\"";
+    }
+
+    /**
+     * Whether an If-None-Match header covers {@code etag}: a comma-separated list, "*" for whatever
+     * representation exists, compared weakly, so a "W/" prefix on either side is ignored.
+     */
+    private static boolean matchesEtag(String ifNoneMatch, String etag) {
+        if (ifNoneMatch == null || ifNoneMatch.isBlank()) {
+            return false;
+        }
+        String current = withoutWeakPrefix(etag);
+        for (String candidate : ifNoneMatch.split(",")) {
+            String trimmed = candidate.trim();
+            if ("*".equals(trimmed) || withoutWeakPrefix(trimmed).equals(current)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static String withoutWeakPrefix(String etag) {
+        return etag.startsWith("W/") ? etag.substring(2) : etag;
     }
 
     /**

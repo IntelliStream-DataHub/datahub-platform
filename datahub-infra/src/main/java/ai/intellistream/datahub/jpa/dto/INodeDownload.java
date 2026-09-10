@@ -12,5 +12,7 @@ public interface INodeDownload {
     INode.INodeType getNodeType();
     String getMimeType();
     String getPath();
+    /** SHA-256 of the content, used as the download's strong etag. */
+    byte[] getChecksum();
 
 }
