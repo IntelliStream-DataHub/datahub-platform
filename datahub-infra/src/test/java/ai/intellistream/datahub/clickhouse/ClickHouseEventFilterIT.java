@@ -3,6 +3,7 @@ package ai.intellistream.datahub.clickhouse;
 
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.datafilters.TimeFilter;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventQueryResult;
 import ai.intellistream.datahub.models.events.EventRetreiver;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -145,6 +147,46 @@ class ClickHouseEventFilterIT {
 
     private static Set<String> idsOf(List<EventModel> events) {
         return events.stream().map(EventModel::getId).collect(Collectors.toSet());
+    }
+
+    /** Every seeded event sits exactly on this instant, so it is the boundary under test. */
+    private static final ZonedDateTime EVENT_TIME = ZonedDateTime.parse("2026-04-22T14:30:00Z");
+
+    private static EventRetreiver withEventTime(ZonedDateTime min, ZonedDateTime max) {
+        TimeFilter window = new TimeFilter();
+        window.setMin(min);
+        window.setMax(max);
+        EventFilter filter = new EventFilter();
+        filter.setEventTime(window);
+        EventRetreiver retreiver = new EventRetreiver();
+        retreiver.setFilter(filter);
+        return retreiver;
+    }
+
+    // ---- the eventTime window is inclusive at both ends ------------------------------------------
+
+    /**
+     * {@code TimeFilter} is one shared type and its schema says "an inclusive time window".
+     * {@code createdTime} and {@code lastUpdatedTime} were {@code <=} and every node and
+     * subscription window uses {@code lessThanOrEqualTo}; {@code eventTime} alone was {@code <}, so
+     * an event landing exactly on max was dropped — the common case for a day boundary written as
+     * {@code ...T00:00:00Z}.
+     */
+    @Test
+    void anEventLandingExactlyOnMaxIsIncluded() {
+        assertEquals(4, service.filter(withEventTime(null, EVENT_TIME), null).size(),
+                "max is inclusive, so an event on the boundary is inside the window");
+    }
+
+    @Test
+    void anEventLandingExactlyOnMinIsIncluded() {
+        assertEquals(4, service.filter(withEventTime(EVENT_TIME, null), null).size());
+    }
+
+    @Test
+    void aMaxBeforeTheEventStillExcludesIt() {
+        // The boundary is still a boundary: one millisecond earlier and nothing matches.
+        assertEquals(0, service.filter(withEventTime(null, EVENT_TIME.minusNanos(1_000_000)), null).size());
     }
 
     // ---- drill-down (filter) --------------------------------------------------------------------
