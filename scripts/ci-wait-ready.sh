@@ -27,7 +27,8 @@
 #      is why they are not sufficient on their own.
 #   4. A real tenant-scoped read. The first such call is what triggers
 #      TenantProvisioningFilter and its per-tenant migration, so early non-200s are
-#      expected and retried, not fatal.
+#      expected and retried, not fatal. POST /datasets/filter, not /datasets/list —
+#      the latter was removed as a duplicate name for the same handler.
 #
 # Stages 3 and 4 mint a FRESH token every attempt on purpose: a token obtained
 # before keycloak-bootstrap finished carries the wrong claim shape and would keep
@@ -152,14 +153,14 @@ check_tenant_read() {
   local tok code
   tok="$(mint_token)"
   [ -n "$tok" ] || { printf 'no token'; return 1; }
-  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$API/datasets/list" \
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -X POST "$API/datasets/filter" \
             -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{}' 2>/dev/null)"
-  [ "$code" = "200" ] || { printf 'datasets/list -> %s' "$code"; return 1; }
+  [ "$code" = "200" ] || { printf 'datasets/filter -> %s' "$code"; return 1; }
 }
 
 say "ci-wait-ready.sh: API=$API  issuer host=${KC}  tenant=${TENANT}  timeout=${TIMEOUT}s"
 wait_for "datahub-api to serve /api-docs"          check_api_docs
 wait_for "the organization claim to resolve"       check_org_claim
-wait_for "a tenant-scoped read (datasets/list)"    check_tenant_read
+wait_for "a tenant-scoped read (datasets/filter)"  check_tenant_read
 say ""
 say "stack is ready"
