@@ -621,8 +621,13 @@
 			// This one goes through the console's own proxy rather than straight to the api like the
 			// dimension lookups above: that is how every other dataset call in the console is made
 			// (/api/datasets/search, /api/datasets/delete), and being same-origin it needs no bearer
-			// token round trip. The proxy asks for a limit but /datasets/list ignores it and returns
-			// every data set in the tenant, so these indexes are complete.
+			// token round trip.
+			//
+			// The proxy asks for 100 and the api honours it, so these indexes cover the first 100
+			// data sets and not the tenant's whole set. An earlier comment here claimed the limit was
+			// ignored and the indexes complete; it never was — /datasets/list passed the limit
+			// straight to the query, exactly as GET /datasets does now. A tenant past 100 data sets
+			// gets a dropdown that silently omits the rest.
 			const dataSetInput = document.getElementById("dataSetId");
 			if (dataSetInput) {
 				let dataSets = [];

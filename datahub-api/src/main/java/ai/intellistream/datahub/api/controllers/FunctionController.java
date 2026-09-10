@@ -17,6 +17,7 @@ import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -101,16 +102,40 @@ public class FunctionController {
     }
 
     @Tag(name = "Functions")
-    @Operation(summary = "List functions", description = "List all functions for the current tenant.")
-    @ApiResponse(responseCode = "200", description = "Functions returned.",
+    @Operation(
+            summary = "List functions",
+            description = """
+                    The first `limit` functions you may read, newest created first. No body, no
+                    criteria — the cheap read for "what have I got", the shape every collection in
+                    this API answers to.
+
+                    `limit` defaults to 1000 and may not exceed 10 000. This moved from
+                    `GET /functions/list`, which was the only collection spelling the listing that
+                    way, and which returned every function in the tenant with no cap.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The first `limit` functions, newest first.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = FunctionDataWrapper.class)
             ))
-    @GetMapping(path = "/list", produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> listFunctions() {
+    @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+            ))
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> listFunctions(
+            @Parameter(description = "Maximum number of functions to return. A positive integer up to 10000.",
+                    example = "1000")
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        String rejection = ListingLimit.rejection(limit);
+        if (rejection != null) {
+            return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
+        }
         try {
-            return ResponseEntity.ok(functionService.list());
+            return ResponseEntity.ok(functionService.list(ListingLimit.resolve(limit)));
         } catch (RuntimeException e) {
             log.error("Function list failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();

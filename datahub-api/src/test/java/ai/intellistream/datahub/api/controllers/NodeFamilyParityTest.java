@@ -10,6 +10,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
@@ -74,6 +75,81 @@ class NodeFamilyParityTest {
         assertThat(pathsFor(controller, RequestMethod.GET))
                 .as("%s should expose GET /{id}", controller.getSimpleName())
                 .anyMatch(p -> p.matches(".*/\\{[A-Za-z]*[Ii]d\\}$"));
+    }
+
+    /**
+     * F-list: every node type answers a plain {@code GET /<collection>}, capped by {@code ?limit=}.
+     *
+     * <p>This is the endpoint that had drifted furthest. Three types had no plain listing at all,
+     * so "what have I got" meant composing a POST body; timeseries and datasets had
+     * {@code GET /x?limit=}; policies had {@code GET /x} returning every row in the tenant,
+     * unordered and uncapped; and functions spelled it {@code GET /x/list}, also uncapped. Four
+     * shapes across seven types, and the two uncapped ones were the two nobody had revisited.
+     *
+     * <p>The {@code limit} parameter is half the rule, not a detail: an uncapped listing is a
+     * response whose size neither side can bound, and it is the shape a listing regresses to when
+     * someone adds one in a hurry.
+     */
+    @ParameterizedTest(name = "{0} answers GET /<collection> with a limit")
+    @MethodSource("nodeFamilyControllers")
+    @DisplayName("every node type has a capped plain listing on the collection root")
+    void everyTypeHasACappedPlainListing(Class<?> controller) {
+        Method listing = null;
+        for (Method m : controller.getDeclaredMethods()) {
+            if (!verbsFor(m).contains(RequestMethod.GET)) {
+                continue;
+            }
+            List<String> paths = pathsOf(m);
+            // The collection root: either no path at all on the mapping, or the empty string.
+            if (paths.isEmpty() || paths.equals(List.of(""))) {
+                listing = m;
+                break;
+            }
+        }
+
+        assertThat(listing)
+                .as("%s should answer GET on the collection root. A no-body listing is a GET, not a "
+                        + "second POST beside /filter and not a /list path segment.",
+                        controller.getSimpleName())
+                .isNotNull();
+
+        assertThat(Arrays.stream(listing.getParameters())
+                        .anyMatch(param -> {
+                            RequestParam rp = param.getAnnotation(RequestParam.class);
+                            return rp != null && "limit".equals(rp.name());
+                        }))
+                .as("%s.%s should take a `limit` request parameter; an uncapped listing returns a "
+                        + "response neither the caller nor the server can bound",
+                        controller.getSimpleName(), listing.getName())
+                .isTrue();
+    }
+
+    /**
+     * One query operation, one name.
+     *
+     * <p>{@code POST /datasets/list} and {@code POST /datasets/filter} took the same
+     * {@code DataSetRetreiver} body and ran the same handler — {@code list} was a one-line delegate
+     * to {@code filter} — so the API had two names for one operation on exactly one of its
+     * collections. Callers split across both: the console's Feign client and the Java SDK reached
+     * for {@code /list}, the docs described {@code /filter}, and neither name was wrong.
+     *
+     * <p>A plain listing is a real and separate thing, but it is a {@code GET} with no body
+     * ({@code GET /datasets}, {@code GET /timeseries}, {@code GET /labels}, {@code GET /units}), not
+     * a second POST taking the filter's own request body.
+     */
+    @ParameterizedTest(name = "{0} does not expose both POST /list and POST /filter")
+    @MethodSource("nodeFamilyControllers")
+    @DisplayName("a POST /list must not shadow POST /filter")
+    void noControllerHasBothAPostListAndAPostFilter(Class<?> controller) {
+        Set<String> posts = pathsFor(controller, RequestMethod.POST);
+        boolean hasFilter = posts.stream().anyMatch(p -> p.endsWith("/filter"));
+        boolean hasList = posts.stream().anyMatch(p -> p.equals("/list"));
+
+        assertThat(hasFilter && hasList)
+                .as("%s exposes both POST /list and POST /filter. If they take the same body they are "
+                        + "one operation under two names; a no-body listing belongs on GET.",
+                        controller.getSimpleName())
+                .isFalse();
     }
 
     /**

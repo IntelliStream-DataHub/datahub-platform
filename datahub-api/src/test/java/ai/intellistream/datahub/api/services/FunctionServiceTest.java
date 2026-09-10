@@ -141,16 +141,53 @@ class FunctionServiceTest {
         var orphan = new ai.intellistream.datahub.jpa.domains.FunctionEntity();
         orphan.setExternalId("fn_orphan");
 
-        when(functionRepository.findAll()).thenReturn(java.util.List.of(readable, hidden, orphan));
+        when(functionRepository.findAll(any(org.springframework.data.domain.Sort.class)))
+                .thenReturn(java.util.List.of(readable, hidden, orphan));
         when(dataSecurity.hasReadAccessToEverything()).thenReturn(false);
         when(dataSecurity.readableDataSetIds()).thenReturn(java.util.Set.of(5L));
 
-        var externalIds = functionService.list().getItems().stream()
+        var externalIds = functionService.list(1000).getItems().stream()
                 .map(Function::getExternalId)
                 .toList();
 
         // create/update/delete inherit the dataset ACL from ResourceService, but list() queries the
         // repository directly and returned every function on the tenant.
         assertEquals(java.util.List.of("fn_readable", "fn_orphan"), externalIds);
+    }
+
+    /**
+     * The cap is applied after the dataset ACL, not in the query. Truncating first would let a
+     * caller with narrow grants see fewer functions than they are entitled to while more readable
+     * ones sat past the cut — the order is by creation, not by grant.
+     */
+    @Test
+    void list_appliesTheLimitAfterNarrowingSoTheCapCountsReadableFunctions() {
+        var readableDs = new ai.intellistream.datahub.jpa.domains.DatasetEntity();
+        readableDs.setId(5L);
+        var hiddenDs = new ai.intellistream.datahub.jpa.domains.DatasetEntity();
+        hiddenDs.setId(9L);
+
+        var hidden = new ai.intellistream.datahub.jpa.domains.FunctionEntity();
+        hidden.setExternalId("fn_hidden");
+        hidden.setDataSet(hiddenDs);
+        var first = new ai.intellistream.datahub.jpa.domains.FunctionEntity();
+        first.setExternalId("fn_first");
+        first.setDataSet(readableDs);
+        var second = new ai.intellistream.datahub.jpa.domains.FunctionEntity();
+        second.setExternalId("fn_second");
+        second.setDataSet(readableDs);
+
+        // The unreadable one sorts first, so a cap applied in the query would spend the caller's
+        // single slot on a row they may not see and return nothing.
+        when(functionRepository.findAll(any(org.springframework.data.domain.Sort.class)))
+                .thenReturn(java.util.List.of(hidden, first, second));
+        when(dataSecurity.hasReadAccessToEverything()).thenReturn(false);
+        when(dataSecurity.readableDataSetIds()).thenReturn(java.util.Set.of(5L));
+
+        var externalIds = functionService.list(1).getItems().stream()
+                .map(Function::getExternalId)
+                .toList();
+
+        assertEquals(java.util.List.of("fn_first"), externalIds);
     }
 }

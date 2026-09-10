@@ -35,9 +35,7 @@ public class DataSetApiController {
 
     @RequestMapping(value = {"/list"}, method = RequestMethod.GET)
     public ResponseEntity<?> list(){
-        DataSetRetreiver retreiver = new DataSetRetreiver();
-        retreiver.setLimit(100);
-        DataWrapper<DataSetModel> labels = datahubApi.listDataSets(retreiver);
+        DataWrapper<DataSetModel> labels = datahubApi.listDataSets(100);
         return new ResponseEntity<>(labels, HttpStatus.OK);
     }
 

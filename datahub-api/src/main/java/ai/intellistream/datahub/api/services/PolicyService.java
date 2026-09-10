@@ -37,6 +37,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -435,9 +437,20 @@ public class PolicyService {
     }
 
 
+    /**
+     * The newest {@code limit} policies. Capped in the query rather than after it: unlike the
+     * function listing there is no per-row ACL to apply above the cut, so the database can stop as
+     * soon as it has enough rows.
+     *
+     * <p>It used to be {@code findAll()} with no cap and no order — every policy in the tenant, in
+     * whatever order the database handed them back. The order matters as much as the cap: "the
+     * first 1000 of an unordered set" is a different set on every call.
+     */
     @Transactional(readOnly = true)
-    public List<Policy> listAllPolicies() {
-        List<PolicyEntity> nodes = policyRepository.findAll();
+    public List<Policy> listAllPolicies(int limit) {
+        List<PolicyEntity> nodes = policyRepository
+                .findAll(PageRequest.of(0, limit, Sort.by(Sort.Direction.DESC, "dateCreated")))
+                .getContent();
 
         return nodes.stream()
                 .map(PolicyTransformer::toPolicy)

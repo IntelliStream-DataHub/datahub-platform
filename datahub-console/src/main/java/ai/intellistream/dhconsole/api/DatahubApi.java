@@ -89,8 +89,12 @@ public interface DatahubApi {
     @RequestLine("DELETE /edges/delete")
     void deleteEdges(DataWrapper<IdCollection> apiReqData);
 
-    @RequestLine("POST /datasets/list")
-    DataWrapper<DataSetModel> listDataSets(DataSetRetreiver apiReqData);
+    // GET rather than the POST /datasets/list this used to call: that endpoint took a full
+    // DataSetRetreiver body and called the same handler as POST /datasets/filter, and every caller
+    // here filled the body with nothing but a limit. The api now spells the no-criteria listing the
+    // way the rest of the collections do, so a limit is all this has to send.
+    @RequestLine("GET /datasets?limit={limit}")
+    DataWrapper<DataSetModel> listDataSets(@Param("limit") int limit);
 
     @RequestLine("POST /datasets/search")
     DataWrapper<DataSetModel> searchDataSets(SearchBody<DataSetFilter> apiReqData);

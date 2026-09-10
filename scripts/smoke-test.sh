@@ -119,9 +119,9 @@ print("object" if isinstance(c, dict) and c and all(
     isinstance(v, dict) and v.get("id") for v in c.values()) else repr(c))')
   [ "$shape" = "object" ] && ok "organization claim resolvable" \
                           || bad "organization claim is $shape — keycloak-bootstrap has not applied its mappers"
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$API/datasets/list" \
+  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -X POST "$API/datasets/filter" \
            -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' -d '{}')
-  [ "$code" = "200" ] && ok "datasets/list -> 200" || bad "datasets/list -> $code"
+  [ "$code" = "200" ] && ok "datasets/filter -> 200" || bad "datasets/filter -> $code"
 fi
 
 # --- 4. The demo landed, if it is part of this stack ----------------------------------------

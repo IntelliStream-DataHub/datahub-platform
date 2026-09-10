@@ -45,6 +45,16 @@ public final class ResourceService {
     }
 
     /**
+     * GET /resources — the first {@code limit} resources, newest created first, with no criteria.
+     *
+     * <p>The cheap "what have I got" read that every collection answers. Anything narrower — real
+     * criteria, a different order, or a walk past the first page — is {@code filter}.
+     */
+    public DataWrapper<NodeModel> list(int limit) {
+        return http.get("/resources?limit=" + limit, nodes);
+    }
+
+    /**
      * GET /resources/{id}. The node comes back typed by its type-label: a TIMESERIES-labelled
      * node is a {@code Timeseries}, a DATASET a {@code DataSetModel}, and so on; a node with no
      * type-label is a plain {@code Resource}.

@@ -23,6 +23,7 @@ import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -162,6 +163,56 @@ public class AssetController {
                 .map(IdCollection::getExternalId).filter(java.util.Objects::nonNull)
                 .collect(Collectors.toCollection(HashSet::new));
         return ResponseEntity.ok(assetService.byIds(ids, externalIds));
+    }
+
+    @Tag(name = "Assets")
+    @Operation(
+            summary = "List assets",
+            description = """
+                    The first `limit` assets in your tenant, newest created first. No body, no
+                    criteria — the cheap read for "what have I got", the shape every collection in
+                    this API answers to.
+
+                    Assets are the bulk of a tenant, so this is a sample rather than an inventory: it is the
+                    newest `limit` of them, and anything narrower belongs in `POST /assets/filter`.
+
+                    Narrowed to the data sets you may read, exactly as `POST /assets/filter` is. `limit` defaults to 1000 and may not exceed 10 000. There is no paging
+                    here: a walk needs a `sort` and a `cursor` to continue and both belong in a
+                    request body, so this endpoint is the first page and says so — it never returns
+                    a `nextCursor`.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The first `limit` assets, newest first.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = AssetDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+            ))
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> list(
+            @Parameter(description = "Maximum number of assets to return. A positive integer up to 10000.",
+                    example = "1000")
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        String rejection = ListingLimit.rejection(limit);
+        if (rejection != null) {
+            return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
+        }
+        var form = new ResourceRetreiver();
+        // The retriever's own setter is what turns an absent, zero or negative limit into the
+        // shared default, so this endpoint cannot disagree with /filter about what it means.
+        if (limit != null) {
+            form.setLimit(limit);
+        }
+        var data = assetService.filter(form);
+        // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
+        // cannot accept it invites a paging loop that silently never advances.
+        data.setNextCursor(null);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Assets")
