@@ -8,12 +8,13 @@ import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.FetchNearestResourcesForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.resource.ResourceForm;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.models.SearchBody;
@@ -29,27 +30,33 @@ import java.util.List;
 public final class ResourceService {
 
     private final ApiHttp http;
-    private final JavaType resources;        // DataWrapper<Resource>
-    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy>
+    private final JavaType nodes;            // DataWrapper<NodeModel> — typed reads
+    private final JavaType nodeGraph;        // GraphDataWrapper<NodeModel, EdgeProxy> — typed create echo
+    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat delete echo
     private final JavaType resourceNetwork;  // ResourceNetwork
 
     public ResourceService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
-        this.resources = tf.constructParametricType(DataWrapper.class, Resource.class);
+        this.nodes = tf.constructParametricType(DataWrapper.class, NodeModel.class);
+        this.nodeGraph = tf.constructParametricType(GraphDataWrapper.class, NodeModel.class, EdgeProxy.class);
         this.resourceGraph = tf.constructParametricType(GraphDataWrapper.class, Resource.class, EdgeProxy.class);
         this.resourceNetwork = tf.constructType(ResourceNetwork.class);
     }
 
-    /** GET /resources/{id} */
-    public DataWrapper<Resource> getById(long id) {
-        return http.get("/resources/" + id, resources);
+    /**
+     * GET /resources/{id}. The node comes back typed by its type-label: a TIMESERIES-labelled
+     * node is a {@code Timeseries}, a DATASET a {@code DataSetModel}, and so on; a node with no
+     * type-label is a plain {@code Resource}.
+     */
+    public DataWrapper<NodeModel> getById(long id) {
+        return http.get("/resources/" + id, nodes);
     }
 
-    /** POST /resources/byids — fetch resources by numeric id or external id. */
-    public DataWrapper<Resource> byIds(List<IdCollection> ids) {
+    /** POST /resources/byids — fetch nodes by numeric id or external id, typed by type-label. */
+    public DataWrapper<NodeModel> byIds(List<IdCollection> ids) {
         DataWrapper<IdCollection> request = new DataWrapper<IdCollection>().setItems(ids);
-        return http.post("/resources/byids", request, resources);
+        return http.post("/resources/byids", request, nodes);
     }
 
     /**
@@ -82,31 +89,37 @@ public final class ResourceService {
      * its {@code limit} (default 1000, max 10000). Past that cap, page with the retriever's
      * {@code cursor} and the response's {@code nextCursor}.
      */
-    public DataWrapper<Resource> filter(ResourceRetreiver retriever) {
-        return http.post("/resources/filter", retriever, resources);
+    public DataWrapper<NodeModel> filter(ResourceRetreiver retriever) {
+        return http.post("/resources/filter", retriever, nodes);
     }
 
     /** {@link #filter(ResourceRetreiver)} with just the criteria and the default limit. */
-    public DataWrapper<Resource> filter(ResourceFilter criteria) {
+    public DataWrapper<NodeModel> filter(ResourceFilter criteria) {
         ResourceRetreiver request = new ResourceRetreiver();
         request.setFilter(criteria);
         return filter(request);
     }
 
     /** POST /resources/search */
-    public DataWrapper<Resource> search(SearchBody<ResourceFilter> search) {
-        return http.post("/resources/search", search, resources);
+    public DataWrapper<NodeModel> search(SearchBody<ResourceFilter> search) {
+        return http.post("/resources/search", search, nodes);
     }
 
     /**
      * POST /resources/create — create resources, optionally with relations between them.
      * Returns the created graph (nodes as {@link Resource}, relations as {@link EdgeProxy}).
      */
-    public GraphDataWrapper<Resource, EdgeProxy> create(List<ResourceForm> nodes, List<RelForm> relations) {
-        GraphDataWrapper<ResourceForm, RelForm> request = new GraphDataWrapper<>();
-        request.setNodes(nodes);
-        request.setRelations(relations);
-        return http.post("/resources/create", request, resourceGraph);
+    /**
+     * POST /resources/create. Any creatable node kind rides one call — an {@link Asset} with a
+     * geoLocation, a {@code DataSetModel}, a {@code Timeseries} next to the assets it measures —
+     * each dispatched by the type-label its DTO carries. The echo comes back typed.
+     */
+    public GraphDataWrapper<NodeModel, EdgeProxy> create(List<? extends NodeModel> nodes, List<RelForm> relations) {
+        GraphDataWrapper<NodeModel, RelForm> request = new GraphDataWrapper<>();
+        request.setNodes(new java.util.ArrayList<>(nodes));
+        // Null relations is the common case for a node-only create.
+        request.setRelations(relations == null ? new java.util.ArrayList<>() : new java.util.ArrayList<>(relations));
+        return http.post("/resources/create", request, nodeGraph);
     }
 
     /** DELETE /resources/delete — delete resources by id; returns the removed graph. */
@@ -163,16 +176,16 @@ public final class ResourceService {
      * {@code add} over {@code set} on collections, since two writers adding entries both survive a
      * retry where two writers setting them clobber each other.
      */
-    public GraphDataWrapper<Resource, EdgeProxy> update(List<UpdateResourceForm> nodes,
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes,
                                                         List<UpdateRelForm> relations) {
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> request = new GraphDataWrapper<>();
         request.setNodes(nodes);
         request.setRelations(relations);
-        return http.post("/resources/update", request, resourceGraph);
+        return http.post("/resources/update", request, nodeGraph);
     }
 
     /** Convenience over {@link #update(List, List)} for the common node-only update. */
-    public GraphDataWrapper<Resource, EdgeProxy> update(List<UpdateResourceForm> nodes) {
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes) {
         return update(nodes, List.of());
     }
 }

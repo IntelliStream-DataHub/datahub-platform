@@ -3,6 +3,7 @@ package ai.intellistream.datahub.models;
 
 import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -18,21 +19,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The envelope every filter endpoint shares: one page size, defended the same way.
  *
- * <p>These four drifted apart quietly — two defaulted to 100 and two to 1000, and two typed the
+ * <p>These drifted apart quietly — two defaulted to 100 and two to 1000, and two typed the
  * field {@code Integer} while two used {@code int}, so an explicit {@code "limit": null} was a 400
  * on half the API and accepted on the other half. Nothing compared them to each other, which is the
  * same gap {@code FilterContractParityTest} closes for the filter bodies.
+ *
+ * <p>{@link SubscriptionRetriever} is here because it drifted the same way and was not caught: it
+ * defaulted to 100, clamped the limit in the service rather than on the way in, and was the body of
+ * a {@code /list} endpoint while the rest of the family filtered. It is a retriever like the other
+ * four, so it is held to the same envelope.
  */
 class RetrieverEnvelopeTest {
 
     private final JsonMapper mapper = JsonMapper.builder().build();
 
     private static final Class<?>[] RETRIEVERS = {
-            DataSetRetreiver.class, ResourceRetreiver.class, TimeseriesRetreiver.class, EventRetreiver.class};
+            DataSetRetreiver.class, ResourceRetreiver.class, TimeseriesRetreiver.class, EventRetreiver.class,
+            SubscriptionRetriever.class};
 
     @ParameterizedTest
     @ValueSource(classes = {DataSetRetreiver.class, ResourceRetreiver.class, TimeseriesRetreiver.class,
-            EventRetreiver.class})
+            EventRetreiver.class, SubscriptionRetriever.class})
     void limitIsAPrimitiveIntSoItCanNeverArriveNull(Class<?> retriever) throws Exception {
         Field limit = retriever.getDeclaredField("limit");
         assertEquals(int.class, limit.getType(),
@@ -42,7 +49,7 @@ class RetrieverEnvelopeTest {
 
     @ParameterizedTest
     @ValueSource(classes = {DataSetRetreiver.class, ResourceRetreiver.class, TimeseriesRetreiver.class,
-            EventRetreiver.class})
+            EventRetreiver.class, SubscriptionRetriever.class})
     void everyRetrieverDefaultsToTheSamePageSize(Class<?> retriever) throws Exception {
         Object instance = retriever.getDeclaredConstructor().newInstance();
         Method getLimit = retriever.getMethod("getLimit");

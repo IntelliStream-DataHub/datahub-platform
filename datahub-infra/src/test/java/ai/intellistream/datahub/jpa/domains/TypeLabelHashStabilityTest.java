@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>A derived value that is <em>stored</em> is a contract with the rows already written, not an
  * implementation detail. If one of these fails, the answer is a migration in the same commit — see
- * {@code V37__rehash_labels_from_xx64_to_xx3} — not a new expected value.
+ * {@code V41__rehash_labels_from_xx64_to_xx3} — not a new expected value.
  */
 class TypeLabelHashStabilityTest {
 

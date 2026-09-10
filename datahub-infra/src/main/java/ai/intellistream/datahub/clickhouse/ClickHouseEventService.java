@@ -197,17 +197,10 @@ public class ClickHouseEventService extends ClickHouseService {
                     continue;
                 }
 
-                if (fields.getExternalId() != null && fields.getExternalId().getSet() != null) {
-                    String newExtId = fields.getExternalId().getSet();
-                    setClauses.add("external_id = {ext_id:String}");
-                    params.put("ext_id", newExtId);
-
-                    // Same signed form the insert path writes: ClickHouseHelper.writeInt128 stores
-                    // the raw low 128 bits, so a rename must land on the same number an insert would
-                    // have produced, or the row becomes unfindable by its own new externalId.
-                    setClauses.add("external_id_hash = {ext_hash:Int128}");
-                    params.put("ext_hash", IdGenerator.generate128bitKeySigned(newExtId, message.getTenantId()));
-                }
+                // No external_id clause: an event's externalId is immutable — the field is gone
+                // from EventFields, like eventTime below. KVRocks keys events by hash(externalId)
+                // with a SET of UUIDs behind it (shared externalIds are one logical event's
+                // lifecycle), so a rename had no per-event meaning there to mirror here.
                 if (fields.getType() != null && fields.getType().getSet() != null) {
                     setClauses.add("type = {type:String}");
                     params.put("type", fields.getType().getSet());

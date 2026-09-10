@@ -349,8 +349,8 @@ class GraphNetwork {
     }
 
     // Resolve once a node with this externalId is in the graph. A just-created resource
-    // may still be propagating from Postgres to Neo4j (async via Pulsar + the stateful
-    // consumer), and the graph only fetches on select — so re-load the network while it
+    // may still be propagating from Postgres to Neo4j (applied from the outbox queue just
+    // after commit), and the graph only fetches on select — so re-load the network while it
     // is still EMPTY (propagation pending). Once the graph has nodes we only poll: a
     // re-load then would just clear what is already shown without finding anything new.
     // Resolves with the node, or null on timeout. Promise-based (not async) to match

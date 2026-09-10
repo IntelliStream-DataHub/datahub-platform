@@ -21,7 +21,7 @@ import java.util.List;
 @Schema(name = "Subscription", description = "A subscription bound to one or more timeseries. Creates a Pulsar topic and subscription on persist.")
 @Getter
 @Setter
-@JsonPropertyOrder({"id", "externalId", "name", "timeseries", "systemManaged", "dateCreated", "lastUpdated"})
+@JsonPropertyOrder({"id", "externalId", "name", "timeseries", "dateCreated", "lastUpdated"})
 public class Subscription {
 
     @Schema(description = "The id of the subscription.", example = "12345")
@@ -50,14 +50,6 @@ public class Subscription {
             example = "[{\"id\": 29}, {\"externalId\": \"heater_2012_temp\"}]",
             requiredMode = Schema.RequiredMode.REQUIRED)
     private List<IdCollection> timeseries = new ArrayList<>();
-
-    @JsonAlias({"system_managed"})
-    @JsonProperty("systemManaged")
-    @Schema(description = "True when this subscription was auto-provisioned by the function-binding " +
-            "lifecycle. Server-controlled — read-only on the wire. System-managed subscriptions are " +
-            "hidden from /subscriptions/list by default and refuse manual deletes.",
-            accessMode = Schema.AccessMode.READ_ONLY)
-    private Boolean systemManaged;
 
     @JsonAlias({"date_created"})
     @JsonProperty("dateCreated")

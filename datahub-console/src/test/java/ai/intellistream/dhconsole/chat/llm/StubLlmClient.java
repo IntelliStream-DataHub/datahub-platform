@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -14,8 +16,8 @@ import java.util.List;
 public final class StubLlmClient implements LlmClient {
 
     /** What the loop asked for on one turn. */
-    public record Sent(String systemPrompt, List<LlmToolDef> tools, List<LlmMessage> messages,
-                       ChatEffort effort) {
+    public record Sent(ChatSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                       List<LlmMessage> messages, ChatEffort effort) {
     }
 
     private final Deque<LlmTurn> script = new ArrayDeque<>();
@@ -39,18 +41,18 @@ public final class StubLlmClient implements LlmClient {
     }
 
     @Override
-    public LlmTurn send(String systemPrompt, List<LlmToolDef> tools, List<LlmMessage> messages,
-                        ChatEffort effort) {
+    public LlmTurn send(ChatSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                        List<LlmMessage> messages, ChatEffort effort) {
         // Copy: the loop hands over an unmodifiable *view* of the live transcript, which keeps
         // changing after this returns. Recording the view would make every assertion see the
         // final state instead of the state at this turn.
-        sent.add(new Sent(systemPrompt, List.copyOf(tools), List.copyOf(messages), effort));
+        sent.add(new Sent(settings, systemPrompt, List.copyOf(tools), List.copyOf(messages), effort));
         LlmTurn next = script.poll();
         return next != null ? next : whenScriptRunsOut;
     }
 
     @Override
-    public String providerId() {
+    public String providerId(ChatSettings settings) {
         return "stub";
     }
 

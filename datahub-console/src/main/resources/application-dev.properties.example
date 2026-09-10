@@ -17,8 +17,12 @@ datahub.assets.unbundled=true
 # Templates and static assets load from src via file: paths (relative to the datahub-console
 # working directory) with caching off, so edits show on a browser refresh. i18n messages load the
 # same way (configured in I18nDevConfig).
+# Safe without a source tree too: ThymeleafDevConfig puts the packaged templates behind this prefix.
 spring.thymeleaf.prefix=file:src/main/resources/templates/
 spring.thymeleaf.cache=false
+# Without a source tree the prefix above does not exist, and Boot warns about it at every startup
+# even though the fallback serves the pages. The warning is the misleading part, not the setup.
+spring.thymeleaf.check-template-location=false
 
 spring.web.resources.static-locations=file:src/main/resources/static/,classpath:/META-INF/resources/,classpath:/resources/,classpath:/static/,classpath:/public/
 spring.web.resources.cache.period=0
@@ -36,3 +40,11 @@ feign.client.config.default.readTimeout=600000
 # If you run separate dev and test Vault clusters, this is where you switch between them.
 vault.address=< vault url here >
 vault.role-id=<your-vault-approle-role-id>
+# Client certificate for a Vault listener that requires mutual TLS (PKCS12, or JKS by the .jks
+# extension), and optionally the CA that signed Vault's server certificate. Leave unset for a
+# Vault that does not require a client certificate. Also settable as VAULT_KEYSTORE,
+# VAULT_KEYSTORE_PASSWORD, VAULT_TRUSTSTORE and VAULT_TRUSTSTORE_PASSWORD.
+#vault.keystore=< path to client .p12 here >
+#vault.keystore-password=< keystore password here >
+#vault.truststore=< path to CA .p12 here >
+#vault.truststore-password=< truststore password here >

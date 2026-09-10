@@ -1,7 +1,6 @@
 
 tasks.register('startBootStack') {
     dependsOn ':datahub-api:bootRun',
-            ':datahub-stateful-consumer:bootRun',
             ':datahub-stateless-consumer:bootRun',
             ':datahub-analysis:bootRun',
             ':datahub-console:bootRun'

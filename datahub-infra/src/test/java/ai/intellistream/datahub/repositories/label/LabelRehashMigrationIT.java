@@ -3,7 +3,7 @@ package ai.intellistream.datahub.repositories.label;
 
 import ai.intellistream.datahub.helpers.text.Labels;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
-import db.migration.V37__rehash_labels_from_xx64_to_xx3;
+import db.migration.V41__rehash_labels_from_xx64_to_xx3;
 import net.openhft.hashing.LongHashFunction;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.configuration.Configuration;
@@ -51,7 +51,7 @@ class LabelRehashMigrationIT {
     }
 
     private static void runMigration(Connection connection) throws Exception {
-        new V37__rehash_labels_from_xx64_to_xx3().migrate(new Context() {
+        new V41__rehash_labels_from_xx64_to_xx3().migrate(new Context() {
             @Override public Configuration getConfiguration() { return null; }
             @Override public Connection getConnection() { return connection; }
         });

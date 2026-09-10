@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 /**
  * Pins the exact on-the-wire shape of {@link Timeseries} (field set + serialized values + the per-field
@@ -34,7 +35,6 @@ class TimeseriesWireContractTest {
         ts.setUnit("Deg C");
         ts.setUnitExternalId("Deg.C");       // canonicalized -> deg_c
         ts.setDescription("desc");
-        ts.setSecurityCategories(List.of(1, 2));
         ts.setDataSetId(21L);
         ts.setValueType("FLOAT");            // normalized -> float
         ts.setSource("src");                 // hoisted onto NodeModel
@@ -50,9 +50,7 @@ class TimeseriesWireContractTest {
         assertEquals("Deg C", m.get("unit"));
         assertEquals("deg_c", m.get("unitExternalId"));  // canonicalized
         assertEquals("desc", m.get("description"));
-        assertEquals(List.of(1, 2), m.get("securityCategories"));
         assertEquals("21", m.get("dataSetId"));          // ToStringSerializer
-        assertEquals("MERGETREE", m.get("tableEngine"));
         assertEquals("float", m.get("valueType"));       // normalized
         assertEquals("src", m.get("source"));
         assertEquals("2024-06-17T12:34:56Z", m.get("createdTime"));
@@ -62,9 +60,25 @@ class TimeseriesWireContractTest {
         // is also the discriminator that routes it to the timeseries path on /resources/create.
         assertEquals(List.of("TIMESERIES"), m.get("labels"));
 
-        // Timeseries has no @JsonInclude — the full field set is always present.
+        // tableEngine is deliberately absent: it was an internal storage decision a caller could
+        // not act on, and the platform no longer stores it at all.
+        assertFalse(m.containsKey("tableEngine"), m.toString());
+
         assertEquals(Set.of("id", "externalId", "name", "metadata", "unit", "unitExternalId",
-                "relatedResources", "description", "securityCategories", "dataSetId", "source", "labels",
-                "tableEngine", "valueType", "createdTime", "lastUpdatedTime"), m.keySet());
+                "relatedResources", "description", "dataSetId", "source", "labels",
+                "valueType", "createdTime", "lastUpdatedTime"), m.keySet());
+    }
+
+    /**
+     * {@code tableEngine} was once on the wire, so SDKs built against that contract still send it.
+     * It must stay listed in {@code @JsonIgnoreProperties}: the api rejects unknown body fields,
+     * and dropping it from the tolerated list would turn those requests into 400s.
+     */
+    @Test
+    void toleratesTheRetiredTableEngineField() {
+        Timeseries ts = mapper.readValue(
+                "{\"externalId\":\"engine_temp\",\"tableEngine\":\"MERGETREE\"}", Timeseries.class);
+
+        assertEquals("engine_temp", ts.getExternalId());
     }
 }

@@ -2,9 +2,11 @@
 package ai.intellistream.dhconsole.chat.agent;
 
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
 import ai.intellistream.dhconsole.chat.llm.LlmClient;
+import ai.intellistream.dhconsole.chat.llm.LlmClients;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
 import ai.intellistream.dhconsole.chat.llm.LlmToolDef;
 import ai.intellistream.dhconsole.chat.llm.LlmTurn;
@@ -13,7 +15,6 @@ import ai.intellistream.dhconsole.chat.mcp.McpToolResult;
 import ai.intellistream.dhconsole.chat.policy.ToolPolicy;
 import ai.intellistream.dhconsole.chat.state.ChatConversation;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
 import java.time.ZoneId;
@@ -31,23 +32,22 @@ import java.util.Set;
  */
 @Slf4j
 @Service
-@ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
 public class ChatService {
 
 
     /** More buttons than this under one answer is noise rather than help. */
     private static final int MAX_VIEWS = 3;
 
-    private final LlmClient llm;
+    private final LlmClients backends;
     private final McpBridge mcp;
     private final ToolPolicy policy;
     private final ConsoleViews consoleViews;
     private final ChatPrompt prompt;
     private final ChatProperties properties;
 
-    public ChatService(LlmClient llm, McpBridge mcp, ToolPolicy policy, ConsoleViews consoleViews,
-                       ChatPrompt prompt, ChatProperties properties) {
-        this.llm = llm;
+    public ChatService(LlmClients backends, McpBridge mcp, ToolPolicy policy,
+                       ConsoleViews consoleViews, ChatPrompt prompt, ChatProperties properties) {
+        this.backends = backends;
         this.mcp = mcp;
         this.policy = policy;
         this.consoleViews = consoleViews;
@@ -58,6 +58,7 @@ public class ChatService {
     /**
      * Run one user turn to completion.
      *
+     * @param settings which model this tenant's chat runs on, resolved on the request thread
      * @param bearer the signed-in user's access token, captured on the request thread — every tool
      *               call is made as that user so datahub-api's ACLs and tenant routing apply
      * @param zone   the user's time zone, so relative periods resolve where they are
@@ -65,9 +66,9 @@ public class ChatService {
      *               to every iteration of this turn: a turn that earned a deep first pass has
      *               earned an equally deep pass over the tool results it just fetched.
      */
-    public ChatReply send(ChatConversation conversation, String bearer, String userMessage, ZoneId zone,
-                          ChatEffort effort) {
-        String systemPrompt = prompt.build(zone);
+    public ChatReply send(ChatConversation conversation, ChatSettings settings, String bearer,
+                          String userMessage, ZoneId zone, ChatEffort effort) {
+        String systemPrompt = prompt.build(zone, settings.instructions());
         conversation.append(LlmMessage.user(userMessage));
 
         // Mutating tools are filtered out here, so the model is never even aware they exist and
@@ -79,13 +80,25 @@ public class ChatService {
         // A LinkedHashSet so a filter the model repeats across iterations yields one button, in the
         // order the lookups happened.
         Set<ConsoleView> views = new LinkedHashSet<>();
+        LlmClient llm = backends.forSettings(settings);
 
-        for (int iteration = 0; iteration < properties.getMaxIterations(); iteration++) {
-            LlmTurn turn = llm.send(systemPrompt, tools, conversation.messages(), effort);
+        // A turn is one HTTP request that can legitimately run for minutes, so it logs as it goes.
+        // Without this a slow model and a hung one look identical: silence either way.
+        long modelMs = 0;
+        long toolMs = 0;
+        for (int iteration = 0; iteration < settings.maxIterations(); iteration++) {
+            long callStartedAt = System.nanoTime();
+            LlmTurn turn = llm.send(settings, systemPrompt, tools, conversation.messages(), effort);
+            long callMs = millisSince(callStartedAt);
+            modelMs += callMs;
+            log.info("Chat turn: model call {}/{} took {} ms, {}", iteration + 1,
+                    settings.maxIterations(), callMs,
+                    turn.wantsTools() ? "wants " + toolNames(turn) : "answering");
             conversation.append(LlmMessage.assistant(turn.blocks()));
 
             if (!turn.wantsTools()) {
                 conversation.trimTo(properties.getMaxMessages());
+                logBreakdown(iteration + 1, modelMs, toolMs, "answered");
                 return new ChatReply(turn.text(), List.copyOf(toolsUsed), limited(views), false);
             }
 
@@ -101,7 +114,12 @@ public class ChatService {
                     continue;
                 }
                 toolsUsed.add(call.name());
+                long toolStartedAt = System.nanoTime();
                 LlmBlock.ToolResult result = execute(bearer, call);
+                long thisToolMs = millisSince(toolStartedAt);
+                toolMs += thisToolMs;
+                log.debug("Chat turn: tool {} took {} ms{}", call.name(), thisToolMs,
+                        result.isError() ? " (error)" : "");
                 results.add(result);
                 consoleViews.from(call, result).ifPresent(views::add);
             }
@@ -110,9 +128,23 @@ public class ChatService {
             conversation.append(LlmMessage.toolResults(results));
         }
 
-        log.warn("Chat turn hit the {}-iteration cap at effort {}", properties.getMaxIterations(), effort);
+        log.warn("Chat turn hit the {}-iteration cap at effort {}", settings.maxIterations(), effort);
         conversation.trimTo(properties.getMaxMessages());
+        logBreakdown(settings.maxIterations(), modelMs, toolMs, "truncated at the iteration cap");
         return new ChatReply(lastAssistantText(conversation), List.copyOf(toolsUsed), limited(views), true);
+    }
+
+    /** Where a turn's wall-clock actually went, which is the first question a slow one raises. */
+    private static void logBreakdown(int iterations, long modelMs, long toolMs, String outcome) {
+        log.info("Chat turn {}: {} model call(s) {} ms, tools {} ms", outcome, iterations, modelMs, toolMs);
+    }
+
+    private static String toolNames(LlmTurn turn) {
+        return turn.toolUses().stream().map(LlmBlock.ToolUse::name).toList().toString();
+    }
+
+    private static long millisSince(long startedAtNanos) {
+        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 
     private static List<ConsoleView> limited(Set<ConsoleView> views) {

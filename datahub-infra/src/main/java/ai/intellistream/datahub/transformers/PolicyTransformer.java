@@ -45,7 +45,6 @@ public class PolicyTransformer {
         // (listAllPolicies) an extra SELECT each, and with the entity detached a
         // LazyInitializationException, since open-in-view is off. Both were paid to fetch a
         // constant. Not touching it also frees every policy finder from having to fetch nodeType.
-        p.setNodeType("POLICY");
 
         try {
             p.setType(PolicyType.valueOf(item.getName().toUpperCase(Locale.ROOT)));

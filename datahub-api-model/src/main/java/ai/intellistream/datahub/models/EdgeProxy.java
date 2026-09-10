@@ -43,6 +43,14 @@ public class EdgeProxy implements Serializable {
     @JsonSerialize(using = ToStringSerializer.class)
     private Long relationshipTypeId;
 
+    /**
+     * The data set this edge belongs to. Nodes have carried theirs into the graph for a long time;
+     * edges did not, so the assignment existed only in Postgres and an edge read back from the
+     * graph could not say what scoped it.
+     */
+    @JsonSerialize(using = ToStringSerializer.class)
+    private Long dataSetId;
+
     private Map<String, String> metadata = new HashMap<>();
 
     public EdgeProxy(){

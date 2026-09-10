@@ -96,7 +96,9 @@ public class McpBridge {
     }
 
     private static URI mcpEndpoint(String baseUrl) {
-        return URI.create(baseUrl.replaceAll("/+$", "") + "/mcp");
+        int end = baseUrl.length();
+        while (end > 0 && baseUrl.charAt(end - 1) == '/') end--;
+        return URI.create(baseUrl.substring(0, end) + "/mcp");
     }
 
     /**

@@ -233,7 +233,7 @@ class DatasetClosureServiceTest {
 
     // ---- closureOf: the filter path -------------------------------------------------------
     // dataSetId=X on a query filter now resolves through the same closure a grant on X does. It
-    // used to walk the Neo4j mirror, which the stateful consumer writes asynchronously, so the two
+    // used to walk the Neo4j mirror, which is written after the transaction commits, so the two
     // could disagree about what is beneath a dataset.
 
     @Test

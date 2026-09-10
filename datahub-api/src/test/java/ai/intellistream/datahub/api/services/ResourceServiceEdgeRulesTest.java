@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
@@ -51,13 +52,18 @@ class ResourceServiceEdgeRulesTest {
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
 
     private final ResourceService service = new ResourceService(
-            mock(EntityManager.class), nodeRepository, mock(NodeService.class),
-            mock(LabelService.class), mock(EdgeRepository.class),
+            mock(EntityManager.class), nodeRepository, mock(NodeService.class), mock(EdgeRepository.class),
             mock(RelationshipTypeRepository.class), relationshipTypeService,
-            mock(ApplicationEventPublisher.class), mock(Neo4JService.class),
-            mock(DataSetRepository.class), mock(DataSecurity.class),
+            mock(ApplicationEventPublisher.class), mock(GraphOutbox.class), mock(Neo4JService.class),
+            mock(DataSecurity.class),
             mock(SubscriptionRepository.class), mock(Validator.class),
-            mock(PolicyEnforcement.class), mock(DatasetClosureService.class));
+            mock(PolicyEnforcement.class), mock(DatasetClosureService.class),
+            mock(IngestQuotaService.class), mock(TenantLimitsService.class),
+            new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, mock(RelationshipTypeRepository.class), relationshipTypeService),
+            new ai.intellistream.datahub.api.services.node.NodeUpdateService(
+                    mock(NodeRepository.class), mock(DataSetRepository.class), mock(DataSecurity.class),
+                    mock(LabelService.class), mock(NodeService.class), mock(PolicyEnforcement.class)),
+            mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
 
     /** Stub {@code mapEdge}'s resolution of an endpoint id, plus its rule-check projection. */
     private void node(long id, long nodeType, Long dataSetId) {

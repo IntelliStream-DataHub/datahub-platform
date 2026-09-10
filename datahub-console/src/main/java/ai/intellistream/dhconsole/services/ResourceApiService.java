@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.helpers.updates.UpdateListField;
@@ -9,7 +10,8 @@ import ai.intellistream.datahub.helpers.updates.UpdateNumberField;
 import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.forms.RelFormWithId;
-import ai.intellistream.datahub.resource.ResourceForm;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.resource.ResourceWebForm;
 import ai.intellistream.dhconsole.api.DatahubApi;
 import org.springframework.stereotype.Service;
@@ -34,9 +36,49 @@ public class ResourceApiService {
      * would drop them before the browser ever saw them, and a warning nobody is shown is the same
      * as no warning at all.
      */
-    public GraphDataWrapper<Resource, EdgeProxy> save(ResourceWebForm resource){
-        GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
-        dataWrapper.getNodes().add(resource);
+    /**
+     * Carry the browser's form into the node family the api speaks.
+     *
+     * <p>{@code ResourceWebForm} is a {@code Resource} plus two console-only fields
+     * ({@code relationFrom}, {@code relationTypes}) that describe the UI's intent, not a node. The
+     * api reads request bodies strictly and rejects fields it has no place for, so the form is
+     * copied into the node shape rather than posted through. Only assets and plain resources are
+     * created from this form, so the mapping turns on the ASSET label and nothing else; every
+     * other type is created through its own console flow.
+     */
+    private static NodeModel toNode(ResourceWebForm form) {
+        boolean isAsset = form.getLabels() != null
+                && form.getLabels().stream().anyMatch(l -> "ASSET".equalsIgnoreCase(l));
+        if (isAsset) {
+            var asset = new Asset();
+            asset.setExternalId(form.getExternalId());
+            asset.setName(form.getName());
+            asset.setDescription(form.getDescription());
+            asset.setSource(form.getSource());
+            asset.setDataSetId(form.getDataSetId());
+            asset.setMetadata(form.getMetadata());
+            asset.setLabels(form.getLabels());
+            asset.setIsRoot(form.getIsRoot());
+            asset.setGeoLocation(form.getGeoLocation());
+            return asset;
+        }
+        var node = new Resource();
+        node.setExternalId(form.getExternalId());
+        node.setName(form.getName());
+        node.setDescription(form.getDescription());
+        node.setSource(form.getSource());
+        node.setDataSetId(form.getDataSetId());
+        node.setMetadata(form.getMetadata());
+        node.setLabels(form.getLabels());
+        node.setIsRoot(form.getIsRoot());
+        // No geoLocation: it is write-only on Resource, so Feign would drop it, and the api only
+        // reads one on the ASSET branch anyway. A geolocated node is an asset — handled above.
+        return node;
+    }
+
+    public GraphDataWrapper<NodeModel, EdgeProxy> save(ResourceWebForm resource){
+        GraphDataWrapper<NodeModel, RelForm> dataWrapper = new GraphDataWrapper<>();
+        dataWrapper.getNodes().add(toNode(resource));
 
         if(resource.getRelationFrom() != null && !resource.getRelationTypes().isEmpty()){
             for(var relType : resource.getRelationTypes()){
@@ -52,16 +94,16 @@ public class ResourceApiService {
     }
 
     public EdgeProxy saveEdge(RelForm form){
-        GraphDataWrapper<ResourceForm, RelForm> dataWrapper = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> dataWrapper = new GraphDataWrapper<>();
         dataWrapper.getRelations().add(form);
-        GraphDataWrapper<Resource, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
+        GraphDataWrapper<NodeModel, EdgeProxy> results = this.datahubApi.createResourcesAndRelations(dataWrapper);
         if( !results.getRelations().isEmpty() ){
             return results.getRelations().iterator().next();
         }
         return null;
     }
 
-    public GraphDataWrapper<Resource, EdgeProxy> update(ResourceForm resource){
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(Resource resource){
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateForm = new GraphDataWrapper<>();
         UpdateResourceForm updateResourceForm = new UpdateResourceForm( resource.getId() );
         updateForm.getNodes().add(updateResourceForm);
@@ -98,7 +140,7 @@ public class ResourceApiService {
         return this.datahubApi.updateResourcesAndRelations(updateForm);
     }
 
-    public GraphDataWrapper<Resource, EdgeProxy> updateEdge(RelFormWithId form){
+    public GraphDataWrapper<NodeModel, EdgeProxy> updateEdge(RelFormWithId form){
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateForm = new GraphDataWrapper<>();
         UpdateRelForm updateRelForm = new UpdateRelForm( form.getId() );
         updateForm.getRelations().add(updateRelForm);
@@ -139,16 +181,24 @@ public class ResourceApiService {
 
         var responseData = datahubApi.updateResourcesAndRelations(updateForm);
         var edge = responseData.getRelations().stream().findFirst();
+        // Repackage over NodeModel: the update echo is still flat Resources, but the byids
+        // refresh below returns label-typed nodes.
+        var enriched = new GraphDataWrapper<NodeModel, EdgeProxy>();
+        enriched.setNodes(new java.util.ArrayList<>(responseData.getNodes()));
+        enriched.setRelations(responseData.getRelations());
+        // Carry the envelope's warnings across: a policy warning nobody is shown is the same as
+        // no warning at all.
+        enriched.setWarnings(responseData.getWarnings());
         if(edge.isPresent()){
             var edgeProxy = edge.get();
             var dataForm = new DataWrapper<IdCollection>();
             dataForm.getItems().add(IdCollection.createFromId(edgeProxy.getStart()));
             dataForm.getItems().add(IdCollection.createFromId(edgeProxy.getEnd()));
             var nodes = datahubApi.byIds(dataForm);
-            responseData.setNodes(nodes.getItems());
+            enriched.setNodes(nodes.getItems());
         }
 
-        return responseData;
+        return enriched;
     }
 
     public void deleteEdge(long id) {

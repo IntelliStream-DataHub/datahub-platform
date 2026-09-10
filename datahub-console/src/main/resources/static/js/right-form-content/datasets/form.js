@@ -54,7 +54,7 @@ class DataSetForm extends DatasetFormAbstract {
 			<p class="field-hint">${$L('external.id.charset.help')}</p>
 
 			<label>${$L('description')}</label>
-			<textarea class="w100 ${this.fieldError('description')}" name="description" placeholder="${$L('write.description.here')}..." tabindex="40"></textarea>
+			<textarea class="w100 ${this.fieldError('description')}" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="40"></textarea>
 			
 		`;
 	}

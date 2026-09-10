@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.ConflictError;
@@ -61,14 +62,20 @@ public class EdgeController {
     @Tag(name = "Relationships")
     @Operation(
             summary = "Find relationship by id",
-            description = "Look up a single relationship (edge) between two resources by its numeric `id`."
+            description = """
+                    Look up a single relationship (edge) between two resources by its numeric `id`.
+
+                    Requires read access to the data sets of **both** endpoints; a relationship
+                    you may not read is indistinguishable from a missing one and reports 404.
+                    """
     )
     @ApiResponse(responseCode = "200", description = "The relationship was found.",
             content = @Content(
                     mediaType = "application/json",
                     schema = @Schema(implementation = EdgeDataWrapper.class)
             ))
-    @ApiResponse(responseCode = "404", description = "No relationship with this id exists.",
+    @ApiResponse(responseCode = "404", description =
+            "No relationship with this id exists, or you lack read access to it.",
             content = @Content(
                     mediaType = "application/json",
                     schema = @Schema(type = "string", example = "Could not find edge with id: 42")
@@ -91,6 +98,9 @@ public class EdgeController {
                     Look up several relationships in one call. The response includes each
                     relationship and the two resources it connects (as `nodes[]`) — saves you
                     a follow-up call to resolve resource details.
+
+                    Relationships whose endpoints you lack read access to (either endpoint's
+                    data set) are silently left out, like unknown ids.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Found relationships plus the resources they connect.",
@@ -231,6 +241,10 @@ public class EdgeController {
         }
         // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
         catch (AccessDeniedException e){
+            throw e;
+        } catch (LimitException e){
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
             throw e;
         } catch (PulsarClientException | RuntimeException e){
             log.error(e.getMessage(), e);

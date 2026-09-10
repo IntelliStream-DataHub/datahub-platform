@@ -3,6 +3,8 @@ package ai.intellistream.datahub.services;
 
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.models.EdgeProxy;
+import ai.intellistream.datahub.models.Asset;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 
 import java.util.ArrayDeque;
@@ -51,8 +53,8 @@ public final class GraphConnectivityValidator {
         Set<Long> deletedEdges = deletedEdgeIds == null ? Set.of() : deletedEdgeIds;
 
         // Index nodes by id and remember which are roots.
-        Map<Long, Resource> nodesById = new HashMap<>();
-        for (Resource r : component.nodes()) {
+        Map<Long, NodeModel> nodesById = new HashMap<>();
+        for (NodeModel r : component.nodes()) {
             if (r.getId() != null) {
                 nodesById.put(r.getId(), r);
             }
@@ -111,7 +113,7 @@ public final class GraphConnectivityValidator {
             // stay one connected piece.
             List<Long> sources = new ArrayList<>();
             for (Long id : survivors) {
-                if (Boolean.TRUE.equals(nodesById.get(id).getIsRoot())) {
+                if (isRoot(nodesById.get(id))) {
                     sources.add(id);
                 }
             }
@@ -175,4 +177,18 @@ public final class GraphConnectivityValidator {
             }
         }
     }
+    /**
+     * Root-ness lives only on the node types that can be roots: resources and assets. Every
+     * other node type (dataset, policy, timeseries, function) is never a root by construction.
+     */
+    private static boolean isRoot(NodeModel node) {
+        if (node instanceof Asset asset) {
+            return Boolean.TRUE.equals(asset.getIsRoot());
+        }
+        if (node instanceof Resource resource) {
+            return Boolean.TRUE.equals(resource.getIsRoot());
+        }
+        return false;
+    }
+
 }

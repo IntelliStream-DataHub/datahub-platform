@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Report (or regenerate) the Font Awesome subset embedded at the top of all.css.
 
 The console renders ~45 of Font Awesome 6 Free Solid's 1950 glyphs, so all.css carries a

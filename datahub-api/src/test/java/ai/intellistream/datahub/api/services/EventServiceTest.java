@@ -52,6 +52,8 @@ class EventServiceTest {
     @Mock private EventDimensionRepository eventDimensionRepository;
     @Mock private DataSetRepository dataSetRepository;
     @Mock private ai.intellistream.datahub.api.datasecurity.DatasetClosureService datasetClosureService;
+    // Charged on create, so it has to exist even where the test is not about quotas.
+    @Mock private IngestQuotaService ingestQuota;
 
     /**
      * By default a data set has no children, so the closure is the roots themselves — that keeps
@@ -263,7 +265,6 @@ class EventServiceTest {
         input.getItems().add(f2);
 
         when(clickHouseEventService.findAllById(anySet(), any(), any())).thenReturn(List.of(em1, em2));
-        when(kvRocksService.findEventIdsByExternalIdCollectionAsMap(anySet())).thenReturn(Map.of());
         when(nodeRepository.findAllByIdIn(anySet(), any())).thenReturn(List.of());
         when(nodeRepository.findAllByExternalIdHashIn(anyList(), any())).thenReturn(List.of());
 
@@ -325,7 +326,6 @@ class EventServiceTest {
 
         when(clickHouseEventService.findAllById(anySet(), any(), any())).thenReturn(List.of(em));
         when(nodeRepository.findAllByIdAsIdList(anySet())).thenReturn(List.of(42L));
-        when(kvRocksService.findEventIdsByExternalIdCollectionAsMap(anySet())).thenReturn(Map.of());
         when(nodeRepository.findAllByIdIn(anySet(), any())).thenReturn(List.of());
         when(nodeRepository.findAllByExternalIdHashIn(anyList(), any())).thenReturn(List.of());
 

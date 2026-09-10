@@ -50,13 +50,16 @@ dependencies {
 	annotationProcessor 'org.projectlombok:lombok'
 
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
-	implementation 'com.jayway.jsonpath:json-path:2.9.0'
+	implementation 'com.jayway.jsonpath:json-path:3.0.0'
 	implementation "tools.jackson.dataformat:jackson-dataformat-xml:${jacksonVersion}"
 	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
 
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	implementation 'org.springframework.boot:spring-boot-starter-websocket'
 	implementation 'org.springframework.boot:spring-boot-starter-jackson'
 	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'

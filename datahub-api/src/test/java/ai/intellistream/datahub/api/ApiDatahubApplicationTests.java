@@ -4,7 +4,6 @@ package ai.intellistream.datahub.api;
 import ai.intellistream.datahub.api.init.pulsar.SubscriptionTopicProvisioner;
 import ai.intellistream.datahub.clickhouse.ClickHouseClientPool;
 import ai.intellistream.datahub.config.InstanceLock;
-import io.github.jopenlibs.vault.Vault;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -52,8 +51,6 @@ class ApiDatahubApplicationTests {
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
-    @MockitoBean
-    private Vault vault;
 
     @MockitoBean
     private PulsarClient pulsarClient;
@@ -71,9 +68,6 @@ class ApiDatahubApplicationTests {
     // that would NPE, so replace it here (the five Producer beans are mocked for the same reason).
     @MockitoBean
     private InstanceLock instanceLock;
-
-    @MockitoBean(name = "resourceMessageProducer")
-    private Producer<?> resourceMessageProducer;
 
     @MockitoBean(name = "eventMessageProducer")
     private Producer<?> eventMessageProducer;

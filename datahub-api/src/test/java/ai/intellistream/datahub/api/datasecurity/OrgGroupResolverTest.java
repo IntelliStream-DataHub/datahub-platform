@@ -202,6 +202,25 @@ class OrgGroupResolverTest {
                 .isInstanceOf(UserInfoUnavailableException.class);
     }
 
+    /**
+     * The stale window exists to ride out an outage. A refused token is not an outage — it is
+     * UserInfo answering — so it must propagate immediately rather than letting an ended session
+     * keep working for the rest of the window and then flip to 401 for no visible reason.
+     */
+    @Test
+    void doesNotServeStaleWhenUserInfoRefusesTheToken() {
+        userInfoReturns(Map.of(TENANT, List.of("/datasets/a/read")));
+        resolver.groupsFor(jwt(SUBJECT));
+
+        // Same instant the outage case above would happily serve the cached answer.
+        advance(Duration.ofSeconds(60));
+        when(userInfoClient.fetchGroupsByOrganizationId(anyString()))
+                .thenThrow(new UserInfoRejectedException("UserInfo rejected the access token with HTTP 401", 401));
+
+        assertThatThrownBy(() -> resolver.groupsFor(jwt(SUBJECT)))
+                .isInstanceOf(UserInfoRejectedException.class);
+    }
+
     @Test
     void failsClosedWhenUserInfoIsDownAndNothingWasEverCached() {
         when(userInfoClient.fetchGroupsByOrganizationId(anyString()))

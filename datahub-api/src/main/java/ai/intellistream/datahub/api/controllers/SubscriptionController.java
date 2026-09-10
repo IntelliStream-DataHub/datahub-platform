@@ -9,16 +9,20 @@ import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper
 import ai.intellistream.datahub.api.responses.swaggerdto.SubscriptionDataWrapper;
 import ai.intellistream.datahub.api.services.SubscriptionService;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.datafilters.FilterDefaults;
+import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
@@ -133,36 +137,55 @@ public class SubscriptionController {
 
     @Tag(name = "Subscriptions")
     @Operation(
-            summary = "List subscriptions",
+            summary = "Filter subscriptions",
             description = """
-                    List subscriptions in your tenant.
+                    Structured filtering over subscriptions. Every criterion is optional and they
+                    AND together, so an empty `filter` returns every subscription you may read.
 
-                    Leave the body empty (or omit `filter`) to list every subscription. Provide
-                    a `filter.timeseries[]` list to return only subscriptions that include at
-                    least one of the named timeseries.
+                    Only subscriptions whose bound timeseries you can *all* read are returned — the
+                    same rule `create` applies, since a subscription streams every timeseries bound
+                    to it. One ungranted timeseries hides the subscription entirely.
 
-                    `limit` caps the result size (default 100, max 10 000). `sort` controls the
-                    order; default is `dateCreated` descending (newest first).
+                    * `id` — subscriptions named directly by id. An empty list places no restriction.
+                    * `externalId` / `name` — pattern lists, OR-ed within each list. `*` and `%` are
+                      both wildcards, so `["fleet_dashboard", "plant_a_*"]` mixes an exact id with a
+                      prefix search. `_` is literal, and both match case-insensitively.
+                    * `timeseries` — subscriptions bound to at least one of these timeseries. Each
+                      entry can name a timeseries by `id`, `externalId`, or both.
+                    * `createdTime` / `lastUpdatedTime` — inclusive `min`/`max` instants.
+
+                    Results come newest created first, capped by `limit` (default 1000, max 10 000).
+
+                    `sort` takes one property — `id`, `externalId`, `name`, `createdTime` or
+                    `lastUpdatedTime` — with `order` of `asc` or `desc`; `id` is always appended so
+                    the order is total. The response carries `nextCursor` when there may be more:
+                    send it back as `cursor`, with the same `sort` it came from, and keep going
+                    while it is present. Keyset paging, not `OFFSET`, so a deep page costs what a
+                    shallow one does.
                     """
     )
-    @ApiResponse(responseCode = "200", description = "Subscriptions matching the filter, ordered per `sort` (default newest first).",
+    @ApiResponse(responseCode = "200", description = "Subscriptions matching every supplied criterion, ordered per `sort` (default newest first).",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = SubscriptionDataWrapper.class)
             ))
+    @ApiResponse(responseCode = "400", description = "The request failed validation — typically a `limit` above 10000, "
+            + "or a `cursor` that cannot be read under the requested `sort`.")
     @PostMapping(
-            path = "/list",
+            path = "/filter",
             produces = MediaType.APPLICATION_JSON_VALUE,
             consumes = MediaType.APPLICATION_JSON_VALUE
     )
-    public ResponseEntity<?> listSubscriptions(
+    public ResponseEntity<?> filterSubscriptions(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
                     required = false,
+                    description = "Filter criteria and optional limit. An empty object returns everything.",
                     content = @Content(
                             mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = SubscriptionRetriever.class),
                             examples = {
                                     @ExampleObject(
-                                            name = "List all (default)",
+                                            name = "Everything (default)",
                                             value = "{}"
                                     ),
                                     @ExampleObject(
@@ -177,15 +200,89 @@ public class SubscriptionController {
                                                       }
                                                     }
                                                     """
+                                    ),
+                                    @ExampleObject(
+                                            name = "By name and external id, oldest first",
+                                            value = """
+                                                    {
+                                                      "limit": 100,
+                                                      "filter": {
+                                                        "externalId": ["plant_a_*"],
+                                                        "name": ["*dashboard*"],
+                                                        "createdTime": { "min": "2026-01-01T00:00:00Z" }
+                                                      },
+                                                      "sort": { "property": ["createdTime"], "order": "asc" }
+                                                    }
+                                                    """
                                     )
                             }
                     )
             )
-            @RequestBody(required = false)
+            @Valid @RequestBody(required = false)
             SubscriptionRetriever retriever
     ) {
         try {
-            DataWrapper<Subscription> data = subscriptionService.list(retriever);
+            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+            return ResponseEntity.ok(data);
+        }
+        // Let a bad cursor reach MalformedCursorExceptionHandler — the broad RuntimeException catch
+        // below would otherwise report a caller mistake as a 500.
+        catch (MalformedCursorException mce) {
+            throw mce;
+        } catch (RuntimeException e) {
+            log.error("Subscription filter failed: {}", e.getMessage(), e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @Tag(name = "Subscriptions")
+    @Operation(
+            summary = "List subscriptions",
+            description = """
+                    The first `limit` subscriptions in your tenant, newest created first. No body,
+                    no criteria — the cheap read for "what have I got", the same shape
+                    `GET /timeseries` and `GET /labels` have.
+
+                    Scoped by your dataset grants exactly as `POST /subscriptions/filter` is: a
+                    subscription is listed only when you can read every timeseries it streams.
+
+                    `limit` defaults to 1000 and may not exceed 10 000. There is no paging here: a
+                    walk needs a `sort` and a `cursor` to continue, and both belong in a request
+                    body, so `POST /subscriptions/filter` is where it lives. This endpoint is the
+                    first page and says so — it never returns a `nextCursor`.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The first `limit` subscriptions, newest first.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = SubscriptionDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+            ))
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> listSubscriptions(
+            @Parameter(description = "Maximum number of subscriptions to return. A positive integer up to 10000.",
+                    example = "1000")
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
+            return new ResponseEntity<>("limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT,
+                    HttpStatus.BAD_REQUEST);
+        }
+        var retriever = new SubscriptionRetriever();
+        // The setter is what turns an absent, zero or negative limit into the shared default, so
+        // this endpoint cannot disagree with /filter about what "you decide" means.
+        if (limit != null) {
+            retriever.setLimit(limit);
+        }
+        try {
+            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+            // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
+            // cannot accept it invites a paging loop that silently never advances.
+            data.setNextCursor(null);
             return ResponseEntity.ok(data);
         } catch (RuntimeException e) {
             log.error("Subscription list failed: {}", e.getMessage(), e);

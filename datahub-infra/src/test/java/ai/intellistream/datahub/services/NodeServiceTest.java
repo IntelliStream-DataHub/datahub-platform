@@ -8,6 +8,8 @@ import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 import ai.intellistream.datahub.jpa.domains.Label;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
+import ai.intellistream.datahub.timeseries.Timeseries;
+import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.ResourceEntity;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
@@ -15,11 +17,16 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
+import java.time.ZonedDateTime;
+import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -92,10 +99,144 @@ class NodeServiceTest {
         assertEquals(List.of("PIPE", "SENSOR").size(), node.getLabels().split(",").length);
     }
 
+    /**
+     * TIMESERIES is creatable now, but only through the Timeseries shape — a flat resource body
+     * cannot carry the type-specific fields (unit, value type), so a bare TIMESERIES label on a
+     * Resource-shaped body is still rejected. Over HTTP this is unreachable: the label-keyed
+     * deserializer binds such a body as a Timeseries before the service sees it.
+     */
     @Test
-    void timeseriesLabelIsRejectedOnResourceApi() {
+    void timeseriesLabelOnAFlatResourceShapeIsRejected() {
         assertThrows(InvalidResourceException.class,
                 () -> nodeService.createFromResource(resource("TIMESERIES")));
+    }
+
+    @Test
+    void aTimeseriesBodyCreatesATimeseriesEntity() {
+        Timeseries ts = new Timeseries();
+        ts.setExternalId("engine_temp");
+        ts.setName("Engine Temp");
+        ts.setUnit("Deg C");
+
+        NodeEntity node = nodeService.createFromResource(ts);
+
+        TimeseriesEntity entity = assertInstanceOf(TimeseriesEntity.class, node);
+        assertEquals("Deg C", entity.getUnit());
+        assertTrue(entity.getLabels().contains("TIMESERIES"));
+    }
+
+    /**
+     * The resource path does not build PUBLISH_DATA_TO edges — that lives in TimeseriesService —
+     * so a body asking for them must be refused rather than created without them.
+     */
+    @Test
+    void aTimeseriesCreateCarryingRelatedResourcesIsRefused() {
+        Timeseries ts = new Timeseries();
+        ts.setExternalId("engine_temp");
+        ts.setName("Engine Temp");
+        ts.getRelatedResources().add(
+                ai.intellistream.datahub.models.RelatedNode.createFromId(5L));
+
+        assertThrows(InvalidResourceException.class, () -> nodeService.createFromResource(ts));
+    }
+
+    /** The DTO class and the type-label are two spellings of one fact; a disagreement is a 400. */
+    @Test
+    void aBodyWhoseTypeAndLabelDisagreeIsRejected() {
+        Timeseries ts = new Timeseries();
+        ts.setExternalId("odd");
+        ts.setName("Odd");
+        ts.getLabels().add("DATASET");
+
+        assertThrows(InvalidResourceException.class, () -> nodeService.createFromResource(ts));
+    }
+
+    /**
+     * Dataset and policy entities must stay orphans: their access rule is the manage grant, and
+     * the ACL's write-everything fallback keys on data_set_id being null (see
+     * POLICY_DATASETID_BUG.md). A create naming one is refused rather than quietly stripped —
+     * the caller was already authorized against that id, so a 201 with the field dropped would
+     * report work that never happened. Every other type maps it normally.
+     */
+    @Test
+    void datasetAndPolicyCreatesRejectADataSetId() {
+        DataSetRepository repo = mock(DataSetRepository.class);
+        when(repo.getReferenceById(7L)).thenReturn(new DatasetEntity());
+        NodeService service = new NodeService(labelService, repo);
+
+        Resource dataset = resource("DATASET");
+        dataset.setDataSetId(7L);
+        Resource policy = resource("POLICY");
+        policy.setDataSetId(7L);
+        Resource asset = resource("ASSET");
+        asset.setDataSetId(7L);
+
+        assertThrows(InvalidResourceException.class, () -> service.createFromResource(dataset));
+        assertThrows(InvalidResourceException.class, () -> service.createFromResource(policy));
+        assertNotNull(service.createFromResource(asset).getDataSet());
+    }
+
+    /**
+     * A function, data set, policy or time series is not a navigation root. The legacy flat body
+     * always carries {@code isRoot:false}, which means nothing and must keep working; an explicit
+     * {@code true} is a request this type cannot honour and is refused rather than dropped.
+     */
+    @Test
+    void aTypeThatCannotBeRootRefusesIsRootTrue() {
+        for (String type : new String[]{"FUNCTION", "DATASET", "POLICY"}) {
+            Resource body = resource(type);
+            body.setIsRoot(true);
+            assertThrows(InvalidResourceException.class, () -> nodeService.createFromResource(body),
+                    type + " must refuse isRoot=true");
+        }
+    }
+
+    @Test
+    void isRootFalseIsAcceptedOnTypesThatCannotBeRoot() {
+        Resource body = resource("FUNCTION");
+        body.setIsRoot(false);
+
+        NodeEntity node = nodeService.createFromResource(body);
+
+        assertInstanceOf(FunctionEntity.class, node);
+        assertEquals(Boolean.FALSE, node.getIsRoot());
+    }
+
+    /** Root-ness still applies where it is legal. */
+    @Test
+    void anAssetCanStillBeARoot() {
+        Resource body = resource("ASSET");
+        body.setIsRoot(true);
+
+        assertEquals(Boolean.TRUE, nodeService.createFromResource(body).getIsRoot());
+    }
+
+    /** Without a dataSetId the same creates succeed and stay orphans. */
+    @Test
+    void datasetAndPolicyCreatesStayOrphans() {
+        assertNull(nodeService.createFromResource(resource("DATASET")).getDataSet());
+        assertNull(nodeService.createFromResource(resource("POLICY")).getDataSet());
+    }
+
+    /**
+     * A create body cannot choose its own timestamps.
+     *
+     * <p>They are declared READ_ONLY and generated by Hibernate, but the create mapper used to copy
+     * them off the body whenever they were non-null — and they are always non-null, because the DTO
+     * stamps now() in its field initialiser and its setter folds an explicit null back into now().
+     * So any caller could name a dateCreated and have it stored, and the adapter services' attempts
+     * to null the fields out did nothing at all.
+     */
+    @Test
+    void createIgnoresTimestampsOnTheBody() {
+        Resource body = resource("PUMP");
+        body.setCreatedTime(ZonedDateTime.of(1999, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC));
+        body.setLastUpdatedTime(ZonedDateTime.of(1999, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC));
+
+        NodeEntity node = nodeService.createFromResource(body);
+
+        assertNull(node.getDateCreated(), "dateCreated is Hibernate's to set, not the caller's");
+        assertNull(node.getLastUpdated(), "lastUpdated is Hibernate's to set, not the caller's");
     }
 
     @Test

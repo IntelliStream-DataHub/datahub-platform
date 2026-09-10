@@ -12,12 +12,15 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -59,6 +62,19 @@ import java.util.stream.StreamSupport;
 @Slf4j
 public class WebSecurityConfig {
 
+    /** The actuator chain on the management port: the scrape is open, everything else denied. */
+    @Bean
+    @Order(1)
+    SecurityFilterChain actuatorFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher(EndpointRequest.toAnyEndpoint())
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(EndpointRequest.to("prometheus")).permitAll()
+                        .anyRequest().denyAll())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        return http.build();
+    }
+
     @Bean
     OAuth2AuthorizedClientRepository authorizedClientRepository() {
         return new HttpSessionOAuth2AuthorizedClientRepository();
@@ -74,7 +90,7 @@ public class WebSecurityConfig {
                     .invalidateHttpSession(true)
                     .clearAuthentication(true)
                     .deleteCookies("JSESSIONID")
-                    .logoutSuccessHandler(new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository));
+                    .logoutSuccessHandler(oidcLogoutSuccessHandler(clientRegistrationRepository));
         });
         http.exceptionHandling(ex -> ex
                 .accessDeniedHandler(new CustomAccessDeniedHandler())
@@ -95,6 +111,20 @@ public class WebSecurityConfig {
         return http.build();
     }
 
+    private static LogoutSuccessHandler oidcLogoutSuccessHandler(InMemoryClientRegistrationRepository clientRegistrationRepository) {
+        final var handler = new OidcClientInitiatedLogoutSuccessHandler(clientRegistrationRepository);
+        // Without a post_logout_redirect_uri the identity provider decides where the user lands
+        // after RP-initiated logout, which meant its own "you are logged out" page on the
+        // Keycloak host — the same URL whatever hostname the console was served from. "{baseUrl}"
+        // is expanded per request (honouring X-Forwarded-* via server.forward-headers-strategy),
+        // so every deployment sends the user back to its own root, which is unauthenticated and
+        // therefore bounces straight into the login screen. The trailing slash is deliberate: it
+        // matches a "https://<console-host>/*" entry in Keycloak's valid post-logout redirect
+        // URIs, which the client must list or Keycloak rejects the logout.
+        handler.setPostLogoutRedirectUri("{baseUrl}/");
+        return handler;
+    }
+
     private AuthenticationFailureHandler noOrganizationAwareFailureHandler() {
         // Spring's default sends the user to /login?error. Intercept the specific
         // tenant-resolution errors we raise in GrantedAuthoritiesMapperImpl so the
@@ -111,7 +141,12 @@ public class WebSecurityConfig {
                     if (session != null) {
                         session.invalidate();
                     }
-                    response.sendRedirect(request.getContextPath() + "/error/no-organization");
+                    // The two causes need different things done about them - one is a directory
+                    // membership, the other a missing tenant - and the page had no way to tell
+                    // them apart, so it listed both and left the reader guessing. Only the code
+                    // travels; the description names an organization id and belongs in the log.
+                    response.sendRedirect(request.getContextPath()
+                            + "/error/no-organization?reason=" + code);
                     return;
                 }
             }
@@ -280,8 +315,11 @@ public class WebSecurityConfig {
             return mappedAuthorities;
         };
 
+        // Package-private rather than private so WebSecurityConfigAuthoritiesMappingTest can pin
+        // the claim shapes Keycloak sends; the json-path expressions come from Vault, and a
+        // silent change in how they resolve would cost every user their roles.
         @SuppressWarnings({ "rawtypes", "unchecked" })
-        private static
+        static
         Collection<GrantedAuthority>
         extractAuthorities(Map<String, Object> claims, AuthoritiesMappingProperties.IssuerAuthoritiesMappingProperties properties) {
             return Stream.of(properties.claims).flatMap(claimProperties -> {

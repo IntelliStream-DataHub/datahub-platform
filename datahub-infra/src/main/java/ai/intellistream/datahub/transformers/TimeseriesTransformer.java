@@ -45,9 +45,6 @@ public class TimeseriesTransformer {
         if(source != null){
             target.setUnit(source.getUnit());
             target.setUnitExternalId(source.getUnitExternalId());
-            Collection<Integer> securityCategories = source.getSecurityCategories();
-            target.setSecurityCategories(securityCategories);
-
             TimeseriesValueType valueType = source.getValueType();
             if (valueType == null) {
                 // A malformed row (null/dangling value_type_id) must not 500 the whole list.
@@ -56,9 +53,6 @@ public class TimeseriesTransformer {
                 target.setValueType("BIGINT");
             } else {
                 target.setValueType(TimeseriesValueType.getTableType(valueType).toUpperCase());
-            }
-            if(source.getTableEngine() != null){
-                target.setTableEngine(source.getTableEngine().name());
             }
         }
 

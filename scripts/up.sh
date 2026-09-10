@@ -127,7 +127,7 @@ if [ "${COMPOSE[0]}" != "podman" ]; then
   rc=$?
   if [ "$rc" -eq 0 ] && [ "$RECREATE_APPS" -eq 1 ]; then
     "${COMPOSE[@]}" ${COMPOSE_FILES[@]+"${COMPOSE_FILES[@]}"} up -d --force-recreate --no-deps \
-      datahub-api datahub-console datahub-stateless-consumer datahub-stateful-consumer
+      datahub-api datahub-console datahub-stateless-consumer
     rc=$?
   fi
   exit "$rc"
@@ -204,10 +204,11 @@ _start_svc vault-seed; _wait_exit vault-seed
 # 4) The other one-shots (idempotent; the apps also self-wait on these via their entrypoints).
 _start_svc pulsar-init
 _start_svc keycloak-bootstrap
-# 5) The apps. datahub-analysis (:8082) joins the four originals — it backs the console's Analyze
-#    tab and "related series" panel, which the browser calls directly, so it must be up. Each app
-#    self-waits on datahub-api via its entrypoint, so start order within this loop does not matter.
-APP_SVCS="datahub-api datahub-console datahub-stateless-consumer datahub-stateful-consumer datahub-analysis"
+# 5) The apps. datahub-analysis (:8082) backs the console's Analyze tab and "related series"
+#    panel, which the browser calls directly, so it must be up. datahub-cleanup is here for its
+#    dev-startup event-dimension rebuild, without which the console's event dropdowns are empty.
+#    Each app self-waits on datahub-api via its entrypoint, so start order here does not matter.
+APP_SVCS="datahub-api datahub-console datahub-stateless-consumer datahub-analysis datahub-cleanup"
 for s in $APP_SVCS; do _start_svc "$s"; done
 # 5b) If the issuer changed, RESTART the apps — starting them is not enough. An app reads
 #     keycloak.issuer from Vault once, at boot, and vault-seed has just rewritten it. On a fresh

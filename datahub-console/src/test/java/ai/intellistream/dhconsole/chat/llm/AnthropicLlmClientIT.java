@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
+import ai.intellistream.datahub.tenant.LlmProvider;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -76,12 +77,16 @@ class AnthropicLlmClientIT {
             {"type":"object","properties":{"limit":{"type":"integer","description":"Max rows"}}}""");
 
     private AnthropicLlmClient client() {
-        ChatProperties properties = new ChatProperties();
-        properties.setMaxOutputTokens(1024);
         return new AnthropicLlmClient(
                 AnthropicOkHttpClient.builder().apiKey(apiKey()).build(),
-                properties,
                 JsonMapper.builder().build());
+    }
+
+    /** A 1024-token roof, so a run of this test costs pennies rather than pounds. */
+    private static ChatSettings settings() {
+        return new ChatSettings(LlmProvider.ANTHROPIC, null, "claude-opus-5", null, null,
+                java.time.Duration.ofMinutes(4), 1024,
+                ai.intellistream.dhconsole.chat.llm.ChatEffort.DEFAULT, 6, null);
     }
 
     /**
@@ -97,7 +102,7 @@ class AnthropicLlmClientIT {
     @Test
     void theApiAcceptsAdaptiveThinkingAtEveryCheapEffortLevel() {
         for (ChatEffort effort : List.of(ChatEffort.LOW, ChatEffort.MEDIUM, ChatEffort.HIGH)) {
-            LlmTurn turn = client().send(
+            LlmTurn turn = client().send(settings(),
                     "Answer in one word.",
                     List.of(),
                     List.of(LlmMessage.user("Say OK and nothing else.")),
@@ -110,8 +115,8 @@ class AnthropicLlmClientIT {
 
     @Test
     void answersAPlainQuestion() {
-        LlmTurn turn = client().send(
-                "Answer in exactly one short sentence.",
+        LlmTurn turn = client().send(settings(),
+                    "Answer in exactly one short sentence.",
                 List.of(),
                 List.of(LlmMessage.user("Say OK and nothing else.")), ChatEffort.HIGH);
 
@@ -121,8 +126,8 @@ class AnthropicLlmClientIT {
 
     @Test
     void acceptsOurToolSchemaAndAsksToUseIt() {
-        LlmTurn turn = client().send(
-                "You are a data assistant. Use the tools to answer; never guess.",
+        LlmTurn turn = client().send(settings(),
+                    "You are a data assistant. Use the tools to answer; never guess.",
                 List.of(ECHO_TOOL),
                 List.of(LlmMessage.user("What units are configured? Use the tool.")), ChatEffort.HIGH);
 

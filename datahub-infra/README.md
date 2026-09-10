@@ -3,7 +3,7 @@
 The shared **persistence and infrastructure** layer. It owns DataHub's access to every
 backing store and wraps each in repositories and services the application modules
 consume. Depends on `datahub-commons` and Spring; depended on by `datahub-api`,
-`datahub-stateful-consumer`, and `datahub-stateless-consumer`.
+and `datahub-stateless-consumer`.
 _(Formerly `datahub-library`.)_
 
 ## What's inside

@@ -12,6 +12,8 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
@@ -69,47 +71,40 @@ class ResourceWireContractTest {
     }
 
     /**
-     * A present geolocation serializes as a nested GeoJSON object (not a quoted string) and
-     * round-trips back to the same raw geometry. Covers the Avro-safe String carrier being bridged
-     * to a REST object by the custom serializer/deserializer.
+     * A plain resource has no location at all, in memory or on the wire.
+     *
+     * <p>The field used to exist on {@code Resource} and be {@code @JsonIgnore}d: it was the
+     * Avro-reflected Pulsar payload, and the Neo4j consumer read a created asset's location off
+     * it. The graph is written from the entities now, so the field went with the payload and
+     * {@code geoLocation} lives on {@code Asset} alone — the one node type whose entity has the
+     * column. This pins that it does not come back: a location on a plain resource has nowhere
+     * to be stored, so the strict request reader answers 400 rather than dropping it silently.
      */
     @Test
-    @SuppressWarnings("unchecked")
-    void geoLocationRoundTripsAsNestedObject() {
-        Resource r = new Resource();
-        r.setExternalId("sensor_a");
-        r.setName("Sensor A");
-        r.setGeoLocation(new GeoLocation("{\"type\":\"Point\",\"coordinates\":[10.75,59.91]}"));
-
-        String json = mapper.writeValueAsString(r);
-        Map<String, Object> m = mapper.readValue(json, Map.class);
-
-        // Nested object on the wire, never an escaped string.
-        assertInstanceOf(Map.class, m.get("geoLocation"));
-        Map<String, Object> geo = (Map<String, Object>) m.get("geoLocation");
-        assertEquals("Point", geo.get("type"));
-        assertEquals(List.of(10.75, 59.91), geo.get("coordinates"));
-
-        // Deserialize back and confirm the geometry survives verbatim.
-        Resource back = mapper.readValue(json, Resource.class);
-        Map<String, Object> backGeo = mapper.readValue(back.getGeoLocation().getJson(), Map.class);
-        assertEquals("Point", backGeo.get("type"));
-        assertEquals(List.of(10.75, 59.91), backGeo.get("coordinates"));
+    void aPlainResourceHasNoGeoLocation() {
+        assertFalse(hasProperty(Resource.class, "geoLocation"),
+                "geoLocation belongs to Asset; a plain resource has no column for it");
+        assertTrue(hasProperty(Asset.class, "geoLocation"),
+                "Asset is the node type that carries a location");
     }
 
-    /** A polygon (general geometry, not just Point) survives the same round-trip. */
+    /** Likewise valueType, which is a time series' own concern. */
     @Test
-    @SuppressWarnings("unchecked")
-    void geoLocationAcceptsGeneralGeometry() {
-        Resource r = new Resource();
-        r.setExternalId("area_a");
-        r.setName("Area A");
-        r.setGeoLocation(new GeoLocation(
-                "{\"type\":\"Polygon\",\"coordinates\":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}"));
-
-        Map<String, Object> m = mapper.readValue(mapper.writeValueAsString(r), Map.class);
-        Map<String, Object> geo = (Map<String, Object>) m.get("geoLocation");
-        assertEquals("Polygon", geo.get("type"));
-        assertInstanceOf(List.class, geo.get("coordinates"));
+    void aPlainResourceHasNoValueType() {
+        assertFalse(hasProperty(Resource.class, "valueType"),
+                "valueType belongs to Timeseries; it was on Resource only for the Pulsar payload");
+        assertTrue(hasProperty(ai.intellistream.datahub.timeseries.Timeseries.class, "valueType"),
+                "Timeseries is where a value type is a real field");
     }
+
+    /** Declared fields including inherited ones, which is what a DTO's shape actually is. */
+    private static boolean hasProperty(Class<?> type, String name) {
+        for (Class<?> c = type; c != null && c != Object.class; c = c.getSuperclass()) {
+            for (var f : c.getDeclaredFields()) {
+                if (f.getName().equals(name)) return true;
+            }
+        }
+        return false;
+    }
+
 }

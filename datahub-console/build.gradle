@@ -7,6 +7,14 @@ plugins {
 group = 'ai.intellistream.datahub'
 version = '0.0.1-SNAPSHOT'
 
+// Generates META-INF/build-info.properties, which Spring Boot turns into a BuildProperties bean.
+// The About dialog reports the version and build time from it (see AboutInfo). The Boot plugin
+// wires the task into `classes`, so `bootRun` and `bootJar` both get a current file; AboutInfo
+// treats it as optional so a run without it still starts.
+springBoot {
+	buildInfo()
+}
+
 
 configurations {
 	compileOnly {
@@ -24,7 +32,7 @@ dependencies {
 
 	//implementation "org.springframework.boot:spring-boot-starter-security"
 	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
-	implementation 'com.jayway.jsonpath:json-path:2.9.0'
+	implementation 'com.jayway.jsonpath:json-path:3.0.0'
 
 	//implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
@@ -45,6 +53,9 @@ dependencies {
 	implementation 'org.thymeleaf.extras:thymeleaf-extras-springsecurity6:3.1.5.RELEASE'
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	annotationProcessor 'org.projectlombok:lombok'

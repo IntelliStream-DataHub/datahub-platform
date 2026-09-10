@@ -89,7 +89,10 @@ public class KeycloakUserInfoClient {
      * and only the caller can tell whether a missing organization means "no groups" or "the client
      * never requested {@code organization:<alias>} scope".
      *
-     * @throws UserInfoUnavailableException if UserInfo cannot be reached or refuses the token
+     * @throws UserInfoRejectedException    if UserInfo refuses the token (401/403) — the caller
+     *                                      needs to authenticate again
+     * @throws UserInfoUnavailableException if UserInfo cannot be reached, answers with anything
+     *                                      else non-200, or returns something unparseable
      */
     public Map<String, List<String>> fetchGroupsByOrganizationId(String bearerToken) {
         String endpoint = resolveUserInfoEndpoint();
@@ -110,17 +113,25 @@ public class KeycloakUserInfoClient {
         }
 
         if (response.statusCode() != 200) {
-            // 401/403 here means the token was rejected (expired mid-request, or the session was
-            // ended server-side). Treated the same as unreachable: the caller fails closed rather
-            // than falling back to "no groups", which would look like a legitimate empty grant.
-            //
             // Logged, not thrown: Keycloak names the failed check in
             // {"error":"invalid_token","error_description":"..."}, and without it every cause looks
-            // identical from the outside. It stays here because this exception's message is not
+            // identical from the outside. It stays here because these exceptions' messages are not
             // private - Spring AI's MCP server reports a failed tool as its getMessage(), so
             // anything added there travels to the chat model and on into a user-visible answer.
             log.warn("UserInfo rejected the caller's token with HTTP {}: {}",
                     response.statusCode(), response.body());
+
+            // 401/403 is a verdict about this token, not a fault: it is unexpired and correctly
+            // signed (SecurityConfig's decoder already checked), but the session behind it is gone.
+            // Separated from the unreachable case because only one of the two is worth retrying.
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                throw new UserInfoRejectedException(
+                        "UserInfo rejected the access token with HTTP " + response.statusCode(),
+                        response.statusCode());
+            }
+            // Anything else - 5xx, a gateway's error page, a redirect loop - is the endpoint
+            // failing to answer. Fails closed rather than falling back to "no groups", which would
+            // look like a legitimate empty grant.
             throw new UserInfoUnavailableException(
                     "UserInfo returned HTTP " + response.statusCode());
         }

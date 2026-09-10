@@ -492,6 +492,8 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		if(json.type === 'https://intellistream.ai/errors/permissions-unavailable'){
 			return $L('error.permissions.unavailable');
 		}
+		const limit = window.LimitErrors && window.LimitErrors.message(json);
+		if(limit) return limit;
 		return json.detail || json.title;
 	}
 
@@ -785,8 +787,10 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		const keyCell = row.insertCell(-1);
 		const valueCell = row.insertCell(-1);
 		const btnCell = row.insertCell(-1);
-		keyCell.innerHTML = `<input type="text" name="metadata[${row.rowIndex+1}].key" placeholder="${$L('metadata.key.here')}" />`;
-		valueCell.innerHTML = `<input type="text" name="metadata[${row.rowIndex+1}].value" placeholder="${$L('metadata.value.here')}"/>`;
+		// maxlength mirrors the api's own caps (FieldLimits), so an over-long key or value is stopped
+		// where it is typed rather than after a round trip that refuses the whole form.
+		keyCell.innerHTML = `<input type="text" name="metadata[${row.rowIndex+1}].key" maxlength="${FieldLimits.METADATA_KEY_MAX}" placeholder="${$L('metadata.key.here')}" />`;
+		valueCell.innerHTML = `<input type="text" name="metadata[${row.rowIndex+1}].value" maxlength="${FieldLimits.METADATA_VALUE_MAX}" placeholder="${$L('metadata.value.here')}"/>`;
 		const trashBtn = Object.assign(document.createElement('button'), {
 			className: "dh-btn secondary small",
 			innerHTML: `<i class="fa fa-fw fa-trash"></i>`

@@ -98,6 +98,14 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
     private final SubscriptionRepository subscriptionRepository;
     private final JsonMapper jsonMapper;
     private final StreamAccessAuthorizer accessAuthorizer;
+    private final WebSocketConnectionLimiter connectionLimiter;
+    /** Who each open session belongs to, so the ping can refresh it and close can free it. */
+    private final Map<String, ConnectionOwner> owners = new ConcurrentHashMap<>();
+
+    /** The identity a socket is charged to. */
+    private record ConnectionOwner(String tenantId, String subject) {
+    }
+
 
     // Per-connection state — instance-local by design. A WebSocket is a TCP connection bound to one instance. No session affinity is required: each subscription's durable cursor lives in Pulsar, so a reconnect re-subscribes and resumes on whichever instance it lands on.
     private final Map<String, SubscriptionListenSession> sessions = new ConcurrentHashMap<>();
@@ -118,12 +126,14 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
                                         TopicNames topicNames,
                                         SubscriptionRepository subscriptionRepository,
                                         JsonMapper jsonMapper,
-                                        StreamAccessAuthorizer accessAuthorizer) {
+                                        StreamAccessAuthorizer accessAuthorizer,
+                                        WebSocketConnectionLimiter connectionLimiter) {
         this.pulsarClient = pulsarClient;
         this.topicNames = topicNames;
         this.subscriptionRepository = subscriptionRepository;
         this.jsonMapper = jsonMapper;
         this.accessAuthorizer = accessAuthorizer;
+        this.connectionLimiter = connectionLimiter;
         pingScheduler.scheduleAtFixedRate(this::sendPings,
                 PING_INTERVAL_SECONDS, PING_INTERVAL_SECONDS, TimeUnit.SECONDS);
     }
@@ -142,6 +152,12 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
             if (!session.isOpen()) continue;
             try {
                 session.sendMessage(new PingMessage(empty));
+                // Doubles as the liveness signal the connection registry counts by, so a socket
+                // this instance still holds is never mistaken for one left by a dead instance.
+                ConnectionOwner owner = owners.get(entry.getKey());
+                if (owner != null) {
+                    connectionLimiter.heartbeat(owner.tenantId(), owner.subject(), entry.getKey());
+                }
             } catch (Exception e) {
                 log.warn("Ping failed for session {} ({}); leaving container to clean up", entry.getKey(), e.getMessage());
             }
@@ -155,6 +171,20 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
             closeQuietly(rawSession, CloseStatus.POLICY_VIOLATION.withReason("Missing tenant context"));
             return;
         }
+
+        // Concurrency cap, checked once the tenant is known and before any Pulsar consumer exists,
+        // so a refused connection costs the broker nothing.
+        String subject = extractSubject(rawSession.getPrincipal());
+        var refusal = connectionLimiter.register(tenantId, subject, rawSession.getId());
+        if (refusal.isPresent()) {
+            log.info("Subscription handshake refused: {} limit of {} reached for tenant {}",
+                    refusal.get().scope(), refusal.get().limit(), tenantId);
+            sendLimitError(rawSession, refusal.get());
+            closeQuietly(rawSession, CloseStatus.POLICY_VIOLATION.withReason(
+                    "WebSocket connection limit reached"));
+            return;
+        }
+        owners.put(rawSession.getId(), new ConnectionOwner(tenantId, subject));
 
         List<String> externalIds = parseExternalIds(rawSession);
         log.info("Subscription WS connect: tenant={} session={} initialSubscriptions={}",
@@ -236,6 +266,10 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         wsSessions.remove(session.getId());
+        ConnectionOwner owner = owners.remove(session.getId());
+        if (owner != null) {
+            connectionLimiter.release(owner.tenantId(), owner.subject(), session.getId());
+        }
         SubscriptionListenSession listen = sessions.remove(session.getId());
         if (listen != null) listen.stop();
         log.info("Subscription WS closed: session={} status={}", session.getId(), status);
@@ -263,6 +297,17 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
     private void attachSubscription(SubscriptionListenSession listen, String tenantId,
                                     String externalId, WebSocketSession session, DatasetPermissions permissions) {
         if (externalId == null || externalId.isBlank() || listen.hasStream(externalId)) return;
+
+        // One socket multiplexes many subscriptions, and each is a durable consumer the broker holds
+        // open. Counted in-session, which is exact — the socket lives on this instance. Over the cap
+        // is answered and the socket stays open: the other subscriptions on it are still valid.
+        int maxStreams = connectionLimiter.maxSubscriptionsPerSocket();
+        if (maxStreams > 0 && listen.streamCount() >= maxStreams) {
+            log.info("Refusing subscription {} on session {}: at the {} per-socket limit",
+                    externalId, session.getId(), maxStreams);
+            sendError(session, externalId, "subscription-limit-reached");
+            return;
+        }
 
         Optional<SubscriptionEntity> maybe;
         try {
@@ -376,6 +421,25 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
     }
 
     /** Notify the client that a requested subscription couldn't be attached. */
+    /** One frame explaining the refusal, so a client sees a reason rather than a bare close code. */
+    private void sendLimitError(WebSocketSession session, WebSocketConnectionLimiter.Refusal refusal) {
+        try {
+            session.sendMessage(new TextMessage(jsonMapper.writeValueAsString(Map.of(
+                    "error", Boolean.TRUE,
+                    "reason", "websocket-limit-reached",
+                    "scope", refusal.scope(),
+                    "limit", refusal.limit(),
+                    "message", refusal.message()))));
+        } catch (Exception e) {
+            log.debug("Could not send the limit error frame to {}: {}", session.getId(), e.getMessage());
+        }
+    }
+
+    /** The JWT {@code sub} behind this connection, or null when the principal is not a JWT. */
+    private static String extractSubject(Principal principal) {
+        return principal instanceof JwtAuthenticationToken jwtAuth ? jwtAuth.getToken().getSubject() : null;
+    }
+
     private void sendError(WebSocketSession session, String externalId, String reason) {
         try {
             String json = jsonMapper.writeValueAsString(Map.of(

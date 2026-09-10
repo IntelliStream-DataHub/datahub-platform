@@ -3,7 +3,8 @@ package ai.intellistream.dhconsole.chat;
 
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
-import ai.intellistream.dhconsole.chat.llm.LlmClient;
+import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
+import ai.intellistream.dhconsole.chat.llm.LlmBackends;
 import ai.intellistream.dhconsole.chat.mcp.McpBridge;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.junit.jupiter.api.Test;
@@ -58,7 +59,6 @@ class ChatContextTest {
 
     private AnnotationConfigApplicationContext contextWith(Map<String, Object> properties) {
         Map<String, Object> all = new HashMap<>(properties);
-        all.put("datahub.chat.enabled", "true");
         all.put("datahub.url", "http://localhost:8081");
 
         var context = new AnnotationConfigApplicationContext();
@@ -72,42 +72,32 @@ class ChatContextTest {
 
     @Test
     void theAnthropicProviderWiresEndToEnd() {
-        try (var context = contextWith(Map.of(
-                "datahub.chat.provider", "anthropic",
-                "datahub.chat.api-key", "sk-ant-test"))) {
+        try (var context = contextWith(Map.of())) {
 
             assertThat(context.getBean(ChatService.class)).isNotNull();
             assertThat(context.getBean(McpBridge.class)).isNotNull();
-            assertThat(context.getBean(LlmClient.class).providerId()).startsWith("anthropic/");
+            assertThat(context.getBean(ChatSettingsResolver.class)).isNotNull();
+
+            // There is no LlmClient bean any more — a tenant may bring its own credential, so the
+            // client is resolved per turn. What the container still owes us is a cache that can
+            // build one, which is what this proves.
+            LlmBackends backends = context.getBean(LlmBackends.class);
+            var settings = ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic();
+            assertThat(backends.forSettings(settings).providerId(settings)).startsWith("anthropic/");
         }
     }
 
     @Test
     void theOpenAiCompatibleProviderWiresEndToEnd() {
-        try (var context = contextWith(Map.of(
-                "datahub.chat.provider", "openai-compatible",
-                "datahub.chat.model", "qwen3.5:latest",
-                "datahub.chat.base-url", "http://localhost:11434/v1"))) {
+        try (var context = contextWith(Map.of())) {
 
             assertThat(context.getBean(ChatService.class)).isNotNull();
-            assertThat(context.getBean(LlmClient.class).providerId())
+
+            LlmBackends backends = context.getBean(LlmBackends.class);
+            var settings = ai.intellistream.dhconsole.chat.config.ChatSettingsFixture
+                    .openAiCompatible("http://localhost:11434/v1", null);
+            assertThat(backends.forSettings(settings).providerId(settings))
                     .isEqualTo("openai-compatible/qwen3.5:latest");
-        }
-    }
-
-    @Test
-    void nothingIsWiredWhenChatIsDisabled() {
-        var context = new AnnotationConfigApplicationContext();
-        context.getEnvironment().getPropertySources().addFirst(
-                new MapPropertySource("test", Map.of("datahub.chat.enabled", "false")));
-        context.register(Collaborators.class);
-        context.scan("ai.intellistream.dhconsole.chat");
-        context.refresh();
-
-        try (context) {
-            // The console must boot unchanged for deployments that have not enabled chat.
-            assertThat(context.getBeanNamesForType(ChatService.class)).isEmpty();
-            assertThat(context.getBeanNamesForType(LlmClient.class)).isEmpty();
         }
     }
 }

@@ -4,7 +4,6 @@ package ai.intellistream.datahub.config;
 import ai.intellistream.datahub.api.ApiDatahubApplication;
 import ai.intellistream.datahub.api.init.pulsar.SubscriptionTopicProvisioner;
 import ai.intellistream.datahub.clickhouse.ClickHouseClientPool;
-import io.github.jopenlibs.vault.Vault;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.PulsarClient;
@@ -13,7 +12,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.web.FilterChainProxy;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -64,9 +66,13 @@ import static org.mockito.Mockito.when;
  */
 // The application class sits in a sibling package (…datahub.api), so it is named explicitly
 // rather than found by the upward package scan from this test's package.
+// The scrape is exposed here on purpose. It ships off, so without this every actuator path would
+// answer 404 whatever the filter chain said, and the denial assertions below would prove nothing.
+// MetricsDisabledByDefaultTest covers the shipped default.
 @SpringBootTest(
         classes = ApiDatahubApplication.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "management.endpoints.web.exposure.include=prometheus")
 @ActiveProfiles("ctxtest")
 class SecurityFilterChainTest {
 
@@ -94,11 +100,17 @@ class SecurityFilterChainTest {
     @Value("${local.server.port}")
     private int port;
 
+    /** The actuator port. RANDOM_PORT makes Boot randomise it along with the server port. */
+    @Value("${local.management.port}")
+    private int managementPort;
+
+    /** The assembled chain, for asserting filter order rather than only filter behaviour. */
+    @Autowired
+    private FilterChainProxy securityFilterChainProxy;
+
     @MockitoBean
     private JwtDecoder jwtDecoder;
 
-    @MockitoBean
-    private Vault vault;
 
     @MockitoBean
     private PulsarClient pulsarClient;
@@ -114,9 +126,6 @@ class SecurityFilterChainTest {
 
     @MockitoBean
     private InstanceLock instanceLock;
-
-    @MockitoBean(name = "resourceMessageProducer")
-    private Producer<?> resourceMessageProducer;
 
     @MockitoBean(name = "eventMessageProducer")
     private Producer<?> eventMessageProducer;
@@ -212,6 +221,56 @@ class SecurityFilterChainTest {
                 .isEqualTo(HttpStatus.UNAUTHORIZED.value());
     }
 
+    @Test
+    @DisplayName("The Prometheus scrape is served on the management port without a token")
+    void prometheusScrapeNeedsNoToken() {
+        HttpResponse<String> response =
+                send("http://localhost:" + managementPort + "/actuator/prometheus");
+        assertThat(response.statusCode()).isEqualTo(HttpStatus.OK.value());
+        assertThat(response.body()).contains("jvm_memory_used_bytes");
+    }
+
+    @ParameterizedTest(name = "{0} is denied on the management port")
+    @MethodSource("otherActuatorPaths")
+    @DisplayName("Only the scrape is open; every other actuator path is denied, exposed or not")
+    void otherActuatorPathsAreDenied(String path) {
+        // 403 from the actuator chain's denyAll, or 401 when the error dispatch lands on the main
+        // chain; either way nothing is served.
+        assertThat(send("http://localhost:" + managementPort + path).statusCode())
+                .isIn(HttpStatus.UNAUTHORIZED.value(), HttpStatus.FORBIDDEN.value());
+    }
+
+    private static Stream<String> otherActuatorPaths() {
+        return Stream.of("/actuator", "/actuator/health", "/actuator/env", "/actuator/heapdump");
+    }
+
+    @Test
+    @DisplayName("The actuator is not served on the application port the load balancer reaches")
+    void actuatorIsAbsentFromTheApplicationPort() {
+        assertThat(get("/actuator/prometheus", null))
+                .as("the scrape endpoint must exist on the management port only")
+                .isNotEqualTo(HttpStatus.OK.value());
+    }
+
+    @Test
+    @DisplayName("Rate limiting runs after authorization and before tenant provisioning")
+    void rateLimitingSitsBetweenAuthorizationAndTenantProvisioning() {
+        List<String> filters = securityFilterChainProxy.getFilterChains().stream()
+                .flatMap(chain -> ((SecurityFilterChain) chain).getFilters().stream())
+                .map(filter -> filter.getClass().getSimpleName())
+                .toList();
+
+        int authorization = filters.indexOf("AuthorizationFilter");
+        int rateLimit = filters.indexOf("RateLimitFilter");
+        int provisioning = filters.indexOf("TenantProvisioningFilter");
+
+        assertThat(rateLimit).as("the limiter must be in the chain at all").isPositive();
+        // After authorization, because the budget is charged to an authenticated identity. Before
+        // provisioning, so an over-budget caller costs no Vault lookup and no Flyway check.
+        assertThat(rateLimit).isGreaterThan(authorization);
+        assertThat(rateLimit).isLessThan(provisioning);
+    }
+
     // ---- helpers -----------------------------------------------------------------------------
 
     /**
@@ -220,6 +279,15 @@ class SecurityFilterChainTest {
      * framework-side request post-processing — what reaches the filter chain is exactly what a
      * caller on the network would send.
      */
+    private HttpResponse<String> send(String url) {
+        try {
+            return HTTP.send(HttpRequest.newBuilder().uri(URI.create(url)).GET().build(),
+                    HttpResponse.BodyHandlers.ofString());
+        } catch (IOException | InterruptedException e) {
+            throw new IllegalStateException("Request to " + url + " failed", e);
+        }
+    }
+
     private int get(String path, String bearerToken) {
         HttpRequest.Builder request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))

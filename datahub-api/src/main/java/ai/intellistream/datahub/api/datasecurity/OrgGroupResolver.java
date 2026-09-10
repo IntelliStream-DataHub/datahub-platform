@@ -56,6 +56,10 @@ import java.util.function.LongSupplier;
  * lasting more than ~90s past an entry's last successful fetch starts denying requests rather than
  * trusting an increasingly old answer.
  *
+ * <p>The stale window covers <em>outages only</em>. A {@link UserInfoRejectedException} — UserInfo
+ * answering 401/403 for this token — skips it entirely and propagates at once, because it is an
+ * answer rather than a failure to answer.
+ *
  * <h2>Single-flight</h2>
  * Concurrent callers for the same key share one in-flight fetch, so an expiry under load sends one
  * request to Keycloak rather than one per request thread.
@@ -124,6 +128,8 @@ public class OrgGroupResolver {
      * <p>Returns an empty list when there is no JWT principal, when the caller holds no groups, or
      * when the current tenant is absent from the caller's {@code organization} claim.
      *
+     * @throws UserInfoRejectedException    if the identity provider refuses the caller's token —
+     *                                      never served from the stale window
      * @throws UserInfoUnavailableException if the groups cannot be determined and no cached answer
      *                                      is recent enough to serve
      */
@@ -219,6 +225,14 @@ public class OrgGroupResolver {
     }
 
     private Entry serveStaleOrFail(Entry stale, String key, Throwable cause) {
+        if (cause instanceof UserInfoRejectedException rejected) {
+            // Not an availability fault, so the stale window does not apply. UserInfo has made a
+            // verdict about this token; serving the old answer would keep an ended session working
+            // for the rest of the window and then flip to 401 with nothing to explain the change.
+            // It is also precisely the revocation latency that reading groups out of band exists
+            // to bound - see the class javadoc.
+            throw rejected;
+        }
         if (stale != null && age(stale, clock.getAsLong()) <= staleTtlMillis) {
             log.warn("Serving stale organization groups for {} ({}s old): {}",
                     key, age(stale, clock.getAsLong()) / 1000, cause.getMessage());

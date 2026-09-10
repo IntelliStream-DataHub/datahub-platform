@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Regenerate the committed 3W demo payloads under deploy/demo/data/.
 
 MAINTAINER TOOL. This is not part of the image and not part of `up.sh --demo`; users

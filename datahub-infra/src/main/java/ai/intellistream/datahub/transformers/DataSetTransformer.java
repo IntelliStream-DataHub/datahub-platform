@@ -3,6 +3,7 @@ package ai.intellistream.datahub.transformers;
 
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.jpa.domains.TypeLabels;
 import ai.intellistream.datahub.models.*;
@@ -15,12 +16,23 @@ import java.util.Optional;
 public class DataSetTransformer {
 
 
-    public static Collection<Resource> toResources(Collection<DataSetModel> items){
+    public static Collection<DataSetModel> toResources(Collection<DataSetModel> items){
         return items.stream().map(DataSetTransformer::toResource).toList();
     }
 
-    public static Resource toResource(DataSetModel item){
-        Resource r = new Resource();
+    /**
+     * The create command for a data set.
+     *
+     * <p>Builds a {@link DataSetModel}, not a {@code Resource} wearing a DATASET label. Over HTTP
+     * the label-keyed deserializer types a body before the create path sees it, so the DTO class
+     * and the type-label always agree and {@code NodeService} can cross-check them. An in-process
+     * adapter has no deserializer, so whatever it constructs <em>is</em> the type — and while this
+     * built a plain {@code Resource}, that cross-check passed vacuously and dispatch rested
+     * entirely on the label being right. Building the real type makes both mechanisms say the same
+     * thing, and {@code DataSetModel} seeds its own DATASET label, so it cannot be forgotten.
+     */
+    public static DataSetModel toResource(DataSetModel item){
+        DataSetModel r = new DataSetModel();
         r.setId(item.getId());
         r.setExternalId(item.getExternalId());
         r.setDescription(item.getDescription());
@@ -28,21 +40,28 @@ public class DataSetTransformer {
         r.setSource(item.getSource());
         r.setMetadata(item.getMetadata());
         // Carry the caller's labels through; this used to replace them with List.of("DATASET"), so
-        // create was the one dataset path that could not label anything. Forging a type is still
-        // impossible: NodeService rejects a second type-label.
-        var labels = new ArrayList<>(item.getLabels());
-        if (!labels.contains(TypeLabels.DATASET)) {
-            labels.add(TypeLabels.DATASET);
-        }
-        r.setLabels(labels);
+        // create was the one dataset path that could not label anything. setLabels keeps the
+        // DATASET type-label present however the list arrives.
+        r.setLabels(new ArrayList<>(item.getLabels()));
         return r;
     }
 
-    public static Collection<DataSetModel> toDataSetModel(Collection<Resource> results) {
+    /**
+     * {@code DatasetEntity} to {@link DataSetModel} — the read path's entry point.
+     *
+     * <p>{@code policies} and {@code connectedDataSets} stay empty: they are how a create request
+     * asks for edges, not state stored on the row, so a read has nothing to put in them. The
+     * hierarchy a client wants is in {@code relatedResources}, from the graph.
+     */
+    public static DataSetModel from(DatasetEntity entity) {
+        return NodeBaseFields.apply(new DataSetModel(), entity);
+    }
+
+    public static Collection<DataSetModel> toDataSetModel(Collection<? extends NodeModel> results) {
         return results.stream().map(DataSetTransformer::toDataSetModel).toList();
     }
 
-    public static DataSetModel toDataSetModel(Resource item) {
+    public static DataSetModel toDataSetModel(NodeModel item) {
         DataSetModel dataSet = new DataSetModel();
         dataSet.setId( item.getId() );
         dataSet.setExternalId( item.getExternalId() );
@@ -56,14 +75,14 @@ public class DataSetTransformer {
         return dataSet;
     }
 
-    public static GraphDataWrapper<Resource, RelForm> toGraphForm(
+    public static GraphDataWrapper<NodeModel, RelForm> toGraphForm(
             Collection<DataSetModel> dataSets,
             List<PolicyEntity> existingPolicies,
             List<IdCollection> connectedDataSets
     ) {
-        GraphDataWrapper<Resource, RelForm> graphForm = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> graphForm = new GraphDataWrapper<>();
         dataSets.forEach(dataSetModel -> {
-            Resource resource = toResource(dataSetModel);
+            DataSetModel resource = toResource(dataSetModel);
             graphForm.getNodes().add(resource);
 
             // Attach data set to other data sets
@@ -89,7 +108,7 @@ public class DataSetTransformer {
     }
 
     private static void attachPolicy(
-            GraphDataWrapper<Resource, RelForm> graphForm,
+            GraphDataWrapper<NodeModel, RelForm> graphForm,
             DataSetModel dataSetModel,
             String policyExternalId,
             List<PolicyEntity> existingPolicies

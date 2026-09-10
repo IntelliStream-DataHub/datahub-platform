@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -13,8 +13,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
+import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.openAiCompatible;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenAiCompatibleLlmClientTest {
@@ -34,8 +34,8 @@ class OpenAiCompatibleLlmClientTest {
 
     @Test
     void sendsTheSystemPromptAsTheFirstMessageAndSchemaUnderFunctionParameters() throws Exception {
-        withServer(reply("hello"), (client, request) -> {
-            client.send("You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withServer(reply("hello"), (client, settings, request) -> {
+            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             JsonNode body = request.get();
             assertThat(body.path("messages").path(0).path("role").asString()).isEqualTo("system");
@@ -51,7 +51,7 @@ class OpenAiCompatibleLlmClientTest {
 
     @Test
     void fansTheBatchedToolResultsOutToOneMessageEach() throws Exception {
-        withServer(reply("done"), (client, request) -> {
+        withServer(reply("done"), (client, settings, request) -> {
             List<LlmMessage> transcript = List.of(
                     LlmMessage.user("what do I have?"),
                     LlmMessage.assistant(List.of(
@@ -61,7 +61,7 @@ class OpenAiCompatibleLlmClientTest {
                             new LlmBlock.ToolResult("call_1", "{\"items\":[]}", false),
                             new LlmBlock.ToolResult("call_2", "boom", true))));
 
-            client.send("system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
+            client.send(settings, "system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
 
             JsonNode messages = request.get().path("messages");
             // system, user, assistant, tool, tool — the single batched message became two.
@@ -84,8 +84,8 @@ class OpenAiCompatibleLlmClientTest {
                   "role":"assistant","content":"",
                   "tool_calls":[{"id":"call_9","type":"function","function":{
                     "name":"dataset_list","arguments":"{\\"limit\\":25}"}}]}}]}""";
-        withServer(toolCall, (client, request) -> {
-            LlmTurn turn = client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withServer(toolCall, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
             assertThat(turn.toolUses()).hasSize(1);
@@ -104,8 +104,8 @@ class OpenAiCompatibleLlmClientTest {
                   "role":"assistant","content":"",
                   "tool_calls":[{"id":"call_9","type":"function","function":{
                     "name":"dataset_list","arguments":"{limit: 25"}}]}}]}""";
-        withServer(broken, (client, request) -> {
-            LlmTurn turn = client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withServer(broken, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
             assertThat(turn.toolUses().getFirst().args()).isEmpty();
@@ -115,8 +115,8 @@ class OpenAiCompatibleLlmClientTest {
     @Test
     void noAuthorizationHeaderWhenNoKeyIsConfigured() throws Exception {
         // Ollama rejects nothing, but sending a bogus bearer to a gateway that checks it would.
-        withServer(reply("hi"), (client, request, headers) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withServer(reply("hi"), (client, settings, request, headers) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
             assertThat(headers.get()).isNull();
         });
     }
@@ -125,21 +125,21 @@ class OpenAiCompatibleLlmClientTest {
     void omitsReasoningEffortUnlessTheServerIsKnownToSupportIt() throws Exception {
         // "OpenAI-compatible" is a family, not a specification: a strict server 400s on a field it
         // does not know, so an upgrade must not start sending one to a working deployment.
-        withServer(reply("hi"), (client, request) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+        withServer(reply("hi"), (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
             assertThat(request.get().has("reasoning_effort")).isFalse();
         });
     }
 
     @Test
     void mappedSendsTheLevelTheUserPicked() throws Exception {
-        withServer(reply("hi"), properties -> properties.setReasoningEffort("mapped"), (client, request) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+        withServer(reply("hi"), "mapped", (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
             assertThat(request.get().path("reasoning_effort").asString()).isEqualTo("low");
 
             // Only three values exist on this wire, so the two deep levels collapse onto "high"
             // rather than sending a value the server would reject.
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
             assertThat(request.get().path("reasoning_effort").asString()).isEqualTo("high");
         });
     }
@@ -148,16 +148,16 @@ class OpenAiCompatibleLlmClientTest {
     void anyOtherValueIsSentVerbatim() throws Exception {
         // How "none" is reachable at all: no effort level maps to it, and a self-hosted thinking
         // model that spends its budget reasoning returns nothing this client can read.
-        withServer(reply("hi"), properties -> properties.setReasoningEffort("none"), (client, request) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+        withServer(reply("hi"), "none", (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
             assertThat(request.get().path("reasoning_effort").asString()).isEqualTo("none");
         });
     }
 
     @Test
     void aBlankValueSendsNothing() throws Exception {
-        withServer(reply("hi"), properties -> properties.setReasoningEffort("   "), (client, request) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+        withServer(reply("hi"), "   ", (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
             assertThat(request.get().has("reasoning_effort")).isFalse();
         });
     }
@@ -165,28 +165,32 @@ class OpenAiCompatibleLlmClientTest {
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
-        void run(OpenAiCompatibleLlmClient client, AtomicReference<JsonNode> request) throws Exception;
+        void run(OpenAiCompatibleLlmClient client, ChatSettings settings,
+                 AtomicReference<JsonNode> request) throws Exception;
     }
 
     private interface HeaderScenario {
-        void run(OpenAiCompatibleLlmClient client, AtomicReference<JsonNode> request,
-                 AtomicReference<String> authorization) throws Exception;
+        void run(OpenAiCompatibleLlmClient client, ChatSettings settings,
+                 AtomicReference<JsonNode> request, AtomicReference<String> authorization)
+                throws Exception;
     }
 
     private void withServer(String responseBody, Scenario scenario) throws Exception {
-        withServer(responseBody, (client, request, headers) -> scenario.run(client, request));
+        withServer(responseBody, null,
+                (client, settings, request, headers) -> scenario.run(client, settings, request));
     }
 
-    private void withServer(String responseBody, Consumer<ChatProperties> configure, Scenario scenario)
+    private void withServer(String responseBody, String reasoningEffort, Scenario scenario)
             throws Exception {
-        withServer(responseBody, configure, (client, request, headers) -> scenario.run(client, request));
+        withServer(responseBody, reasoningEffort,
+                (client, settings, request, headers) -> scenario.run(client, settings, request));
     }
 
     private void withServer(String responseBody, HeaderScenario scenario) throws Exception {
-        withServer(responseBody, properties -> { }, scenario);
+        withServer(responseBody, null, scenario);
     }
 
-    private void withServer(String responseBody, Consumer<ChatProperties> configure,
+    private void withServer(String responseBody, String reasoningEffort,
                             HeaderScenario scenario) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicReference<JsonNode> lastRequest = new AtomicReference<>();
@@ -203,13 +207,11 @@ class OpenAiCompatibleLlmClientTest {
         });
         server.start();
         try {
-            ChatProperties properties = new ChatProperties();
-            properties.setProvider(ChatProperties.Provider.OPENAI_COMPATIBLE);
-            properties.setModel("qwen3.5:latest");
-            properties.setBaseUrl("http://127.0.0.1:" + server.getAddress().getPort() + "/v1");
-            configure.accept(properties);
-            scenario.run(new OpenAiCompatibleLlmClient(properties, JSON, HttpClient.newHttpClient()),
-                    lastRequest, authorization);
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
+            // No api key: Ollama needs none, and one case below asserts no Authorization header is
+            // sent when there is nothing to send.
+            scenario.run(new OpenAiCompatibleLlmClient(baseUrl, null, JSON, HttpClient.newHttpClient()),
+                    openAiCompatible(baseUrl, reasoningEffort), lastRequest, authorization);
         } finally {
             server.stop(0);
         }

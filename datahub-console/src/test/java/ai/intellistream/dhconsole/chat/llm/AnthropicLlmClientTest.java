@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -49,8 +50,8 @@ class AnthropicLlmClientTest {
 
     @Test
     void sendsToolSchemaThroughUnchanged() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             JsonNode tool = request.get().path("tools").path(0);
             assertThat(tool.path("name").asString()).isEqualTo("dataset_list");
@@ -64,8 +65,8 @@ class AnthropicLlmClientTest {
 
     @Test
     void marksTheStaticPrefixCacheable() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("You are a data assistant.",
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "You are a data assistant.",
                     List.of(DATASET_LIST, UNIT_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             // Two breakpoints — the system block and the LAST tool — so both static sections are
@@ -83,7 +84,7 @@ class AnthropicLlmClientTest {
 
     @Test
     void sendsAllToolResultsAsOneUserMessage() throws Exception {
-        withApi(textResponse("done"), (client, request) -> {
+        withApi(textResponse("done"), (client, settings, request) -> {
             List<LlmMessage> transcript = List.of(
                     LlmMessage.user("what do I have?"),
                     LlmMessage.assistant(List.of(
@@ -93,7 +94,7 @@ class AnthropicLlmClientTest {
                             new LlmBlock.ToolResult("t1", "{\"items\":[]}", false),
                             new LlmBlock.ToolResult("t2", "boom", true))));
 
-            client.send("system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
+            client.send(settings, "system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
 
             JsonNode messages = request.get().path("messages");
             assertThat(messages.size()).isEqualTo(3);
@@ -121,8 +122,8 @@ class AnthropicLlmClientTest {
                              "input":{"limit":25,"query":"pumps"}}],
                  "stop_reason":"tool_use","stop_sequence":null,
                  "usage":{"input_tokens":10,"output_tokens":5}}""";
-        withApi(toolUse, (client, request) -> {
-            LlmTurn turn = client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(toolUse, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
             assertThat(turn.text()).isEqualTo("Let me look.");
@@ -141,8 +142,8 @@ class AnthropicLlmClientTest {
                 {"id":"msg_3","type":"message","role":"assistant","model":"claude-opus-5",
                  "content":[],"stop_reason":"refusal","stop_sequence":null,
                  "usage":{"input_tokens":10,"output_tokens":0}}""";
-        withApi(refusal, (client, request) -> {
-            LlmTurn turn = client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(refusal, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
 
             // Reading content[0] unconditionally here would throw; the user gets a sentence instead.
             assertThat(turn.wantsTools()).isFalse();
@@ -152,8 +153,8 @@ class AnthropicLlmClientTest {
 
     @Test
     void sendsTheRequestedEffortAndAdaptiveThinking() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
 
             assertThat(request.get().path("output_config").path("effort").asString()).isEqualTo("low");
             // Stated rather than defaulted: on an older model omitting it means no thinking at all,
@@ -164,38 +165,39 @@ class AnthropicLlmClientTest {
 
     @Test
     void withNoRoofConfiguredTheDeepestLevelsGetMoreRoom() throws Exception {
-        withApi(textResponse("hello"), (client, request) -> {
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(4096);
 
             // max_tokens caps thinking and answer together, so a turn told to think its hardest
             // under a 4096 ceiling would spend the budget reasoning and truncate the answer.
-            client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(32_000);
         });
     }
 
     @Test
     void aConfiguredRoofIsSentEvenAtTheDeepestLevel() throws Exception {
-        withApi(textResponse("hello"), properties -> properties.setMaxOutputTokens(800),
-                (client, request) -> {
-                    client.send("system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
-                    assertThat(request.get().path("max_tokens").asInt()).isEqualTo(800);
-                });
+        withApi(textResponse("hello"), 800, (client, settings, request) -> {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            assertThat(request.get().path("max_tokens").asInt()).isEqualTo(800);
+        });
     }
 
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
-        void run(AnthropicLlmClient client, AtomicReference<JsonNode> request) throws Exception;
+        void run(AnthropicLlmClient client, ChatSettings settings,
+                 AtomicReference<JsonNode> request) throws Exception;
     }
 
     private void withApi(String responseBody, Scenario scenario) throws Exception {
-        withApi(responseBody, properties -> { }, scenario);
+        withApi(responseBody, null, scenario);
     }
 
-    private void withApi(String responseBody, java.util.function.Consumer<ChatProperties> configure,
-                         Scenario scenario) throws Exception {
+    /** @param maxOutputTokens a configured roof, or null to let the effort level choose */
+    private void withApi(String responseBody, Integer maxOutputTokens, Scenario scenario)
+            throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicReference<JsonNode> lastRequest = new AtomicReference<>();
         server.createContext("/v1/messages", exchange -> {
@@ -209,17 +211,13 @@ class AnthropicLlmClientTest {
         });
         server.start();
         try {
-            ChatProperties properties = new ChatProperties();
-            properties.setModel("claude-opus-5");
-            configure.accept(properties);
             AnthropicLlmClient client = new AnthropicLlmClient(
                     AnthropicOkHttpClient.builder()
                             .apiKey("test-key")
                             .baseUrl("http://127.0.0.1:" + server.getAddress().getPort())
                             .build(),
-                    properties,
                     JSON);
-            scenario.run(client, lastRequest);
+            scenario.run(client, anthropic(maxOutputTokens), lastRequest);
         } finally {
             server.stop(0);
         }

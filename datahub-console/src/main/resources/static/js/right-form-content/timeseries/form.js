@@ -22,8 +22,10 @@ class TimeseriesForm extends DatasetFormAbstract{
 	getFormFields(){
 		return `
 			${this.getEntityIdField()}
-			<input type="hidden" name="isRoot" value="${this.isRoot}"/>
-			
+			<!-- No isRoot: a time series is never a navigation root. The field was posted as the
+			     string "undefined" (this.isRoot is never assigned on this form), which the api
+			     ignored while the property was unbindable and now rejects. -->
+
 			<div data-type="relations" class="form-section">
 				<label>${$L('from.relations')}</label>
 				<div class="flex-container left-right">
@@ -51,7 +53,7 @@ class TimeseriesForm extends DatasetFormAbstract{
 			<p class="field-hint">${$L('external.id.charset.help')}</p>
 					
 			<label>${$L('description')}</label>
-			<textarea class="w100 ${this.fieldError('description')}" name="description" placeholder="${$L('write.description.here')}..." tabindex="40"></textarea>
+			<textarea class="w100 ${this.fieldError('description')}" name="description" maxlength="${FieldLimits.DESCRIPTION_MAX}" placeholder="${$L('write.description.here')}..." tabindex="40"></textarea>
 			
 			<input class="${this.fieldError('unit')}" 
 					type="hidden" name="unitExternalId"
@@ -552,7 +554,6 @@ class TimeseriesFields extends UpdateFields{
 		this.unit = undefined;
 		this.unitExternalId = undefined;
 		this.isStep = undefined;
-		this.securityCategories = undefined;
 		this.dataSetId = undefined;
 	}
 }

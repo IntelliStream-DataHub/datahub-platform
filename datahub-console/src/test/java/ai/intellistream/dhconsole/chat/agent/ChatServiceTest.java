@@ -2,6 +2,7 @@
 package ai.intellistream.dhconsole.chat.agent;
 
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
@@ -19,6 +20,8 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
 
+import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic;
+import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropicWith;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -50,16 +53,19 @@ class ChatServiceTest {
         conversation = new ChatConversation();
     }
 
+    private static final ChatSettings SETTINGS = anthropic();
+
+    /** The lambda is the point of {@code LlmClients}: no Vault, no credential, no network. */
     private ChatService service() {
-        return new ChatService(llm, mcp, new ToolPolicy(),
-                new ConsoleViews(JsonMapper.builder().build()), new ChatPrompt(properties), properties);
+        return new ChatService(settings -> llm, mcp, new ToolPolicy(),
+                new ConsoleViews(JsonMapper.builder().build()), new ChatPrompt(), properties);
     }
 
     @Test
     void answersDirectlyWhenNoToolIsNeeded() {
         llm.thenText("You have three datasets.");
 
-        ChatReply reply = service().send(conversation, "tok", "how many datasets?", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "how many datasets?", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(reply.reply()).isEqualTo("You have three datasets.");
         assertThat(reply.toolsUsed()).isEmpty();
@@ -71,7 +77,7 @@ class ChatServiceTest {
     void onlyReadOnlyToolsAreOfferedToTheModel() {
         llm.thenText("hi");
 
-        service().send(conversation, "tok", "hello", ZoneId.of("UTC"), ChatEffort.HIGH);
+        service().send(conversation, SETTINGS, "tok", "hello", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         // dataset_delete is advertised by the api but must never reach the model, so it cannot be
         // proposed in the first place. (open_events_view is a console-local tool, added separately.)
@@ -84,7 +90,7 @@ class ChatServiceTest {
     void offersTheConsoleNavigationToolAlongsideTheDataTools() {
         llm.thenText("hi");
 
-        service().send(conversation, "tok", "hello", ZoneId.of("UTC"), ChatEffort.HIGH);
+        service().send(conversation, SETTINGS, "tok", "hello", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(llm.firstSent().tools()).extracting(LlmToolDef::name).contains("open_events_view");
     }
@@ -94,7 +100,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t1", "open_events_view", Map.of("type", "ALARM")));
         llm.thenText("Opening the alarms for you.");
 
-        ChatReply reply = service().send(conversation, "tok", "take me to those alarms", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "take me to those alarms", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         // Navigation is a console concern; it must never be forwarded to datahub-api.
         verify(mcp, never()).callTool(anyString(), eq("open_events_view"), any());
@@ -111,7 +117,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t1", "dataset_list", Map.of()));
         llm.thenText("Here is what I found.");
 
-        service().send(conversation, "tok", "dig into this", ZoneId.of("UTC"), ChatEffort.MAX);
+        service().send(conversation, SETTINGS, "tok", "dig into this", ZoneId.of("UTC"), ChatEffort.MAX);
 
         // Not just the opening call: a turn told to think its hardest has earned an equally hard
         // pass over the tool results it just fetched, which is where the answer is actually formed.
@@ -127,7 +133,7 @@ class ChatServiceTest {
                 new LlmBlock.ToolUse("t2", "timeseries_search", Map.of("query", "pump")));
         llm.thenText("Here is what I found.");
 
-        service().send(conversation, "tok", "what do I have?", ZoneId.of("UTC"), ChatEffort.HIGH);
+        service().send(conversation, SETTINGS, "tok", "what do I have?", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         // Splitting results across messages trains the model out of parallel tool calls and is a
         // 400 on the Anthropic API.
@@ -148,7 +154,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t1", "dataset_delete", Map.of("id", 1)));
         llm.thenText("I cannot do that.");
 
-        ChatReply reply = service().send(conversation, "tok", "delete dataset 1", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "delete dataset 1", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         verify(mcp, never()).callTool(anyString(), eq("dataset_delete"), any());
         LlmBlock.ToolResult refusal = (LlmBlock.ToolResult) conversation.messages().stream()
@@ -165,7 +171,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t2", "dataset_list", Map.of()));
         llm.thenText("Done.");
 
-        ChatReply reply = service().send(conversation, "tok", "check twice", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "check twice", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         // De-duplicated: the trace names what was consulted, not how many times.
         assertThat(reply.toolsUsed()).containsExactly("dataset_list");
@@ -179,7 +185,7 @@ class ChatServiceTest {
                 Map.of("type", "ALARM", "start", "2026-08-01T00:00:00Z")));
         llm.thenText("Five alarms over the weekend.");
 
-        ChatReply reply = service().send(conversation, "tok", "what happened this weekend?", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "what happened this weekend?", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(reply.views()).hasSize(1);
         assertThat(reply.views().getFirst().page()).isEqualTo("events");
@@ -196,7 +202,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t2", "event_filter", Map.of("type", "ALARM")));
         llm.thenText("Same five.");
 
-        ChatReply reply = service().send(conversation, "tok", "check twice", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "check twice", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(reply.views()).hasSize(1);
     }
@@ -206,15 +212,16 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t1", "dataset_list", Map.of()));
         llm.thenText("Three datasets.");
 
-        assertThat(service().send(conversation, "tok", "datasets?", ZoneId.of("UTC"), ChatEffort.HIGH).views()).isEmpty();
+        assertThat(service().send(conversation, SETTINGS, "tok", "datasets?", ZoneId.of("UTC"), ChatEffort.HIGH).views()).isEmpty();
     }
 
     @Test
     void stopsAtTheIterationCapAndSaysSo() {
-        properties.setMaxIterations(3);
+        // The cap is the tenant's, off the settings, not the deployment's.
         llm.alwaysAsksFor(new LlmBlock.ToolUse("t", "dataset_list", Map.of()));
 
-        ChatReply reply = service().send(conversation, "tok", "loop forever", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, anthropicWith(3, null), "tok", "loop forever",
+                ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(reply.truncated()).isTrue();
         verify(mcp, times(3)).callTool(anyString(), eq("dataset_list"), any());
@@ -228,7 +235,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t1", "dataset_list", Map.of()));
         llm.thenText("Summarised.");
 
-        service().send(conversation, "tok", "give me everything", ZoneId.of("UTC"), ChatEffort.HIGH);
+        service().send(conversation, SETTINGS, "tok", "give me everything", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         LlmBlock.ToolResult result = (LlmBlock.ToolResult) conversation.messages().stream()
                 .filter(m -> m.role() == LlmMessage.Role.USER && !m.isPlainUserTurn())
@@ -243,7 +250,7 @@ class ChatServiceTest {
         llm.thenToolCalls(new LlmBlock.ToolUse("t1", "dataset_list", Map.of()));
         llm.thenText("That dataset does not exist.");
 
-        ChatReply reply = service().send(conversation, "tok", "show dataset 42", ZoneId.of("UTC"), ChatEffort.HIGH);
+        ChatReply reply = service().send(conversation, SETTINGS, "tok", "show dataset 42", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         assertThat(reply.reply()).isEqualTo("That dataset does not exist.");
         LlmBlock.ToolResult result = (LlmBlock.ToolResult) conversation.messages().stream()
@@ -256,10 +263,10 @@ class ChatServiceTest {
     void theConversationCarriesAcrossTurns() {
         llm.thenText("First answer.");
         ChatService service = service();
-        service.send(conversation, "tok", "first question", ZoneId.of("UTC"), ChatEffort.HIGH);
+        service.send(conversation, SETTINGS, "tok", "first question", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         llm.thenText("Second answer.");
-        service.send(conversation, "tok", "second question", ZoneId.of("UTC"), ChatEffort.HIGH);
+        service.send(conversation, SETTINGS, "tok", "second question", ZoneId.of("UTC"), ChatEffort.HIGH);
 
         // The second request must include the first exchange, or the model has no memory.
         assertThat(llm.sent()).hasSize(2);

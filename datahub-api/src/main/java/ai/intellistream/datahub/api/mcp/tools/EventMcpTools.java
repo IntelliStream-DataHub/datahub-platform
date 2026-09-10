@@ -265,7 +265,8 @@ public class EventMcpTools {
             name = "event_update",
             description = """
                     Update common fields on a single event. Identify by id (UUID) or
-                    externalId. Only provided fields are set. For niche patch operations
+                    externalId; neither can be changed — an event's identity is immutable.
+                    Only provided fields are set. For niche patch operations
                     (metadata add/remove, related-resource list updates), use the REST
                     API's PATCH /events with a `relatedResources` set/add/remove block.
                     """
@@ -275,8 +276,6 @@ public class EventMcpTools {
             String id,
             @ToolParam(required = false, description = "ExternalId of the event.")
             String externalId,
-            @ToolParam(required = false, description = "New externalId (snake_case).")
-            String newExternalId,
             @ToolParam(required = false, description = "New description.")
             String newDescription,
             @ToolParam(required = false, description = "New type.")
@@ -294,7 +293,6 @@ public class EventMcpTools {
         if (externalId != null) form.setExternalId(externalId);
 
         EventFields f = new EventFields();
-        if (newExternalId != null) f.setExternalId(new UpdateStringField().set(newExternalId));
         if (newDescription != null) f.setDescription(new UpdateStringField().set(newDescription));
         if (newType != null) f.setType(new UpdateStringField().set(newType));
         if (newSubType != null) f.setSubType(new UpdateStringField().set(newSubType));

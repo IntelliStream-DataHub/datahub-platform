@@ -57,32 +57,8 @@
 			.catch(() => null);
 	};
 
-	const ctxMenu = (function(){
-		let el = null;
-		function close(){ if (el){ el.remove(); el = null; } }
-		function open(x, y, items){
-			close();
-			el = document.createElement('div');
-			el.className = 'dh-context-menu';
-			items.forEach(item => {
-				const btn = document.createElement('button');
-				btn.type = 'button';
-				btn.className = 'dh-context-item' + (item.danger ? ' danger' : '');
-				btn.innerHTML = '<i class="fa fa-fw ' + item.icon + '"></i><span></span>';
-				btn.querySelector('span').textContent = item.label;
-				btn.addEventListener('click', () => { close(); item.action(); });
-				el.appendChild(btn);
-			});
-			document.body.appendChild(el);
-			el.style.left = Math.min(x, window.innerWidth - el.offsetWidth - 8) + 'px';
-			el.style.top = Math.min(y, window.innerHeight - el.offsetHeight - 8) + 'px';
-		}
-		document.addEventListener('click', close);
-		document.addEventListener('scroll', close, true);
-		window.addEventListener('resize', close);
-		document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
-		return { open: open, close: close };
-	})();
+	// The shared context-menu widget from the app bundle (context-menu.js), loaded before this one.
+	const ctxMenu = window.DhContextMenu;
 
 	table.addEventListener('contextmenu', e => {
 		const row = e.target.closest('tr[data-external-id]');
@@ -390,7 +366,7 @@
 			Flash.error($L('target.already.exists'));
 		} else {
 			reenable();
-			Flash.error($L('update.failed'));
+			Flash.error(window.LimitErrors.fromStatus(resp.status) || $L('update.failed'));
 		}
 	}
 
@@ -527,7 +503,12 @@
 					return;
 				}
 				btn.disabled = false;
-				return r.text().then(msg => flashErr(i18n.restoreFail + (msg ? ': ' + msg : '')));
+				// A limit refusal is a whole sentence of its own; anything else keeps the old
+				// "could not restore: <server text>" shape.
+				return r.text().then(msg => {
+					const limit = window.LimitErrors.fromStatus(r.status, msg);
+					flashErr(limit || (i18n.restoreFail + (msg ? ': ' + msg : '')));
+				});
 			});
 		}).catch(() => { btn.disabled = false; flashErr(i18n.restoreFail); });
 	}

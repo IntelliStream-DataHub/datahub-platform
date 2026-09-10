@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.function.Function;
@@ -49,7 +50,7 @@ class FunctionServiceTest {
 
     @BeforeEach
     void setUp() {
-        functionService = new FunctionService(functionRepository, new FunctionTransformer(), resourceService, dataSecurity);
+        functionService = new FunctionService(functionRepository, resourceService, dataSecurity);
     }
 
     @Test
@@ -59,7 +60,7 @@ class FunctionServiceTest {
         fn.setName("My Function");
 
         // resourceService.create returns one created node with a server-assigned id.
-        var created = new GraphDataWrapper<Resource, EdgeProxy>();
+        var created = new GraphDataWrapper<NodeModel, EdgeProxy>();
         var node = new Resource();
         node.setId(1L);
         created.getNodes().add(node);
@@ -77,10 +78,10 @@ class FunctionServiceTest {
         assertEquals("my_fn", result.getItems().iterator().next().getExternalId());
 
         @SuppressWarnings("unchecked")
-        ArgumentCaptor<GraphDataWrapper<Resource, RelForm>> captor =
+        ArgumentCaptor<GraphDataWrapper<NodeModel, RelForm>> captor =
                 ArgumentCaptor.forClass(GraphDataWrapper.class);
         verify(resourceService).create(captor.capture());
-        Resource passed = captor.getValue().getNodes().iterator().next();
+        NodeModel passed = captor.getValue().getNodes().iterator().next();
         assertTrue(passed.getLabels().contains("FUNCTION"),
                 "the FUNCTION type-label must reach the resource pipeline so a FunctionEntity is built");
     }
@@ -88,7 +89,7 @@ class FunctionServiceTest {
     @Test
     void update_delegatesToResourcePipeline() throws Exception {
         var req = new GraphDataWrapper<UpdateResourceForm, UpdateRelForm>();
-        var expected = new GraphDataWrapper<Resource, EdgeProxy>();
+        var expected = new GraphDataWrapper<NodeModel, EdgeProxy>();
         when(resourceService.update(req)).thenReturn(expected);
 
         assertSame(expected, functionService.update(req));

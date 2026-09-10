@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
 """Seed the 3W well fleet into a running DataHub. One-shot; safe to re-run.
 
 Replays the pre-generated payloads under data/ through the DataHub SDK: a Dataset per
@@ -229,8 +230,8 @@ def confirm(client, wells, uploaded, timeout=None):
     # A second check: the asset model is readable back. This deliberately does NOT try to
     # count edges — `by_ids` does not populate `related_resources`, so a graph assertion
     # made here would report 0 whether or not the edges exist, which is worse than no
-    # check. Whether the stateful consumer has applied them to Neo4j shows up in the
-    # console's graph view, and can lag this by a few seconds.
+    # check. Whether the graph mirror has applied them to Neo4j shows up in the
+    # console's graph view, and can lag this by a moment.
     for well in wells:
         try:
             found = client.resources.by_ids([well["externalId"]])

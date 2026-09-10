@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.controllers.errors.*;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -89,6 +90,10 @@ public class FunctionController {
             return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
         } catch (org.springframework.security.access.AccessDeniedException e) {
             throw e;
+        } catch (LimitException e) {
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
+            throw e;
         } catch (PulsarClientException | RuntimeException e) {
             log.error("Function create failed: {}", e.getMessage(), e);
             return ResponseEntity.internalServerError().build();
@@ -114,6 +119,24 @@ public class FunctionController {
 
     @Tag(name = "Functions")
     @Operation(
+            summary = "Fetch one function by id",
+            description = """
+                    Returns the function with this id.
+
+                    A function you may not read is reported as missing rather than forbidden, so a
+                    404 does not tell you whether the id exists.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The function.")
+    @ApiResponse(responseCode = "404", description = "No such function, or not readable by this caller.")
+    @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> getFunction(@PathVariable("id") Long id) {
+        return new ResponseEntity<>(functionService.get(id), HttpStatus.OK);
+    }
+
+
+    @Tag(name = "Functions")
+    @Operation(
             summary = "Update function",
             description = "Update one or more functions (and any relations). Only the fields named in "
                     + "each entry's `update` block are changed."
@@ -131,7 +154,7 @@ public class FunctionController {
     public ResponseEntity<?> updateFunction(
             @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) {
         try {
-            GraphDataWrapper<Resource, EdgeProxy> results = functionService.update(apiReqData);
+            GraphDataWrapper<NodeModel, EdgeProxy> results = functionService.update(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.OK);
         } catch (ConstraintViolationException cve) {
             var e = BuildErrorResponse.createConstraintViolationError(cve);
@@ -141,6 +164,10 @@ public class FunctionController {
         } catch (OptimisticLockingFailureException olf) {
             throw olf;
         } catch (org.springframework.security.access.AccessDeniedException e) {
+            throw e;
+        } catch (LimitException e) {
+            // A limit refusal is an answer, not a fault: without this the catch below
+            // flattens it into a 500 and the caller never learns which limit they hit.
             throw e;
         } catch (PulsarClientException | RuntimeException e) {
             log.error("Function update failed: {}", e.getMessage(), e);

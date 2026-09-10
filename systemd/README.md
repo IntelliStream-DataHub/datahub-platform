@@ -11,13 +11,13 @@ systemd/
   datahub@.service                     one template for all six services
   datahub@<name>.service.d/placement.conf   per-instance NUMA node, memory ceiling, extra mounts
   env/common.env                       profile, Vault AppRole, Pulsar, shared env
-  env/<name>.env                       JAVA_OPTS per service (heap, GC, logging)
+  env/<name>.env                       JAVA_OPTS per service
   config/<name>/application.yml        Spring Boot / Tomcat tuning (api, console, analysis)
   sysctl.d/90-datahub-app.conf         kernel settings for the app hosts
 ```
 
 Instance names are the short module names: `api`, `console`, `stateless-consumer`,
-`stateful-consumer`, `analysis`, `cleanup`. `systemctl status datahub@api` and so on.
+`analysis`, `cleanup`. `systemctl status datahub@api` and so on.
 
 ## Host layout
 
@@ -29,7 +29,7 @@ a third host (or on the same two if the hardware is shared).
 |---|---|---|
 | app-1 | `datahub@api` (20 GB heap) | `datahub@console` (16 GB) |
 | app-2 | `datahub@api` (20 GB) | `datahub@console` (16 GB) |
-| app-3 | `datahub@stateless-consumer` (20 GB) | `datahub@stateful-consumer` (16 GB) |
+| app-3 | `datahub@stateless-consumer` (20 GB) | — |
 | app-4 | `datahub@analysis` (16 GB) | `datahub@cleanup` (4 GB) |
 
 The node for each instance is set in its `placement.conf` (`NUMAMask=0` or `1`), so a
@@ -37,8 +37,10 @@ different layout is a one-line change per instance on that host. Check the actua
 numbering with `lscpu | grep NUMA`; the units use `CPUAffinity=numa`, which derives the
 CPU set from the node, so they need no CPU numbers.
 
-The stateful consumer and cleanup must run as exactly one instance each (order-sensitive
-graph writes; single-instance housekeeping); the others scale by adding hosts.
+Cleanup must run as exactly one instance (its jobs are not built to run concurrently); the
+others scale by adding hosts. Graph writes stay ordered without a designated instance: every
+api instance drains the per-tenant `resource_outbox`, and a Postgres advisory lock in the
+tenant's own database lets only one of them apply at a time.
 
 ## Install (per host)
 
@@ -78,8 +80,11 @@ journalctl -fu datahub@api
 ```
 
 `common.env` holds the Vault secret-id, hence mode 0600; systemd reads it as root, the
-service never sees the file. Firewall: the api listens on 8081 and the console on 8080
-for the load balancer only; open them to the LB addresses, not the world.
+service never sees the file. If Vault requires a client certificate, the `VAULT_KEYSTORE`
+lines in the same file point at a PKCS12 under `/etc/datahub`, which the unit's
+`ProtectSystem=strict` still lets the service read. Firewall: the api listens on 8081 and the console on 8080
+for the load balancer only; open them to the LB addresses, not the world, and the metrics ports
+(9080, 9081; see [Metrics](#metrics)) to the Prometheus host.
 
 The apps expect a **pgbouncer on localhost** (`StatelessRoutingDataSource` opens a
 connection per request and has no pool of its own). The unit orders itself after
@@ -103,13 +108,79 @@ setting. Three things to line up:
 `sysctl.d/90-datahub-app.conf` turns off router advertisements, autoconf and temporary
 addresses on the app hosts; a server's source address must stay put.
 
+## Metrics
+
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: JVM
+memory and GC, threads, CPU, Tomcat connections and request latency per endpoint. The api, console
+and analysis serve it on a second port next to the application port, so the load balancer never
+reaches it; the consumers and cleanup listen on nothing else.
+
+**It ships switched off.** The scrape carries no token, so whatever reaches the port reads your
+request rates, error rates, endpoint inventory and JVM internals. Turn it on per service with
+
+```yaml
+management:
+  endpoints:
+    web:
+      exposure:
+        include: prometheus
+```
+
+in `/etc/datahub/<name>/application.yml`.
+
+| Instance | Application port | Metrics port |
+|---|---|---|
+| `datahub@api` | 8081 | 9081 |
+| `datahub@console` | 8080 | 9080 |
+| `datahub@analysis` | 8082 | 9082 |
+| `datahub@stateless-consumer` | none | 9083 |
+| `datahub@cleanup` | none | 9085 |
+
+Open the metrics ports to the Prometheus host only, and prefer a certificate over trusting that
+rule. Put the stores and their passwords in the shared `datahub-platform` Vault secret, the same one
+that holds the Keycloak issuer:
+
+| Vault key | What it is |
+|---|---|
+| `metrics.keystore` | PKCS12 (or `.jks`) holding this host's server certificate and key |
+| `metrics.keystore-password` | its password |
+| `metrics.truststore` | the CA that signed the Prometheus client certificate |
+| `metrics.truststore-password` | its password |
+| `metrics.client-auth` | optional; `need` unless set |
+
+Each service reads those at startup and configures `management.server.ssl.*` (or `server.ssl.*` for
+the three without an application port) from them, so the passwords never sit in a file on the
+application hosts. Set no `metrics.keystore` and the port stays plain HTTP, which is what an
+installation that has not set this up gets.
+
+Prometheus then scrapes with `scheme: https` and a `tls_config` naming its client certificate and
+the same CA. The ports bind the wildcard address like the application ports;
+`management.server.address` (or `server.address`) narrows that as well, if the host has an internal
+interface. A scrape job per host:
+
+```yaml
+scrape_configs:
+  - job_name: datahub
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["app-1.internal.example.org:9081", "app-2.internal.example.org:9081"]
+        labels: { service: api }
+      - targets: ["app-1.internal.example.org:9080", "app-2.internal.example.org:9080"]
+        labels: { service: console }
+```
+
+The health endpoint is not exposed: its indicators would probe the tenant-routing datasource,
+which has no connection to offer without a tenant. nginx's passive checks (`max_fails`) cover
+upstream health.
+
+
 ## Why these numbers
 
 **Heap 16-20 GB, fixed size.** `-Xms` = `-Xmx` plus `AlwaysPreTouch`: the whole heap is
 faulted in at start, under the unit's `NUMAPolicy=bind`, so it is node-local and never
-grows or pages in the request path. Startup takes a few seconds longer. G1 at a 200 ms
-pause target is the safe default; generational ZGC (`-XX:+UseZGC`) trades
-some throughput for sub-millisecond pauses if the api's latency tail matters more.
+grows or pages in the request path. Startup takes a few seconds longer. G1 with its defaults is the safe choice;
+generational ZGC (`-XX:+UseZGC`) trades some throughput for sub-millisecond pauses if the
+api's latency tail matters more.
 
 **Transparent huge pages** (`-XX:+UseTransparentHugePages` with THP in `madvise` mode)
 cut TLB misses on a 20 GB heap. Combined with pre-touch the huge pages are assembled at
@@ -120,10 +191,9 @@ the tmpfiles line above.
 Java 25): 8-byte instead of 12-byte headers, 5-10 % less heap churn on object-heavy
 JSON workloads.
 
-**Off-heap.** `MaxDirectMemorySize` is sized per service for Netty, the Pulsar client and
-the ClickHouse client; the memory ceiling in each `placement.conf` (`MemoryMax`) leaves
-heap + direct + metaspace + code cache + stacks comfortably inside it. It is a guard
-against a leak, not a target. `MALLOC_ARENA_MAX=4` keeps glibc from holding on to one
+**Off-heap.** Direct buffers (Netty, the Pulsar and ClickHouse clients), metaspace and the
+code cache are left at the JVM defaults; the memory ceiling in each `placement.conf`
+(`MemoryMax`) is the guard against a leak, not a target. `MALLOC_ARENA_MAX=4` keeps glibc from holding on to one
 arena per thread.
 
 **Never `-XX:TieredStopAtLevel=1` in production.** It disables the C2 compiler and with
@@ -163,6 +233,49 @@ set. Two things are deliberately *not* there: `MemoryDenyWriteExecute` (the JIT 
 W+X pages) and `SystemCallFilter` (the JVM's syscall surface is wide and a missing call
 fails in odd places).
 
+## Diagnostics
+
+No heap dump on OOM (the JVM default) and no core dump (`LimitCORE=0`): both are a copy of
+process memory, credentials and tenant data included. An OOM ends the process
+(`ExitOnOutOfMemoryError`) and systemd restarts it. Nothing else is logged by default;
+everything below is switched on when needed:
+
+```sh
+PID=$(systemctl show -p MainPID --value datahub@api)
+
+# Heap occupancy now, and a GC log from now on (one line per collection, before->after)
+jcmd $PID GC.heap_info
+jcmd $PID VM.log output=file=/var/log/datahub/api/gc.log what=gc decorators=time
+
+# Heap growing: start a recording (about 1 % overhead, bounded to 24 h / 1 GB). The
+# environment event is off so the recording does not hold the Vault secret-id.
+jcmd $PID JFR.start name=datahub disk=true maxage=24h maxsize=1g memory-leaks=stack-traces jdk.InitialEnvironmentVariable#enabled=false
+
+# Later, pull it with leak candidates and their reference chains (a safepoint while the
+# live heap is walked; pick a quiet moment)
+jcmd $PID JFR.dump name=datahub path-to-gc-roots=true filename=/var/log/datahub/api/api-%t.jfr
+jfr view memory-leaks-by-site /var/log/datahub/api/api-*.jfr        # or JDK Mission Control
+jfr view allocation-by-site /var/log/datahub/api/api-*.jfr
+jfr view gc-pauses /var/log/datahub/api/api-*.jfr
+jcmd $PID JFR.stop name=datahub
+```
+
+A recording holds exception messages and stack traces: treat a `.jfr` like a log file.
+
+RSS growing while the heap stays flat is off-heap. Native memory tracking cannot be enabled
+at runtime: add `-XX:NativeMemoryTracking=summary` to the env file, restart that instance,
+then `jcmd $PID VM.native_memory baseline` and, after a while, `summary.diff`.
+
+When a heap dump is genuinely needed, take it deliberately:
+
+```sh
+jcmd $PID GC.heap_dump -gz=1 /var/lib/datahub/api/api-$(date +%F).hprof.gz
+```
+
+The JVM pauses while it writes (take the instance out of the load balancer first). Analyse
+it on the host or on an encrypted volume, delete it when done, and rotate every secret that
+was in the process if the file ever left the host.
+
 ## Checking a running service
 
 ```sh
@@ -172,7 +285,6 @@ grep AnonHugePages /proc/$(systemctl show -p MainPID --value datahub@api)/smaps_
 jcmd $(systemctl show -p MainPID --value datahub@api) VM.flags       # effective JVM flags
 jcmd $(systemctl show -p MainPID --value datahub@api) GC.heap_info
 ss -tn state established '( sport = :8081 )' | wc -l                 # open connections
-tail -f /var/log/datahub/api/gc.log
 ```
 
 `numastat -p` should show all but a few MB under the bound node. If the `Huge` column

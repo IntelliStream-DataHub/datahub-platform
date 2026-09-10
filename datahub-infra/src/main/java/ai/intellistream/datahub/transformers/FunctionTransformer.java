@@ -3,46 +3,46 @@ package ai.intellistream.datahub.transformers;
 
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.jpa.domains.FunctionEntity;
-import ai.intellistream.datahub.jpa.domains.Label;
-import lombok.RequiredArgsConstructor;
-import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 
-@Component
-@RequiredArgsConstructor
-public class FunctionTransformer {
+/**
+ * {@code FunctionEntity} to {@link Function}. A function is a plain datastore node: it adds
+ * nothing to the shared node shape, so this is the shared mapping and its labels.
+ */
+public final class FunctionTransformer {
 
-    public Collection<Function> toFunction(Collection<FunctionEntity> entities) {
-        if (entities == null || entities.isEmpty()) return Collections.emptyList();
-        return entities.stream().map(this::toFunction).collect(Collectors.toList());
+    private FunctionTransformer() {
     }
 
-    public Function toFunction(FunctionEntity entity) {
-        var f = new Function();
-        f.setId(entity.getId());
-        f.setExternalId(entity.getExternalId());
-        f.setName(entity.getName());
-        f.setDescription(entity.getDescription());
-        f.setSource(entity.getSource());
-        f.setMetadata(entity.getMetadata() == null ? new HashMap<>() : new HashMap<>(entity.getMetadata()));
-        f.setLabels(entity.getLabelEntities() == null
-                ? new ArrayList<>()
-                : entity.getLabelEntities().stream().map(Label::getName).collect(Collectors.toList()));
-        if (entity.getDataSet() != null) {
-            f.setDataSetId(entity.getDataSet().getId());
+    public static Collection<Function> toFunction(Collection<FunctionEntity> entities) {
+        if (entities == null || entities.isEmpty()) return Collections.emptyList();
+        return entities.stream().map(FunctionTransformer::from).collect(Collectors.toList());
+    }
+
+    public static Function from(FunctionEntity entity) {
+        Function dto = NodeBaseFields.apply(new Function(), entity);
+        dto.setLabels(labelsOf(entity));
+        return dto;
+    }
+
+    /**
+     * From the denormalised {@code labels} column, not the {@code labelEntities} M2M.
+     *
+     * <p>The M2M is LAZY, so reading it costs a query per row inside a session and throws
+     * {@code LazyInitializationException} outside one — which is exactly what a DTO serialized
+     * after the transaction closes does. Every other read path uses the denormalised string; this
+     * one used to be the exception.
+     */
+    private static List<String> labelsOf(FunctionEntity entity) {
+        String labels = entity.getLabels();
+        if (labels == null || labels.isBlank()) {
+            return List.of();
         }
-        if (entity.getDateCreated() != null) {
-            f.setCreatedTime(entity.getDateCreated());
-        }
-        if (entity.getLastUpdated() != null) {
-            f.setLastUpdatedTime(entity.getLastUpdated());
-        }
-        return f;
+        return Arrays.stream(labels.split(",")).collect(Collectors.toList());
     }
 }

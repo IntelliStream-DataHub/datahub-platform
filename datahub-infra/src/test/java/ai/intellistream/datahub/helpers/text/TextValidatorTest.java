@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TextValidatorTest {
 
@@ -98,6 +99,23 @@ class TextValidatorTest {
         assertNull(TextValidator.toSnakeLowerCasedAllowStartWithDigits(null));
         assertEquals("", TextValidator.toSnakeLowerCasedAllowStartWithDigits(""));
         assertEquals("   ", TextValidator.toSnakeLowerCasedAllowStartWithDigits("   "));
+    }
+
+    @Test
+    void trimUnderscores_stripsLeadingAndTrailingRuns() {
+        assertEquals("a_b", TextValidator.trimUnderscores("__a_b___"));
+        assertEquals("a", TextValidator.trimUnderscores("a"));
+        assertEquals("", TextValidator.trimUnderscores("____"));
+        assertEquals("", TextValidator.trimUnderscores(""));
+    }
+
+    @Test
+    void toSnakeLowerCased_trimsSeparatorsInLinearTime() {
+        // "a" + long whitespace run + "b" used to hit the quadratic "_+$" trim regex.
+        String hostile = "a" + " ".repeat(100_000) + "b";
+        long start = System.nanoTime();
+        assertEquals("a_b", TextValidator.toSnakeLowerCased(hostile).replaceAll("_+", "_"));
+        assertTrue(System.nanoTime() - start < 1_000_000_000L, "trim must not backtrack quadratically");
     }
 
     @Test

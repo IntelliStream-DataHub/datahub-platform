@@ -140,12 +140,13 @@ Postgres writes at all**. It does a read (`findByIdOrExternalId`), an ACL check,
 write, and the send. The `@Transactional` annotation is wrapping reads only, and there is
 nothing to commit.
 
-Publishing after commit here would also be a durability regression. For resource and event CUD,
-Postgres is the source of truth and a lost message can be reconciled from it; the publisher's
-own documentation notes that a crash between commit and send leaves that gap open, pending an
-outbox table. For datapoint ingest **Pulsar is the source of truth**. There is no Postgres copy
-to reconcile from, so a lost message is lost data, and the caller has already been told the
-write succeeded.
+Publishing after commit here would also be a durability regression. For event CUD, Postgres is
+the source of truth and a lost message can be reconciled from it. (Resource CUD no longer
+publishes at all: it queues a row in `resource_outbox` inside the writing transaction, which is
+what closed the crash-between-commit-and-send gap the publisher's javadoc used to apologise
+for.) For datapoint ingest **Pulsar is the source of truth**. There is no Postgres copy to
+reconcile from, so a lost message is lost data, and the caller has already been told the write
+succeeded.
 
 The fix is instead to drop the transaction, keep the send synchronous so that a 2xx response
 still means Pulsar has the data, and let the connection go back to the pool before the network

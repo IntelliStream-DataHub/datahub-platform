@@ -13,3 +13,11 @@ vault:
   address: < vault url here >
   role-id: < role-id here >
   secret-id: < secret-id here >
+  # Client certificate for a Vault listener that requires mutual TLS (PKCS12, or JKS by the .jks
+  # extension), and optionally the CA that signed Vault's server certificate. Leave unset for a
+  # Vault that does not require a client certificate. Also settable as VAULT_KEYSTORE,
+  # VAULT_KEYSTORE_PASSWORD, VAULT_TRUSTSTORE and VAULT_TRUSTSTORE_PASSWORD.
+  #keystore: < path to client .p12 here >
+  #keystore-password: < keystore password here >
+  #truststore: < path to CA .p12 here >
+  #truststore-password: < truststore password here >

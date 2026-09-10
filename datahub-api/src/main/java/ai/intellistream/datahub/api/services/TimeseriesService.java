@@ -13,15 +13,19 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
+import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.models.validation.ResourceFields;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.api.messaging.events.DatapointCudPublishEvent;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.responses.*;
 import ai.intellistream.datahub.clickhouse.ClickHouseDatapointService;
 import ai.intellistream.datahub.clickhouse.DatapointBinaryConverter;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.errors.ResponseError;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
@@ -33,7 +37,6 @@ import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventObject;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.NodeRepository;
@@ -106,6 +109,8 @@ public class TimeseriesService {
 
     private final ApplicationEventPublisher applicationEventPublisher;
 
+    private final GraphOutbox graphOutbox;
+
     private final Producer<DataWrapperBin> allDatapointProducer;
 
     @Qualifier("datapointIngestCounter")
@@ -122,6 +127,9 @@ public class TimeseriesService {
 
     private final DataSecurity dataSecurity;
 
+    /** The one node-update pipeline; see {@link NodeUpdateService}. */
+    private final NodeUpdateService nodeUpdateService;
+
     private final ValkeyService valkeyService;
 
     private final JsonMapper jsonMapper;
@@ -136,6 +144,8 @@ public class TimeseriesService {
      * method. Spring Boot auto-configures this from the single {@code PlatformTransactionManager}.
      */
     private final TransactionTemplate transactionTemplate;
+
+    private final IngestQuotaService ingestQuota;
 
     // Bounded executor for ClickHouse datapoint queries. Replaces the previous `new Thread(...)`
     // per filter, which let any caller fan out unlimited threads. Sized off the host CPU count
@@ -569,13 +579,8 @@ public class TimeseriesService {
 
             apiReqData.setItems(TimeseriesTransformer.from(tsEntities, edgeEntities));
 
-            // All is good so far, send create timeseries message
-            // Create resource in Neo4J
-            var msg = new ResourceCudMessage(EventAction.CREATE, EventObject.TIMESERIES, TenantContext.getTenantId());
-            List<Resource> resources = ResourceTransformer.from(tsEntities);
-            msg.setResources(resources);
-            msg.setEdges(edgeEntities);
-            applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+            // Mirror the new timeseries and their edges into the graph.
+            graphOutbox.queueUpsert(tsEntities, edgeEntities);
 
             // Findings reference node_id, which only exists now that the rows are saved. A rejected
             // batch never reaches here, which is the intent: NOT_OK leaves no entity to attach to.
@@ -642,6 +647,52 @@ public class TimeseriesService {
                 .map(e -> Map.of("externalId", e.getExternalId()))
                 .collect(Collectors.toList());
         throw duplicateExternalIdException(duplicated);
+    }
+
+    /**
+     * A time series' shared field changes as the canonical node-update command.
+     *
+     * <p>{@code TimeseriesFields} says the same thing about name, externalId, metadata,
+     * description, source and dataset membership that {@code ResourceFields} does; only
+     * {@code unit}, {@code unitExternalId} and {@code securityCategories} are its own. Adapting
+     * rather than widening the shared command keeps type-specific fields out of it — the same
+     * shape the dataset and policy paths use.
+     */
+    private static UpdateResourceForm asNodeCommand(UpdateTimeseries form, TimeseriesFields fields) {
+        UpdateResourceForm command = new UpdateResourceForm(form.getId());
+        command.setExternalId(form.getExternalId());
+        ResourceFields target = command.getUpdate();
+        if (fields.getName().getSet() != null) {
+            target.getName().set(fields.getName().getSet());
+        }
+        if (fields.getExternalId().getSet() != null) {
+            target.getExternalId().set(fields.getExternalId().getSet());
+        }
+        if (fields.getDescription().getSet() != null) {
+            target.getDescription().set(fields.getDescription().getSet());
+        } else if (fields.getDescription().getSetNull()) {
+            target.getDescription().setNull(true);
+        }
+        if (fields.getSource().getSet() != null) {
+            target.getSource().set(fields.getSource().getSet());
+        } else if (fields.getSource().getSetNull()) {
+            target.getSource().setNull(true);
+        }
+        if (fields.getMetadata().getSet() != null) {
+            target.getMetadata().setSet(fields.getMetadata().getSet());
+        }
+        if (fields.getMetadata().getAdd() != null) {
+            target.getMetadata().add(fields.getMetadata().getAdd());
+        }
+        if (fields.getMetadata().getRemove() != null) {
+            target.getMetadata().remove(fields.getMetadata().getRemove());
+        }
+        if (fields.getDataSetId().getSet() != null) {
+            target.getDataSetId().set(fields.getDataSetId().getSet());
+        } else if (fields.getDataSetId().getSetNull()) {
+            target.getDataSetId().setNull(true);
+        }
+        return command;
     }
 
     private DuplicateDataException duplicateExternalIdException(Collection<Map<String, String>> duplicated) {
@@ -728,6 +779,13 @@ public class TimeseriesService {
     public DataWrapper<?> insertDatapoints(DataWrapper<DatapointsCollection> data)
             throws PulsarClientException {
 
+        // Validate here too, not only at the controller: the timeseries_send_datapoint MCP tool calls
+        // this method directly and would otherwise bypass the batch and value-size constraints.
+        Set<ConstraintViolation<DataWrapper<DatapointsCollection>>> violations = validator.validate(data);
+        if (!violations.isEmpty()) {
+            throw new ConstraintViolationException(violations);
+        }
+
         // Phase 1: resolve, authorise and validate. Needs the persistence context; no I/O.
         PreparedDatapointInsert prepared = transactionTemplate.execute(status -> prepareDatapointInsert(data));
 
@@ -781,6 +839,21 @@ public class TimeseriesService {
 
             // Writing data-points is a write to the timeseries' dataset.
             dataSecurity.assertCanWrite(ts);
+
+            // A text batch is the one shape that can approach Pulsar's per-message ceiling, so it is
+            // capped tighter than a numeric one. Checked here rather than on the DTO because the cap
+            // depends on the value type, which is only known once the series has been resolved.
+            assertTextBatchWithinLimit(ts, entry);
+
+            // Charged per collection, once the series is known, so a text batch can also be counted
+            // against its own tighter ceiling. Before anything is built, so a refused batch publishes
+            // nothing.
+            int datapointCount = entry.getDatapoints() == null ? 0 : entry.getDatapoints().size();
+            ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.DATAPOINTS, datapointCount);
+            int valueTypeId = ts.getValueType().getId();
+            if (valueTypeId == TEXT || valueTypeId == MIXED) {
+                ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, datapointCount);
+            }
 
             // Define message type and actions
             DataWrapperMessage insertData = new DataWrapperMessage(
@@ -849,6 +922,29 @@ public class TimeseriesService {
             }
         }
         return new PreparedDatapointInsert(responseData, pending);
+    }
+
+    /**
+     * Reject a TEXT/MIXED collection larger than {@link FieldLimits#TEXT_DATAPOINTS_PER_COLLECTION_MAX}.
+     * Numeric series keep the larger {@code DATAPOINTS_PER_COLLECTION_MAX} enforced on the DTO.
+     */
+    private static void assertTextBatchWithinLimit(TimeseriesEntity ts, DatapointsCollection entry) {
+        int valueType = ts.getValueType().getId();
+        if (valueType != TEXT && valueType != MIXED) {
+            return;
+        }
+        List<DatapointString> datapoints = entry.getDatapoints();
+        if (datapoints == null || datapoints.size() <= FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX) {
+            return;
+        }
+        ResponseError<BadRequestError> error = new ResponseError<>();
+        BadRequestError badRequestError = new BadRequestError();
+        badRequestError.setMessage((
+                "A %s time series accepts at most %d data points per request, got %d. "
+                        + "Split the batch into smaller requests."
+        ).formatted(ts.getValueType().getName(), FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX, datapoints.size()));
+        error.setError(badRequestError);
+        throw new BadRequestException(error);
     }
 
     private static void addData(
@@ -1219,18 +1315,12 @@ public class TimeseriesService {
 
         DataWrapper<Timeseries> updatedTimeseries = updateTimeseries(apiReqData.getItems());
 
-        // When updating in neo4j in the consumer, we need the id
-        for(var ts : updatedTimeseries.getItems()){
-            for(var updateTs : apiReqData.getItems()){
-                if( ts.getExternalId().equals(updateTs.getExternalId())){
-                    updateTs.setId(ts.getId());
-                }
-            }
-        }
+        // The ids were stamped at resolution time, before any rename was applied. This used to be
+        // done here by matching external ids afterwards, which silently failed for the one case it
+        // mattered: a rename leaves the entity holding the new id and the form the old one.
 
-        var msg = new ResourceCudMessage(EventAction.UPDATE, EventObject.TIMESERIES, TenantContext.getTenantId());
-        msg.setUpdateTimeseries(apiReqData.getItems().stream().toList());
-        applicationEventPublisher.publishEvent(new ResourceCudPublishEvent(msg));
+        graphOutbox.queueUpsertIds(
+                apiReqData.getItems().stream().map(UpdateTimeseries::getId).toList(), List.of());
 
         return updatedTimeseries;
     }
@@ -1241,157 +1331,72 @@ public class TimeseriesService {
         Set<Long> tsIdList = timeseries.stream().map(UpdateTimeseries::getId).collect(Collectors.toSet());
         Set<String> tsExternalIdList = timeseries.stream().map(UpdateTimeseries::getExternalId).collect(Collectors.toSet());
 
-        // Two renames to the same externalId in ONE batch would each pass the per-item collision
-        // check (neither is in the DB yet) and only die on the unique constraint — catch it here.
-        Set<String> renameTargets = new HashSet<>();
-        List<Map<String, String>> duplicatedRenames = new ArrayList<>();
-        for (UpdateTimeseries ut : timeseries) {
-            String target = ut.getUpdate() != null ? ut.getUpdate().getExternalId().getSet() : null;
-            if (target != null && !renameTargets.add(target)) {
-                duplicatedRenames.add(Map.of("externalId", target));
-            }
-        }
-        if (!duplicatedRenames.isEmpty()) {
-            throw duplicateExternalIdException(duplicatedRenames);
-        }
+        // The within-batch duplicate-rename check lives in NodeUpdateService.guardRenames now,
+        // which also does the whole-table one. The copy that used to be here compared raw strings
+        // while the pipeline compares the case-insensitive hash, so ["Temp", "TEMP"] slipped past
+        // it — two implementations of one rule, already drifting.
 
         Collection<TimeseriesEntity> dbTimeseries = timeseriesRepository.findAllByIdOrExternalId(tsIdList, tsExternalIdList);
 
-        // Judge the whole batch BEFORE the loop below mutates anything. The loop writes the new
-        // external id straight onto the managed entity, after which Hibernate may auto-flush ahead
-        // of the guard's own query and persist a value the policy was about to reject.
-        List<PolicyFinding> policyWarnings = policyEnforcement.check(namingCandidatesForUpdate(dbTimeseries, timeseries));
-
-        dbTimeseries.forEach( dbTs -> {
+        // Pass 1: pair every target with its update and authorize it, mutating nothing. The
+        // batch has to be judged as a batch — two renames onto the same external id each pass a
+        // per-item check, because neither is in the table yet — and nothing may be written before
+        // that judgement, or a rejected batch has already half-applied.
+        record Pending(TimeseriesEntity entity, TimeseriesFields fields, NodeUpdateService.Target target) {}
+        List<Pending> pending = new ArrayList<>();
+        for (TimeseriesEntity dbTs : dbTimeseries) {
             UpdateTimeseries updateData = matchUpdateFor(dbTs, timeseries);
-            if(updateData != null){
-                // Must be able to write the timeseries' current dataset before mutating it.
-                dataSecurity.assertCanWrite(dbTs);
-                TimeseriesFields fields = updateData.getUpdate();
-                dbTs.setLastUpdated(ZonedDateTime.now());
+            if (updateData == null) {
+                continue;
+            }
+            TimeseriesFields fields = updateData.getUpdate();
+            // The id goes on the caller's own form too. authorize() stamps the adapter command,
+            // which is discarded here — but it is updateData that rides the CUD message, and the
+            // graph consumer looks the node up by that id. A caller who named the series by
+            // externalId would otherwise publish a null id and the graph would match nothing.
+            updateData.setId(dbTs.getId());
+            pending.add(new Pending(dbTs, fields,
+                    nodeUpdateService.authorize(asNodeCommand(updateData, fields), dbTs)));
+        }
 
-                // Update name field
-                if(fields.getName().getSet() != null){
-                    dbTs.setName(fields.getName().getSet());
-                }
+        // Pass 2: the shared half, over the whole batch — the rename-collision guard (whole node
+        // table, a clean 409), then name, externalId, metadata, description, source, dataset
+        // membership and the type-label guard.
+        List<NodeUpdateService.Target> targets = pending.stream().map(Pending::target).toList();
+        nodeUpdateService.guardRenames(targets);
+        // The pipeline's judgement, not a second copy of it. This path used to run its own
+        // policyEnforcement.check with its own candidate-builder, which is the drift the shared
+        // stages exist to stop — and it judges before anything is applied, for the same reason:
+        // apply writes the new external id onto the managed entity, after which Hibernate may
+        // auto-flush ahead of the policy's own query and persist a value it was about to reject.
+        List<PolicyFinding> policyWarnings = nodeUpdateService.judgeNaming(targets);
+        nodeUpdateService.apply(targets);
 
-                // Update externalId
-                if(fields.getExternalId().getSet() != null){
-                    String newExternalId = fields.getExternalId().getSet();
-                    // A rename must not collide with another timeseries' (unique) externalId — reject
-                    // with a 409 instead of letting the DB unique constraint surface as a 500 on save.
-                    if(!newExternalId.equals(dbTs.getExternalId())){
-                        // The unique constraint spans the whole node table, so the collision check
-                        // must too — a rename clashing with a resource/dataset externalId would
-                        // otherwise pass here and die on the constraint as a 500.
-                        NameAndExternalId clash = nodeRepository.findByExternalIdHash(
-                                ExternalIds.hash(newExternalId), NameAndExternalId.class);
-                        if(clash != null && !Objects.equals(clash.getId(), dbTs.getId())){
-                            throw duplicateExternalIdException(List.of(Map.of("externalId", newExternalId)));
-                        }
-                    }
-                    dbTs.setExternalId(newExternalId);
-                }
-
-                /*
-                 * Update metadata
-                 * If key found, update metadata value in existing entry,
-                 * If key not found, add entry
-                 * If remove, delete metadata entry
-                 */
-                if(fields.getMetadata().getSet() != null){
-                    dbTs.setMetadata( fields.getMetadata().getSet()  );
-
-                }
-                if(fields.getMetadata().getAdd() != null){
-                    Map<String, String> meta = new HashMap<>(dbTs.getMetadata());
-                    meta.putAll(fields.getMetadata().getAdd());
-                    dbTs.setMetadata(meta);
-                }
-                if(fields.getMetadata().getRemove() != null){
-                    Map<String, String> meta = new HashMap<>(dbTs.getMetadata());
-                    meta.keySet().removeAll(fields.getMetadata().getRemove());
-                    dbTs.setMetadata(meta);
-                }
-
-                // Update unit field
-                if(fields.getUnit().getSet() != null){
-                    dbTs.setUnit(fields.getUnit().getSet());
-                }
-                if(fields.getUnit().getSetNull()){
-                    dbTs.setUnit(null);
-                }
-
-                // Update unit external id
-                if(fields.getUnitExternalId().getSet() != null){
-                    dbTs.setUnitExternalId(fields.getUnitExternalId().getSet());
-                }
-                if(fields.getUnitExternalId().getSetNull()){
-                    dbTs.setUnitExternalId(null);
-                }
-
-                // Update description field
-                if(fields.getDescription().getSet() != null){
-                    dbTs.setDescription(fields.getDescription().getSet());
-                }
-                if(fields.getDescription().getSetNull()){
-                    dbTs.setDescription(null);
-                }
-
-                // Update source field (common to all node types; graph side already handles it)
-                if(fields.getSource().getSet() != null){
-                    dbTs.setSource(fields.getSource().getSet());
-                }
-                if(fields.getSource().getSetNull()){
-                    dbTs.setSource(null);
-                }
-
-                // Update securityCategories field
-                if(fields.getSecurityCategories().getSet() != null){
-
-                    Set<Integer> scIdList = fields.getSecurityCategories().getSet()
-                            .stream()
-                            .mapToInt(Long::intValue)
-                            .boxed()
-                            .collect(Collectors.toCollection(TreeSet::new));
-                    dbTs.setSecurityCategories(scIdList);
-                }
-
-                if(fields.getSecurityCategories().getAdd() != null){
-                    Collection<Integer> addList = fields.getSecurityCategories().getAdd()
-                            .stream()
-                            .mapToInt(Long::intValue)
-                            .boxed()
-                            .collect(Collectors.toCollection(TreeSet::new));
-                    dbTs.getSecurityCategories().addAll(addList);
-                }
-
-                if(fields.getSecurityCategories().getRemove() != null){
-                    Collection<Integer> removeList = fields.getSecurityCategories().getRemove()
-                            .stream()
-                            .mapToInt(Long::intValue)
-                            .boxed()
-                            .collect(Collectors.toCollection(TreeSet::new));
-                    dbTs.getSecurityCategories().removeAll(removeList);
-                }
-
-                // Update dataset id field
-                if(fields.getDataSetId().getSet() != null){
-                    long datasetId = fields.getDataSetId().getSet();
-                    // Moving a timeseries into a dataset also requires write access to the target.
-                    dataSecurity.assertCanWriteDataSet(datasetId);
-                    DatasetEntity ds = datasetEntityRepository.getReferenceById(datasetId);
-                    dbTs.setDataSet(ds);
-                }
-                if(fields.getDataSetId().getSetNull()){
-                    dbTs.setDataSet(null);
-                }
-
-                var updatedTimeseries = nodeRepository.save(dbTs);
-                log.debug("Updated timeseries: {}", updatedTimeseries);
+        // Pass 3: what a time series has that other nodes do not.
+        for (Pending item : pending) {
+            TimeseriesEntity dbTs = item.entity();
+            TimeseriesFields fields = item.fields();
+            // lastUpdated is a shared-stage concern; the pipeline has already stamped it.
+            // 2. THE TIME SERIES' OWN.
+            // Update unit field
+            if(fields.getUnit().getSet() != null){
+                dbTs.setUnit(fields.getUnit().getSet());
+            }
+            if(fields.getUnit().getSetNull()){
+                dbTs.setUnit(null);
             }
 
-        });
+            // Update unit external id
+            if(fields.getUnitExternalId().getSet() != null){
+                dbTs.setUnitExternalId(fields.getUnitExternalId().getSet());
+            }
+            if(fields.getUnitExternalId().getSetNull()){
+                dbTs.setUnitExternalId(null);
+            }
+
+            var updatedTimeseries = nodeRepository.save(dbTs);
+            log.debug("Updated timeseries: {}", updatedTimeseries);
+        }
 
         recordPolicyWarnings(policyWarnings, dbTimeseries);
 
@@ -1425,28 +1430,6 @@ public class TimeseriesService {
      * tightening a policy would make every pre-existing timeseries unupdatable, and editing a
      * description on a legacy series would fail on a naming rule the caller never touched.
      */
-    private static List<PolicyCandidate> namingCandidatesForUpdate(Collection<TimeseriesEntity> dbTimeseries,
-                                                                   Collection<UpdateTimeseries> timeseries) {
-        List<PolicyCandidate> candidates = new ArrayList<>();
-        int index = 0;
-        for (TimeseriesEntity dbTs : dbTimeseries) {
-            UpdateTimeseries updateData = matchUpdateFor(dbTs, timeseries);
-            String newExternalId = (updateData == null || updateData.getUpdate() == null)
-                    ? null
-                    : updateData.getUpdate().getExternalId().getSet();
-            if (newExternalId != null) {
-                // The incoming name if this request renames it, else the stored one.
-                String newName = updateData.getUpdate().getName().getSet();
-                candidates.add(PolicyCandidate.forUpdate(
-                        index, newExternalId,
-                        newName != null ? newName : dbTs.getName(),
-                        dbTs.getDataSet() == null ? null : dbTs.getDataSet().getId(),
-                        dbTs.getId(), dbTs.getExternalId()));
-            }
-            index++;
-        }
-        return candidates;
-    }
     /**
      * Resolve timeseries by id/externalId, narrowed in SQL to the datasets the caller may read.
      * Admins / read-all callers skip the filter entirely; a caller with no readable datasets gets
@@ -1500,8 +1483,8 @@ public class TimeseriesService {
      *
      * <p>Resolved through {@link DatasetClosureService}, the same component that expands access
      * grants, so {@code dataSetId=X} covers exactly the datasets a grant on X would. This used to
-     * walk the Neo4j mirror instead: a second implementation of the same concept, over a store the
-     * stateful consumer writes asynchronously, so a timeseries in a freshly created child dataset
+     * walk the Neo4j mirror instead: a second implementation of the same concept, over a store
+     * written after the transaction commits, so a timeseries in a freshly created child dataset
      * was authorized correctly but missing from the filter until the mirror caught up.
      */
     private Set<Long> visibleDatasetClosure(long dataSetId) {
@@ -1556,14 +1539,14 @@ public class TimeseriesService {
         }
 
         NodeSort sort = NodeSort.resolve(apiReqData.getSort());
-        PageCursor cursor = NodePaging.validated(apiReqData.getCursor(), sort);
+        PageCursor cursor = FilterPaging.validated(apiReqData.getCursor(), sort);
 
         List<TimeseriesEntity> entities = timeseriesRepository.filter(
                 apiReqData.getLimit(), dataSetIds, filter, sort, cursor);
         List<Long> nodeIds = entities.stream().map(TimeseriesEntity::getId).collect(Collectors.toList());
         Collection<EdgeEntity> edgeEntities = edgeRepository.findAllByEndIn(nodeIds, EdgeEntity.class);
         data.setItems(TimeseriesTransformer.from(entities, edgeEntities));
-        data.setNextCursor(NodePaging.nextCursor(entities, apiReqData.getLimit(), sort));
+        data.setNextCursor(FilterPaging.nextCursor(entities, apiReqData.getLimit(), sort));
         return data;
     }
 

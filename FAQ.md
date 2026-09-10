@@ -224,7 +224,7 @@ self-hosted, in your cloud, or air-gapped.
 ### What do I actually need to run?
 
 Four deployable services, `datahub-api` (REST API), `datahub-console` (web UI), and the two
-Pulsar consumers (`datahub-stateless-consumer` and `datahub-stateful-consumer`), plus the
+Pulsar consumer (`datahub-stateless-consumer`), plus the
 backing stores: PostgreSQL, Apache Pulsar, ClickHouse, Neo4j, Apache Kvrocks (Redis-compatible
 store for event key mappings), Valkey/Redis (query-cursor caching and console sessions),
 HashiCorp Vault (secrets and tenant configuration), and an OAuth2/OIDC identity provider.
@@ -251,7 +251,7 @@ They do different jobs with different consistency needs:
   in ClickHouse using batched inserts, and fans datapoints out to WebSocket subscribers. It
   scales horizontally; Pulsar's subscription types coordinate work distribution across
   instances.
-- **datahub-stateful-consumer** applies resource create/update/delete messages to the Neo4j
+- **datahub-api** applies resource create/update/delete changes to the Neo4j
   knowledge graph. Graph mutations are order-sensitive, so this consumer is kept separate from
   the bulk-ingest path and is typically run with failover rather than fan-out.
 

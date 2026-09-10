@@ -130,6 +130,12 @@ An edge has no dataset of its own, so it is authorised on its two endpoint nodes
 re-pointing or deleting a relationship requires **write access to both endpoints**. This applies to
 the `relations[]` array on `/resources/create` and `/resources/update`, and to `/edges/delete`.
 
+Reading an edge is gated on the same axis: `GET /edges/{id}`, `POST /edges/byids` and the MCP
+`edge_get` tool require **read access to both endpoints**: an edge necessarily reveals both ends,
+and `/edges/byids` returns the endpoint nodes in full. Denied edges are silently left out of
+`/edges/byids` like unknown ids; `GET /edges/{id}` reports 404, keeping an unreadable edge
+indistinguishable from a missing one. An edge with a dangling endpoint fails closed.
+
 Requiring *both* is deliberate. Because read and write are independent grants, a caller with write
 but no read on a resource (the shape of an ingest service account) could otherwise attach it
 beneath a dataset they *can* read and inherit read on it through the dataset `BELONGS_TO`

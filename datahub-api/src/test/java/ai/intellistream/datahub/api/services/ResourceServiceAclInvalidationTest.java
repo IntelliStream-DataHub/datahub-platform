@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -71,6 +73,7 @@ class ResourceServiceAclInvalidationTest {
     private final RelationshipTypeRepository relationshipTypeRepository = mock(RelationshipTypeRepository.class);
     private final RelationshipTypeService relationshipTypeService = mock(RelationshipTypeService.class);
     private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+    private final GraphOutbox graphOutbox = mock(GraphOutbox.class);
     private final Neo4JService neo4JService = mock(Neo4JService.class);
     private final DataSetRepository dataSetRepository = mock(DataSetRepository.class);
     private final ResourceRepository resourceRepository = mock(ResourceRepository.class);
@@ -86,10 +89,15 @@ class ResourceServiceAclInvalidationTest {
     private final DataSecurity dataSecurity = TestDataSecurity.readingAndWritingEverything();
 
     private final ResourceService service = new ResourceService(
-            entityManager, nodeRepository, nodeService, labelService, edgeRepository,
-            relationshipTypeRepository, relationshipTypeService, eventPublisher, neo4JService,
-            dataSetRepository, dataSecurity, subscriptionRepository, validator, policyEnforcement,
-            datasetClosureService);
+            entityManager, nodeRepository, nodeService, edgeRepository,
+            relationshipTypeRepository, relationshipTypeService, eventPublisher, graphOutbox, neo4JService,
+            dataSecurity, subscriptionRepository, validator, policyEnforcement,
+            datasetClosureService,
+            mock(IngestQuotaService.class), mock(TenantLimitsService.class),
+            new ai.intellistream.datahub.api.edge.EdgeMapper(nodeRepository, relationshipTypeRepository, relationshipTypeService),
+            new ai.intellistream.datahub.api.services.node.NodeUpdateService(
+                    nodeRepository, dataSetRepository, dataSecurity, labelService, nodeService, policyEnforcement),
+            mock(ai.intellistream.datahub.api.policy.NamingPolicyResolver.class));
 
     @BeforeEach
     void setUp() {
@@ -113,8 +121,8 @@ class ResourceServiceAclInvalidationTest {
                 .thenReturn(Optional.of(new NameAndExternalIdDTO(id, "n" + id, "ext" + id, id)));
     }
 
-    private static GraphDataWrapper<Resource, RelForm> createWithNode() {
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+    private static GraphDataWrapper<NodeModel, RelForm> createWithNode() {
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         Resource r = new Resource();
         r.setExternalId("some_resource");
         r.setName("Some Resource");
@@ -122,7 +130,7 @@ class ResourceServiceAclInvalidationTest {
         return req;
     }
 
-    private GraphDataWrapper<Resource, RelForm> createWithEdge(String relationshipType) {
+    private GraphDataWrapper<NodeModel, RelForm> createWithEdge(String relationshipType) {
         resolvableNode(1L);
         resolvableNode(2L);
         RelationshipType type = new RelationshipType();
@@ -133,7 +141,7 @@ class ResourceServiceAclInvalidationTest {
         rel.setFromId(1L);
         rel.setToId(2L);
         rel.setRelationshipType(relationshipType);
-        GraphDataWrapper<Resource, RelForm> req = new GraphDataWrapper<>();
+        GraphDataWrapper<NodeModel, RelForm> req = new GraphDataWrapper<>();
         req.getRelations().add(rel);
         return req;
     }

@@ -3,6 +3,7 @@ package ai.intellistream.datahub.models.datafilters;
 
 import ai.intellistream.datahub.json.SingleOrList;
 import ai.intellistream.datahub.models.events.EventFilter;
+import ai.intellistream.datahub.subscription.SubscriptionFilter;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -23,10 +24,16 @@ import static org.junit.jupiter.api.Assertions.fail;
  * Holds the filter family to one contract.
  *
  * <p>The three node filters inherit theirs from {@link NodeFilter}, so the compiler enforces it.
- * {@link EventFilter} cannot inherit — events live in ClickHouse, their id is a UUID string and the
- * table has no name column — so its overlap with the base is a convention, and a convention with
+ * {@link EventFilter} and {@link SubscriptionFilter} cannot inherit — events live in ClickHouse and
+ * their id is a UUID string; a subscription has no {@code source}, {@code labels} or
+ * {@code metadata} column — so their overlap with the base is a convention, and a convention with
  * nothing checking it is how the family drifted in the first place: four filters that shared almost
  * nothing, each having learned about {@code name} and {@code externalId} at a different time.
+ *
+ * <p>{@link SubscriptionFilter} is here because it is the same case as {@link EventFilter} and was
+ * left out: it kept its own copy of the naming rule and was covered by none of the family-wide
+ * ones, which is how it came to be the only filter with a collection that did not accept a bare
+ * value.
  *
  * <p>Reflection over the model classes, so it runs on every build rather than needing a context.
  */
@@ -39,6 +46,14 @@ class FilterContractParityTest {
      */
     private static final Set<String> SHARED_WITH_EVENTS = Set.of(
             "externalId", "source", "metadata", "createdTime", "lastUpdatedTime", "dataSetId");
+
+    /**
+     * The same list for {@link SubscriptionFilter}, which shares a different subset: it has an
+     * {@code id} and a {@code name} where an event has neither, and none of {@code source},
+     * {@code metadata} or {@code dataSetId}, because the table has no such column.
+     */
+    private static final Set<String> SHARED_WITH_SUBSCRIPTIONS = Set.of(
+            "id", "externalId", "name", "createdTime", "lastUpdatedTime");
 
     @ParameterizedTest
     @ValueSource(classes = {DataSetFilter.class, ResourceFilter.class, TimeseriesFilter.class})
@@ -102,6 +117,27 @@ class FilterContractParityTest {
         }
         if (!mismatches.isEmpty()) {
             fail("EventFilter has drifted from NodeFilter:\n  " + String.join("\n  ", mismatches));
+        }
+    }
+
+    /** The same check for {@link SubscriptionFilter}, the other filter the compiler cannot reach. */
+    @Test
+    void subscriptionFilterMatchesTheBaseFieldForField() {
+        List<String> mismatches = new ArrayList<>();
+        for (String name : SHARED_WITH_SUBSCRIPTIONS) {
+            Field base = declaredField(NodeFilter.class, name);
+            assertNotNull(base, name + " is listed as shared but is not on NodeFilter");
+
+            Field subscription = declaredField(SubscriptionFilter.class, name);
+            if (subscription == null) {
+                mismatches.add(name + ": missing from SubscriptionFilter");
+            } else if (!subscription.getGenericType().equals(base.getGenericType())) {
+                mismatches.add(name + ": " + subscription.getGenericType() + " on SubscriptionFilter, "
+                        + base.getGenericType() + " on the base");
+            }
+        }
+        if (!mismatches.isEmpty()) {
+            fail("SubscriptionFilter has drifted from NodeFilter:\n  " + String.join("\n  ", mismatches));
         }
     }
 
@@ -195,7 +231,7 @@ class FilterContractParityTest {
      */
     @ParameterizedTest
     @ValueSource(classes = {NodeFilter.class, DataSetScopedFilter.class, DataSetFilter.class,
-            ResourceFilter.class, TimeseriesFilter.class, EventFilter.class})
+            ResourceFilter.class, TimeseriesFilter.class, EventFilter.class, SubscriptionFilter.class})
     void everyListFieldAcceptsASingleValue(Class<?> filter) {
         List<String> missing = new ArrayList<>();
         for (Field f : filter.getDeclaredFields()) {

@@ -33,7 +33,6 @@ public class TimeseriesCustomRepoImpl implements TimeseriesCustomRepo {
     }
 
     public static final String METADATA_REF = "metadata";
-    private static final String SEC_CAT_REF = "securityCategories";
     private static final String VAL_TYPE_REF = "valueType";
 
     private static final String DP_UNIQUE_CONSTRAINT_NAME = "timeseries_datapoints_bigint_key";
@@ -78,7 +77,6 @@ public class TimeseriesCustomRepoImpl implements TimeseriesCustomRepo {
 
     private static void setFetches(Root<TimeseriesEntity> root) {
         root.fetch(METADATA_REF, JoinType.LEFT);
-        root.fetch(SEC_CAT_REF, JoinType.LEFT);
         root.fetch(VAL_TYPE_REF, JoinType.LEFT);
     }
 

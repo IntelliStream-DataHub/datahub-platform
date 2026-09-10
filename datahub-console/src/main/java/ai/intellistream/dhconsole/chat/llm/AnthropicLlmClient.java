@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
 import com.anthropic.models.messages.CacheControlEphemeral;
@@ -37,21 +37,23 @@ import java.util.Map;
 public class AnthropicLlmClient implements LlmClient {
 
     private final AnthropicClient client;
-    private final ChatProperties properties;
     private final JsonMapper json;
 
-    public AnthropicLlmClient(AnthropicClient client, ChatProperties properties, JsonMapper json) {
+    /**
+     * The credential is bound into {@code client} and everything else arrives with the call: one
+     * instance is shared by every tenant on the same key, and they do not share a model.
+     */
+    public AnthropicLlmClient(AnthropicClient client, JsonMapper json) {
         this.client = client;
-        this.properties = properties;
         this.json = json;
     }
 
     @Override
-    public LlmTurn send(String systemPrompt, List<LlmToolDef> tools, List<LlmMessage> messages,
-                        ChatEffort effort) {
+    public LlmTurn send(ChatSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                        List<LlmMessage> messages, ChatEffort effort) {
         MessageCreateParams.Builder params = MessageCreateParams.builder()
-                .model(properties.getModel())
-                .maxTokens(properties.maxOutputTokensFor(effort))
+                .model(settings.model())
+                .maxTokens(settings.maxOutputTokensFor(effort))
                 .outputConfig(OutputConfig.builder().effort(toEffort(effort)).build())
                 // Stated rather than left to the default because the default differs by model: on
                 // claude-opus-5 omitting it thinks anyway, on 4.8/4.7 omitting it does not think at
@@ -98,7 +100,7 @@ public class AnthropicLlmClient implements LlmClient {
             // cost of that shows up. Without it a truncated answer just looks like a poor answer.
             log.warn("Answer truncated at the {}-token ceiling (effort {}). Raise "
                             + "datahub.chat.max-output-tokens, or ask at a lower effort.",
-                    properties.maxOutputTokensFor(effort), effort);
+                    settings.maxOutputTokensFor(effort), effort);
         }
 
         boolean wantsTools = response.stopReason().filter(StopReason.TOOL_USE::equals).isPresent();
@@ -107,8 +109,8 @@ public class AnthropicLlmClient implements LlmClient {
     }
 
     @Override
-    public String providerId() {
-        return "anthropic/" + properties.getModel();
+    public String providerId(ChatSettings settings) {
+        return "anthropic/" + settings.model();
     }
 
     private static OutputConfig.Effort toEffort(ChatEffort effort) {

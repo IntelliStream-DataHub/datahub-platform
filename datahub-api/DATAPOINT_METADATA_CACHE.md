@@ -7,8 +7,8 @@
 ## Why
 
 Datapoint ingestion is a hot path, but `TimeseriesService.insertDatapoints()`
-(`datahub-api/.../api/services/TimeseriesService.java`, ~line 728) and
-`deleteDatapoints()` (~line 1051) both resolve the target timeseries from
+(`datahub-api/.../api/services/TimeseriesService.java`) and
+`deleteDatapoints()` both resolve the target timeseries from
 PostgreSQL on every request via `timeseriesRepository.findByIdOrExternalId(...)`.
 
 Two costs follow from that:
@@ -66,11 +66,11 @@ That is the entire cacheable payload — small and stable.
 4. **Invalidation — must be airtight** (stale dataset/externalId gates a *write*
    permission check, so this is security-sensitive). Evict in every metadata-mutating
    path:
-   - `updateTimeseries(...)` (~line 1198) — externalId and dataset can change →
+   - `updateTimeseries(...)` — externalId and dataset can change →
      evict **old and new** externalId.
-   - `deleteTimeseries(...)` (~line 206) — evict, or a deleted series stays
+   - `deleteTimeseries(...)` — evict, or a deleted series stays
      "writable" in cache until TTL.
-   - `save(...)` (~line 521) — evict-by-externalId on create to clear any stale
+   - `save(...)` — evict-by-externalId on create to clear any stale
      entry from a prior delete+recreate of the same externalId.
    - Eviction propagates across API instances because Valkey is shared — **but only
      if every writer calls it.** Audit for any other path that mutates a timeseries'

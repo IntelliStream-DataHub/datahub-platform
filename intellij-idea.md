@@ -12,7 +12,6 @@ Create one **Spring Boot** run configuration per app (Run > Edit Configurations 
 |-------------------|--------------------------------------------------------------|------|
 | API               | `ai.intellistream.datahub.api.ApiDatahubApplication`         | 8081 |
 | Stateless consumer| `ai.intellistream.datahub.DatahubStatelessConsumerApplication` | none |
-| Stateful consumer | `ai.intellistream.datahub.DatahubStatefulConsumerApplication`  | none |
 | Console           | `ai.intellistream.dhconsole.DatahubConsoleApplication`       | 8080 |
 | File cleanup      | `ai.intellistream.datahub.DatahubFileCleanupApplication`     | none |
 

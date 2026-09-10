@@ -3,13 +3,11 @@ package ai.intellistream.datahub.api.messaging;
 
 import ai.intellistream.datahub.api.messaging.events.DatapointCudPublishEvent;
 import ai.intellistream.datahub.api.messaging.events.EventCudPublishEvent;
-import ai.intellistream.datahub.api.messaging.events.ResourceCudPublishEvent;
 import ai.intellistream.datahub.api.messaging.events.SubscriptionNotifyPublishEvent;
 import ai.intellistream.datahub.api.responses.DataWrapperBin;
 import ai.intellistream.datahub.api.services.LiveIngestCounter;
 import ai.intellistream.datahub.pulsar.EventAction;
 import ai.intellistream.datahub.pulsar.EventCudMessage;
-import ai.intellistream.datahub.pulsar.ResourceCudMessage;
 import ai.intellistream.datahub.pulsar.SubscriptionNotifyMessage;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Producer;
@@ -25,50 +23,31 @@ import org.springframework.transaction.event.TransactionalEventListener;
  * ClickHouse, KVRocks) acting on state that no longer exists in Postgres.
  *
  * <p>Residual gap: a JVM crash between commit and the async send means the consumer never
- * receives the message. That window is small and is intentionally left for a follow-up outbox
- * table; for now we log loudly so operators can reconcile.
+ * receives the message. That window is small; for now we log loudly so operators can reconcile.
+ *
+ * <p>Resource CUD no longer goes through here. It is queued in the {@code resource_outbox} table
+ * inside the publishing transaction and applied to Neo4j by
+ * {@code ResourceOutboxDrainService} — see {@code ResourceOutboxWriter} for why the graph mirror
+ * needed a guarantee this class cannot give.
  */
 @Component
 @Slf4j
 public class AfterCommitMessagePublisher {
 
-    private final Producer<ResourceCudMessage> resourceMessageProducer;
     private final Producer<EventCudMessage> eventMessageProducer;
     private final Producer<SubscriptionNotifyMessage> subscriptionNotifyProducer;
     private final Producer<DataWrapperBin> allDatapointProducer;
     private final LiveIngestCounter eventIngestCounter;
 
     public AfterCommitMessagePublisher(
-            @Qualifier("resourceMessageProducer") Producer<ResourceCudMessage> resourceMessageProducer,
             @Qualifier("eventMessageProducer") Producer<EventCudMessage> eventMessageProducer,
             @Qualifier("subscriptionNotifyProducer") Producer<SubscriptionNotifyMessage> subscriptionNotifyProducer,
             @Qualifier("allDatapointProducer") Producer<DataWrapperBin> allDatapointProducer,
             @Qualifier("eventIngestCounter") LiveIngestCounter eventIngestCounter) {
-        this.resourceMessageProducer = resourceMessageProducer;
         this.eventMessageProducer = eventMessageProducer;
         this.subscriptionNotifyProducer = subscriptionNotifyProducer;
         this.allDatapointProducer = allDatapointProducer;
         this.eventIngestCounter = eventIngestCounter;
-    }
-
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    public void onResourceCud(ResourceCudPublishEvent event) {
-        ResourceCudMessage msg = event.message();
-        // Keyed by tenantId so same-tenant resource CUD stays ordered if the resource
-        // topic is later partitioned, or if a Key_Shared consumer subscription is added.
-        // Today the Neo4j/timeseries CUD consumers are Exclusive + single-threaded, so the
-        // key is redundant — it's here to keep the contract uniform across producers.
-        resourceMessageProducer.newMessage()
-                .key(msg.getTenantId())
-                .value(msg)
-                .sendAsync()
-                .whenComplete((id, err) -> {
-                    if (err != null) {
-                        log.error("Post-commit publish of ResourceCudMessage failed (tenant={}, action={}, object={}): {}",
-                                msg.getTenantId(), msg.getEventAction(), msg.getEventObject(),
-                                err.getMessage(), err);
-                    }
-                });
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)

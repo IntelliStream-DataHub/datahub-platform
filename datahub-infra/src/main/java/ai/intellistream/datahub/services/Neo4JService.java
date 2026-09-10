@@ -159,10 +159,10 @@ public class Neo4JService {
      * type and label (including POLICY), otherwise a filtered-out path could hide a real
      * connection and produce a wrong verdict.
      *
-     * <p><b>Eventual consistency:</b> Neo4j is updated asynchronously from the Pulsar stream, so
-     * this read may lag the committing PostgreSQL transaction. A very recently created node/edge
-     * may not yet be mirrored here, which can make the verdict momentarily inaccurate. The
-     * PostgreSQL row lock taken during delete does not extend to Neo4j.
+     * <p><b>Eventual consistency:</b> Neo4j is mirrored from the {@code resource_outbox} queue
+     * after the writing transaction commits, so this read may lag it. A node or edge created by a
+     * transaction still in flight is not mirrored yet, which can make the verdict momentarily
+     * inaccurate. The PostgreSQL row lock taken during delete does not extend to Neo4j.
      *
      * @param anchorIds the node ids whose components should be loaded; empty/null returns an empty
      *                  network

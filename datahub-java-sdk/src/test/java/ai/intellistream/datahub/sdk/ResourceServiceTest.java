@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
@@ -37,10 +38,11 @@ class ResourceServiceTest {
         try {
             DatahubClient client = client(server);
 
-            DataWrapper<Resource> result = client.resources().getById(1);
+            DataWrapper<NodeModel> result = client.resources().getById(1);
 
             assertEquals(1, result.getItems().size());
-            Resource r = result.getItems().iterator().next();
+            // No type-label in the fixture, so the node binds as a plain Resource.
+            Resource r = (Resource) result.getItems().iterator().next();
             assertEquals(5677892L, r.getId());          // coerced from the JSON string "5677892"
             assertEquals("pump_1", r.getExternalId());
             assertEquals("Pump 1", r.getName());

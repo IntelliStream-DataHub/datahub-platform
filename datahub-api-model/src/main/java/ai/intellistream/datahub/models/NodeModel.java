@@ -3,9 +3,11 @@ package ai.intellistream.datahub.models;
 
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.json.ToStringSerializer;
+import ai.intellistream.datahub.models.validation.BoundedMetadata;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.models.validation.ForbiddenValues;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -36,12 +38,13 @@ import java.util.Objects;
  * in later slices.
  *
  * <p>{@code externalId}/{@code name} validation is unified here (previously it diverged per type); the base
- * carries {@code @NotBlank @Size} + {@code @ForbiddenValues}, and canonicalizes {@code externalId} to
- * snake_case on set for <em>every</em> node type (the node table hashes the snake-cased form for lookups,
- * so this keeps the returned id consistent with what's stored/queried).
+ * carries {@code @NotBlank @Size} + {@code @ForbiddenValues}. It does <em>not</em> canonicalize
+ * {@code externalId}: the value is stored exactly as sent, uniformly across every node type. See
+ * {@link #setExternalId} for why, and note that lookups fold the value rather than rewriting it.
  */
 @Getter
 @Setter
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public abstract class NodeModel extends AbstractResource {
 
     @JsonSerialize(using = ToStringSerializer.class)
@@ -59,9 +62,11 @@ public abstract class NodeModel extends AbstractResource {
     @Schema(description = "The name of the object.", example = "klp pipe ws-a1212-dl")
     private String name;
 
+    @BoundedMetadata
     @Schema(description = "Entity specific metadata. A key-value store.", example = "{\"work_order\": \"wo-sap-12344\"}")
     private Map<String, String> metadata = new HashMap<>();
 
+    @Size(max = FieldLimits.DESCRIPTION_MAX)
     @Schema(description = "The description of the object.", example = "Water stream pipe")
     private String description;
 
@@ -82,12 +87,11 @@ public abstract class NodeModel extends AbstractResource {
      * as a shared node column. It was declared — identically, right down to the serializer — on
      * {@code Resource}, {@code Timeseries} and {@code Policy}, three copies free to drift apart.
      *
-     * <p>{@code NON_NULL} so a node with no data set simply omits the field rather than emitting
-     * {@code null}. That is what {@code Resource} already did through its class-level policy, and it
-     * keeps the field from appearing on {@code DataSetModel}, which expresses its own parentage
-     * through {@code connectedDataSets} instead (a dataset sits in a DAG of datasets, not in one).
+     * <p>A node with no data set omits the field rather than emitting {@code null} — from the
+     * class-level rule above, which every node DTO now inherits. That also keeps it off
+     * {@code DataSetModel}, which expresses its own parentage through {@code connectedDataSets}
+     * instead (a dataset sits in a DAG of datasets, not in one).
      */
-    @JsonInclude(JsonInclude.Include.NON_NULL)
     @JsonSerialize(using = ToStringSerializer.class)
     @Schema(description = "The id of the data set this node belongs to.", example = "12")
     private Long dataSetId;
@@ -101,8 +105,9 @@ public abstract class NodeModel extends AbstractResource {
      */
     @NotNull
     @Size(min = 1, message = "resource.needs.at.least.one.label")
+    @Size(max = FieldLimits.LABELS_MAX, message = "resource.too.many.labels")
     @Schema(description = "A list of the labels associated with this node.", example = "[\"resource\", \"PIPE\"]")
-    private List<String> labels = new ArrayList<>();
+    private List<@Size(max = FieldLimits.LABEL_LENGTH_MAX) String> labels = new ArrayList<>();
 
     /**
      * The unified node-centric relation encoding: the nodes this one is connected to, each with its
@@ -111,6 +116,7 @@ public abstract class NodeModel extends AbstractResource {
      * {@code relationsFrom}). Populated where the graph is loaded (see {@code ResourceNetwork}); empty
      * otherwise.
      */
+    @Size(max = FieldLimits.RELATED_RESOURCES_MAX)
     @Schema(description = "Nodes this node is connected to, with relationship type and direction.",
             example = "[{\"id\": 34, \"externalId\": \"sensor_abc\", \"relationshipType\": \"PUBLISHES_DATA_TO\", \"direction\": \"OUTBOUND\"}]")
     private List<RelatedNode> relatedResources = new ArrayList<>();

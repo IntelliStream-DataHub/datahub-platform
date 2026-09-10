@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.databind.annotation.JsonSerialize;
 import ai.intellistream.datahub.json.ToStringSerializer;
 
@@ -39,9 +40,6 @@ public class Policy extends NodeModel {
     // property means "not deactivated", which is what the default already expresses.
     @Schema(description = "If the policy is deactivated, it will not be enforced.", example = "false")
     private boolean isDeactivated = false;
-
-    @Schema(description = "Node type (always POLICY when node)")
-    private String nodeType;
 
     @Schema(description = "Template ID applied to this policy node", example = "3")
     @JsonSerialize(using = ToStringSerializer.class)

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.config;
 
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.NodeModelSubtypes;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 import org.springframework.boot.jackson.autoconfigure.JsonMapperBuilderCustomizer;
@@ -15,6 +17,9 @@ public class JacksonConfig {
     @Order(1) // Runs after Boot's default customizer (which is 0)
     public JsonMapperBuilderCustomizer customNullHandling() {
         return builder -> {
+            // Label-keyed polymorphic reads for the node family (the type-label is the
+            // discriminator; see NodeModelSubtypes).
+            builder.addModule(new NodeModelSubtypes());
             // Map and Collection null-to-empty logic
             builder.withConfigOverride(java.util.Map.class, override ->
                     override.setNullHandling(JsonSetter.Value.forValueNulls(Nulls.AS_EMPTY)));

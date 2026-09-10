@@ -96,9 +96,7 @@ vault kv put "$MOUNT/datahub-console" \
   http.session.valkey.host="$VALKEY_HOST" \
   http.session.valkey.port=6379 \
   http.session.valkey.user=default \
-  http.session.valkey.password=changeme \
-  llm.api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
-  llm.model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+  http.session.valkey.password=changeme
 
 # Per-tenant connection registry — the source of truth for PostgreSQL, ClickHouse,
 # Neo4j, Valkey and KVRocks connections. Two demo tenants keyed by org-name (foo, bar);
@@ -141,11 +139,46 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
 }
 JSON
 
+# Per-tenant model configuration, one secret per tenant keyed by organization NAME, the same way
+# tenant-resources keys its entries — one convention for tenant config rather than two, and nobody
+# should have to look up a uuid to write one.
+#
+# Separate from tenant-resources on purpose. That secret holds every tenant's database credentials,
+# and this is the piece of tenant config a person will eventually edit from the console — Vault
+# cannot narrow a write within a secret, so a write path would have to grant far more than the
+# model settings. Nothing writes it yet; putting it in the right place now means the write is a
+# policy line later rather than a data migration for everyone who configured it early.
+#
+# Seeded for foo only. bar deliberately has none, so the dev stack shows both outcomes: foo gets
+# a chat panel and bar does not. There is no deployment-wide model to fall back to — a tenant that
+# has not named one has no assistant, rather than one billed to whoever runs the platform.
+#
+# Section-prefixed (llm.*) because the secret is tenant-config, not tenant-llm: other per-tenant
+# settings join it under their own prefix without another secret and another policy line.
+echo "==> Seeding per-tenant model config (foo only; bar gets no chat panel)"
+# Only the four model fields are seeded. How hard it thinks and how much it may spend
+# (llm.effort, llm.max-output-tokens, llm.max-iterations, llm.turn-timeout) are the tenant's
+# to set too; unset here so foo demonstrates the deployment defaults behind them.
+vault kv put "$MOUNT/tenant-config/foo" \
+  llm.provider=anthropic \
+  llm.api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
+  llm.model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+
 echo "==> Enabling AppRole auth + datahub policy"
 vault auth enable approle 2>/dev/null || echo "    (already enabled)"
+# Read on the whole mount, and write on exactly one subtree. datahub-api writes tenant-config
+# when a tenant edits its own settings in the console; nothing else in the platform writes to
+# Vault at all, so the grant is narrowed to the path that needs it rather than the mount.
+# "create" as well as "update" because a tenant configuring itself for the first time has no
+# secret there yet.
 vault policy write datahub - <<EOF
 path "$MOUNT/*"      { capabilities = ["read", "list"] }
 path "$MOUNT/data/*" { capabilities = ["read", "list"] }
+
+path "$MOUNT/tenant-config/*"      { capabilities = ["read", "create", "update"] }
+path "$MOUNT/data/tenant-config/*" { capabilities = ["read", "create", "update"] }
+# The version metadata the compare-and-set write reads before merging.
+path "$MOUNT/metadata/tenant-config/*" { capabilities = ["read", "list"] }
 EOF
 vault write auth/approle/role/datahub \
   token_policies=datahub token_ttl=1h token_max_ttl=4h secret_id_num_uses=0 secret_id_ttl=0

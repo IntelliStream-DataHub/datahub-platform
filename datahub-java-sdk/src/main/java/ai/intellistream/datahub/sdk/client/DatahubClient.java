@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.sdk.auth.TokenProvider;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
@@ -14,6 +15,7 @@ import ai.intellistream.datahub.sdk.services.ResourceService;
 import ai.intellistream.datahub.sdk.services.SubscriptionService;
 import ai.intellistream.datahub.sdk.services.TimeseriesService;
 import ai.intellistream.datahub.sdk.services.UnitService;
+import ai.intellistream.datahub.models.NodeModelSubtypes;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.http.HttpClient;
@@ -50,7 +52,8 @@ public final class DatahubClient {
      */
     public DatahubClient(DatahubConfig config, HttpClient http) {
         this.http = http;
-        this.mapper = JsonMapper.builder().build();
+        // NodeModelSubtypes makes NodeModel-typed reads dispatch on the type-label.
+        this.mapper = JsonMapper.builder().addModule(new NodeModelSubtypes()).build();
         this.tokenProvider = new TokenProvider(config, http, mapper);
         this.api = new ApiHttp(config.baseUrl(), http, mapper, tokenProvider);
 

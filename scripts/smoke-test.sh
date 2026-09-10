@@ -73,10 +73,28 @@ for name, s in subs.items():
         print(f"  ok    {topic} [{name}]: {delivered}/{published} delivered")
 sys.exit(rc)' "$topic" || fails=$((fails + 1))
 }
-check_topic persistent://datahub-internal/resources/cud-events
 check_topic persistent://datahub-internal/datapoints/all-datapoints partitioned-stats
 
-# --- 2. The graph consumer actually applied to Neo4j ---------------------------------------
+# --- 1b. The graph outbox drained -----------------------------------------------------------
+# Resources no longer travel over Pulsar; they queue in each tenant's resource_outbox and are
+# applied by datahub-api. A row still pending here is the same failure the topic backlog check
+# above catches for datapoints: the write succeeded and the mirror never heard about it.
+say "graph outbox"
+for db in foo bar; do
+  pending=$(pexec "${COMPOSE_PROJECT}-postgres-1" psql -U foobar -d "$db" -tAc \
+            "SELECT count(*) FROM resource_outbox WHERE applied_at IS NULL" 2>/dev/null | tr -d '\r')
+  if [ -z "${pending:-}" ]; then
+    bad "$db: could not read resource_outbox"
+  elif [ "$pending" -eq 0 ]; then
+    ok "$db: outbox drained"
+  else
+    stuck=$(pexec "${COMPOSE_PROJECT}-postgres-1" psql -U foobar -d "$db" -tAc \
+            "SELECT coalesce(max(attempts), 0) FROM resource_outbox WHERE applied_at IS NULL" 2>/dev/null | tr -d '\r')
+    bad "$db: $pending unapplied graph sync row(s), worst attempts=$stuck"
+  fi
+done
+
+# --- 2. The graph mirror actually reached Neo4j --------------------------------------------
 say "neo4j graph"
 nodes=$(pexec "${COMPOSE_PROJECT}-neo4j-1" cypher-shell -u neo4j -p changeme123 --format plain \
         "MATCH (n) RETURN count(n);" 2>/dev/null | tail -1 | tr -d '\r')

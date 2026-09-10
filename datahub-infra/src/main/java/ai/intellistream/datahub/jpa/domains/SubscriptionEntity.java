@@ -51,20 +51,15 @@ public class SubscriptionEntity {
     private Set<TimeseriesEntity> timeseries = new LinkedHashSet<>();
 
     /**
-     * True for system-provisioned subscriptions whose lifecycle is not owned by the user.
-     * System-managed subscriptions are excluded from the user-facing list endpoint by default
-     * and refuse manual deletes. No code currently provisions such subscriptions; the column
-     * and its handling are retained as a general-purpose mechanism.
-     */
-    @Column(name = "system_managed", nullable = false)
-    private boolean systemManaged = false;
-
-    /**
      * Pulsar subscription type the WS handler instantiates the consumer with.
      * Default {@link SubscriptionType#FAILOVER} preserves the human-watcher UX where every
-     * connected client sees every message. System-managed function-binding subs override
-     * to {@link SubscriptionType#KEY_SHARED} so multiple worker processes per model split
-     * the load with per-{@code orderingKey} sticky dispatch.
+     * connected client sees every message; {@link SubscriptionType#KEY_SHARED} would split the load
+     * across worker processes with per-{@code orderingKey} sticky dispatch.
+     *
+     * <p>Nothing writes anything but the default. It was to be set by the function-binding
+     * lifecycle that also owned the {@code system_managed} flag — the flag is gone (V43), and this
+     * column stays only because the WebSocket handler reads it and a real second consumer type is
+     * plausible. It is not exposed on {@code /subscriptions/create}.
      */
     @NotNull
     @Enumerated(EnumType.STRING)

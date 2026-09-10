@@ -5,7 +5,8 @@ import ai.intellistream.dhconsole.chat.agent.ChatReply;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleView;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
-import ai.intellistream.dhconsole.chat.config.ChatProperties;
+import ai.intellistream.dhconsole.chat.config.ChatSettings;
+import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
@@ -17,7 +18,6 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.MessageSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -52,8 +52,6 @@ import java.util.Set;
 @Slf4j
 @RestController
 @RequestMapping("/api/chat")
-@ConditionalOnProperty(prefix = "datahub.chat", name = "enabled", havingValue = "true")
-// Deployment gate is the @ConditionalOnProperty above (endpoint doesn't exist when chat is off).
 // Tenant + user gates are enforced per request: same rule the layout uses to hide the UI, so a user
 // without the Vault tenant flag or the DATAHUB_CHAT authority gets 403 even if they call directly.
 @PreAuthorize("@chatAccess.available()")
@@ -66,19 +64,19 @@ public class ChatApiController {
     private static final int MAX_VIEWS = 3;
 
     private final ChatService chatService;
+    private final ChatSettingsResolver settingsResolver;
     private final AccessTokens accessTokens;
     private final MessageSource messageSource;
     private final ConsoleViews consoleViews;
-    private final ChatProperties properties;
 
-    public ChatApiController(ChatService chatService, AccessTokens accessTokens,
-                            MessageSource messageSource, ConsoleViews consoleViews,
-                            ChatProperties properties) {
+    public ChatApiController(ChatService chatService, ChatSettingsResolver settingsResolver,
+                            AccessTokens accessTokens, MessageSource messageSource,
+                            ConsoleViews consoleViews) {
         this.chatService = chatService;
+        this.settingsResolver = settingsResolver;
         this.accessTokens = accessTokens;
         this.messageSource = messageSource;
         this.consoleViews = consoleViews;
-        this.properties = properties;
     }
 
     /**
@@ -123,13 +121,25 @@ public class ChatApiController {
         ChatConversation conversation = conversation(session);
         long startedAt = System.nanoTime();
         try {
-            ChatEffort effort = ChatEffort.parse(request.effort(), properties.getEffort());
-            ChatReply reply = chatService.send(conversation, bearer, request.message(), zoneOf(request), effort);
+            // Resolved per turn, on the request thread: a tenant may have been reconfigured since
+            // the last one, and TenantConfigService refreshes from Vault on its own schedule.
+            ChatSettings settings = settingsResolver.forCurrentTenant();
+            ChatEffort effort = ChatEffort.parse(request.effort(), settings.defaultEffort());
+            // Logged before the work, not only after: a turn can legitimately run for minutes, and
+            // the first thing to establish about one that never came back is that it arrived at all.
+            // The message itself is never logged - it is the user's data, and its length is enough.
+            log.info("Chat turn starting on {} at effort {}: {} chars in, {} in the transcript",
+                    settings.model(), effort.wireName(),
+                    request.message() == null ? 0 : request.message().length(),
+                    conversation.messages().size());
+            ChatReply reply = chatService.send(conversation, settings, bearer, request.message(),
+                    zoneOf(request), effort);
             session.setAttribute(CONVERSATION_ATTRIBUTE, conversation); // re-set so Spring Session saves it
             // The only record that a turn finished. Everything else on this path logs on failure
             // only, which leaves the case that matters - the server answered but the browser never
             // received it - looking exactly like a turn that was never answered at all.
-            log.info("Chat turn answered in {} ms: {} chars, tools {}{}", elapsedMs(startedAt),
+            log.info("Chat turn answered in {} ms on {}: {} chars, tools {}{}", elapsedMs(startedAt),
+                    settings.model(),
                     reply.reply() == null ? 0 : reply.reply().length(), reply.toolsUsed(),
                     reply.truncated() ? ", truncated" : "");
             return ResponseEntity.ok(ChatResponse.of(reply));
@@ -142,6 +152,17 @@ public class ChatApiController {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(ChatResponse.error(message("chat.error.api.unreachable", locale)));
         } catch (RuntimeException e) {
+            if (wasInterrupted(e)) {
+                // Not a fault in the turn: this thread was interrupted, which in practice means the
+                // application is stopping - a restart, a redeploy, or devtools reloading a class
+                // mid-turn. Logged without a stack trace, because 160 frames of servlet plumbing
+                // say nothing that this sentence does not, and reading it as a chat bug costs an
+                // afternoon.
+                log.warn("Chat turn abandoned after {} ms: the thread was interrupted, which normally "
+                        + "means the application is shutting down or restarting", elapsedMs(startedAt));
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(ChatResponse.error(message("chat.error.generic", locale)));
+            }
             log.error("Chat turn failed after {} ms", elapsedMs(startedAt), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ChatResponse.error(message("chat.error.generic", locale)));
@@ -208,8 +229,13 @@ public class ChatApiController {
             }
         }
         attachViews(turns, lastAnswer, exchangeViews);
-        return new ChatHistory(turns, properties.getEffort().wireName(),
-                properties.getTurnTimeout().toMillis());
+        // The turn timeout is per tenant, so the panel has to be told this tenant's — a tenant on
+        // a slow self-hosted model raises it, and a panel still aborting at the deployment default
+        // would show a network error while the server was still working. Effort is not per tenant,
+        // so it keeps coming from the deployment configuration.
+        ChatSettings settings = settingsResolver.forCurrentTenant();
+        return new ChatHistory(turns, settings.defaultEffort().wireName(),
+                settings.turnTimeout().toMillis());
     }
 
     private static void attachViews(List<ChatHistory.Turn> turns, int index, Set<ConsoleView> views) {
@@ -225,9 +251,9 @@ public class ChatApiController {
      * @param defaultEffort the level the picker starts on for a user who has never chosen one. Sent
      *                      with the history rather than from its own endpoint because the panel
      *                      already fetches this on open and has nothing to show before it lands.
-     * @param turnTimeoutMs how long the panel should wait for a turn. A self-hosted model needs
-     *                      minutes where a hosted one needs seconds, so the panel cannot hardcode
-     *                      it — see {@code datahub.chat.turn-timeout}.
+     * @param turnTimeoutMs how long the panel should wait for a turn, for this tenant. A
+     *                      self-hosted model needs minutes where a hosted one needs seconds, so the
+     *                      panel cannot hardcode it.
      */
     public record ChatHistory(List<Turn> messages, String defaultEffort, long turnTimeoutMs) {
         public record Turn(String role, String text, List<ConsoleView> views) {
@@ -238,6 +264,24 @@ public class ChatApiController {
     public ResponseEntity<Void> reset(HttpSession session) {
         session.removeAttribute(CONVERSATION_ATTRIBUTE);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Whether this failed because the thread was interrupted rather than because anything went
+     * wrong. Both clients wrap it, so the cause chain is the only reliable signal; the interrupt
+     * flag itself is checked first because {@code Thread.interrupted()} may already have consumed
+     * it on the way up.
+     */
+    private static boolean wasInterrupted(Throwable failure) {
+        if (Thread.currentThread().isInterrupted()) {
+            return true;
+        }
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static long elapsedMs(long startedAt) {
