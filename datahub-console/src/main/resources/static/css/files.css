@@ -257,3 +257,39 @@ table.files-table .fs-empty td{
 }
 .dh-danger-btn{ background: #e5534b; }
 .dh-danger-btn:disabled{ opacity: 0.5; cursor: not-allowed; }
+.dh-modal.dh-model-modal{
+	width: 1100px;
+	height: 80vh;
+	display: flex;
+	flex-direction: column;
+}
+.dh-model-stage{
+	position: relative;
+	flex: 1 1 auto;
+	min-height: 0;
+	margin: 16px 0;
+}
+.dh-model-canvas{
+	position: absolute;
+	inset: 0;
+	border-radius: 8px;
+	border: 1px solid var(--border);
+	background: var(--header-bg-selected);
+	overflow: hidden;
+}
+.dh-model-canvas canvas{ display: block; }
+.dh-model-status{
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	margin: 0;
+	padding: 10px 18px;
+	border-radius: 8px;
+	background: var(--menu-bg);
+	border: 1px solid var(--border);
+	color: var(--text-muted);
+	font-size: 14px;
+	pointer-events: none;
+}
+.dh-model-status.is-error{ color: #e5534b; }
