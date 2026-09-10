@@ -120,7 +120,14 @@ public class EventFilter {
     // second one narrows the query where a second type would widen it. Same reason NodeFilter.labels
     // keeps its plural.
     @SingleOrList
-    @Schema(description = "The event must be related to ALL of these resources. Each entry may carry an id, an externalId, or both.", example = "[{\"id\": 22, \"externalId\": \"work_order_sap_1234\"}]")
+    // An entry carrying both identifiers names one resource twice, so it is matched by its id and
+    // the externalId is not a second condition. Deliberately not an AND over the two columns: the
+    // id is the more selective identifier, and a relation may be recorded with only one side —
+    // arrays written before the single-list model can differ in length, so requiring both would
+    // silently stop finding those events.
+    @Schema(description = "The event must be related to ALL of these resources. Each entry may carry "
+            + "an id, an externalId, or both; an entry carrying both names one resource, matched by its id.",
+            example = "[{\"id\": 22, \"externalId\": \"work_order_sap_1234\"}]")
     private Collection<IdCollection> relatedResources = new ArrayList<>();
 
     private TimeFilter createdTime;

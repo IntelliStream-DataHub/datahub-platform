@@ -212,6 +212,10 @@ public class EventController {
                       Omit the field for no data set restriction; an explicit `[]` matches nothing.
                     - `relatedResources` — events attached to specific resources. Each entry takes
                       an `id`, an `externalId`, or both; the event must be attached to all of them.
+                      An entry carrying both names **one** resource two ways, as on create — it is
+                      matched by its `id`, the more selective of the two, and the `externalId` is
+                      not a second condition. Sending an id and an externalId that belong to
+                      different resources is a malformed entry, not a way to ask for both.
                     - `metadata` — all entries must be present. A **null value matches the key
                       alone**, so `{"health": null}` finds anything tagged `health`.
 

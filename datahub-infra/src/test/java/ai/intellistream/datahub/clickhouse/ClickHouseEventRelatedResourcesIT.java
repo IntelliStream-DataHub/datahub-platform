@@ -294,6 +294,37 @@ class ClickHouseEventRelatedResourcesIT {
         assertTrue(filterIds(IdCollection.createFromExternalId(SENSOR_EXT)).contains(match.toString()));
     }
 
+    /**
+     * An entry carrying both identifiers names one resource twice, and is matched by its id.
+     *
+     * <p>Pinned because it reads like a bug and is not. The obvious "fix" — collect both sides and
+     * AND the two {@code hasAll} clauses — looks like it honours "or both" more faithfully, and
+     * quietly breaks this: a relation may be recorded with only one side, since arrays written
+     * before the single-list model can differ in length (see
+     * {@link #misalignedLegacyRowStillReadsBackWithoutLoss}). Requiring both columns to carry the
+     * resource would stop finding those events, for a caller who supplied more information rather
+     * than less.
+     *
+     * <p>The create path already states the model: "the server resolves the missing side and always
+     * returns both". Two names, one resource.
+     */
+    @Test
+    void anEntryNamingBothIsResolvedByItsId() throws Exception {
+        // A relation recorded by id alone — the unpaired shape a legacy row can hold.
+        UUID id = UUID.randomUUID();
+        SharedClickHouse.execute(client, ("""
+                INSERT INTO events (id, external_id, external_id_hash, type, sub_type, status, description,
+                    data_set_id, source, date_created, last_updated, event_time,
+                    related_resources_id, related_resources_external_id, related_resources_external_id_hash, metadata)
+                VALUES ('%s', 'rr_id_only', 0, 'alarm', NULL, 'OPEN', 'd', 12, 'sensor',
+                    '2026-04-22 14:30:00.000', '2026-04-22 14:30:00.000', '2026-04-22 14:30:00.000',
+                    [%d], [], [], {})
+                """).formatted(id, PUMP_ID));
+
+        assertTrue(filterIds(related(PUMP_ID, PUMP_EXT)).contains(id.toString()),
+                "the id resolves the entry; naming the externalId as well must not lose the event");
+    }
+
     @Test
     void filterByBothSidesRequiresAllOfThem() {
         // hasAll semantics: an event attached to only one of the two must not match.
