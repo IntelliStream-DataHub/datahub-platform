@@ -7,9 +7,10 @@ import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
  * The console's Vault loader: the shared one with {@link ConsoleVaultSecrets} plugged in.
  *
  * <p>Registered in {@code META-INF/spring.factories}, unlike the other applications which add the
- * loader in {@code main}, because the console's {@code @SpringBootTest} integration tests
- * ({@code PolicyApiIT}) run against a live api and need the Vault-provided OAuth2 client and
- * {@code datahub.url}. Do not also add it in {@code main}: that would log in to Vault twice.
+ * loader in {@code main}, so it also runs at environment-prepared time under
+ * {@code @SpringBootTest} — a Spring test of the console gets the Vault-provided OAuth2 client
+ * and {@code datahub.url} without arranging the loader itself. Do not also add it in
+ * {@code main}: that would log in to Vault twice.
  */
 public class VaultConfigurationLoader
         extends ai.intellistream.datahub.config.VaultConfigurationLoader {

@@ -64,20 +64,19 @@ dependencies {
 
 tasks.named('test') {
 	// Keep the default `test` task runnable in a bare checkout: the @Tag("integration") tests
-	// drive a live datahub-api and need Vault credentials, so they run only under the dedicated
-	// `integrationTest` task below.
+	// reach real external services, so they run only under the dedicated `integrationTest`
+	// task below.
 	useJUnitPlatform { excludeTags 'integration' }
 }
 
-// Integration tests that require a running datahub-api and Vault access. They exercise the console
-// against real endpoints rather than a stub, so they need a `test` profile config supplying
-// `vault.*` — copy application-test.properties.example to application-test.properties (gitignored)
-// and fill it in.
+// Integration tests that reach real external services rather than a stub, so they need
+// credentials the repository does not carry — copy application-test.properties.example to
+// application-test.properties (gitignored) and fill in what the test you are running needs.
 //
 //   ./gradlew :datahub-console:integrationTest
 //
 tasks.register('integrationTest', Test) {
-	description = 'Runs @Tag("integration") tests (require a running datahub-api and Vault).'
+	description = 'Runs @Tag("integration") tests (require credentials for a real external service).'
 	group = 'verification'
 	useJUnitPlatform { includeTags 'integration' }
 	testClassesDirs = sourceSets.test.output.classesDirs
