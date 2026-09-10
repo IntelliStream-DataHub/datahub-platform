@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.services;
 
 import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.asset.GraphReadScope;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.config.Neo4j;
 import ai.intellistream.datahub.models.Resource;
@@ -88,7 +89,7 @@ class Neo4jNearestTimeseriesIT {
     @Test
     void nearestCapReturnsClosestTimeseriesAndConnectingSubgraph() {
         ResourceNetwork net = service.fetchNearestNodesByEndLabel(
-                1L, List.of("TIMESERIES"), 2, List.of(), List.of("POLICY"));
+                1L, List.of("TIMESERIES"), 2, List.of(), List.of("POLICY"), GraphReadScope.readEverything());
 
         Set<Long> ids = nodeIds(net);
         assertThat(ids).contains(3L, 4L);       // the two nearest timeseries
@@ -100,7 +101,7 @@ class Neo4jNearestTimeseriesIT {
     @Test
     void raisingTheLimitReachesFartherTimeseries() {
         ResourceNetwork net = service.fetchNearestNodesByEndLabel(
-                1L, List.of("TIMESERIES"), 10, List.of(), List.of("POLICY"));
+                1L, List.of("TIMESERIES"), 10, List.of(), List.of("POLICY"), GraphReadScope.readEverything());
 
         assertThat(nodeIds(net)).contains(3L, 4L, 5L); // "expand" now reaches the farther one
     }
@@ -112,7 +113,7 @@ class Neo4jNearestTimeseriesIT {
             s.run("MATCH (d {id: 2}) CREATE (d)-[:HAS {id: 200, start: 2, end: 6, typeId: 3}]->(:POLICY {id: 6, name: 'p'})");
         }
         ResourceNetwork net = service.fetchNearestNodesByEndLabel(
-                1L, List.of("TIMESERIES"), 10, List.of(), List.of("POLICY"));
+                1L, List.of("TIMESERIES"), 10, List.of(), List.of("POLICY"), GraphReadScope.readEverything());
 
         assertThat(nodeIds(net)).doesNotContain(6L);
     }
@@ -133,7 +134,8 @@ class Neo4jNearestTimeseriesIT {
                     CREATE (hub)-[:CONTAINS {id: 1000000 + i, start: 2, end: i, typeId: 2}]->(t)
                     """);
         }
-        service.fetchNearestNodesByEndLabel(1L, List.of("TIMESERIES"), 10, List.of(), List.of("POLICY")); // warm up
+        service.fetchNearestNodesByEndLabel(1L, List.of("TIMESERIES"), 10, List.of(), List.of("POLICY"),
+                GraphReadScope.readEverything()); // warm up
 
         long worst = 0;
         for (int limit : new int[]{10, 50, 200}) {
@@ -142,7 +144,8 @@ class Neo4jNearestTimeseriesIT {
             for (int i = 0; i < 5; i++) {
                 long t0 = System.nanoTime();
                 ResourceNetwork net = service.fetchNearestNodesByEndLabel(
-                        1L, List.of("TIMESERIES"), limit, List.of(), List.of("POLICY"));
+                        1L, List.of("TIMESERIES"), limit, List.of(), List.of("POLICY"),
+                        GraphReadScope.readEverything());
                 best = Math.min(best, (System.nanoTime() - t0) / 1_000_000);
                 returned = net.nodes().size();
             }

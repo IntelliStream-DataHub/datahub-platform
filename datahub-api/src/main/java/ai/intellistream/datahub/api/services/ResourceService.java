@@ -25,6 +25,7 @@ import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
+import ai.intellistream.datahub.asset.GraphReadScope;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.InvalidResourceException;
 import ai.intellistream.datahub.errors.ResponseError;
@@ -1249,14 +1250,16 @@ public class ResourceService {
                         " or externalId: " + form.getExternalId() + " not found.");
             }
         }
-        // Gate the traversal on read access to the starting resource's dataset. The reachable
-        // network returned by Neo4j is not itself dataset-filtered — see DATASET_ACL_SETUP.md.
+        // Two checks, not one. The caller must be able to read the node the traversal starts
+        // from, and the component that comes back is narrowed to what they may read — reachability
+        // does not stop at a dataset boundary, so the start-node check alone let one grant plus one
+        // edge pull back a neighbouring dataset.
         NodeEntity start = nodeRepository.findById(form.getId()).orElseThrow(() ->
                 new ObjectNotFoundException("Resource with id: " + form.getId() + " not found."));
         dataSecurity.assertCanRead(start);
         return neo4JService.fetchRelatedNodes(
                 form.getId(), form.getDepth(), form.getRelationshipTypes(),
-                form.getLimit(), form.getExcludedLabels());
+                form.getLimit(), form.getExcludedLabels(), graphReadScope());
     }
 
     /**
@@ -1293,6 +1296,21 @@ public class ResourceService {
         NodeEntity start = nodeRepository.findById(id).orElseThrow(() ->
                 new ObjectNotFoundException("Resource with id: " + id + " not found."));
         dataSecurity.assertCanRead(start);
-        return neo4JService.fetchNearestNodesByEndLabel(id, endLabels, limit, relationshipTypes, excludedLabels);
+        return neo4JService.fetchNearestNodesByEndLabel(id, endLabels, limit, relationshipTypes,
+                excludedLabels, graphReadScope());
+    }
+
+    /**
+     * The caller's dataset grants, in the form the graph reads take.
+     *
+     * <p>{@code readableDataSetIds()} is empty both for a caller who may read everything and for
+     * one who may read nothing, so the all-datasets case has to be asked first — an empty set means
+     * "nothing" here, never "everything".
+     */
+    private GraphReadScope graphReadScope() {
+        if (dataSecurity.hasReadAccessToEverything()) {
+            return GraphReadScope.readEverything();
+        }
+        return GraphReadScope.restrictedTo(dataSecurity.readableDataSetIds());
     }
 }
