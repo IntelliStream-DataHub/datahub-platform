@@ -6,6 +6,9 @@ plugins {
     id 'ai.intellistream.datahub.java-library-conventions'
     id 'org.springframework.boot'
     id 'io.spring.dependency-management'
+    // Core Gradle plugin, so no version and no pluginManagement entry. Generates the parser
+    // for the events filter expression language from src/main/antlr/EventFilterQuery.g4.
+    id 'antlr'
 }
 
 
@@ -15,6 +18,10 @@ dependencies {
     // types it owns (same packages as before the extraction) remain transitively
     // visible to every module that depends on datahub-commons — no import changes.
     api project(':datahub-api-model')
+
+    // The parser generator runs at build time; only the small runtime reaches consumers.
+    antlr "org.antlr:antlr4:${antlrVersion}"
+    implementation "org.antlr:antlr4-runtime:${antlrVersion}"
 
     // Vault client
     implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
@@ -50,6 +57,20 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
 }
 
+
+// The antlr plugin puts the generator itself on the `api` configuration, which would push the
+// whole tool (and StringTemplate with it) onto every consumer's compile classpath. Only the
+// runtime is needed there; the tool stays a build-time concern.
+configurations.api {
+    exclude group: 'org.antlr', module: 'antlr4'
+}
+
+generateGrammarSource {
+    // -visitor: the parse tree is walked into our own AST and thrown away, so no listener.
+    arguments += ['-visitor', '-no-listener', '-package', 'ai.intellistream.datahub.filter']
+    outputDirectory = layout.buildDirectory
+            .dir('generated-src/antlr/main/ai/intellistream/datahub/filter').get().asFile
+}
 
 // Library module: no main class, so don't build an executable boot jar.
 bootJar { enabled = false }

@@ -59,6 +59,23 @@ public class EventRetreiver {
 
     private DataSort sort = new DataSort();
 
-    private AdvancedEventFilter advancedFilter;
+    /**
+     * A boolean expression, in the filter language documented with the events API.
+     *
+     * <p>Replaces the nested {@code and}/{@code or}/{@code not} JSON this field used to carry. A
+     * caller writes what they would write in a WHERE clause — {@code type NOT LIKE 'pump' AND
+     * (subType = 'water' OR subType = 'gas')} — and the api parses it into a tree and renders it
+     * as a parameterised query. Nothing here is ever concatenated into SQL.
+     *
+     * <p>The dialect is PostgreSQL-flavoured: PostgreSQL function names, {@code ::} casts,
+     * {@code ILIKE}, and {@code <>} alongside {@code !=}. Metadata values are text, so comparing
+     * one as anything else needs a converter ({@code to_int}, {@code to_number}, {@code to_bool},
+     * {@code to_date}, {@code to_timestamp}).
+     */
+    @Size(max = 4096)
+    @Schema(description = "A boolean filter expression, PostgreSQL-flavoured. Combined with "
+            + "`filter` by AND.",
+            example = "type NOT LIKE 'pump' AND (subType = 'water' OR subType = 'gas')")
+    private String advancedFilter;
 
 }

@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse;
 
+import ai.intellistream.datahub.clickhouse.filter.EventFilterRenderer;
+import ai.intellistream.datahub.filter.EventFilterParser;
 import ai.intellistream.datahub.models.datafilters.SqlField;
-import ai.intellistream.datahub.models.events.AdvancedFilter;
-import ai.intellistream.datahub.models.events.AdvancedFilterOperator;
-import ai.intellistream.datahub.models.events.Operator;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -16,8 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Guards the ASSEMBLED where clause, which the fragment-level tests in
- * {@link ClickHouseEventAdvancedFilterTest} cannot see.
+ * Guards the ASSEMBLED where clause, which fragment-level tests cannot see.
  *
  * <p>The property under test is one sentence: <b>the dataset ACL binds more tightly than anything
  * the caller supplied.</b> In SQL that is a question about parentheses rather than about the order
@@ -29,17 +27,15 @@ class ClickHouseEventWhereClauseTest {
 
     private static final String ACL = "data_set_id IN {aclDs:Array(Int64)}";
 
-    // renderWhere and buildAdvancedFilter never touch the client/tenant deps, so nulls are fine.
+    // renderWhere never touches the client/tenant deps, so nulls are fine here.
     private final ClickHouseEventService service = new ClickHouseEventService(null, null, null);
 
-    private static AdvancedFilter leaf(String property, String value) {
-        AdvancedFilterOperator operator = new AdvancedFilterOperator();
-        operator.setOperator(Operator.equals);
-        operator.setProperty(List.of(property));
-        operator.setValue(value);
-        AdvancedFilter filter = new AdvancedFilter();
-        filter.setFilterOperator(operator);
-        return filter;
+    /** The advanced filter as it now reaches the WHERE builder: one rendered, parenthesised term. */
+    private static SqlField advanced(String expression) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        String sql = new EventFilterRenderer(params, expression)
+                .render(EventFilterParser.parse(expression));
+        return new SqlField("advancedFilter", null, sql);
     }
 
     /** A basic filter criterion, the shape collectFilterCriteria produces. */
@@ -80,12 +76,8 @@ class ClickHouseEventWhereClauseTest {
     @Test
     void topLevelOr_cannotEscapeTheDatasetAcl() {
         List<SqlField> criterias = new ArrayList<>();
-        Map<String, Object> params = new HashMap<>();
         criterias.add(basic());
-
-        AdvancedFilter or = new AdvancedFilter();
-        or.setOr(List.of(leaf("source", "SAP"), leaf("source", "OTHER")));
-        service.buildAdvancedFilter(criterias, params, or, null);
+        criterias.add(advanced("source = 'SAP' OR source = 'OTHER'"));
 
         assertAclIsTopLevelConjunct(service.renderWhere(criterias, ACL));
     }
@@ -93,11 +85,7 @@ class ClickHouseEventWhereClauseTest {
     @Test
     void topLevelOr_withNoOtherCriteria_stillConfinesTheCaller() {
         List<SqlField> criterias = new ArrayList<>();
-        Map<String, Object> params = new HashMap<>();
-
-        AdvancedFilter or = new AdvancedFilter();
-        or.setOr(List.of(leaf("source", "SAP"), leaf("source", "OTHER")));
-        service.buildAdvancedFilter(criterias, params, or, null);
+        criterias.add(advanced("source = 'SAP' OR source = 'OTHER'"));
 
         assertAclIsTopLevelConjunct(service.renderWhere(criterias, ACL));
     }
@@ -105,16 +93,22 @@ class ClickHouseEventWhereClauseTest {
     @Test
     void nestedAndInsideOr_cannotEscapeTheDatasetAcl() {
         List<SqlField> criterias = new ArrayList<>();
-        Map<String, Object> params = new HashMap<>();
         criterias.add(basic());
-
-        AdvancedFilter inner = new AdvancedFilter();
-        inner.setAnd(List.of(leaf("type", "alarm"), leaf("status", "open")));
-        AdvancedFilter or = new AdvancedFilter();
-        or.setOr(List.of(leaf("source", "SAP"), inner));
-        service.buildAdvancedFilter(criterias, params, or, null);
+        criterias.add(advanced("source = 'SAP' OR (type = 'alarm' AND status = 'open')"));
 
         assertAclIsTopLevelConjunct(service.renderWhere(criterias, ACL));
+    }
+
+    /**
+     * The expression language cannot reintroduce the original defect even in principle: whatever
+     * boolean structure a caller writes is rendered as ONE parenthesised term before it becomes a
+     * criterion, so it has no way to reach the WHERE root where the ACL lives.
+     */
+    @Test
+    void aRenderedExpressionIsAlwaysASingleTerm() {
+        String sql = advanced("type = 'x' OR source = 'y' OR status = 'z'").sql();
+
+        assertTrue(sql.startsWith("(") && sql.endsWith(")"), () -> "not one term: " + sql);
     }
 
     @Test
