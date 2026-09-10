@@ -22,7 +22,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.IOException;
@@ -44,7 +43,8 @@ import static org.mockito.Mockito.when;
  * Byte-range, conditional-read and whole-file behaviour of {@link FileController#download}.
  *
  * <p>The endpoint streams straight to the servlet response rather than returning a body, so the
- * tests drive the controller directly with a mock request/response pair, as the upload tests do.
+ * tests drive the controller directly with a mock response, passing the request headers as the
+ * bound arguments Spring would resolve them into.
  */
 class FileControllerRangeTest {
 
@@ -188,23 +188,48 @@ class FileControllerRangeTest {
 
     @Test
     void ifNoneMatch_currentEtag_is304WithNoBody() {
-        MockHttpServletRequest req = request(null);
-        req.addHeader("If-None-Match", etag);
-        MockHttpServletResponse res = new MockHttpServletResponse();
-
-        controller.download(req, res, Optional.of("5"));
+        MockHttpServletResponse res = download(null, null, etag);
 
         assertEquals(304, res.getStatus());
         assertEquals(0, res.getContentAsByteArray().length);
     }
 
     @Test
-    void ifRange_staleEtag_servesTheWholeFileInsteadOfSplicing() {
-        MockHttpServletRequest req = request("bytes=0-99");
-        req.addHeader("If-Range", "\"0000000000000000000000000000000000000000000000000000000000000000\"");
-        MockHttpServletResponse res = new MockHttpServletResponse();
+    void ifNoneMatch_listHoldingTheCurrentEtag_is304() {
+        MockHttpServletResponse res = download(null, null, "\"0badc0de\", " + etag);
 
-        controller.download(req, res, Optional.of("5"));
+        assertEquals(304, res.getStatus());
+        assertEquals(0, res.getContentAsByteArray().length);
+    }
+
+    @Test
+    void ifNoneMatch_weakFormOfTheCurrentEtag_is304() {
+        MockHttpServletResponse res = download(null, null, "W/" + etag);
+
+        assertEquals(304, res.getStatus());
+        assertEquals(0, res.getContentAsByteArray().length);
+    }
+
+    @Test
+    void ifNoneMatch_wildcard_is304() {
+        MockHttpServletResponse res = download(null, null, "*");
+
+        assertEquals(304, res.getStatus());
+        assertEquals(0, res.getContentAsByteArray().length);
+    }
+
+    @Test
+    void ifNoneMatch_staleEtag_servesTheWholeFile() {
+        MockHttpServletResponse res = download(null, null, "\"0badc0de\"");
+
+        assertEquals(200, res.getStatus());
+        assertArrayEquals(CONTENT, res.getContentAsByteArray());
+    }
+
+    @Test
+    void ifRange_staleEtag_servesTheWholeFileInsteadOfSplicing() {
+        MockHttpServletResponse res = download("bytes=0-99",
+                "\"0000000000000000000000000000000000000000000000000000000000000000\"", null);
 
         assertEquals(200, res.getStatus());
         assertNull(res.getHeader("Content-Range"));
@@ -213,28 +238,30 @@ class FileControllerRangeTest {
 
     @Test
     void ifRange_currentEtag_stillServesTheRange() {
-        MockHttpServletRequest req = request("bytes=0-99");
-        req.addHeader("If-Range", etag);
-        MockHttpServletResponse res = new MockHttpServletResponse();
-
-        controller.download(req, res, Optional.of("5"));
+        MockHttpServletResponse res = download("bytes=0-99", etag, null);
 
         assertEquals(206, res.getStatus());
         assertEquals("bytes 0-99/1000", res.getHeader("Content-Range"));
     }
 
-    private MockHttpServletResponse download(String range) {
-        MockHttpServletResponse res = new MockHttpServletResponse();
-        controller.download(request(range), res, Optional.of("5"));
-        return res;
+    /** If-Range is defined to compare strongly, so a weak tag is not good enough to resume on. */
+    @Test
+    void ifRange_weakFormOfTheCurrentEtag_servesTheWholeFile() {
+        MockHttpServletResponse res = download("bytes=0-99", "W/" + etag, null);
+
+        assertEquals(200, res.getStatus());
+        assertNull(res.getHeader("Content-Range"));
+        assertArrayEquals(CONTENT, res.getContentAsByteArray());
     }
 
-    private static MockHttpServletRequest request(String range) {
-        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/files/download/5");
-        if (range != null) {
-            req.addHeader("Range", range);
-        }
-        return req;
+    private MockHttpServletResponse download(String range) {
+        return download(range, null, null);
+    }
+
+    private MockHttpServletResponse download(String range, String ifRange, String ifNoneMatch) {
+        MockHttpServletResponse res = new MockHttpServletResponse();
+        controller.download(res, Optional.of("5"), range, ifRange, ifNoneMatch);
+        return res;
     }
 
     /** Deterministic bytes, so a slice can be checked against its offset. */
