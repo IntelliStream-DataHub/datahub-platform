@@ -1,0 +1,76 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "datahub make-examples.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "mesh": 0,
+   "name": "cut_cube"
+  }
+ ],
+ "meshes": [
+  {
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 1
+     },
+     "indices": 0
+    }
+   ]
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5123,
+   "count": 48,
+   "type": "SCALAR"
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 10,
+   "type": "VEC3",
+   "min": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "max": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 96,
+   "target": 34963
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 96,
+   "byteLength": 120,
+   "target": 34962
+  }
+ ],
+ "buffers": [
+  {
+   "byteLength": 216,
+   "uri": "data:application/octet-stream;base64,AAADAAIAAAACAAEABAAFAAcABAAHAAkABAAJAAYAAAABAAUAAAAFAAQAAQACAAgAAQAIAAcAAQAHAAUAAgADAAYAAgAGAAkAAgAJAAgAAwAAAAQAAwAEAAYABwAIAAkAAAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AACAPwAAAAAAAIA/AAAAAAAAgD8AAIA/AACAP5qZGT8AAIA/AACAPwAAgD+amRk/mpkZPwAAgD8AAIA/"
+  }
+ ]
+}
