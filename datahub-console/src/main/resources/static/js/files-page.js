@@ -138,6 +138,11 @@
 			if (isImage) {
 				const preview = overlay.querySelector('.dh-file-preview');
 				const img = document.createElement('img');
+				// An SVG usually carries only a viewBox, so it has no intrinsic size to lay out
+				// against and collapses to nothing here; .vector pins its width instead.
+				const isVector = (n.mimeType && n.mimeType.indexOf('image/svg') === 0)
+					|| /\.svg$/i.test(n.name || '');
+				if (isVector) img.classList.add('vector');
 				img.alt = n.name || '';
 				img.addEventListener('error', () => { preview.hidden = true; });
 				img.src = '/files/download/' + encodeURIComponent(n.externalId);
