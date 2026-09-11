@@ -9,7 +9,7 @@ import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
-import ai.intellistream.datahub.api.services.TimeseriesMetaCache.SeriesMeta;
+import ai.intellistream.datahub.repositories.node.SeriesMeta;
 import ai.intellistream.datahub.tenant.TenantContext;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Producer;
@@ -47,7 +47,7 @@ public class DatapointBinaryIngestService {
     public record Summary(int frames, long rows, int series) {
     }
 
-    private final TimeseriesMetaCache metaCache;
+    private final TimeseriesMetaLookup metaLookup;
     private final DataSecurity dataSecurity;
     private final IngestQuotaService ingestQuota;
     private final LatestDatapointCache latestDatapointCache;
@@ -57,14 +57,14 @@ public class DatapointBinaryIngestService {
     private final Semaphore inFlight;
     private final PayloadCodec codec = new ZstdPayloadCodec();
 
-    public DatapointBinaryIngestService(TimeseriesMetaCache metaCache,
+    public DatapointBinaryIngestService(TimeseriesMetaLookup metaLookup,
                                         DataSecurity dataSecurity,
                                         IngestQuotaService ingestQuota,
                                         LatestDatapointCache latestDatapointCache,
                                         @Qualifier("allDatapointBlockProducer") Producer<byte[]> blockProducer,
                                         @Qualifier("datapointIngestCounter") LiveIngestCounter datapointIngestCounter,
                                         LimitsProperties limits) {
-        this.metaCache = metaCache;
+        this.metaLookup = metaLookup;
         this.dataSecurity = dataSecurity;
         this.ingestQuota = ingestQuota;
         this.latestDatapointCache = latestDatapointCache;
@@ -100,7 +100,7 @@ public class DatapointBinaryIngestService {
                 ids.add(id);
             }
         }
-        Map<Long, SeriesMeta> meta = metaCache.resolve(tenantId, ids);
+        Map<Long, SeriesMeta> meta = metaLookup.resolve(ids);
         List<Long> unknown = new ArrayList<>();
         for (Long id : ids) {
             if (!meta.containsKey(id)) {

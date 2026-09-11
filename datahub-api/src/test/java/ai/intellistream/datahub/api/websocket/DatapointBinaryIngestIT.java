@@ -11,8 +11,8 @@ import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
 import ai.intellistream.datahub.api.services.IngestQuotaService;
 import ai.intellistream.datahub.api.services.LatestDatapointCache;
 import ai.intellistream.datahub.api.services.LiveIngestCounter;
-import ai.intellistream.datahub.api.services.TimeseriesMetaCache;
-import ai.intellistream.datahub.api.services.TimeseriesMetaCache.SeriesMeta;
+import ai.intellistream.datahub.api.services.TimeseriesMetaLookup;
+import ai.intellistream.datahub.repositories.node.SeriesMeta;
 import ai.intellistream.datahub.tenant.TenantContext;
 import org.apache.pulsar.client.api.CompressionType;
 import org.apache.pulsar.client.api.Consumer;
@@ -61,16 +61,16 @@ class DatapointBinaryIngestIT extends AbstractPulsarWebSocketIT {
                 .compressionType(CompressionType.NONE)
                 .enableBatching(true)
                 .create();
-        TimeseriesMetaCache metaCache = mock(TimeseriesMetaCache.class);
-        when(metaCache.resolve(anyString(), any())).thenAnswer(inv -> {
+        TimeseriesMetaLookup metaLookup = mock(TimeseriesMetaLookup.class);
+        when(metaLookup.resolve(any())).thenAnswer(inv -> {
             Map<Long, SeriesMeta> found = new HashMap<>();
-            for (Long id : inv.<Collection<Long>>getArgument(1)) {
+            for (Long id : inv.<Collection<Long>>getArgument(0)) {
                 if (catalogue.containsKey(id)) found.put(id, catalogue.get(id));
             }
             return found;
         });
         TenantContext.setTenantId(TENANT);
-        return new DatapointBinaryIngestService(metaCache, mock(DataSecurity.class), mock(IngestQuotaService.class),
+        return new DatapointBinaryIngestService(metaLookup, mock(DataSecurity.class), mock(IngestQuotaService.class),
                 mock(LatestDatapointCache.class), producer, mock(LiveIngestCounter.class), new LimitsProperties());
     }
 

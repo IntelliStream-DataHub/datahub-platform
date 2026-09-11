@@ -19,12 +19,21 @@ import java.util.stream.Collectors;
 public interface TimeseriesRepository extends GenericNodeRepository<TimeseriesEntity>, TimeseriesCustomRepo {
 
     /**
-     * The series behind a set of internal ids with their dataset attached, for the binary ingest
-     * path: one query per request, only the association the ACL check needs.
+     * The four facts the binary ingest path checks a series against, for a set of internal ids:
+     * one query per request, and a projection rather than entities, so resolving ten thousand
+     * series does not hydrate ten thousand {@code TimeseriesEntity} plus their datasets into the
+     * persistence context to read four columns from each.
+     *
+     * <p>The join has to stay explicit and outer: {@code t.dataSet.id} would join inwards and drop
+     * every orphan series, which is exactly the case the ACL treats most strictly.
      */
     @Transactional(readOnly = true)
-    @Query("SELECT t FROM TimeseriesEntity t LEFT JOIN FETCH t.dataSet WHERE t.id IN :ids")
-    List<TimeseriesEntity> findAllWithDataSetByIdIn(@Param("ids") Collection<Long> ids);
+    @Query("""
+            SELECT new ai.intellistream.datahub.repositories.node.SeriesMeta(
+                       t.id, t.externalId, t.valueType.id, d.id)
+            FROM TimeseriesEntity t LEFT JOIN t.dataSet d
+            WHERE t.id IN :ids""")
+    List<SeriesMeta> findSeriesMetaByIdIn(@Param("ids") Collection<Long> ids);
 
     // ---- Dataset-ACL-narrowed read queries ----------------------------------------------------
     // These push the caller's readable-dataset filter into SQL: only rows whose data_set_id is in
