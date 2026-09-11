@@ -752,10 +752,15 @@ public class TimeseriesService {
      * off: blocking on a full producer queue would have blocked while holding that connection, and
      * could exhaust the pool.
      *
-     * <p>Instead the reads run inside a short transaction and the network I/O runs outside it. The
+     * <p>Instead the reads run inside a short transaction and everything else outside it. The
      * transaction is still needed, and cannot simply be dropped: {@code NodeEntity.dataSet} is a
      * lazy association that {@link DataSecurity#assertCanWrite} dereferences, and
      * {@code open-in-view} is off, so without a persistence context the permission check would fail.
+     *
+     * <p>Only the lookup and that check run inside it. Validating and encoding a maxed-out batch is
+     * hundreds of milliseconds of CPU needing no database, and holding a pooled connection across it
+     * starved the pool under concurrent writes. So phase 1 copies what the rest needs into a
+     * {@link ResolvedSeries} rather than passing the entity out.
      *
      * <p>The publish stays <strong>synchronous</strong>. Pulsar is the source of truth for
      * datapoints, with no Postgres copy to reconcile against, so returning before the broker has
@@ -786,16 +791,19 @@ public class TimeseriesService {
             throw new ConstraintViolationException(violations);
         }
 
-        // Phase 1: resolve, authorise and validate. Needs the persistence context; no I/O.
-        PreparedDatapointInsert prepared = transactionTemplate.execute(status -> prepareDatapointInsert(data));
+        // Phase 1: resolve and authorise — the only phase holding a connection.
+        ResolvedBatch resolved = transactionTemplate.execute(status -> resolveDatapointInsert(data));
 
-        // Phase 2: the network I/O, with no database connection held.
-        for (PendingDatapointPublish pending : prepared.pending()) {
+        // Phase 2: validate every value and build the messages.
+        List<PendingDatapointPublish> messages = buildDatapointMessages(resolved.resolved());
+
+        // Phase 3: the network I/O.
+        for (PendingDatapointPublish pending : messages) {
             addToLatestValuesCache(pending.externalId(), pending.latestDatapoint());
             allDatapointProducer.send(pending.message());
             datapointIngestCounter.recordIngested(TenantContext.getTenantId(), pending.datapointCount());
         }
-        return prepared.response();
+        return resolved.response();
     }
 
     /** A collection that passed validation, ready to publish once the transaction has ended. */
@@ -806,20 +814,30 @@ public class TimeseriesService {
             long datapointCount) {
     }
 
-    /** The outcome of the read phase: what could not be resolved, and what is ready to publish. */
-    private record PreparedDatapointInsert(
+    /**
+     * One collection's timeseries, reduced to what the phases outside the transaction need. Scalars
+     * rather than the entity, so no getter added later can lazy-load once the context has closed.
+     */
+    private record ResolvedSeries(long id, String externalId, int valueTypeId, String valueTypeName) {
+    }
+
+    /** A resolved timeseries paired with the collection it came from. */
+    private record ResolvedCollection(ResolvedSeries series, DatapointsCollection entry) {
+    }
+
+    /** What could not be resolved, and what may be built. */
+    private record ResolvedBatch(
             DataWrapper<BadRequestError> response,
-            List<PendingDatapointPublish> pending) {
+            List<ResolvedCollection> resolved) {
     }
 
     /**
-     * The read half of {@link #insertDatapoints}, run inside the transaction. Resolves each
-     * timeseries, checks write permission, validates every value against the declared type, and
-     * builds the message to publish. Performs no I/O of its own.
+     * Phase 1, inside the transaction: resolve each timeseries and check write permission, and copy
+     * what the later phases need out of the attached entity. Performs no I/O of its own.
      */
-    private PreparedDatapointInsert prepareDatapointInsert(DataWrapper<DatapointsCollection> data) {
+    private ResolvedBatch resolveDatapointInsert(DataWrapper<DatapointsCollection> data) {
         DataWrapper<BadRequestError> responseData = new DataWrapper<>();
-        List<PendingDatapointPublish> pending = new ArrayList<>();
+        List<ResolvedCollection> resolved = new ArrayList<>();
 
         for(DatapointsCollection entry : data.getItems()){
 
@@ -840,6 +858,30 @@ public class TimeseriesService {
             // Writing data-points is a write to the timeseries' dataset.
             dataSecurity.assertCanWrite(ts);
 
+            resolved.add(new ResolvedCollection(
+                    new ResolvedSeries(
+                            ts.getId(),
+                            ts.getExternalId(),
+                            ts.getValueType().getId(),
+                            ts.getValueType().getName()),
+                    entry));
+        }
+        return new ResolvedBatch(responseData, resolved);
+    }
+
+    /**
+     * Phase 2, outside the transaction: validate every value against the declared type, charge the
+     * quota, and build the message to publish. Quota is charged per collection before that
+     * collection is built, so a refused batch has spent the allowance of the collections accepted
+     * before it and none after. Nothing is published until every collection has been built.
+     */
+    private List<PendingDatapointPublish> buildDatapointMessages(List<ResolvedCollection> resolved) {
+        List<PendingDatapointPublish> pending = new ArrayList<>();
+
+        for (ResolvedCollection collection : resolved) {
+            ResolvedSeries ts = collection.series();
+            DatapointsCollection entry = collection.entry();
+
             // A text batch is the one shape that can approach Pulsar's per-message ceiling, so it is
             // capped tighter than a numeric one. Checked here rather than on the DTO because the cap
             // depends on the value type, which is only known once the series has been resolved.
@@ -850,7 +892,7 @@ public class TimeseriesService {
             // nothing.
             int datapointCount = entry.getDatapoints() == null ? 0 : entry.getDatapoints().size();
             ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.DATAPOINTS, datapointCount);
-            int valueTypeId = ts.getValueType().getId();
+            int valueTypeId = ts.valueTypeId();
             if (valueTypeId == TEXT || valueTypeId == MIXED) {
                 ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, datapointCount);
             }
@@ -866,7 +908,7 @@ public class TimeseriesService {
             // We found timeseries entity and can continue with datapoint insert
             DatapointString latestDatapoint = null;
             for(DatapointString dp : entry.getDatapoints()){
-                switch(ts.getValueType().getId()){
+                switch(valueTypeId){
                     case BIGINT -> {
                         try {
                             Long.parseLong(dp.getValue());
@@ -895,7 +937,7 @@ public class TimeseriesService {
                         // Accepts both numbers and text — the consumer routes each value to the
                         // numeric or the text column. @NotBlank already rejects empty values.
                     }
-                    default -> throw new RuntimeException("Unsupported value type: " + ts.getValueType().getName());
+                    default -> throw new RuntimeException("Unsupported value type: " + ts.valueTypeName());
                 }
                 addData(ts, insertData, dp);
 
@@ -913,23 +955,23 @@ public class TimeseriesService {
 
             if(!insertData.getItems().isEmpty()){
                 long sentCount = insertData.getItems().stream().mapToLong(it -> it.getDatapoints().size()).sum();
-                // Converted here, while the entity is still attached, so phase 2 is purely I/O.
+                // Converted here, not in phase 3, so that phase is purely I/O.
                 pending.add(new PendingDatapointPublish(
-                        ts.getExternalId(),
+                        ts.externalId(),
                         latestDatapoint,
                         DatapointBinaryConverter.toBinary(insertData),
                         sentCount));
             }
         }
-        return new PreparedDatapointInsert(responseData, pending);
+        return pending;
     }
 
     /**
      * Reject a TEXT/MIXED collection larger than {@link FieldLimits#TEXT_DATAPOINTS_PER_COLLECTION_MAX}.
      * Numeric series keep the larger {@code DATAPOINTS_PER_COLLECTION_MAX} enforced on the DTO.
      */
-    private static void assertTextBatchWithinLimit(TimeseriesEntity ts, DatapointsCollection entry) {
-        int valueType = ts.getValueType().getId();
+    private static void assertTextBatchWithinLimit(ResolvedSeries ts, DatapointsCollection entry) {
+        int valueType = ts.valueTypeId();
         if (valueType != TEXT && valueType != MIXED) {
             return;
         }
@@ -942,17 +984,17 @@ public class TimeseriesService {
         badRequestError.setMessage((
                 "A %s time series accepts at most %d data points per request, got %d. "
                         + "Split the batch into smaller requests."
-        ).formatted(ts.getValueType().getName(), FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX, datapoints.size()));
+        ).formatted(ts.valueTypeName(), FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX, datapoints.size()));
         error.setError(badRequestError);
         throw new BadRequestException(error);
     }
 
     private static void addData(
-            TimeseriesEntity ts,
+            ResolvedSeries ts,
             DataWrapperMessage dc,
             DatapointString dp
     ) {
-        long timeseriesId = ts.getId();
+        long timeseriesId = ts.id();
         DataCollectionString e =
                 dc.getItems().stream()
                         .filter(it -> it.getId() == timeseriesId)
@@ -961,8 +1003,8 @@ public class TimeseriesService {
         if(e == null){
             e = new DataCollectionString();
             e.setId(timeseriesId);
-            e.setExternalId(ts.getExternalId());
-            e.setValueType(ts.getValueType().getName());
+            e.setExternalId(ts.externalId());
+            e.setValueType(ts.valueTypeName());
             e.setDatapoints( new HashSet<>() );
             dc.getItems().add(e);
         }
