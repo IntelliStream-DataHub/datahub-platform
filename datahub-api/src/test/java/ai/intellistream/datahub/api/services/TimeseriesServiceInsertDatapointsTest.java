@@ -268,6 +268,41 @@ class TimeseriesServiceInsertDatapointsTest {
     }
 
     @Test
+    @DisplayName("The newest point is found when timestamps arrive as epoch millis, not only as ISO")
+    void latestValueCacheHandlesEpochMillisTimestamps() throws Exception {
+        known("pump-1", 1L, "FLOAT");
+        when(valkeyService.fetchLatestDatapoint("pump-1")).thenReturn(null);
+
+        // The shape the SDKs actually send.
+        timeseriesService.insertDatapoints(request(
+                collection("pump-1",
+                        point("1787308801000", "2.0"),
+                        point("1787308802000", "3.0"),
+                        point("1787308800000", "1.0"))));
+
+        ArgumentCaptor<DatapointString> cached = ArgumentCaptor.forClass(DatapointString.class);
+        verify(valkeyService).setLatestDatapoint(eq("pump-1"), cached.capture());
+        assertEquals("1787308802000", cached.getValue().getTimestamp());
+    }
+
+    @Test
+    @DisplayName("When two points share the newest timestamp, the first one seen is kept")
+    void tiedTimestampsKeepTheEarlierPoint() throws Exception {
+        known("pump-1", 1L, "FLOAT");
+        when(valkeyService.fetchLatestDatapoint("pump-1")).thenReturn(null);
+
+        timeseriesService.insertDatapoints(request(
+                collection("pump-1",
+                        point("2026-08-21T10:00:02Z", "2.0"),
+                        point("2026-08-21T10:00:02Z", "3.0"))));
+
+        // Pinned because a tie is where > and >= quietly disagree.
+        ArgumentCaptor<DatapointString> cached = ArgumentCaptor.forClass(DatapointString.class);
+        verify(valkeyService).setLatestDatapoint(eq("pump-1"), cached.capture());
+        assertEquals("2.0", cached.getValue().getValue());
+    }
+
+    @Test
     @DisplayName("A bad value anywhere in the request means nothing at all is published")
     void validationCoversTheWholeRequestBeforeAnythingIsSent() throws Exception {
         known("pump-1", 1L, "FLOAT");
