@@ -18,6 +18,14 @@ import java.util.stream.Collectors;
 
 public interface TimeseriesRepository extends GenericNodeRepository<TimeseriesEntity>, TimeseriesCustomRepo {
 
+    /**
+     * The series behind a set of internal ids with their dataset attached, for the binary ingest
+     * path: one query per request, only the association the ACL check needs.
+     */
+    @Transactional(readOnly = true)
+    @Query("SELECT t FROM TimeseriesEntity t LEFT JOIN FETCH t.dataSet WHERE t.id IN :ids")
+    List<TimeseriesEntity> findAllWithDataSetByIdIn(@Param("ids") Collection<Long> ids);
+
     // ---- Dataset-ACL-narrowed read queries ----------------------------------------------------
     // These push the caller's readable-dataset filter into SQL: only rows whose data_set_id is in
     // the allowed set are returned. Callers must skip these (and use the unfiltered variants) when

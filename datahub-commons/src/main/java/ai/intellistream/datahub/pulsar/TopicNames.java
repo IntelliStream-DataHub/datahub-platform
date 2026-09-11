@@ -24,6 +24,10 @@ public class TopicNames {
     }
 
     private static final String DP_TOPIC_NAME = "persistent://%s/datapoints/%s";
+    // The binary ingest stream has a namespace of its own: frames arrive zstd-compressed from the
+    // client and stay that way, so its backlog quota and retention are sized separately.
+    private static final String DP_BLOCKS_TOPIC_NAME = "persistent://%s/datapoint-blocks/%s";
+    public static final String DP_BLOCKS_NAMESPACE = "datapoint-blocks";
     private static final String EVENTS_TOPIC_NAME = "persistent://%s/events/cud-events";
     private static final String HTTP_MSG_TOPIC_NAME = "persistent://%s/http/message";
     private static final String SUBSCRIPTION_NOTIFY_TOPIC_NAME = "persistent://%s/subscriptions/notify";
@@ -32,6 +36,7 @@ public class TopicNames {
     // startup lock, so a duplicate instance id is rejected loudly instead of colliding on data topics.
     private static final String INSTANCE_LOCK_TOPIC_NAME = "persistent://%s/subscriptions/instance-lock";
     public static final String ALL_SUBSCRIPTIONS_NAME = "batched-datapoints-all-sub";
+    public static final String ALL_DATAPOINT_BLOCKS_SUBSCRIPTION_NAME = "batched-datapoint-blocks-all-sub";
     public static final String SUBSCRIPTION_FILTER_KEY_PROP = "filter.key";
 
     public String getDPTopicName(String topic){
@@ -87,5 +92,14 @@ public class TopicNames {
 
     public String getAllDatapointsTopicName(){
         return String.format(DP_TOPIC_NAME, internalTenant, "all-datapoints");
+    }
+
+    /** The binary datapoint frames, one frame per message, in the internal tenant. */
+    public String getAllDatapointBlocksTopicName(){
+        return String.format(DP_BLOCKS_TOPIC_NAME, internalTenant, "all-datapoint-blocks");
+    }
+
+    public String getDatapointBlocksNamespace(){
+        return internalTenant + "/" + DP_BLOCKS_NAMESPACE;
     }
 }

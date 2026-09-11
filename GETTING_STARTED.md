@@ -34,7 +34,7 @@ docker compose -f docker-compose.yml up -d
 > services only. If you want the all-in-containers stack instead, skip to
 > [Run everything in containers](#run-everything-in-containers-optional).
 
-This brings up Postgres 18, ClickHouse 26.5, Neo4j 5.26 (APOC baked in), Valkey 9.1,
+This brings up Postgres 18, ClickHouse 26.8, Neo4j 5.26 (APOC baked in), Valkey 9.1,
 Kvrocks 2.14, Pulsar 4.0.11 (plaintext standalone), persistent auto-unsealed Vault, and
 Keycloak 26.7. Give Pulsar and Keycloak ~30s to finish booting. (Neo4j is built once from
 `deploy/neo4j/Dockerfile`; the rest are pulled.)

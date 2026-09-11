@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse;
 
+import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.responses.DataCollectionBin;
 import ai.intellistream.datahub.api.responses.DatapointBin;
 import ai.intellistream.datahub.api.responses.DatapointString;
@@ -20,6 +21,7 @@ import com.clickhouse.client.api.insert.InsertResponse;
 import com.clickhouse.client.api.query.GenericRecord;
 import com.clickhouse.client.api.query.QueryResponse;
 import com.clickhouse.client.api.query.QuerySettings;
+import com.clickhouse.data.ClickHouseFormat;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -82,6 +84,22 @@ public class ClickHouseDatapointService extends ClickHouseService{
             }
         } catch (IOException e) {
             throw new RuntimeException("Error writing data to ClickHouse pipe", e);
+        }
+    }
+
+    /**
+     * Binary frame path: an Arrow IPC stream in the value type's canonical schema, already merged
+     * by the consumer, streamed to the type's table as it is. A byte-array stream so the client can
+     * rewind it on a retry, which the piped stream of the RowBinary path cannot.
+     */
+    public void insertArrowStream(String tenantId, DatapointValueType type, byte[] stream) {
+        Client client = getClickhouseClient(tenantId);
+        try (InsertResponse r = client.insert(type.tableName(), new ByteArrayInputStream(stream),
+                ClickHouseFormat.ArrowStream, getSettings()).get(30, TimeUnit.SECONDS)) {
+            log.debug("Arrow stream written to {}. Server Time: {}", type.tableName(), r.getServerTime());
+        } catch (Exception e) {
+            log.error("Failed to insert an Arrow stream into ClickHouse table: {}", type.tableName(), e);
+            throw new RuntimeException("ClickHouse insert failed", e);
         }
     }
 
