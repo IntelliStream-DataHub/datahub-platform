@@ -9,7 +9,6 @@ import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.transformers.UnitEntityTransformer;
-import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -59,12 +58,6 @@ public class UnitController {
             log.error(e.getMessage(), e);
         }
         return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
-    }
-
-    @Hidden
-    @RequestMapping(value = {"/"}, method = RequestMethod.GET, produces = { "application/json", "application/xml" })
-    public ResponseEntity<?> listWithSlash(){
-        return list();
     }
 
     @Tag(name = "Units")
