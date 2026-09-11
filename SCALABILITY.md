@@ -251,7 +251,32 @@ as fast as the clients produced them. The row count was sampled every few second
 climbed in step, about 90 million rows per 8 seconds. That one is sustained, and it is the figure
 to quote. A billion rows land in 2.72 GiB, 2.67 bytes each.
 
-**Past that, throughput keeps climbing but storage falls behind.** Eight clients reach 14.6
+**The JSON path does not scale out at all.** The same clients on the same host, JSON instead of
+binary, is the other half of the comparison and the one that makes the case:
+
+| Clients | JSON | binary | Binary is |
+|---|---|---|---|
+| 1 | 720,022/s | 3,839,090/s | 5.3x |
+| 4 | 1,588,183/s | 11,318,630/s | 7.1x |
+| 8 | 1,756,275/s | 14,558,392/s | 8.3x |
+
+JSON saturates at about 1.75 million points a second and stays there: four clients get 2.2 times
+one client, and eight get almost nothing more than four. That ceiling is the api parsing values,
+which is the first limit in this document, and adding clients cannot move it because they all
+queue behind the same work. The binary path moves that work to the clients, so it keeps scaling
+until the host runs out of cores.
+
+So against the JSON path at its own best, the binary path is **6.4 times faster sustained**
+(11.3M against 1.76M) and about **10 times at peak** (17.7M against 1.76M).
+
+One caveat on those ratios: this benchmark sends 10,000 to 40,000 points per collection, which is
+the *favourable* shape for the JSON path. Its throughput depends heavily on how many datapoints
+arrive per collection, as the API request path section explains, and a caller sending a handful
+of points per collection gets far less than 1.75 million a second from it. The binary path is
+much less sensitive to that, so the improvement for a small-collection caller is larger than the
+figures above, and is not measured here.
+
+**Past four clients, throughput keeps climbing but storage falls behind.** Eight clients reach 14.6
 million a second with a backlog that peaks at 1,626 and clears in seconds, which is the burst
 absorption Pulsar is there for. Twelve reach about 17.7 million with a backlog three times
 larger. Neither is a sustained rate: they are borrowing from the backlog, and a run long enough
