@@ -154,6 +154,37 @@ produced it — send it back under a different one and the API rejects it rather
 a silently incomplete page. Reusing one retriever across the walk, as above, is what keeps the two
 together.
 
+## Binary ingest
+
+For volume, `ingestBinary` sends datapoints as zstd-compressed Arrow frames to
+`POST /timeseries/data/binary` instead of JSON: up to a million points per request, values parsed,
+sorted and de-duplicated on the client, and nothing for the API to parse but a few headers.
+Each series is resolved once to its id and value type through `/timeseries/byids` and cached for
+the life of the client, so the caller needs read access to the series' dataset as well as write
+access.
+
+```java
+IngestResult r = client.timeseries().ingestBinary(Map.of(
+    "engine.temp", List.of(Datapoint.of(Instant.now(), 81.5)),
+    "engine.rpm",  List.of(Datapoint.of(Instant.now(), 1500L))));
+
+// or tune it: zstd level 1, 3 or 9 (default 9; the client pays for it)
+client.timeseries().ingestBinary(byExternalId, BinaryIngestOptions.builder().zstdLevel(3).build());
+```
+
+A series that does not exist, or a value that does not fit its type, is reported in the result
+without a request. A request the server refuses because a series was renamed or removed is
+rebuilt once after re-resolving it. The durable spool below applies to the JSON path only.
+
+For many small inserts, a buffer batches them into frames:
+
+```java
+try (BinaryIngestBuffer buffer = client.timeseries().binaryBuffer()) {   // 10 000 points or 200 ms
+    buffer.add("engine.temp", Instant.now(), 81.5);
+    buffer.add("engine.rpm", Instant.now(), 1500L);
+}   // close flushes what is left
+```
+
 ## Durable ingest buffering
 
 Optionally, the client can buffer datapoint and event ingestion to disk when a send can't get

@@ -13,10 +13,14 @@ import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.api.responses.DatapointString;
+import ai.intellistream.datahub.sdk.ingest.BinaryDatapointIngestor;
+import ai.intellistream.datahub.sdk.ingest.BinaryIngestBuffer;
+import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.sdk.ingest.DatapointIngestor;
 import ai.intellistream.datahub.sdk.ingest.DatapointSpool;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
+import ai.intellistream.datahub.sdk.ingest.SeriesResolver;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.models.SearchForm;
@@ -24,10 +28,12 @@ import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 /**
  * Time-series metadata and datapoints. CRUD over {@code /timeseries}, datapoint retrieval, and
@@ -39,6 +45,8 @@ public final class TimeseriesService {
 
     private final ApiHttp http;
     private final DatapointIngestor ingestor;
+    private final SeriesResolver seriesResolver;
+    private final BinaryDatapointIngestor binaryIngestor;
     private final DatapointSpool spool;      // nullable: durable buffering disabled
     private final JavaType timeseries;       // DataWrapper<Timeseries>
     private final JavaType strings;          // DataWrapper<String>
@@ -53,6 +61,8 @@ public final class TimeseriesService {
         this.http = http;
         this.spool = spool;
         this.ingestor = new DatapointIngestor(http, DATA_PATH);
+        this.seriesResolver = new SeriesResolver(this::byIds);
+        this.binaryIngestor = new BinaryDatapointIngestor(http, seriesResolver);
         TypeFactory tf = http.typeFactory();
         this.timeseries = tf.constructParametricType(DataWrapper.class, Timeseries.class);
         this.strings = tf.constructParametricType(DataWrapper.class, String.class);
@@ -309,6 +319,59 @@ public final class TimeseriesService {
 
     /** Ingest datapoints grouped by series external id — chunked, parallelised and retried. */
     public IngestResult ingest(Map<String, List<Datapoint>> datapointsByExternalId, IngestOptions options) {
+        return ingest(toCollections(datapointsByExternalId), options);
+    }
+
+    // --- Binary ingest -----------------------------------------------------------------------------
+
+    /**
+     * Ingest datapoints through {@code POST /timeseries/data/binary} with the default
+     * {@link BinaryIngestOptions}: the high-throughput path. Each series is resolved once to its
+     * id and value type (and cached), values are parsed and sorted here rather than on the server,
+     * and every request carries zstd-compressed Arrow frames, up to a million points each. A
+     * series that does not exist, or a value that does not fit its type, is reported in the result
+     * without a request; a request the server refuses as a whole is retried after re-resolving
+     * the series it named. The durable spool does not apply to this path.
+     */
+    public IngestResult ingestBinary(List<DatapointsCollection> data) {
+        return ingestBinary(data, BinaryIngestOptions.defaults());
+    }
+
+    public IngestResult ingestBinary(List<DatapointsCollection> data, BinaryIngestOptions options) {
+        return binaryIngestor.ingest(data, options);
+    }
+
+    /** The binary path for datapoints grouped by series external id. */
+    public IngestResult ingestBinary(Map<String, List<Datapoint>> datapointsByExternalId) {
+        return ingestBinary(datapointsByExternalId, BinaryIngestOptions.defaults());
+    }
+
+    public IngestResult ingestBinary(Map<String, List<Datapoint>> datapointsByExternalId, BinaryIngestOptions options) {
+        return binaryIngestor.ingest(toCollections(datapointsByExternalId), options);
+    }
+
+    /**
+     * A buffer for small inserts on the binary path: add points one at a time, they are sent as
+     * frames once {@code maxPoints} have accumulated or the oldest is {@code maxAge} old. Close it
+     * to flush the rest. Results reach {@code onFlush} (may be null).
+     */
+    public BinaryIngestBuffer binaryBuffer(BinaryIngestOptions options, int maxPoints, Duration maxAge,
+                                           Consumer<IngestResult> onFlush) {
+        return new BinaryIngestBuffer(this, options, maxPoints, maxAge, onFlush);
+    }
+
+    /** A buffer with the defaults: 10 000 points or 200 ms. */
+    public BinaryIngestBuffer binaryBuffer() {
+        return binaryBuffer(BinaryIngestOptions.defaults(), BinaryIngestBuffer.DEFAULT_MAX_POINTS,
+                BinaryIngestBuffer.DEFAULT_MAX_AGE, null);
+    }
+
+    /** The series cache the binary path resolves through; exposed so a caller can drop it. */
+    public SeriesResolver seriesResolver() {
+        return seriesResolver;
+    }
+
+    private static List<DatapointsCollection> toCollections(Map<String, List<Datapoint>> datapointsByExternalId) {
         List<DatapointsCollection> collections = new ArrayList<>(datapointsByExternalId.size());
         datapointsByExternalId.forEach((externalId, points) -> {
             DatapointsCollection collection = new DatapointsCollection();
@@ -320,6 +383,6 @@ public final class TimeseriesService {
             collection.setDatapoints(wire);
             collections.add(collection);
         });
-        return ingest(collections, options);
+        return collections;
     }
 }
