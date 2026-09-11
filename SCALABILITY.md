@@ -173,29 +173,51 @@ that travels.
 ### All three clients, same shape
 
 The binary path is a client-side contract, so it is worth knowing what each SDK makes of it. Two
-million float32 points over ten series, same generated signal, same api, run one after another:
+million float32 points over ten series, same generated signal, same api, run one after another.
+Two rates, because they answer different questions: wall clock includes each client generating
+its points, and in-call is the same points over the time actually spent inside the SDK call,
+which is what the transport did.
 
-| Client | JSON | binary | | Mean latency per 500k-point call |
-|---|---|---|---|---|
-| Java | 1,504,579 pts/s | 2,439,236 pts/s | 1.6x | 286 ms to 170 ms |
-| Rust | 338,804 pts/s | 1,009,150 pts/s | 3.0x | 1318 ms to 352 ms |
-| Python | 282,123 pts/s | 750,085 pts/s | 2.7x | 149 ms to 39 ms |
+| Client | JSON wall | binary wall | | JSON in-call | binary in-call | |
+|---|---|---|---|---|---|---|
+| Java | 1,504,579 | 2,439,236 | 1.6x | 1,748,000 | 2,941,000 | 1.7x |
+| Rust | 720,022 | 3,839,090 | 5.3x | 809,000 | 8,065,000 | 10.0x |
+| Python | 288,638 | 758,542 | 2.6x | 344,000 | 1,310,000 | 3.8x |
 
-Every client gains, and the ones that gain most are the ones where more of the cost was in
-building JSON. Python gains 2.7x despite doing its own point generation in interpreted code,
-because the binary path moves the formatting and compression into Rust.
+Rust is the fastest client on the binary path, 8.1 million points per second inside the call,
+2.7 times Java. That is the ordering the languages suggest, and getting there took finding a
+measurement error: see below.
 
-The absolute rates are the part worth looking at twice: the Java SDK is three to four times
-faster than the Rust one on the same contract, which is the opposite of what the languages
-suggest. Not profiled, so this is a lead and not a conclusion, but one structural difference is
-known: the Rust SDK's binary ingest posts its packed requests one after another, while its JSON
-path builds every request body first and sends them together. Making the binary path concurrent
-there is the obvious next thing to try.
+Every client gains, and the ones that gain most had the most of their cost in building JSON.
+Python gains 3.8x in-call even though its numbers are the lowest, because the binary path moves
+the formatting and the compression into Rust. Its wall clock is dominated by generating points
+in interpreted code, and its calls carry 50,000 points each against the other two clients'
+500,000, so it pays ten times the per-call overhead; neither is a property of the ingest path.
+
+The one number that still does not fit is Rust on **JSON**, at less than half of Java. Two
+redundant deep copies per datapoint have been removed from that path since (it cloned each
+collection and then the whole request body), worth about 6 percent, so the rest is unexplained
+and would need profiling. It is the legacy path, so it has not been chased further.
+
+### Do not benchmark a debug build
+
+The first run of this comparison had Rust at 339,000 points per second on JSON and 1,009,000 on
+binary, slower than Java, which is not a believable result. The cause was the measurement:
+`cargo test` builds with the `dev` profile at `opt-level = 0`, so it was timing unoptimised
+Rust against a JIT-compiled JVM. In release the same test gives 720,000 and 3,839,000.
+
+Each language has its own version of this trap, and both are easy to walk into:
+
+| Client | The trap | What to do |
+|---|---|---|
+| Java | `bootRun` sets `-XX:TieredStopAtLevel=1`, disabling C2 | run the services from `bootJar` jars |
+| Rust | `cargo test` uses the `dev` profile | `cargo test --release` |
+| Python | a debug PyO3 module | `maturin develop --release` |
 
 Re-run any of them: `./gradlew :datahub-e2e:benchmark` here,
-`cargo test bench_json_vs_binary -- --ignored --nocapture` in the Rust SDK, and
-`python python_tests/bench_json_vs_binary.py` for Python, which needs the PyO3 module built
-first.
+`cargo test --release bench_json_vs_binary -- --ignored --nocapture` in the Rust SDK, and
+`python python_tests/bench_json_vs_binary.py` for Python, whose module must have been built
+with `--release`.
 
 The wire contract itself is not described here. `FrameLimits` and `ArrowSchemaCanon` in
 `datahub-api-model` are the machine-readable truth, and the byte-level specification for
