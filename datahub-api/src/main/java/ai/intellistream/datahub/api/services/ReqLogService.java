@@ -23,6 +23,9 @@ import java.util.Map;
 @Slf4j
 public class ReqLogService {
 
+    /** What stands in for a body the log does not read: a file, a datapoint frame, a download. */
+    private static final String BINARY_BODY = "binary";
+
     private final JsonMapper jsonMapper;
     private final Producer<String> httpMessageProducer;
     private final Environment environment;
@@ -61,12 +64,16 @@ public class ReqLogService {
                     String headerName = headerNames.nextElement();
                     log.debug("Header Name: " + headerName + ", Value: " + req.getHeader(headerName));
                 }
-                if (req instanceof ContentCachingRequestWrapper reqWrapper && hasTextualBody(req)) {
-                    String payload = new String (reqWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
-                    log.debug("Request body: {}", payload.substring(0, Math.min(payload.length(), 512)));
+                if (req instanceof ContentCachingRequestWrapper reqWrapper) {
+                    String payload = BINARY_BODY;
+                    if (hasTextualBody(req)) {
+                        payload = new String(reqWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
+                        payload = payload.substring(0, Math.min(payload.length(), 512));
+                    }
+                    log.debug("Request body: {}", payload);
                 }
                 if (res instanceof ContentCachingResponseWrapper responseWrapper) {
-                    String payload = "[BINARY DATA OR SKIPPED]";
+                    String payload = BINARY_BODY;
                     if (!req.getRequestURI().contains("/files/download/")) {
                         payload = new String(responseWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
                     }
@@ -104,7 +111,7 @@ public class ReqLogService {
         }
         responseMap.put("headers", headersMap);
 
-        String payload = "[BINARY DATA OR SKIPPED]";
+        String payload = BINARY_BODY;
         if (res instanceof ContentCachingResponseWrapper responseWrapper
                 && !req.getRequestURI().contains("/files/download/")) {
             payload = new String(responseWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
@@ -129,9 +136,11 @@ public class ReqLogService {
         }
         requestMap.put("headers", headersMap);
 
-        // Add request body
+        // Add request body. A non-textual one is never read, not even to measure it: the bytes are
+        // a file or a datapoint frame, they can exceed a Pulsar message on their own, and this
+        // envelope is republished on the http topic.
         if (request instanceof ContentCachingRequestWrapper reqWrapper) {
-            String payload = "[BINARY DATA OR SKIPPED]";
+            String payload = BINARY_BODY;
             if (hasTextualBody(request)) {
                 payload = new String(reqWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
             }
