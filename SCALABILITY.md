@@ -170,6 +170,33 @@ And this was one machine with the client, both services and every backing store 
 absolute rates say more about that machine than about a deployment; the ratios are the part
 that travels.
 
+### All three clients, same shape
+
+The binary path is a client-side contract, so it is worth knowing what each SDK makes of it. Two
+million float32 points over ten series, same generated signal, same api, run one after another:
+
+| Client | JSON | binary | | Mean latency per 500k-point call |
+|---|---|---|---|---|
+| Java | 1,504,579 pts/s | 2,439,236 pts/s | 1.6x | 286 ms to 170 ms |
+| Rust | 338,804 pts/s | 1,009,150 pts/s | 3.0x | 1318 ms to 352 ms |
+| Python | 282,123 pts/s | 750,085 pts/s | 2.7x | 149 ms to 39 ms |
+
+Every client gains, and the ones that gain most are the ones where more of the cost was in
+building JSON. Python gains 2.7x despite doing its own point generation in interpreted code,
+because the binary path moves the formatting and compression into Rust.
+
+The absolute rates are the part worth looking at twice: the Java SDK is three to four times
+faster than the Rust one on the same contract, which is the opposite of what the languages
+suggest. Not profiled, so this is a lead and not a conclusion, but one structural difference is
+known: the Rust SDK's binary ingest posts its packed requests one after another, while its JSON
+path builds every request body first and sends them together. Making the binary path concurrent
+there is the obvious next thing to try.
+
+Re-run any of them: `./gradlew :datahub-e2e:benchmark` here,
+`cargo test bench_json_vs_binary -- --ignored --nocapture` in the Rust SDK, and
+`python python_tests/bench_json_vs_binary.py` for Python, which needs the PyO3 module built
+first.
+
 The wire contract itself is not described here. `FrameLimits` and `ArrowSchemaCanon` in
 `datahub-api-model` are the machine-readable truth, and the byte-level specification for
 third-party producers belongs in the SDK documentation site.
