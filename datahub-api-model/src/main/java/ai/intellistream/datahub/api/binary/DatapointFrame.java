@@ -21,6 +21,8 @@ import java.util.List;
  * envelopes and directories of a whole body without touching a payload, {@link #decode} then
  * decompresses one frame and validates its Arrow stream, row order and series. The API keeps the
  * frame's bytes as they arrived and forwards them; the consumer decodes them again.
+ *
+ * @see ArrowIpc why this package handles Arrow itself
  */
 public final class DatapointFrame {
 

@@ -18,6 +18,8 @@ import java.util.List;
  * batches hold up to {@code maxRowsPerBatch} rows each. This is what turns many small frames into
  * the large blocks ClickHouse wants: fixed-width columns are copied, Utf8 offsets rebased, validity
  * bitmaps rebuilt.
+ *
+ * @see ArrowIpc why this package handles Arrow itself
  */
 public final class FrameMerger {
 

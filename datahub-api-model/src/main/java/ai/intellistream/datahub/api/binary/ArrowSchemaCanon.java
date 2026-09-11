@@ -24,6 +24,8 @@ import java.util.Map;
 /**
  * The one Arrow schema each value type is allowed to arrive in: field names, types and
  * nullability exactly as the ClickHouse table wants them, so the server casts nothing on insert.
+ *
+ * @see ArrowIpc why this package handles Arrow itself
  */
 public final class ArrowSchemaCanon {
 

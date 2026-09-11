@@ -19,6 +19,8 @@ import java.util.Map;
  * compressed frame out. The per-type value rules (Decimal scaling and rounding, the Decimal32
  * clamp, the mixed numeric-or-text probe) are the ones the JSON path applies on the server, so
  * the two paths store the same bytes for the same input.
+ *
+ * @see ArrowIpc why this package handles Arrow itself
  */
 public final class DatapointFrameWriter {
 

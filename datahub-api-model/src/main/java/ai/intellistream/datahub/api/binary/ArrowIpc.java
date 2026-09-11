@@ -24,20 +24,21 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * The Arrow IPC stream format, restricted to what the datapoint contract allows. Reads and writes
- * with {@code arrow-format}'s generated FlatBuffers classes only, on heap, so no allocator and no
- * JVM flags.
+ * Reads and writes Arrow IPC streams, limited to what the datapoint contract allows. This is where
+ * the whole package's Arrow handling lives, and why it is written by hand.
  *
- * <p>Deliberately not {@code arrow-vector}, which owns this layer upstream. On Java 25 it fails in
- * class initialization unless the launch carries {@code --add-opens=java.base/java.nio=ALL-UNNAMED},
- * {@code --enable-native-access=ALL-UNNAMED}, {@code --sun-misc-unsafe-memory-access=allow} and
- * {@code -Dio.netty.tryReflectionSetAccessible=true}, and this module ships to SDK users, so those
- * flags would land in their launch configuration. It is also 14 jars against 2 (Netty and a second
- * Jackson generation among them), and it allocates off heap, which {@code -Xmx} does not bound for
- * the 64 MiB of untrusted body the api accepts per request. Its FlatBuffers verifier is off by
- * default in Java anyway, so it would not have checked these bytes for us: {@link #readStream}
- * rejects explicitly instead. The Rust SDK does use the full arrow-rs crates, which have neither
- * problem, and frames cross-parse between the two implementations.
+ * <p>Arrow's own Java library, {@code arrow-vector}, would do this for us. We do not use it. On
+ * Java 25 it does not start at all without four JVM flags, and this module ships to SDK users, so
+ * every one of them would have to add those flags to run. It also pulls in 14 jars instead of 2,
+ * and it holds request data in off-heap memory, which {@code -Xmx} does not limit.
+ *
+ * <p>What we use instead is {@code arrow-format}, Arrow's generated FlatBuffers classes for the
+ * IPC metadata. The message framing and buffer layout around them are written here, on the heap.
+ *
+ * <p>Little is lost. Arrow's Java verifier is off by default, so the library would not have checked
+ * these bytes either, and {@link #readStream} rejects bad input explicitly. The Rust SDK does use
+ * the full arrow-rs crates, which have neither problem, and frames written by one parse in the
+ * other.
  */
 public final class ArrowIpc {
 
