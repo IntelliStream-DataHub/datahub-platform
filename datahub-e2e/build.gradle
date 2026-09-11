@@ -1,0 +1,62 @@
+// datahub-e2e — end-to-end tests and the ingest benchmark, driven through the Java SDK.
+//
+// Nothing here runs in a normal build: every test needs a live platform (api, consumer,
+// Pulsar, ClickHouse, Keycloak), so `test` excludes both tags and the two explicit tasks
+// below are how you ask for them. See README.md for the stack and the environment.
+//
+// The Spring Boot plugins are applied only for the dependency BOM, as in the SDK itself;
+// no Spring code goes anywhere near these tests.
+
+plugins {
+    id 'ai.intellistream.datahub.java-library-conventions'
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+}
+
+bootJar.enabled = false
+jar.enabled = true
+
+dependencies {
+    // The point of this module: exercise the platform the way an SDK user would, through the
+    // published surface only. No server classes, so a contract break shows up here as a
+    // failing call rather than a compile error.
+    testImplementation project(':datahub-java-sdk')
+
+    testImplementation 'org.assertj:assertj-core'
+    testImplementation 'tools.jackson.core:jackson-databind'
+}
+
+// A normal build skips everything here: there is no live platform on a build agent.
+tasks.named('test') {
+    useJUnitPlatform { excludeTags 'integration', 'performance' }
+}
+
+tasks.register('integrationTest', Test) {
+    description = 'End-to-end SDK tests against a running platform (see README.md).'
+    group = 'verification'
+    useJUnitPlatform { includeTags 'integration'; excludeTags 'performance' }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    // The stack is addressed by environment, so let it through.
+    environment System.getenv()
+    testLogging { showStandardStreams = true }
+    // The platform is the input and Gradle cannot see it, so "nothing changed" would happily
+    // replay the previous run's results against a stack that has since been fixed or broken.
+    outputs.upToDateWhen { false }
+}
+
+tasks.register('benchmark', Test) {
+    description = 'JSON vs binary datapoint ingest benchmark. Long-running; needs a live platform.'
+    group = 'verification'
+    useJUnitPlatform { includeTags 'performance' }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    environment System.getenv()
+    // The client builds and compresses whole batches in memory; give it room and a
+    // predictable heap so the reported client memory means something.
+    maxHeapSize = '8g'
+    jvmArgs '-XX:+UseG1GC'
+    testLogging { showStandardStreams = true }
+    // A benchmark is never up to date.
+    outputs.upToDateWhen { false }
+}
