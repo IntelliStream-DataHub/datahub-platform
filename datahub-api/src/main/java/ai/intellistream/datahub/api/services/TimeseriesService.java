@@ -132,6 +132,8 @@ public class TimeseriesService {
 
     private final ValkeyService valkeyService;
 
+    private final LatestDatapointCache latestDatapointCache;
+
     private final JsonMapper jsonMapper;
     private final TimeseriesRepository timeseriesRepository;
     private final DataSetRepository datasetEntityRepository;
@@ -799,7 +801,7 @@ public class TimeseriesService {
 
         // Phase 3: the network I/O.
         for (PendingDatapointPublish pending : messages) {
-            addToLatestValuesCache(pending.externalId(), pending.latestDatapoint());
+            latestDatapointCache.update(pending.externalId(), pending.latestDatapoint());
             allDatapointProducer.send(pending.message());
             datapointIngestCounter.recordIngested(TenantContext.getTenantId(), pending.datapointCount());
         }
@@ -1009,31 +1011,6 @@ public class TimeseriesService {
         e.getDatapoints().add(dp);
     }
 
-    /**
-     * Adds or updates a datapoint in the latest values cache for a given external ID.
-     * If a datapoint for the external ID already exists in the cache, it compares the timestamps
-     * and updates only if the new datapoint has a more recent timestamp.
-     *
-     * @param externalId the unique identifier for the external data source.
-     * @param dp the datapoint object to be added or checked against the cache.
-     */
-    private void addToLatestValuesCache(String externalId, DatapointString dp) {
-        try {
-            DatapointString obj = valkeyService.fetchLatestDatapoint(externalId);
-
-            if(obj == null){
-                valkeyService.setLatestDatapoint(externalId, dp);
-            } else {
-                ZonedDateTime latestTime = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(dp.getTimestamp());
-                ZonedDateTime latestSavedTime = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(obj.getTimestamp());
-                if(latestTime.isAfter(latestSavedTime)){
-                    valkeyService.setLatestDatapoint(externalId, dp);
-                }
-            }
-        } catch (JsonProcessingException e) {
-            log.error(e.getMessage(), e);
-        }
-    }
 
 
     /**

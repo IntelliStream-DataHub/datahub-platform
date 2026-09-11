@@ -72,6 +72,7 @@ class TimeseriesServiceInsertDatapointsTest {
     @Mock private TimeseriesRepository timeseriesRepository;
     @Mock private DataSecurity dataSecurity;
     @Mock private ValkeyService valkeyService;
+    @Mock private LatestDatapointCache latestDatapointCache;
     @Mock private Producer<DataWrapperBin> allDatapointProducer;
     @Mock private LiveIngestCounter datapointIngestCounter;
     @Mock private TransactionTemplate transactionTemplate;
@@ -257,7 +258,6 @@ class TimeseriesServiceInsertDatapointsTest {
     @DisplayName("The newest datapoint by timestamp reaches the latest-value cache, whatever the order")
     void latestValueCacheGetsTheNewestPointRegardlessOfOrder() throws Exception {
         known("pump-1", 1L, "FLOAT");
-        when(valkeyService.fetchLatestDatapoint("pump-1")).thenReturn(null);
 
         timeseriesService.insertDatapoints(request(
                 collection("pump-1",
@@ -265,8 +265,10 @@ class TimeseriesServiceInsertDatapointsTest {
                         point("2026-08-21T10:00:02Z", "3.0"),
                         point("2026-08-21T10:00:00Z", "1.0"))));
 
+        // Which point is the newest is this service's decision; whether it beats what Valkey
+        // already holds belongs to the cache, and LatestDatapointCacheTest covers that.
         ArgumentCaptor<DatapointString> cached = ArgumentCaptor.forClass(DatapointString.class);
-        verify(valkeyService).setLatestDatapoint(eq("pump-1"), cached.capture());
+        verify(latestDatapointCache).update(eq("pump-1"), cached.capture());
         assertEquals("2026-08-21T10:00:02Z", cached.getValue().getTimestamp());
     }
 
@@ -274,7 +276,6 @@ class TimeseriesServiceInsertDatapointsTest {
     @DisplayName("The newest point is found when timestamps arrive as epoch millis, not only as ISO")
     void latestValueCacheHandlesEpochMillisTimestamps() throws Exception {
         known("pump-1", 1L, "FLOAT");
-        when(valkeyService.fetchLatestDatapoint("pump-1")).thenReturn(null);
 
         // The shape the SDKs actually send.
         timeseriesService.insertDatapoints(request(
@@ -284,7 +285,7 @@ class TimeseriesServiceInsertDatapointsTest {
                         point("1787308800000", "1.0"))));
 
         ArgumentCaptor<DatapointString> cached = ArgumentCaptor.forClass(DatapointString.class);
-        verify(valkeyService).setLatestDatapoint(eq("pump-1"), cached.capture());
+        verify(latestDatapointCache).update(eq("pump-1"), cached.capture());
         assertEquals("1787308802000", cached.getValue().getTimestamp());
     }
 
@@ -292,7 +293,6 @@ class TimeseriesServiceInsertDatapointsTest {
     @DisplayName("When two points share the newest timestamp, the first one seen is kept")
     void tiedTimestampsKeepTheEarlierPoint() throws Exception {
         known("pump-1", 1L, "FLOAT");
-        when(valkeyService.fetchLatestDatapoint("pump-1")).thenReturn(null);
 
         timeseriesService.insertDatapoints(request(
                 collection("pump-1",
@@ -301,7 +301,7 @@ class TimeseriesServiceInsertDatapointsTest {
 
         // Pinned because a tie is where > and >= quietly disagree.
         ArgumentCaptor<DatapointString> cached = ArgumentCaptor.forClass(DatapointString.class);
-        verify(valkeyService).setLatestDatapoint(eq("pump-1"), cached.capture());
+        verify(latestDatapointCache).update(eq("pump-1"), cached.capture());
         assertEquals("2.0", cached.getValue().getValue());
     }
 
@@ -329,7 +329,7 @@ class TimeseriesServiceInsertDatapointsTest {
 
         // It used to be called with a null datapoint here, which either wrote a null or threw a
         // NullPointerException depending on whether the key already had a value.
-        verify(valkeyService, never()).setLatestDatapoint(anyString(), any(DatapointString.class));
+        verify(latestDatapointCache, never()).update(anyString(), any(DatapointString.class));
     }
 
     // ---- limits -----------------------------------------------------------

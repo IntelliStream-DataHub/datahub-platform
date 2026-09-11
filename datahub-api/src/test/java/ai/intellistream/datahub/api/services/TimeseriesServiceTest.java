@@ -84,6 +84,7 @@ class TimeseriesServiceTest {
     @Mock private EdgeRepository edgeRepository;
     @Mock private ResourceService resourceService;
     @Mock private ValkeyService valkeyService;
+    @Mock private LatestDatapointCache latestDatapointCache;
     @Mock private ApplicationEventPublisher applicationEventPublisher;
     @Mock private GraphOutbox graphOutbox;
     @Mock private Producer<DataWrapperBin> allDatapointProducer;

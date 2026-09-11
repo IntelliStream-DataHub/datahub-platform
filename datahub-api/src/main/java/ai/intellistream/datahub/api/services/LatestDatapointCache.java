@@ -14,8 +14,14 @@ import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
 /**
- * The per-series latest value in Valkey, for the binary ingest path: written only when the new
- * point is later than the cached one, the same rule {@code TimeseriesService} applies for JSON.
+ * The per-series latest value in Valkey, written only when the new point is later than the cached
+ * one. Both ingest paths go through here, so the rule is stated once: it used to live privately in
+ * {@code TimeseriesService} as well, which meant the JSON and binary paths could drift apart while
+ * writing the same key.
+ *
+ * <p>Read-then-write is not atomic, so two writers racing on one series can leave the earlier point
+ * cached. That was true of the original too. The cache is a convenience for
+ * {@code /timeseries/data/latest}; ClickHouse remains the record.
  */
 @Service
 @Slf4j
