@@ -232,31 +232,40 @@ The Java figure is the one to quote, because its test asserts the rows came back
 benchmark does not read anything back, so its rate is what the api accepted and no more; giving
 it the same read-back check is worth doing before the number is used for anything.
 
-### One billion points, four clients
+### Scaling out the clients, and where it stops being sustained
 
-The single-client figure was the client's limit, not the platform's. Four independent Rust
-clients, 250 million points each, 25 series each, one million per request:
+The single-client figure was the client's limit, not the platform's. Independent Rust clients,
+25 series each, one million points per request, run concurrently. The Pulsar backlog column is
+what separates a rate the pipeline holds from one it is only absorbing.
 
-| | |
-|---|---|
-| Total points | 1,000,000,000 |
-| Wall time | 88.3 s |
-| **Aggregate rate** | **11,318,630 points/second** |
-| Per client | 2.85M/s, within 0.4 percent of each other |
-| Pulsar backlog during the run | never above 100 messages, zero 7 s after the last insert |
-| Stored | 1.10 billion rows, 2.72 GiB, 2.67 bytes per row |
+| Clients | Points | Wall | Aggregate | Per client | `datapoint-blocks` backlog peak |
+|---|---|---|---|---|---|
+| 1 | 100M | 25.3 s | 3,947,497/s | 3.95M | not sampled |
+| 4 | 1,000M | 88.3 s | **11,318,630/s** | 2.85M | under 100 messages |
+| 8 | 480M | 33.0 s | 14,558,392/s | 1.93M | 1,626, cleared in ~7 s |
+| 12 | 720M | ~40 s | ~17,700,000/s | 1.55M | 4,080 to 4,778 |
 
-This one is sustained rather than buffered, and that is the part worth trusting. The row count in
-ClickHouse was sampled every few seconds throughout and climbed in step with the clients, about
-90 million rows per 8 seconds, while the `datapoint-blocks` backlog stayed under a hundred
-messages the whole time. If the accept rate had been outrunning storage, the backlog would have
-grown to the quota; it did not move.
+**Four clients is the balanced point.** A billion points went through at 11.3 million a second
+with the backlog never passing a hundred messages, which means ClickHouse was absorbing the rows
+as fast as the clients produced them. The row count was sampled every few seconds throughout and
+climbed in step, about 90 million rows per 8 seconds. That one is sustained, and it is the figure
+to quote. A billion rows land in 2.72 GiB, 2.67 bytes each.
 
-So the pipeline holds eleven million points per second for a minute and a half, on one 32-core
-host running the four clients, both services, Pulsar and ClickHouse together. Per-client
-throughput fell from 3.9M alone to 2.85M with four, which is contention on those shared cores
-rather than anything in the path; a deployment with the clients and ClickHouse on their own
-hardware has more headroom than this measures, not less.
+**Past that, throughput keeps climbing but storage falls behind.** Eight clients reach 14.6
+million a second with a backlog that peaks at 1,626 and clears in seconds, which is the burst
+absorption Pulsar is there for. Twelve reach about 17.7 million with a backlog three times
+larger. Neither is a sustained rate: they are borrowing from the backlog, and a run long enough
+would hit the namespace quota rather than keep going.
+
+The reason is the host, not the path. Everything shares 32 cores: the clients, both services,
+Pulsar and ClickHouse. Per-client throughput falls almost exactly in proportion as clients are
+added, and the clearest evidence is what happens when the clients stop: ClickHouse immediately
+drains at about 20 million rows a second. It was never insert-bound, it was starved of CPU by
+the client processes. A deployment with the clients and ClickHouse on their own hardware has more
+headroom than any of this measures.
+
+The run-to-run spread at 12 clients was 16.9 to 18.2 million, so treat differences under about a
+million a second at that level as noise.
 
 ### What does not need changing, with evidence
 
@@ -265,9 +274,17 @@ Four things looked worth tuning and measurably are not:
 | Idea | Measurement | Verdict |
 |---|---|---|
 | Bigger requests | 20M points at 1M, 2M and 3.2M per request: 3.82M, 3.99M, 3.86M points/s | Flat. Already past where per-request overhead matters |
-| Raise the 3.2M request cap to 4M | would need 40 frames against a cap of 32 and 80 MiB against 64 | Pointless: 2M is no faster than 1M, and p99 latency doubles |
-| Raise the consumer's merge or receive caps | backlog never exceeded 100 messages at 11.3M points/s | Not the bottleneck |
-| Concurrent request posting in the Rust SDK's binary path | one call of up to 3.2M points is a single request, so there is nothing to overlap | Only matters above 3.2M points per call |
+| Raise the 3.2M request cap to 4M | caps raised on both sides and measured: 3.46M points/s against 3.99M at 2M, in-call 7.4M against 9.4M, p99 six times worse than at 1M | Actively worse. Reverted |
+| Raise the consumer's merge to 4M rows and its receive batch to 64 MiB | four clients: 10.6M points/s against 11.0M baseline | No change. Reverted |
+| `max_insert_threads` (and `max_threads`, which bounds it) to 12 | twelve clients, two runs each: 16.9M and 18.2M raised, 18.1M and 17.7M not | No change, inside the run-to-run spread. Reverted |
+| Concurrent request posting in the Rust SDK's binary path | 40M points at 10M per call: 3.81M points/s against 3.63M sequential, in-call 9.40M against 8.34M, p99 9 percent better | Kept, bounded at 4 in flight |
+
+The three thread and buffer settings were each tried properly, with the code changed, both
+services rebuilt and the run repeated, rather than argued from the backlog numbers. None of them
+moved the result, for the same reason the scaling table shows: on this host ClickHouse and the
+consumer are short of CPU, not short of threads or buffer. On hardware where ClickHouse is not
+competing with the clients, `max_insert_threads` may well earn its keep; that is a hypothesis
+this machine cannot test.
 
 The binary path's request packing is worth stating plainly because it is easy to mis-picture: a
 float32 frame holds 100,000 points (the row cap binds before the 4 MiB byte cap, which would
