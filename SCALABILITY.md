@@ -331,10 +331,10 @@ already.
 | 5 | Raise the datapoints backlog quota, and reconcile the dev and production policies | Burst absorption | Low | Pulsar |
 | 6 | Check the subscription cache before decoding the fan-out batch | Removes a full decode pass per point | Low | Fan-out |
 | 7 | Load-test at the real burst shape: accepted points/s on one API instance, Pulsar backlog, consumer drain rate, ClickHouse inserted rows and part counts | Replaces the reasoning above with numbers | Medium | All |
-| 8 | Measure the ClickHouse insert-time breakdown through `system.events` before any insert tuning, then try ZSTD(1) or LZ4 on the datapoint columns | Avoids tuning folklore; likely an insert and merge CPU win | Low | ClickHouse |
+| 8 | Measure the ClickHouse insert-time breakdown through `system.events` before any insert tuning, then move the datapoint columns to ZSTD(3): measured in [binary_datapoints_format.md](binary_datapoints_format.md) section 3.6 as the insert CPU of LZ4 at 17 percent less disk, and note that the tenant manager's schema copy provisions production on LZ4 while this repository's says ZSTD(9) | Avoids tuning folklore; an insert and merge CPU win | Low | ClickHouse |
 | 9 | Set the namespace `autoTopicCreation` policy to partitioned | Closes the non-partitioned auto-create race | Low | Pulsar |
 | 10 | Raise fanout partitions and measure entry-filter CPU on the brokers | Subscription-path headroom | Low to medium | Fan-out |
 | 11 | Cluster-routing abstraction: a client registry plus a tenant-to-cluster map | Makes sharding possible later without a rewrite | Medium | Pulsar |
-| 12 | Binary-first bulk ingest contract, columnar `all-datapoints` message shape, Native format into ClickHouse | Very high rate class only | High | API, Pulsar, ClickHouse |
+| 12 | Binary-first bulk ingest contract: Arrow IPC frames, compressed per frame by the client, carried untouched through a topic of their own and merged by the consumer; the format decision, its measurements and the wire spec are in [binary_datapoints_format.md](binary_datapoints_format.md) | Very high rate class only | High | API, Pulsar, ClickHouse |
 | 13 | Shard ClickHouse, with a Distributed table or consumer-side routing, plus tiered storage | Very high rate class only | High | ClickHouse |
 | 14 | Shard across Pulsar clusters | True horizontal scale, only if a load test proves it necessary | High | Pulsar |
