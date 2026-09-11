@@ -17,7 +17,9 @@ The order in which limits bite:
 1. **The API request path.** Per-collection database and cache round trips inside a
    transaction, plus a synchronous Pulsar send. Whether one API instance can absorb a burst
    depends on the shape of the request, specifically how many datapoints arrive per
-   collection, far more than on anything downstream.
+   collection, far more than on anything downstream. This is the limit the binary ingest
+   path removes, and the measurement is below: 46 times less API CPU for the same points,
+   because the client does the parsing.
 2. **ClickHouse.** The sustained-write ceiling. Pulsar can buffer a burst; ClickHouse has to
    absorb the rate continuously, and the namespace backlog policy means it cannot fall behind
    for long.
@@ -106,6 +108,71 @@ File and class names, not line numbers, because line numbers rot.
 An earlier design created one Pulsar topic per timeseries. That is a scalability anti-pattern,
 because per-topic metadata and load-balancing cost grow with an unbounded topic count. It was
 removed; datapoints now flow through the shared partitioned topic.
+
+## The binary ingest path, measured
+
+There is a second ingest path, `POST /timeseries/data/binary`, for the high-rate class. It
+exists because the JSON contract makes the API parse and re-parse every value, and that is
+the first limit in the list above. On the binary path the client does the work: it resolves
+each series once, checks and sorts the values, writes them as Arrow IPC frames in the exact
+schema the ClickHouse table wants, compresses each frame with zstd, and posts them. The API
+validates a frame and forwards its bytes unchanged; the frames travel compressed through a
+topic of their own and the consumer merges them into large blocks.
+
+Arrow IPC rather than ClickHouse Native, though Native is the server's own format and is 434
+bytes smaller per frame. On the tables here the two parse at the same speed once frames hold
+a thousand points or more, so the tie went to the format that is also the right answer for
+reads, that any Arrow-capable tool can produce, and that a DataFrame round-trips through. The
+envelope keeps a codec byte, so a Native payload can be added later without a new media type.
+
+### What it cost and what it bought
+
+Measured 2026-09-12: the Java SDK against a running API, Pulsar, the stateless consumer and
+ClickHouse, sending the same 100 million float32 points down each path to its own 100 series.
+This is a real measurement, not reasoning. It is `datahub-e2e`'s `benchmark` task, so it can
+be re-run; `datahub-e2e/README.md` has the setup and the two product limits that have to be
+off. Both services ran from jars, never `bootRun`, which sets `-XX:TieredStopAtLevel=1` and
+would have measured a JVM with C2 disabled. Wire bytes are counted by a TCP relay the SDK is
+pointed at, so they include headers rather than being inferred from the payload.
+
+| | JSON | binary | |
+|---|---|---|---|
+| Ingest wall time | 52.0 s | 30.4 s | 1.7x |
+| Points per second | 1,922,646 | 3,286,618 | 1.7x |
+| Settle to readable | 2.1 s | 1.1 s | |
+| Bytes on the wire | 5.00 GB | 346 MB | 14.4x |
+| Bytes per point | 49.98 | 3.46 | |
+| Latency mean, per million-point call | 461 ms | 245 ms | |
+| Latency p99 | 618 ms | 345 ms | |
+| **API CPU** | **287.8 s** | **6.3 s** | **46x** |
+| Consumer CPU | 64.2 s | 6.4 s | 10x |
+| API peak resident | 3.8 GB | 5.2 GB | |
+| Client heap growth | 1.39 GB | 1.91 GB | |
+
+The result to take from this is the API's CPU, not the throughput. Accepting a hundred
+million points cost the JSON path 288 seconds of a core and the binary path 6. That is the
+first limit in this document being moved off the API and onto the client, which is where it
+scales for free: every client brings its own. Wall time improves by only 1.7x because at
+these rates the client became the limit, and the settle time shows Pulsar and the consumer
+were never close to being one.
+
+Both costs land where the design put them. The binary path used 37 percent more client heap,
+building Arrow buffers and compressing them, and pushed the API's resident set from 3.8 to
+5.2 GB, because a request body is held in memory while every frame in it is validated before
+anything is published. Storage is unchanged: 208 million rows afterwards, 558 MiB on disk,
+about 2.8 bytes per row, since both paths land in the same table under the same column codecs.
+
+Two caveats. The generated series is a slow sine plus noise, one signal per series; an earlier
+version of the harness gave every series identical values, zstd found the repetition across
+them, and it reported 0.52 bytes per point, seven times better than the honest 3.46. A
+compression figure is only as good as the signal behind it, so re-measure before quoting one.
+And this was one machine with the client, both services and every backing store on it, so the
+absolute rates say more about that machine than about a deployment; the ratios are the part
+that travels.
+
+The wire contract itself is not described here. `FrameLimits` and `ArrowSchemaCanon` in
+`datahub-api-model` are the machine-readable truth, and the byte-level specification for
+third-party producers belongs in the SDK documentation site.
 
 ## Where the limits are
 
@@ -331,10 +398,10 @@ already.
 | 5 | Raise the datapoints backlog quota, and reconcile the dev and production policies | Burst absorption | Low | Pulsar |
 | 6 | Check the subscription cache before decoding the fan-out batch | Removes a full decode pass per point | Low | Fan-out |
 | 7 | Load-test at the real burst shape: accepted points/s on one API instance, Pulsar backlog, consumer drain rate, ClickHouse inserted rows and part counts | Replaces the reasoning above with numbers | Medium | All |
-| 8 | Measure the ClickHouse insert-time breakdown through `system.events` before any insert tuning, then move the datapoint columns to ZSTD(3): measured in [binary_datapoints_format.md](binary_datapoints_format.md) section 3.6 as the insert CPU of LZ4 at 17 percent less disk, and note that the tenant manager's schema copy provisions production on LZ4 while this repository's says ZSTD(9) | Avoids tuning folklore; an insert and merge CPU win | Low | ClickHouse |
+| 8 | Measure the ClickHouse insert-time breakdown through `system.events` before any insert tuning, then move the datapoint columns to ZSTD(3): measured at the insert CPU of LZ4 for 17 percent less disk, and note that the tenant manager's schema copy provisions production on LZ4 while this repository's says ZSTD(9) | Avoids tuning folklore; an insert and merge CPU win | Low | ClickHouse |
 | 9 | Set the namespace `autoTopicCreation` policy to partitioned | Closes the non-partitioned auto-create race | Low | Pulsar |
 | 10 | Raise fanout partitions and measure entry-filter CPU on the brokers | Subscription-path headroom | Low to medium | Fan-out |
 | 11 | Cluster-routing abstraction: a client registry plus a tenant-to-cluster map | Makes sharding possible later without a rewrite | Medium | Pulsar |
-| 12 | Binary-first bulk ingest contract: Arrow IPC frames, compressed per frame by the client, carried untouched through a topic of their own and merged by the consumer; the format decision, its measurements and the wire spec are in [binary_datapoints_format.md](binary_datapoints_format.md) | Very high rate class only | High | API, Pulsar, ClickHouse |
+| 12 | ~~Binary-first bulk ingest contract: Arrow IPC frames, compressed per frame by the client, carried untouched through a topic of their own and merged by the consumer~~ **Built.** See [the binary ingest path](#the-binary-ingest-path-measured) above for the decision and the measurement | Very high rate class only | High | API, Pulsar, ClickHouse |
 | 13 | Shard ClickHouse, with a Distributed table or consumer-side routing, plus tiered storage | Very high rate class only | High | ClickHouse |
 | 14 | Shard across Pulsar clusters | True horizontal scale, only if a load test proves it necessary | High | Pulsar |

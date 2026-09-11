@@ -24,8 +24,9 @@ import java.io.InputStream;
 /**
  * The binary datapoint insert: its own endpoint and code path next to the JSON
  * {@code POST /timeseries/data}, sharing nothing with it but the quotas, the ACL and the
- * latest-value cache. The body is one or more frames as specified in the SDK documentation and
- * in {@code binary_datapoints_format.md}.
+ * latest-value cache. The body is one or more frames; {@link FrameLimits} and
+ * {@link ai.intellistream.datahub.api.binary.ArrowSchemaCanon} are the normative caps and
+ * schemas, and the byte-level spec for other producers is in the SDK documentation.
  */
 @RestController
 @RequestMapping("/timeseries/data")
