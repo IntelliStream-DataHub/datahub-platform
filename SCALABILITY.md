@@ -232,6 +232,55 @@ The Java figure is the one to quote, because its test asserts the rows came back
 benchmark does not read anything back, so its rate is what the api accepted and no more; giving
 it the same read-back check is worth doing before the number is used for anything.
 
+### One billion points, four clients
+
+The single-client figure was the client's limit, not the platform's. Four independent Rust
+clients, 250 million points each, 25 series each, one million per request:
+
+| | |
+|---|---|
+| Total points | 1,000,000,000 |
+| Wall time | 88.3 s |
+| **Aggregate rate** | **11,318,630 points/second** |
+| Per client | 2.85M/s, within 0.4 percent of each other |
+| Pulsar backlog during the run | never above 100 messages, zero 7 s after the last insert |
+| Stored | 1.10 billion rows, 2.72 GiB, 2.67 bytes per row |
+
+This one is sustained rather than buffered, and that is the part worth trusting. The row count in
+ClickHouse was sampled every few seconds throughout and climbed in step with the clients, about
+90 million rows per 8 seconds, while the `datapoint-blocks` backlog stayed under a hundred
+messages the whole time. If the accept rate had been outrunning storage, the backlog would have
+grown to the quota; it did not move.
+
+So the pipeline holds eleven million points per second for a minute and a half, on one 32-core
+host running the four clients, both services, Pulsar and ClickHouse together. Per-client
+throughput fell from 3.9M alone to 2.85M with four, which is contention on those shared cores
+rather than anything in the path; a deployment with the clients and ClickHouse on their own
+hardware has more headroom than this measures, not less.
+
+### What does not need changing, with evidence
+
+Four things looked worth tuning and measurably are not:
+
+| Idea | Measurement | Verdict |
+|---|---|---|
+| Bigger requests | 20M points at 1M, 2M and 3.2M per request: 3.82M, 3.99M, 3.86M points/s | Flat. Already past where per-request overhead matters |
+| Raise the 3.2M request cap to 4M | would need 40 frames against a cap of 32 and 80 MiB against 64 | Pointless: 2M is no faster than 1M, and p99 latency doubles |
+| Raise the consumer's merge or receive caps | backlog never exceeded 100 messages at 11.3M points/s | Not the bottleneck |
+| Concurrent request posting in the Rust SDK's binary path | one call of up to 3.2M points is a single request, so there is nothing to overlap | Only matters above 3.2M points per call |
+
+The binary path's request packing is worth stating plainly because it is easy to mis-picture: a
+float32 frame holds 100,000 points (the row cap binds before the 4 MiB byte cap, which would
+allow 209,000), and a request holds up to 32 frames, so **3.2 million points and 64 MiB raw is
+the request ceiling**. The benchmarks send one million per request, which is already in the flat
+part of the curve.
+
+Where the remaining client-side cost actually sits: for a single client, wall clock is 3.9M
+points/s while the rate inside the SDK call is 8.5M. The difference is the benchmark generating
+its own points. An application with data already in hand gets the higher number; one that
+computes or reads its points wants to overlap that with sending, or to use more clients, which
+is what the four-client run does.
+
 ### Do not benchmark a debug build
 
 The first run of this comparison had Rust at 339,000 points per second on JSON and 1,009,000 on
