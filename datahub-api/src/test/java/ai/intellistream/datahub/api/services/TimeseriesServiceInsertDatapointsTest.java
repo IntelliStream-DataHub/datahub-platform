@@ -255,6 +255,21 @@ class TimeseriesServiceInsertDatapointsTest {
     }
 
     @Test
+    @DisplayName("TEXT accepts a text value, like every other path already assumed it did")
+    void textIsAccepted() throws Exception {
+        // The value-type switch had no TEXT arm, so a text series answered every JSON insert with
+        // "Unsupported value type: TEXT" and a 500, while the quota counter, the per-collection
+        // text cap and the whole binary path all handled it. Found by the end-to-end test in
+        // datahub-e2e, which sends the same points down both paths and compares them.
+        known("text-1", 1L, "TEXT");
+
+        timeseriesService.insertDatapoints(request(
+                collection("text-1", point("2026-08-21T10:00:00Z", "FAULT"))));
+
+        verify(allDatapointProducer).send(any(DataWrapperBin.class));
+    }
+
+    @Test
     @DisplayName("The newest datapoint by timestamp reaches the latest-value cache, whatever the order")
     void latestValueCacheGetsTheNewestPointRegardlessOfOrder() throws Exception {
         known("pump-1", 1L, "FLOAT");

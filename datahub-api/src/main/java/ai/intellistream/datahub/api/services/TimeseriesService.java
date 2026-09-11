@@ -936,9 +936,11 @@ public class TimeseriesService {
                             throw new RuntimeException("Could not parse value: " + dp.getValue() + " to a decimal");
                         }
                     }
-                    case MIXED -> {
-                        // Accepts both numbers and text — the consumer routes each value to the
-                        // numeric or the text column. @NotBlank already rejects empty values.
+                    case TEXT, MIXED -> {
+                        // Nothing to parse: the value is stored as written. MIXED lets the consumer
+                        // route each value to the numeric or the text column. @NotBlank and the
+                        // DTO's length caps already reject empty and oversized values, and the
+                        // per-collection TEXT limit is checked once per batch above.
                     }
                     default -> throw new RuntimeException("Unsupported value type: " + ts.valueTypeName());
                 }
