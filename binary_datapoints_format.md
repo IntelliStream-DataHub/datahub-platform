@@ -311,6 +311,49 @@ compression, Native.lz4 HTTP compression). RowBinary is the clear loser there to
 1.6 GiB versus 0.6 GiB of memory, because the server parses each field of each row. On our
 three fixed-width columns the gap is smaller in absolute terms but the same in kind.
 
+### 3.9 End to end on the real platform, 100 million points
+
+Everything above measures ClickHouse alone. This measures the platform: the Java SDK against a
+running api, Pulsar, the stateless consumer and ClickHouse, sending the same 100 million float32
+points down each path to its own 100 series. It is `datahub-e2e`'s `benchmark` task, so it can be
+re-run; `datahub-e2e/README.md` has the setup. Wire bytes are counted by a TCP relay the SDK is
+pointed at, so they include headers and are not inferred from the payload. The api and the consumer
+each ran from a jar with a 4 GB heap, never `bootRun`, which would have disabled C2.
+
+| | JSON | binary | |
+|---|---|---|---|
+| Ingest wall time | 52.0 s | 30.4 s | 1.7x |
+| Points per second | 1,922,646 | 3,286,618 | 1.7x |
+| Settle to readable | 2.1 s | 1.1 s | |
+| Bytes on the wire | 5.00 GB | 346 MB | **14.4x** |
+| Bytes per point | 49.98 | 3.46 | |
+| Latency mean, per 1M-point call | 461 ms | 245 ms | |
+| Latency p99 | 618 ms | 345 ms | |
+| **api CPU** | **287.8 s** | **6.3 s** | **46x** |
+| Consumer CPU | 64.2 s | 6.4 s | 10x |
+| api peak RSS | 3.8 GB | 5.2 GB | |
+| Client heap growth | 1.39 GB | 1.91 GB | |
+
+The headline is not throughput, it is the api's CPU: 287 seconds against 6. Accepting a hundred
+million points cost the JSON path most of five minutes of a core, and the binary path six seconds,
+because the api parses and re-parses every value on one path and validates a frame and forwards its
+bytes on the other. Wall time improves by less than that ratio because the client is doing more
+work and, at these rates, is itself the limit.
+
+Both costs are real and land on the client: the binary path used 37 percent more client heap
+(building Arrow buffers and compressing them) and pushed the api's resident set higher, since a
+64 MiB body is held while it is validated. Neither is a surprise and both were the trade the design
+made deliberately.
+
+Verified independently of the harness: 208 million rows in `datapoints_float32` afterwards
+(200 million from the two runs plus earlier calibration), 558 MiB on disk, about 2.8 bytes per row,
+which matches the ZSTD(9) column-codec figure in 3.6 for a signal of this shape.
+
+One caveat worth repeating. The generated series is a slow sine plus noise, and each of the 100
+series gets its own. An earlier version gave every series identical values, and zstd found the
+repetition across them and reported 0.52 bytes per point, seven times better than the honest
+figure. Compression numbers are only as good as the signal behind them.
+
 ## 4. Client side: what moves to the SDK, and the DataFrame case
 
 The goal is to do the heavy work in the SDK and leave datahub-api and ClickHouse as little
