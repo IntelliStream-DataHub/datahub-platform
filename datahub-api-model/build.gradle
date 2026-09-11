@@ -50,6 +50,17 @@ dependencies {
     // One @Slf4j helper (TextValidator) needs the SLF4J facade.
     api 'org.slf4j:slf4j-api'
 
+    // The generated FlatBuffers classes of the Arrow IPC format (Message, Schema, RecordBatch),
+    // for the binary datapoint frames in ai.intellistream.datahub.api.binary. Brings only
+    // flatbuffers-java; the arrow-vector/arrow-memory stack stays out of this artifact, so the
+    // codec is on-heap and needs no --add-opens.
+    api 'org.apache.arrow:arrow-format:19.0.0'
+
+    // ZstdPayloadCodec compiles against zstd-jni but the artifact does not carry it: the SDK, the
+    // API and the consumer each put the native library on their own classpath.
+    compileOnly 'com.github.luben:zstd-jni:1.5.7-16'
+    testImplementation 'com.github.luben:zstd-jni:1.5.7-16'
+
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
 
