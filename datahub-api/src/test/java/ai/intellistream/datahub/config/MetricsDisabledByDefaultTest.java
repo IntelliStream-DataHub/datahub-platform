@@ -75,6 +75,9 @@ class MetricsDisabledByDefaultTest {
     @MockitoBean(name = "allDatapointProducer")
     private Producer<?> allDatapointProducer;
 
+    @MockitoBean(name = "allDatapointBlockProducer")
+    private Producer<?> allDatapointBlockProducer;
+
     @MockitoBean(name = "httpMessageProducer")
     private Producer<?> httpMessageProducer;
 
