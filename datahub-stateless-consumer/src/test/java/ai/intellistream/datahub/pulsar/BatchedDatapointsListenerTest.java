@@ -31,7 +31,7 @@ class BatchedDatapointsListenerTest {
                 .thenReturn("persistent://internal/datapoints/all-datapoints");
 
         BatchedDatapointsListener listener =
-                new BatchedDatapointsListener(client, null, topicNames, null, null);
+                new BatchedDatapointsListener(client, null, topicNames, null);
 
         IllegalStateException ex = assertThrows(IllegalStateException.class, listener::init);
         assertTrue(ex.getMessage().contains("all-datapoints consumer"), ex.getMessage());
