@@ -199,6 +199,39 @@ redundant deep copies per datapoint have been removed from that path since (it c
 collection and then the whole request body), worth about 6 percent, so the rest is unexplained
 and would need profiling. It is the legacy path, so it has not been chased further.
 
+### What the in-call rate is not
+
+8.1 million points per second is the client-to-api accept rate of a four-call burst over
+loopback, and it is the least transferable number here. Read it as "the api and the client are
+not the constraint", not as a platform throughput figure. Three reasons to be careful with it:
+
+- **Accepted is not stored.** The call returns once the api has validated the frames and put
+  them in Pulsar. ClickHouse still has to absorb the rows, and the sustained ceiling is
+  ClickHouse, exactly as the rest of this document says.
+- **Loopback, one machine.** The client, both services, Pulsar and ClickHouse shared the same
+  host, so nothing crossed a network interface. A real client is on the far side of one.
+- **The limits were off.** Both the daily quota and the rate limiter were disabled, and any real
+  tenant has them on.
+
+The number that survives those objections is the sustained run: 100 million points, verified
+readable in ClickHouse afterwards.
+
+| | Java, verified end to end | Rust, accept only |
+|---|---|---|
+| Ingest wall time | 30.4 s | 25.3 s |
+| Points per second | 3,286,618 | 3,947,497 |
+| Latency p99 per million-point call | 345 ms | 132 ms |
+| Settle to readable | 1.1 s | not measured |
+
+Both hold their rate from the first chunk to the hundredth, and the Rust run's p99 of 132 ms is
+within 15 percent of its median, so nothing degrades as the run goes on. During it the
+`datapoint-blocks` backlog stayed at a couple of hundred entries with one message unacked, so
+the consumer kept pace rather than falling behind and being rescued by the backlog quota.
+
+The Java figure is the one to quote, because its test asserts the rows came back. The Rust
+benchmark does not read anything back, so its rate is what the api accepted and no more; giving
+it the same read-back check is worth doing before the number is used for anything.
+
 ### Do not benchmark a debug build
 
 The first run of this comparison had Rust at 339,000 points per second on JSON and 1,009,000 on
