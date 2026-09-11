@@ -182,8 +182,16 @@ one per series. Giving every series identical values let zstd compress across th
 | Python | 288,638/s | 758,542/s | 2.6x | 1,310,000/s |
 
 In-call is the same points over the time inside the SDK call; the gap to wall clock is the client
-generating its own data, which dominates Python. Every client gains, most where most of its cost
-was building JSON.
+generating its own data. Every client gains, most where most of its cost was building JSON.
+
+Python is slowest for reasons at its edges rather than in the path. It runs the same Rust core as
+the Rust SDK, so the frame building, compression and posting are identical code; what differs is
+that it generates its points in interpreted code, its calls carry 50,000 points against the other
+two clients' 500,000 so it pays ten times the per-call overhead, and every point crosses the PyO3
+boundary one at a time, a Python `datetime` and a float per row turned into a timestamp and two
+allocated strings. That conversion happens *inside* the call, which is why its in-call rate
+trails Rust's sixfold on shared code. The fix is to pass arrays rather than objects, through
+numpy or the Arrow PyCapsule interface; not implemented.
 
 ### Tried and not worth it
 
