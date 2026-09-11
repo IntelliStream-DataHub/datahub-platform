@@ -28,6 +28,36 @@ public class LimitsProperties {
      */
     private long maxBodyBytesDatapoints = 16L * 1024 * 1024;
 
+    /**
+     * Largest accepted body for {@code POST /timeseries/data/binary}, compressed as it travels. The
+     * frames inside declare their decompressed sizes, which the endpoint caps at 64 MiB per request
+     * on its own.
+     */
+    private long maxBodyBytesDatapointsBinary = 64L * 1024 * 1024;
+
+    /**
+     * Binary bodies are decompressed and validated in memory before anything is published, so this
+     * bounds how many an instance holds at once. Beyond it a request is answered 429 with a
+     * one-second Retry-After, which the SDKs already honour.
+     */
+    private int maxInFlightDatapointsBinary = 16;
+
+    public long getMaxBodyBytesDatapointsBinary() {
+        return maxBodyBytesDatapointsBinary;
+    }
+
+    public void setMaxBodyBytesDatapointsBinary(long maxBodyBytesDatapointsBinary) {
+        this.maxBodyBytesDatapointsBinary = maxBodyBytesDatapointsBinary;
+    }
+
+    public int getMaxInFlightDatapointsBinary() {
+        return maxInFlightDatapointsBinary;
+    }
+
+    public void setMaxInFlightDatapointsBinary(int maxInFlightDatapointsBinary) {
+        this.maxInFlightDatapointsBinary = maxInFlightDatapointsBinary;
+    }
+
     public long getMaxBodyBytes() {
         return maxBodyBytes;
     }

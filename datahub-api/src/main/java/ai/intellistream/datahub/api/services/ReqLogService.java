@@ -61,11 +61,9 @@ public class ReqLogService {
                     String headerName = headerNames.nextElement();
                     log.debug("Header Name: " + headerName + ", Value: " + req.getHeader(headerName));
                 }
-                if (req instanceof ContentCachingRequestWrapper reqWrapper) {
-                    if (!req.getRequestURI().equals("/files")){
-                        String payload = new String (reqWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
-                        log.debug("Request body: {}", payload.substring(0, Math.min(payload.length(), 512)));
-                    }
+                if (req instanceof ContentCachingRequestWrapper reqWrapper && hasTextualBody(req)) {
+                    String payload = new String (reqWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
+                    log.debug("Request body: {}", payload.substring(0, Math.min(payload.length(), 512)));
                 }
                 if (res instanceof ContentCachingResponseWrapper responseWrapper) {
                     String payload = "[BINARY DATA OR SKIPPED]";
@@ -134,12 +132,29 @@ public class ReqLogService {
         // Add request body
         if (request instanceof ContentCachingRequestWrapper reqWrapper) {
             String payload = "[BINARY DATA OR SKIPPED]";
-            if (!request.getRequestURI().equals("/files/upload")) {
+            if (hasTextualBody(request)) {
                 payload = new String(reqWrapper.getContentAsByteArray(), StandardCharsets.UTF_8);
             }
             requestMap.put("body", payload);
         }
 
         return requestMap;
+    }
+
+    /**
+     * Only a JSON, XML, form or text body is worth stringifying into the request log; a binary one
+     * (a file upload, a datapoint frame) would be garbage there and can be larger than a Pulsar
+     * message.
+     */
+    public static boolean hasTextualBody(HttpServletRequest request) {
+        String contentType = request.getContentType();
+        if (contentType == null) {
+            return false;
+        }
+        String type = contentType.toLowerCase(java.util.Locale.ROOT);
+        return type.startsWith("application/json")
+                || type.startsWith("application/xml")
+                || type.startsWith("application/x-www-form-urlencoded")
+                || type.startsWith("text/");
     }
 }
