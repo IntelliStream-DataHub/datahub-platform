@@ -111,241 +111,96 @@ removed; datapoints now flow through the shared partitioned topic.
 
 ## The binary ingest path, measured
 
-There is a second ingest path, `POST /timeseries/data/binary`, for the high-rate class. It
-exists because the JSON contract makes the API parse and re-parse every value, and that is
-the first limit in the list above. On the binary path the client does the work: it resolves
-each series once, checks and sorts the values, writes them as Arrow IPC frames in the exact
-schema the ClickHouse table wants, compresses each frame with zstd, and posts them. The API
-validates a frame and forwards its bytes unchanged; the frames travel compressed through a
-topic of their own and the consumer merges them into large blocks.
+`POST /timeseries/data/binary` exists to move this document's first limit, the api parsing every
+value, off the api and onto the client. The client resolves each series once, checks and sorts the
+values, writes them as Arrow IPC frames in the schema the ClickHouse table wants, compresses each
+frame with zstd, and posts them; the api validates a frame and forwards its bytes. Arrow IPC
+rather than ClickHouse Native because the two parse at the same speed on these tables once frames
+hold a thousand points, so the tie went to the format that also suits reads and that any
+Arrow-capable tool can produce. `FrameLimits` and `ArrowSchemaCanon` in `datahub-api-model` are
+the normative caps and schemas; the byte-level spec belongs in the SDK documentation.
 
-Arrow IPC rather than ClickHouse Native, though Native is the server's own format and is 434
-bytes smaller per frame. On the tables here the two parse at the same speed once frames hold
-a thousand points or more, so the tie went to the format that is also the right answer for
-reads, that any Arrow-capable tool can produce, and that a DataFrame round-trips through. The
-envelope keeps a codec byte, so a Native payload can be added later without a new media type.
+Measured 2026-09-12 on one 32-core host running the clients, both services, Pulsar and ClickHouse
+together. Re-run with `./gradlew :datahub-e2e:benchmark`; `datahub-e2e/README.md` has the setup
+and the two product limits that must be off. **Everything must be built optimised.** `bootRun`
+disables C2, `cargo test` defaults to `opt-level = 0`, and a debug PyO3 module is equally
+useless. A first run of this comparison reported Rust as slower than Java purely from that.
 
-### What it cost and what it bought
-
-Measured 2026-09-12: the Java SDK against a running API, Pulsar, the stateless consumer and
-ClickHouse, sending the same 100 million float32 points down each path to its own 100 series.
-This is a real measurement, not reasoning. It is `datahub-e2e`'s `benchmark` task, so it can
-be re-run; `datahub-e2e/README.md` has the setup and the two product limits that have to be
-off. Both services ran from jars, never `bootRun`, which sets `-XX:TieredStopAtLevel=1` and
-would have measured a JVM with C2 disabled. Wire bytes are counted by a TCP relay the SDK is
-pointed at, so they include headers rather than being inferred from the payload.
+### What it buys, 100 million points
 
 | | JSON | binary | |
 |---|---|---|---|
-| Ingest wall time | 52.0 s | 30.4 s | 1.7x |
-| Points per second | 1,922,646 | 3,286,618 | 1.7x |
-| Settle to readable | 2.1 s | 1.1 s | |
-| Bytes on the wire | 5.00 GB | 346 MB | 14.4x |
-| Bytes per point | 49.98 | 3.46 | |
-| Latency mean, per million-point call | 461 ms | 245 ms | |
-| Latency p99 | 618 ms | 345 ms | |
-| **API CPU** | **287.8 s** | **6.3 s** | **46x** |
+| **api CPU** | **287.8 s** | **6.3 s** | **46x** |
 | Consumer CPU | 64.2 s | 6.4 s | 10x |
-| API peak resident | 3.8 GB | 5.2 GB | |
-| Client heap growth | 1.39 GB | 1.91 GB | |
+| **Bytes on the wire** | **5.00 GB** | **346 MB** | **14.4x** |
+| Ingest wall time | 52.0 s | 30.4 s | 1.7x |
+| Latency p99 per million-point call | 618 ms | 345 ms | |
+| api peak resident | 3.8 GB | 5.2 GB | costs more |
+| Client heap growth | 1.39 GB | 1.91 GB | costs more |
 
-The result to take from this is the API's CPU, not the throughput. Accepting a hundred
-million points cost the JSON path 288 seconds of a core and the binary path 6. That is the
-first limit in this document being moved off the API and onto the client, which is where it
-scales for free: every client brings its own. Wall time improves by only 1.7x because at
-these rates the client became the limit, and the settle time shows Pulsar and the consumer
-were never close to being one.
+The api CPU is the result. Accepting a hundred million points cost the JSON path 288 seconds of a
+core and the binary path 6, because one parses every value and the other checks a frame and
+forwards bytes. The costs land where the design put them: more client heap, and a larger resident
+set on the api because a request body is held while every frame in it is validated.
 
-Both costs land where the design put them. The binary path used 37 percent more client heap,
-building Arrow buffers and compressing them, and pushed the API's resident set from 3.8 to
-5.2 GB, because a request body is held in memory while every frame in it is validated before
-anything is published. Storage is unchanged: 208 million rows afterwards, 558 MiB on disk,
-about 2.8 bytes per row, since both paths land in the same table under the same column codecs.
+### Scaling out, and the sustained rate
 
-Two caveats. The generated series is a slow sine plus noise, one signal per series; an earlier
-version of the harness gave every series identical values, zstd found the repetition across
-them, and it reported 0.52 bytes per point, seven times better than the honest 3.46. A
-compression figure is only as good as the signal behind it, so re-measure before quoting one.
-And this was one machine with the client, both services and every backing store on it, so the
-absolute rates say more about that machine than about a deployment; the ratios are the part
-that travels.
+Concurrent Rust clients, 25 series each, 1M points per request. The backlog column separates a
+rate the pipeline holds from one it is only absorbing.
 
-### All three clients, same shape
+| Clients | JSON | binary | Binary is | `datapoint-blocks` backlog peak |
+|---|---|---|---|---|
+| 1 | 720,022/s | 3,839,090/s | 5.3x | not sampled |
+| 4 | 1,588,183/s | **11,318,630/s** | 7.1x | under 100 |
+| 8 | 1,756,275/s | 14,558,392/s | 8.3x | 1,626, cleared in ~7 s |
+| 12 | not measured | ~17,700,000/s | | 4,080 to 4,778 |
 
-The binary path is a client-side contract, so it is worth knowing what each SDK makes of it. Two
-million float32 points over ten series, same generated signal, same api, run one after another.
-Two rates, because they answer different questions: wall clock includes each client generating
-its points, and in-call is the same points over the time actually spent inside the SDK call,
-which is what the transport did.
+- **Four clients is the sustained point.** A billion points at 11.3M/s with the backlog never
+  passing a hundred messages, ClickHouse absorbing as fast as the clients produced. A billion rows
+  land in 2.72 GiB, 2.67 bytes each. This is the figure to quote.
+- **Eight and twelve are not sustained.** They reach 14.6M and ~17.7M but the backlog grows, so
+  they borrow from Pulsar's burst absorption; a long enough run hits the namespace quota.
+- **JSON does not scale out.** It saturates near 1.75M/s: four clients give 2.2x one, eight give
+  almost nothing more. Every client queues behind the same parsing, so adding them cannot help.
+- **The host is the constraint, not the path.** Per-client throughput falls in proportion as
+  clients are added, and when the clients stop ClickHouse drains at ~20M rows/s, so it was starved
+  of CPU rather than insert-bound. Clients and ClickHouse on their own hardware have more headroom
+  than this measures.
 
-| Client | JSON wall | binary wall | | JSON in-call | binary in-call | |
-|---|---|---|---|---|---|---|
-| Java | 1,504,579 | 2,439,236 | 1.6x | 1,748,000 | 2,941,000 | 1.7x |
-| Rust | 720,022 | 3,839,090 | 5.3x | 809,000 | 8,065,000 | 10.0x |
-| Python | 288,638 | 758,542 | 2.6x | 344,000 | 1,310,000 | 3.8x |
+Two caveats on the ratios. This benchmark sends 10,000 to 40,000 points per collection, the
+*favourable* shape for JSON, whose throughput depends heavily on that; a small-collection caller
+gains more than the table shows, unmeasured. And the generated signal is a slow sine plus noise,
+one per series. Giving every series identical values let zstd compress across them and reported
+0.52 bytes per point against the honest 3.46.
 
-Rust is the fastest client on the binary path, 8.1 million points per second inside the call,
-2.7 times Java. That is the ordering the languages suggest, and getting there took finding a
-measurement error: see below.
+### The three clients, 2M points over 10 series
 
-Every client gains, and the ones that gain most had the most of their cost in building JSON.
-Python gains 3.8x in-call even though its numbers are the lowest, because the binary path moves
-the formatting and the compression into Rust. Its wall clock is dominated by generating points
-in interpreted code, and its calls carry 50,000 points each against the other two clients'
-500,000, so it pays ten times the per-call overhead; neither is a property of the ingest path.
+| Client | JSON | binary | | in-call binary |
+|---|---|---|---|---|
+| Java | 1,504,579/s | 2,439,236/s | 1.6x | 2,941,000/s |
+| Rust | 720,022/s | 3,839,090/s | 5.3x | 8,065,000/s |
+| Python | 288,638/s | 758,542/s | 2.6x | 1,310,000/s |
 
-The one number that still does not fit is Rust on **JSON**, at less than half of Java. Two
-redundant deep copies per datapoint have been removed from that path since (it cloned each
-collection and then the whole request body), worth about 6 percent, so the rest is unexplained
-and would need profiling. It is the legacy path, so it has not been chased further.
+In-call is the same points over the time inside the SDK call; the gap to wall clock is the client
+generating its own data, which dominates Python. Every client gains, most where most of its cost
+was building JSON.
 
-### What the in-call rate is not
+### Tried and not worth it
 
-8.1 million points per second is the client-to-api accept rate of a four-call burst over
-loopback, and it is the least transferable number here. Read it as "the api and the client are
-not the constraint", not as a platform throughput figure. Three reasons to be careful with it:
+Each was implemented, both services rebuilt and the run repeated, not argued from theory.
 
-- **Accepted is not stored.** The call returns once the api has validated the frames and put
-  them in Pulsar. ClickHouse still has to absorb the rows, and the sustained ceiling is
-  ClickHouse, exactly as the rest of this document says.
-- **Loopback, one machine.** The client, both services, Pulsar and ClickHouse shared the same
-  host, so nothing crossed a network interface. A real client is on the far side of one.
-- **The limits were off.** Both the daily quota and the rate limiter were disabled, and any real
-  tenant has them on.
-
-The number that survives those objections is the sustained run: 100 million points, verified
-readable in ClickHouse afterwards.
-
-| | Java, verified end to end | Rust, accept only |
+| Change | Result | Verdict |
 |---|---|---|
-| Ingest wall time | 30.4 s | 25.3 s |
-| Points per second | 3,286,618 | 3,947,497 |
-| Latency p99 per million-point call | 345 ms | 132 ms |
-| Settle to readable | 1.1 s | not measured |
+| Requests of 2M or 3.2M points instead of 1M | 3.99M and 3.86M against 3.82M points/s | Flat; already past per-request overhead |
+| Raise the 3.2M request cap to 4M | 3.46M points/s, p99 six times worse | Worse. Reverted |
+| Consumer merge to 4M rows, receive batch to 64 MiB | 10.6M against 11.0M baseline | No change. Reverted |
+| `max_insert_threads` and `max_threads` to 12 | 16.9M and 18.2M raised, 18.1M and 17.7M not | Inside run-to-run spread. Reverted |
+| Concurrent request posting in the Rust SDK | 3.81M against 3.63M, in-call 9.40M against 8.34M | Kept, 4 in flight, only matters above 3.2M points per call |
 
-Both hold their rate from the first chunk to the hundredth, and the Rust run's p99 of 132 ms is
-within 15 percent of its median, so nothing degrades as the run goes on. During it the
-`datapoint-blocks` backlog stayed at a couple of hundred entries with one message unacked, so
-the consumer kept pace rather than falling behind and being rescued by the backlog quota.
-
-The Java figure is the one to quote, because its test asserts the rows came back. The Rust
-benchmark does not read anything back, so its rate is what the api accepted and no more; giving
-it the same read-back check is worth doing before the number is used for anything.
-
-### Scaling out the clients, and where it stops being sustained
-
-The single-client figure was the client's limit, not the platform's. Independent Rust clients,
-25 series each, one million points per request, run concurrently. The Pulsar backlog column is
-what separates a rate the pipeline holds from one it is only absorbing.
-
-| Clients | Points | Wall | Aggregate | Per client | `datapoint-blocks` backlog peak |
-|---|---|---|---|---|---|
-| 1 | 100M | 25.3 s | 3,947,497/s | 3.95M | not sampled |
-| 4 | 1,000M | 88.3 s | **11,318,630/s** | 2.85M | under 100 messages |
-| 8 | 480M | 33.0 s | 14,558,392/s | 1.93M | 1,626, cleared in ~7 s |
-| 12 | 720M | ~40 s | ~17,700,000/s | 1.55M | 4,080 to 4,778 |
-
-**Four clients is the balanced point.** A billion points went through at 11.3 million a second
-with the backlog never passing a hundred messages, which means ClickHouse was absorbing the rows
-as fast as the clients produced them. The row count was sampled every few seconds throughout and
-climbed in step, about 90 million rows per 8 seconds. That one is sustained, and it is the figure
-to quote. A billion rows land in 2.72 GiB, 2.67 bytes each.
-
-**The JSON path does not scale out at all.** The same clients on the same host, JSON instead of
-binary, is the other half of the comparison and the one that makes the case:
-
-| Clients | JSON | binary | Binary is |
-|---|---|---|---|
-| 1 | 720,022/s | 3,839,090/s | 5.3x |
-| 4 | 1,588,183/s | 11,318,630/s | 7.1x |
-| 8 | 1,756,275/s | 14,558,392/s | 8.3x |
-
-JSON saturates at about 1.75 million points a second and stays there: four clients get 2.2 times
-one client, and eight get almost nothing more than four. That ceiling is the api parsing values,
-which is the first limit in this document, and adding clients cannot move it because they all
-queue behind the same work. The binary path moves that work to the clients, so it keeps scaling
-until the host runs out of cores.
-
-So against the JSON path at its own best, the binary path is **6.4 times faster sustained**
-(11.3M against 1.76M) and about **10 times at peak** (17.7M against 1.76M).
-
-One caveat on those ratios: this benchmark sends 10,000 to 40,000 points per collection, which is
-the *favourable* shape for the JSON path. Its throughput depends heavily on how many datapoints
-arrive per collection, as the API request path section explains, and a caller sending a handful
-of points per collection gets far less than 1.75 million a second from it. The binary path is
-much less sensitive to that, so the improvement for a small-collection caller is larger than the
-figures above, and is not measured here.
-
-**Past four clients, throughput keeps climbing but storage falls behind.** Eight clients reach 14.6
-million a second with a backlog that peaks at 1,626 and clears in seconds, which is the burst
-absorption Pulsar is there for. Twelve reach about 17.7 million with a backlog three times
-larger. Neither is a sustained rate: they are borrowing from the backlog, and a run long enough
-would hit the namespace quota rather than keep going.
-
-The reason is the host, not the path. Everything shares 32 cores: the clients, both services,
-Pulsar and ClickHouse. Per-client throughput falls almost exactly in proportion as clients are
-added, and the clearest evidence is what happens when the clients stop: ClickHouse immediately
-drains at about 20 million rows a second. It was never insert-bound, it was starved of CPU by
-the client processes. A deployment with the clients and ClickHouse on their own hardware has more
-headroom than any of this measures.
-
-The run-to-run spread at 12 clients was 16.9 to 18.2 million, so treat differences under about a
-million a second at that level as noise.
-
-### What does not need changing, with evidence
-
-Four things looked worth tuning and measurably are not:
-
-| Idea | Measurement | Verdict |
-|---|---|---|
-| Bigger requests | 20M points at 1M, 2M and 3.2M per request: 3.82M, 3.99M, 3.86M points/s | Flat. Already past where per-request overhead matters |
-| Raise the 3.2M request cap to 4M | caps raised on both sides and measured: 3.46M points/s against 3.99M at 2M, in-call 7.4M against 9.4M, p99 six times worse than at 1M | Actively worse. Reverted |
-| Raise the consumer's merge to 4M rows and its receive batch to 64 MiB | four clients: 10.6M points/s against 11.0M baseline | No change. Reverted |
-| `max_insert_threads` (and `max_threads`, which bounds it) to 12 | twelve clients, two runs each: 16.9M and 18.2M raised, 18.1M and 17.7M not | No change, inside the run-to-run spread. Reverted |
-| Concurrent request posting in the Rust SDK's binary path | 40M points at 10M per call: 3.81M points/s against 3.63M sequential, in-call 9.40M against 8.34M, p99 9 percent better | Kept, bounded at 4 in flight |
-
-The three thread and buffer settings were each tried properly, with the code changed, both
-services rebuilt and the run repeated, rather than argued from the backlog numbers. None of them
-moved the result, for the same reason the scaling table shows: on this host ClickHouse and the
-consumer are short of CPU, not short of threads or buffer. On hardware where ClickHouse is not
-competing with the clients, `max_insert_threads` may well earn its keep; that is a hypothesis
-this machine cannot test.
-
-The binary path's request packing is worth stating plainly because it is easy to mis-picture: a
-float32 frame holds 100,000 points (the row cap binds before the 4 MiB byte cap, which would
-allow 209,000), and a request holds up to 32 frames, so **3.2 million points and 64 MiB raw is
-the request ceiling**. The benchmarks send one million per request, which is already in the flat
-part of the curve.
-
-Where the remaining client-side cost actually sits: for a single client, wall clock is 3.9M
-points/s while the rate inside the SDK call is 8.5M. The difference is the benchmark generating
-its own points. An application with data already in hand gets the higher number; one that
-computes or reads its points wants to overlap that with sending, or to use more clients, which
-is what the four-client run does.
-
-### Do not benchmark a debug build
-
-The first run of this comparison had Rust at 339,000 points per second on JSON and 1,009,000 on
-binary, slower than Java, which is not a believable result. The cause was the measurement:
-`cargo test` builds with the `dev` profile at `opt-level = 0`, so it was timing unoptimised
-Rust against a JIT-compiled JVM. In release the same test gives 720,000 and 3,839,000.
-
-Each language has its own version of this trap, and both are easy to walk into:
-
-| Client | The trap | What to do |
-|---|---|---|
-| Java | `bootRun` sets `-XX:TieredStopAtLevel=1`, disabling C2 | run the services from `bootJar` jars |
-| Rust | `cargo test` uses the `dev` profile | `cargo test --release` |
-| Python | a debug PyO3 module | `maturin develop --release` |
-
-Re-run any of them: `./gradlew :datahub-e2e:benchmark` here,
-`cargo test --release bench_json_vs_binary -- --ignored --nocapture` in the Rust SDK, and
-`python python_tests/bench_json_vs_binary.py` for Python, whose module must have been built
-with `--release`.
-
-The wire contract itself is not described here. `FrameLimits` and `ArrowSchemaCanon` in
-`datahub-api-model` are the machine-readable truth, and the byte-level specification for
-third-party producers belongs in the SDK documentation site.
+None of the thread or buffer settings moved the result, for the reason the scaling table shows:
+on this host ClickHouse and the consumer are short of CPU, not of threads or buffer. On hardware
+where ClickHouse does not compete with the clients, `max_insert_threads` may earn its keep; this
+machine cannot test that.
 
 ## Where the limits are
 
