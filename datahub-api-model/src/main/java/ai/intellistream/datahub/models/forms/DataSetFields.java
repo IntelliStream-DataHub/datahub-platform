@@ -15,6 +15,11 @@ import lombok.Getter;
 import lombok.Setter;
 import ai.intellistream.datahub.validation.FieldValidationError;
 
+import ai.intellistream.datahub.models.validation.SizeRules;
+import ai.intellistream.datahub.models.validation.FieldLimits;
+import java.util.Collection;
+import java.util.Objects;
+import java.util.stream.Stream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -67,6 +72,25 @@ public class DataSetFields {
                 "Name", this.name.getSetNull(), errors);
         RequiredFieldRules.rejectSetNull("DataSet", "dataset.external.id.null.error",
                 "ExternalId", this.externalId.getSetNull(), errors);
+
+        // The caps create already enforces through NodeModel's annotations. Update validates by
+        // hand, so anything not repeated here simply was not enforced: a data set could be updated
+        // to hold a description, a metadata map and a label list that create would have refused.
+        SizeRules.checkLength("DataSet", "dataset.description.max.length.error", "Description",
+                this.description.getSet(), FieldLimits.DESCRIPTION_MAX, errors);
+
+        SizeRules.checkMetadata("DataSet", "dataset", this.metadata, errors);
+
+        SizeRules.checkCount("DataSet", "dataset.too.many.labels", "Labels",
+                this.labels.getSet(), FieldLimits.LABELS_MAX, errors);
+        SizeRules.checkCount("DataSet", "dataset.too.many.labels", "Labels",
+                this.labels.getAdd(), FieldLimits.LABELS_MAX, errors);
+
+        Stream.of(this.labels.getSet(), this.labels.getAdd())
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .forEach(label -> SizeRules.checkLength("DataSet", "dataset.label.max.length.error",
+                        "Label", label, FieldLimits.LABEL_LENGTH_MAX, errors));
 
         return errors.isEmpty();
     }

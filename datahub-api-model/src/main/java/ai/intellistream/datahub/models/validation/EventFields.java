@@ -101,17 +101,8 @@ public class EventFields {
             }
         }
 
-        if(this.source.getSet() != null){
-            if(this.source.getSet().length() > 64){
-                errors.add(
-                        new FieldValidationError(
-                                "Event",
-                                new String[] {"event.source.max.length.error"},
-                                new Object[] {this.source.getSet().length()},
-                                "Source max length is 64 characters.")
-                );
-            }
-        }
+        SizeRules.checkLength("Event", "event.source.max.length.error", "Source",
+                this.source.getSet(), FieldLimits.SOURCE_MAX, errors);
 
         SizeRules.checkLength("Event", "event.description.max.length.error", "Description",
                 this.description.getSet(), FieldLimits.DESCRIPTION_MAX, errors);
