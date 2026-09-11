@@ -26,7 +26,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -242,7 +241,9 @@ class DatapointListenSession {
         }
         if (!wanted) return;
         frame.decode(ZSTD);
-        String valueType = frame.valueType().name().toLowerCase(Locale.ROOT);
+        // Upper case, because that is the name the JSON path reads off the value-type row and a
+        // client cannot tell which path a point arrived by.
+        String valueType = frame.valueType().name();
         for (DatapointFrame.Run run : frame.runs()) {
             if (!interest.contains(run.externalId())) continue;
             for (int r = run.from(); r < run.to(); r++) {

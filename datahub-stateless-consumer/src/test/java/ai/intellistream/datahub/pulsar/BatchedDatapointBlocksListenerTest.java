@@ -174,7 +174,11 @@ class BatchedDatapointBlocksListenerTest {
         var item = out.getItems().iterator().next();
         assertThat(item.getId()).isEqualTo(2L);
         assertThat(item.getExternalId()).isEqualTo("s2");
-        assertThat(item.getValueType()).isEqualTo("mixed");
+        // The JSON path sends the value-type row's own name, so this has to be the same string: a
+        // subscriber cannot tell which ingest path a point came in by, and must not have to.
+        // DatapointValueTypeParityTest is what pins that name to the row Flyway seeds.
+        assertThat(item.getValueType()).isEqualTo("MIXED");
+        assertThat(item.getValueType()).isEqualTo(DatapointValueType.MIXED.name());
         assertThat(item.getDatapoints()).hasSize(2);
         var first = item.getDatapoints().iterator().next();
         assertThat(first.getTimestamp()).isEqualTo("2023-11-14T22:13:20Z");

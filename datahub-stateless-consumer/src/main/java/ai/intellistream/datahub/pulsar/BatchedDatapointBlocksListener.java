@@ -36,7 +36,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -215,7 +214,9 @@ public class BatchedDatapointBlocksListener {
     /** Decode to the string shape only the runs some subscription is bound to. */
     private void fanOut(String tenantId, DatapointValueType type, List<DatapointFrame> frames) {
         List<DataCollectionString> items = new ArrayList<>();
-        String valueType = type.name().toLowerCase(Locale.ROOT);
+        // Upper case, because that is the name the JSON path reads off the value-type row and a
+        // subscriber cannot tell which path a point arrived by.
+        String valueType = type.name();
         for (DatapointFrame f : frames) {
             for (Run run : f.runs()) {
                 if (subscriptionCache.getSubscriptionExternalIds(tenantId, run.id()).isEmpty()) continue;

@@ -300,7 +300,8 @@ class BatchedDatapointsFanoutIT {
         DataCollectionString item = received.get(0).getValue().getItems().iterator().next();
         assertThat(item.getId()).isEqualTo(TIMESERIES_ID);
         assertThat(item.getExternalId()).isEqualTo(TIMESERIES_EXTERNAL_ID);
-        assertThat(item.getValueType()).isEqualTo("bigint");
+        // Same spelling the JSON path fans out, so a subscriber cannot tell the paths apart.
+        assertThat(item.getValueType()).isEqualTo("BIGINT");
         assertThat(item.getDatapoints().iterator().next().getValue()).isEqualTo("42");
         org.mockito.Mockito.verify(clickHouse, org.mockito.Mockito.timeout(10_000))
                 .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
