@@ -52,8 +52,7 @@ dependencies {
 
     // The generated FlatBuffers classes of the Arrow IPC format (Message, Schema, RecordBatch),
     // for the binary datapoint frames in ai.intellistream.datahub.api.binary. Brings only
-    // flatbuffers-java; the arrow-vector/arrow-memory stack stays out of this artifact, so the
-    // codec is on-heap and needs no --add-opens.
+    // flatbuffers-java; arrow-vector/arrow-memory stays out, and ArrowIpc's javadoc says why.
     api 'org.apache.arrow:arrow-format:19.0.0'
 
     // ZstdPayloadCodec compiles against zstd-jni but the artifact does not carry it: the SDK, the
