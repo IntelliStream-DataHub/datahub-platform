@@ -4,6 +4,7 @@ package ai.intellistream.datahub.sdk.services;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
@@ -97,9 +98,16 @@ public final class EventService {
         return filter(request);
     }
 
-    /** POST /events/byids */
-    public DataWrapper<EventModel> byIds(List<IdCollection> ids) {
-        return http.post("/events/byids", new DataWrapper<IdCollection>().setItems(ids), eventWrapper);
+    /**
+     * POST /events/byids
+     *
+     * <p>Takes {@link UUIDAndExternalIdCollection}, not {@link IdCollection}: an event id is a
+     * UUID, and {@code IdCollection.id} is a {@code Long}. This used to take the latter, so the
+     * by-id half of the call could not be expressed at all — only externalId-only lookups worked.
+     */
+    public DataWrapper<EventModel> byIds(List<UUIDAndExternalIdCollection> ids) {
+        return http.post("/events/byids",
+                new DataWrapper<UUIDAndExternalIdCollection>().setItems(ids), eventWrapper);
     }
 
     /** POST /events/create */
@@ -216,9 +224,10 @@ public final class EventService {
         return http.get(url.toString(), stringWrapper);
     }
 
-    /** POST /events/delete */
-    public DataWrapper<EventModel> delete(List<IdCollection> ids) {
-        return http.post("/events/delete", new DataWrapper<IdCollection>().setItems(ids), eventWrapper);
+    /** POST /events/delete — same reference type as {@link #byIds(List)}, for the same reason. */
+    public DataWrapper<EventModel> delete(List<UUIDAndExternalIdCollection> ids) {
+        return http.post("/events/delete",
+                new DataWrapper<UUIDAndExternalIdCollection>().setItems(ids), eventWrapper);
     }
 
     /** Ingest events concurrently with the default {@link IngestOptions}. */
