@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.websocket;
 
+import ai.intellistream.datahub.api.binary.DatapointFrame;
+import ai.intellistream.datahub.api.binary.PayloadCodec;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.datasecurity.DatasetPermissions;
 import ai.intellistream.datahub.api.responses.DataCollectionString;
 import ai.intellistream.datahub.api.responses.DataWrapperBin;
@@ -19,6 +22,9 @@ import tools.jackson.databind.json.JsonMapper;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -40,8 +46,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Slf4j
 class DatapointListenSession {
 
+    private static final PayloadCodec ZSTD = new ZstdPayloadCodec();
+
     private final WebSocketSession session;
     private final Consumer<DataWrapperBin> consumer;
+    // The binary frames arrive on a topic of their own; a second tail consumer covers them.
+    private final Consumer<byte[]> blockConsumer;
     private final JsonMapper jsonMapper;
     private final String tenantId;
     // The caller's dataset permissions, captured at connect. The handler uses these to authorise
@@ -52,15 +62,18 @@ class DatapointListenSession {
     private final Set<String> interest = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private volatile Future<?> receiveTask;
+    private volatile Future<?> blockReceiveTask;
 
     DatapointListenSession(WebSocketSession session,
                            Consumer<DataWrapperBin> consumer,
+                           Consumer<byte[]> blockConsumer,
                            JsonMapper jsonMapper,
                            String tenantId,
                            DatasetPermissions permissions,
                            Collection<String> initialInterest) {
         this.session = session;
         this.consumer = consumer;
+        this.blockConsumer = blockConsumer;
         this.jsonMapper = jsonMapper;
         this.tenantId = tenantId;
         this.permissions = permissions;
@@ -78,11 +91,14 @@ class DatapointListenSession {
     void start(ExecutorService executor) {
         if (!running.compareAndSet(false, true)) return;
         receiveTask = executor.submit(this::receiveLoop);
+        if (blockConsumer != null) {
+            blockReceiveTask = executor.submit(this::receiveBlockLoop);
+        }
     }
 
     /**
-     * Stop the receive loop and close the Pulsar consumer. The subscription is non-durable, so
-     * closing the consumer leaves nothing behind on the broker. Idempotent.
+     * Stop the receive loops and close both Pulsar consumers. The subscriptions are non-durable, so
+     * closing the consumers leaves nothing behind on the broker. Idempotent.
      */
     void stop() {
         if (!running.compareAndSet(true, false)) return;
@@ -91,7 +107,15 @@ class DatapointListenSession {
         } catch (PulsarClientException e) {
             log.warn("Failed to close datapoint-listen Pulsar consumer for tenant {}: {}", tenantId, e.getMessage());
         }
+        if (blockConsumer != null) {
+            try {
+                blockConsumer.close();
+            } catch (PulsarClientException e) {
+                log.warn("Failed to close datapoint-listen block consumer for tenant {}: {}", tenantId, e.getMessage());
+            }
+        }
         if (receiveTask != null) receiveTask.cancel(true);
+        if (blockReceiveTask != null) blockReceiveTask.cancel(true);
     }
 
     /** Replace the whole interest set (a "set" action, or the default for an interest message). */
@@ -161,6 +185,77 @@ class DatapointListenSession {
             }
         }
         if (!points.isEmpty()) send(points);
+    }
+
+    private void receiveBlockLoop() {
+        Thread.currentThread().setName("datapoint-listen-blocks-" + tenantId);
+        try {
+            while (running.get() && session.isOpen()) {
+                Messages<byte[]> batch;
+                try {
+                    batch = blockConsumer.batchReceive();
+                } catch (PulsarClientException.AlreadyClosedException closed) {
+                    return;
+                } catch (PulsarClientException e) {
+                    log.error("Pulsar receive failed for datapoint-listen blocks (tenant {}): {}", tenantId, e.getMessage());
+                    return;
+                }
+                if (batch == null || batch.size() == 0) continue;
+                forwardBlocks(batch);
+            }
+        } catch (Exception e) {
+            log.error("Unexpected error in datapoint-listen block loop for tenant {}: {}", tenantId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The binary frames: the tenant and the series come from the envelope and directory, so a
+     * frame is only decompressed when it carries a series this client asked for.
+     */
+    private void forwardBlocks(Messages<byte[]> batch) {
+        List<Map<String, Object>> points = new ArrayList<>();
+        boolean haveInterest = !interest.isEmpty();
+        for (Message<byte[]> msg : batch) {
+            try {
+                if (haveInterest && tenantId.equals(msg.getProperty("tenantId"))) {
+                    for (DatapointFrame frame : DatapointFrame.parseEnvelopes(msg.getData())) {
+                        collectMatching(frame, points);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Skipping malformed datapoint frame for tenant {}: {}", tenantId, e.getMessage());
+            } finally {
+                blockConsumer.acknowledgeAsync(msg);
+            }
+        }
+        if (!points.isEmpty()) send(points);
+    }
+
+    private void collectMatching(DatapointFrame frame, List<Map<String, Object>> out) {
+        boolean wanted = false;
+        for (String externalId : frame.externalIds()) {
+            if (interest.contains(externalId)) {
+                wanted = true;
+                break;
+            }
+        }
+        if (!wanted) return;
+        frame.decode(ZSTD);
+        // Upper case, because that is the name the JSON path reads off the value-type row and a
+        // client cannot tell which path a point arrived by.
+        String valueType = frame.valueType().name();
+        for (DatapointFrame.Run run : frame.runs()) {
+            if (!interest.contains(run.externalId())) continue;
+            for (int r = run.from(); r < run.to(); r++) {
+                Map<String, Object> point = new LinkedHashMap<>();
+                point.put("externalId", run.externalId());
+                point.put("valueType", valueType);
+                point.put("timestamp", Instant.ofEpochMilli(frame.timestamp(r)).atOffset(ZoneOffset.UTC)
+                        .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+                point.put("value", frame.valueAsString(r));
+                out.add(point);
+            }
+        }
     }
 
     private void collectMatching(DataWrapperMessage decoded, List<Map<String, Object>> out) {

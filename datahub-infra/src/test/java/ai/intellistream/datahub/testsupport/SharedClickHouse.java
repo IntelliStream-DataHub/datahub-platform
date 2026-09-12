@@ -33,15 +33,15 @@ import org.testcontainers.utility.DockerImageName;
  */
 public final class SharedClickHouse {
 
-    /** Matches the image the sharing test classes each declared before this existed. */
+    /** The release the compose stack runs; keep the two in step. */
     private static final DockerImageName IMAGE =
-            DockerImageName.parse("clickhouse/clickhouse-server:24.8");
+            DockerImageName.parse("clickhouse/clickhouse-server:26.8.2.7");
 
     /**
      * Explicit credentials and a /ping wait, both load-bearing and both inherited from the
      * per-class containers this replaces.
      *
-     * <p>clickhouse-server:24.8 rejects the default user with the empty password the Testcontainers
+     * <p>The image rejects the default user with the empty password the Testcontainers
      * clickhouse module would otherwise use. {@code withUsername}/{@code withPassword} feed the
      * module's {@code configure()}, which sets the {@code CLICKHOUSE_USER}/{@code CLICKHOUSE_PASSWORD}
      * env the image honours, and {@code getUsername()}/{@code getPassword()} then return the matching

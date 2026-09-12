@@ -34,6 +34,9 @@ public class PulsarProducerConfig {
     // by timestamp on read. Partition count is increase-only in Pulsar — it can be raised later
     // but never lowered, and raising it rehashes keys — so start with headroom.
     private static final int ALL_DATAPOINTS_PARTITIONS = 16;
+    // all-datapoint-blocks carries the binary frames, one frame per message, as the client sent
+    // them: zstd-compressed already, so the producer adds no compression of its own.
+    private static final int ALL_DATAPOINT_BLOCKS_PARTITIONS = 16;
 
     // Per-instance suffix so several API instances on the same shared topic get distinct producer
     // names instead of colliding (the broker rejects a duplicate producer name per topic).
@@ -110,6 +113,25 @@ public class PulsarProducerConfig {
                 .accessMode(ProducerAccessMode.Shared)
                 .compressionType(CompressionType.ZSTD)
                 .producerName("all-dp-producer" + instanceSuffix)
+                .blockIfQueueFull(blockIfQueueFull)
+                .maxPendingMessages(maxPendingMessages)
+                .maxPendingMessagesAcrossPartitions(maxPendingMessagesAcrossPartitions)
+                .enableBatching(true)
+                .batchingMaxPublishDelay(batchingMaxPublishDelayMs, TimeUnit.MILLISECONDS)
+                .sendTimeout(6, TimeUnit.SECONDS)
+                .create();
+    }
+
+    @Bean(name = "allDatapointBlockProducer")
+    public Producer<byte[]> produceAllDatapointBlockMessage() throws PulsarClientException {
+        // Provision partitioned BEFORE this eager producer connects (see eventMessageProducer).
+        topicProvisioner.ensurePartitioned(topicNames.getAllDatapointBlocksTopicName(), ALL_DATAPOINT_BLOCKS_PARTITIONS);
+        return pulsarClient
+                .newProducer(Schema.BYTES)
+                .topic(topicNames.getAllDatapointBlocksTopicName())
+                .accessMode(ProducerAccessMode.Shared)
+                .compressionType(CompressionType.NONE)
+                .producerName("all-dp-block-producer" + instanceSuffix)
                 .blockIfQueueFull(blockIfQueueFull)
                 .maxPendingMessages(maxPendingMessages)
                 .maxPendingMessagesAcrossPartitions(maxPendingMessagesAcrossPartitions)

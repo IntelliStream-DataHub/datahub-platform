@@ -108,6 +108,17 @@ public final class ApiHttp {
         return parse(sendString(builder.build(), "PUT", path), responseType, "PUT", path);
     }
 
+    /** POST with a raw byte body under an explicit media type; the response body is ignored. */
+    public void postBytes(String path, byte[] body, String contentType, Map<String, String> headers) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Authorization", "Bearer " + tokenProvider.getToken())
+                .header("Accept", "application/json")
+                .header("Content-Type", contentType)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+        headers.forEach(builder::header);
+        parse(sendString(builder.build(), "POST", path), null, "POST", path);
+    }
+
     private <T> T exchange(String method, String path, Object body, JavaType responseType) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Authorization", "Bearer " + tokenProvider.getToken())

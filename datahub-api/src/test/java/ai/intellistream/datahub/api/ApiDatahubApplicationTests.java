@@ -65,7 +65,7 @@ class ApiDatahubApplicationTests {
     private SubscriptionTopicProvisioner subscriptionTopicProvisioner;
 
     // InstanceLock acquires a Pulsar producer lock in @PostConstruct; with the mocked PulsarClient
-    // that would NPE, so replace it here (the five Producer beans are mocked for the same reason).
+    // that would NPE, so replace it here (the six Producer beans are mocked for the same reason).
     @MockitoBean
     private InstanceLock instanceLock;
 
@@ -77,6 +77,9 @@ class ApiDatahubApplicationTests {
 
     @MockitoBean(name = "allDatapointProducer")
     private Producer<?> allDatapointProducer;
+
+    @MockitoBean(name = "allDatapointBlockProducer")
+    private Producer<?> allDatapointBlockProducer;
 
     @MockitoBean(name = "httpMessageProducer")
     private Producer<?> httpMessageProducer;

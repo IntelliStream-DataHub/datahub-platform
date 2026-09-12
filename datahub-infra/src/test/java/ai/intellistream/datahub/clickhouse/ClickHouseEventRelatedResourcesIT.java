@@ -64,7 +64,7 @@ class ClickHouseEventRelatedResourcesIT {
 
     @Container
     static final ClickHouseContainer CLICKHOUSE =
-            new ClickHouseContainer(DockerImageName.parse("clickhouse/clickhouse-server:24.8"))
+            new ClickHouseContainer(DockerImageName.parse("clickhouse/clickhouse-server:26.8.2.7"))
                     .withUsername("tester")
                     .withPassword("test")
                     .waitingFor(Wait.forHttp("/ping").forPort(8123).forStatusCode(200));

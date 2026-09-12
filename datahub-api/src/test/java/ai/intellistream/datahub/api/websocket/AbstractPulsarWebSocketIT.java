@@ -84,6 +84,7 @@ abstract class AbstractPulsarWebSocketIT {
 
     static final String FANOUT_TOPIC = "persistent://" + FANOUT_PULSAR_TENANT + "/subscriptions/fanout";
     static final String ALL_DATAPOINTS_TOPIC = "persistent://" + INTERNAL_TENANT + "/datapoints/all-datapoints";
+    static final String ALL_DATAPOINT_BLOCKS_TOPIC = "persistent://" + INTERNAL_TENANT + "/datapoint-blocks/all-datapoint-blocks";
 
     static final long TS_EPOCH_MILLIS = 1_700_000_000_000L;
 
@@ -147,6 +148,8 @@ abstract class AbstractPulsarWebSocketIT {
         createTenant(INTERNAL_TENANT);
         createNamespace(INTERNAL_TENANT + "/datapoints");
         createNonPartitionedTopic(ALL_DATAPOINTS_TOPIC);
+        createNamespace(INTERNAL_TENANT + "/datapoint-blocks");
+        createNonPartitionedTopic(ALL_DATAPOINT_BLOCKS_TOPIC);
     }
 
     private static void createTenant(String tenant) throws Exception {

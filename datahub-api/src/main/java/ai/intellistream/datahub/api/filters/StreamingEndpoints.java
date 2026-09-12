@@ -15,13 +15,9 @@ public final class StreamingEndpoints {
     }
 
     public static boolean matches(HttpServletRequest request) {
-        String uri = request.getRequestURI();
+        String uri = path(request);
         if (uri == null) {
             return false;
-        }
-        String contextPath = request.getContextPath();
-        if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
-            uri = uri.substring(contextPath.length());
         }
         String method = request.getMethod();
         if (uri.startsWith("/files/download/")) {
@@ -34,5 +30,30 @@ public final class StreamingEndpoints {
             return "POST".equalsIgnoreCase(method);
         }
         return "PUT".equalsIgnoreCase(method) && (uri.equals("/files") || uri.equals("/files/"));
+    }
+
+    /**
+     * The binary datapoint insert ({@code POST /timeseries/data/binary}). Not a streaming endpoint:
+     * its body is capped and charged like any other. It is only kept out of the body-cache filter,
+     * because a body of up to 64 MiB that the controller reads once has nothing to gain from a
+     * second copy, and a request log must never carry it.
+     */
+    public static boolean isBinaryDatapointInsert(HttpServletRequest request) {
+        String uri = path(request);
+        return uri != null
+                && "POST".equalsIgnoreCase(request.getMethod())
+                && (uri.equals("/timeseries/data/binary") || uri.equals("/timeseries/data/binary/"));
+    }
+
+    private static String path(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return null;
+        }
+        String contextPath = request.getContextPath();
+        if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
+            uri = uri.substring(contextPath.length());
+        }
+        return uri;
     }
 }

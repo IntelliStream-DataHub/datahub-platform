@@ -17,7 +17,9 @@ The order in which limits bite:
 1. **The API request path.** Per-collection database and cache round trips inside a
    transaction, plus a synchronous Pulsar send. Whether one API instance can absorb a burst
    depends on the shape of the request, specifically how many datapoints arrive per
-   collection, far more than on anything downstream.
+   collection, far more than on anything downstream. This is the limit the binary ingest
+   path removes, and the measurement is below: 46 times less API CPU for the same points,
+   because the client does the parsing.
 2. **ClickHouse.** The sustained-write ceiling. Pulsar can buffer a burst; ClickHouse has to
    absorb the rate continuously, and the namespace backlog policy means it cannot fall behind
    for long.
@@ -106,6 +108,107 @@ File and class names, not line numbers, because line numbers rot.
 An earlier design created one Pulsar topic per timeseries. That is a scalability anti-pattern,
 because per-topic metadata and load-balancing cost grow with an unbounded topic count. It was
 removed; datapoints now flow through the shared partitioned topic.
+
+## The binary ingest path, measured
+
+`POST /timeseries/data/binary` exists to move this document's first limit, the api parsing every
+value, off the api and onto the client. The client resolves each series once, checks and sorts the
+values, writes them as Arrow IPC frames in the schema the ClickHouse table wants, compresses each
+frame with zstd, and posts them; the api validates a frame and forwards its bytes. Arrow IPC
+rather than ClickHouse Native because the two parse at the same speed on these tables once frames
+hold a thousand points, so the tie went to the format that also suits reads and that any
+Arrow-capable tool can produce. `FrameLimits` and `ArrowSchemaCanon` in `datahub-api-model` are
+the normative caps and schemas; the byte-level spec belongs in the SDK documentation.
+
+Measured 2026-09-12 on one 32-core host running the clients, both services, Pulsar and ClickHouse
+together. Re-run with `./gradlew :datahub-e2e:benchmark`; `datahub-e2e/README.md` has the setup
+and the two product limits that must be off. **Everything must be built optimised.** `bootRun`
+disables C2, `cargo test` defaults to `opt-level = 0`, and a debug PyO3 module is equally
+useless. A first run of this comparison reported Rust as slower than Java purely from that.
+
+### What it buys, 100 million points
+
+| | JSON | binary | |
+|---|---|---|---|
+| **api CPU** | **287.8 s** | **6.3 s** | **46x** |
+| Consumer CPU | 64.2 s | 6.4 s | 10x |
+| **Bytes on the wire** | **5.00 GB** | **346 MB** | **14.4x** |
+| Ingest wall time | 52.0 s | 30.4 s | 1.7x |
+| Latency p99 per million-point call | 618 ms | 345 ms | |
+| api peak resident | 3.8 GB | 5.2 GB | costs more |
+| Client heap growth | 1.39 GB | 1.91 GB | costs more |
+
+The api CPU is the result. Accepting a hundred million points cost the JSON path 288 seconds of a
+core and the binary path 6, because one parses every value and the other checks a frame and
+forwards bytes. The costs land where the design put them: more client heap, and a larger resident
+set on the api because a request body is held while every frame in it is validated.
+
+### Scaling out, and the sustained rate
+
+Concurrent Rust clients, 25 series each, 1M points per request. The backlog column separates a
+rate the pipeline holds from one it is only absorbing.
+
+| Clients | JSON | binary | Binary is | `datapoint-blocks` backlog peak |
+|---|---|---|---|---|
+| 1 | 720,022/s | 3,839,090/s | 5.3x | not sampled |
+| 4 | 1,588,183/s | **11,318,630/s** | 7.1x | under 100 |
+| 8 | 1,756,275/s | 14,558,392/s | 8.3x | 1,626, cleared in ~7 s |
+| 12 | not measured | ~17,700,000/s | | 4,080 to 4,778 |
+
+- **Four clients is the sustained point.** A billion points at 11.3M/s with the backlog never
+  passing a hundred messages, ClickHouse absorbing as fast as the clients produced. A billion rows
+  land in 2.72 GiB, 2.67 bytes each. This is the figure to quote.
+- **Eight and twelve are not sustained.** They reach 14.6M and ~17.7M but the backlog grows, so
+  they borrow from Pulsar's burst absorption; a long enough run hits the namespace quota.
+- **JSON does not scale out.** It saturates near 1.75M/s: four clients give 2.2x one, eight give
+  almost nothing more. Every client queues behind the same parsing, so adding them cannot help.
+- **The host is the constraint, not the path.** Per-client throughput falls in proportion as
+  clients are added, and when the clients stop ClickHouse drains at ~20M rows/s, so it was starved
+  of CPU rather than insert-bound. Clients and ClickHouse on their own hardware have more headroom
+  than this measures.
+
+Two caveats on the ratios. This benchmark sends 10,000 to 40,000 points per collection, the
+*favourable* shape for JSON, whose throughput depends heavily on that; a small-collection caller
+gains more than the table shows, unmeasured. And the generated signal is a slow sine plus noise,
+one per series. Giving every series identical values let zstd compress across them and reported
+0.52 bytes per point against the honest 3.46.
+
+### The three clients, 2M points over 10 series
+
+| Client | JSON | binary | | in-call binary |
+|---|---|---|---|---|
+| Java | 1,504,579/s | 2,439,236/s | 1.6x | 2,941,000/s |
+| Rust | 720,022/s | 3,839,090/s | 5.3x | 8,065,000/s |
+| Python | 288,638/s | 758,542/s | 2.6x | 1,310,000/s |
+
+In-call is the same points over the time inside the SDK call; the gap to wall clock is the client
+generating its own data. Every client gains, most where most of its cost was building JSON.
+
+Python is slowest for reasons at its edges rather than in the path. It runs the same Rust core as
+the Rust SDK, so the frame building, compression and posting are identical code; what differs is
+that it generates its points in interpreted code, its calls carry 50,000 points against the other
+two clients' 500,000 so it pays ten times the per-call overhead, and every point crosses the PyO3
+boundary one at a time, a Python `datetime` and a float per row turned into a timestamp and two
+allocated strings. That conversion happens *inside* the call, which is why its in-call rate
+trails Rust's sixfold on shared code. The fix is to pass arrays rather than objects, through
+numpy or the Arrow PyCapsule interface; not implemented.
+
+### Tried and not worth it
+
+Each was implemented, both services rebuilt and the run repeated, not argued from theory.
+
+| Change | Result | Verdict |
+|---|---|---|
+| Requests of 2M or 3.2M points instead of 1M | 3.99M and 3.86M against 3.82M points/s | Flat; already past per-request overhead |
+| Raise the 3.2M request cap to 4M | 3.46M points/s, p99 six times worse | Worse. Reverted |
+| Consumer merge to 4M rows, receive batch to 64 MiB | 10.6M against 11.0M baseline | No change. Reverted |
+| `max_insert_threads` and `max_threads` to 12 | 16.9M and 18.2M raised, 18.1M and 17.7M not | Inside run-to-run spread. Reverted |
+| Concurrent request posting in the Rust SDK | 3.81M against 3.63M, in-call 9.40M against 8.34M | Kept, 4 in flight, only matters above 3.2M points per call |
+
+None of the thread or buffer settings moved the result, for the reason the scaling table shows:
+on this host ClickHouse and the consumer are short of CPU, not of threads or buffer. On hardware
+where ClickHouse does not compete with the clients, `max_insert_threads` may earn its keep; this
+machine cannot test that.
 
 ## Where the limits are
 
@@ -331,10 +434,10 @@ already.
 | 5 | Raise the datapoints backlog quota, and reconcile the dev and production policies | Burst absorption | Low | Pulsar |
 | 6 | Check the subscription cache before decoding the fan-out batch | Removes a full decode pass per point | Low | Fan-out |
 | 7 | Load-test at the real burst shape: accepted points/s on one API instance, Pulsar backlog, consumer drain rate, ClickHouse inserted rows and part counts | Replaces the reasoning above with numbers | Medium | All |
-| 8 | Measure the ClickHouse insert-time breakdown through `system.events` before any insert tuning, then try ZSTD(1) or LZ4 on the datapoint columns | Avoids tuning folklore; likely an insert and merge CPU win | Low | ClickHouse |
+| 8 | Measure the ClickHouse insert-time breakdown through `system.events` before any insert tuning, then move the datapoint columns to ZSTD(3): measured at the insert CPU of LZ4 for 17 percent less disk, and note that the tenant manager's schema copy provisions production on LZ4 while this repository's says ZSTD(9) | Avoids tuning folklore; an insert and merge CPU win | Low | ClickHouse |
 | 9 | Set the namespace `autoTopicCreation` policy to partitioned | Closes the non-partitioned auto-create race | Low | Pulsar |
 | 10 | Raise fanout partitions and measure entry-filter CPU on the brokers | Subscription-path headroom | Low to medium | Fan-out |
 | 11 | Cluster-routing abstraction: a client registry plus a tenant-to-cluster map | Makes sharding possible later without a rewrite | Medium | Pulsar |
-| 12 | Binary-first bulk ingest contract, columnar `all-datapoints` message shape, Native format into ClickHouse | Very high rate class only | High | API, Pulsar, ClickHouse |
+| 12 | ~~Binary-first bulk ingest contract: Arrow IPC frames, compressed per frame by the client, carried untouched through a topic of their own and merged by the consumer~~ **Built.** See [the binary ingest path](#the-binary-ingest-path-measured) above for the decision and the measurement | Very high rate class only | High | API, Pulsar, ClickHouse |
 | 13 | Shard ClickHouse, with a Distributed table or consumer-side routing, plus tiered storage | Very high rate class only | High | ClickHouse |
 | 14 | Shard across Pulsar clusters | True horizontal scale, only if a load test proves it necessary | High | Pulsar |

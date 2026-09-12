@@ -132,6 +132,8 @@ public class TimeseriesService {
 
     private final ValkeyService valkeyService;
 
+    private final LatestDatapointCache latestDatapointCache;
+
     private final JsonMapper jsonMapper;
     private final TimeseriesRepository timeseriesRepository;
     private final DataSetRepository datasetEntityRepository;
@@ -799,7 +801,7 @@ public class TimeseriesService {
 
         // Phase 3: the network I/O.
         for (PendingDatapointPublish pending : messages) {
-            addToLatestValuesCache(pending.externalId(), pending.latestDatapoint());
+            latestDatapointCache.update(pending.externalId(), pending.latestDatapoint());
             allDatapointProducer.send(pending.message());
             datapointIngestCounter.recordIngested(TenantContext.getTenantId(), pending.datapointCount());
         }
@@ -934,9 +936,11 @@ public class TimeseriesService {
                             throw new RuntimeException("Could not parse value: " + dp.getValue() + " to a decimal");
                         }
                     }
-                    case MIXED -> {
-                        // Accepts both numbers and text — the consumer routes each value to the
-                        // numeric or the text column. @NotBlank already rejects empty values.
+                    case TEXT, MIXED -> {
+                        // Nothing to parse: the value is stored as written. MIXED lets the consumer
+                        // route each value to the numeric or the text column. @NotBlank and the
+                        // DTO's length caps already reject empty and oversized values, and the
+                        // per-collection TEXT limit is checked once per batch above.
                     }
                     default -> throw new RuntimeException("Unsupported value type: " + ts.valueTypeName());
                 }
@@ -1009,31 +1013,6 @@ public class TimeseriesService {
         e.getDatapoints().add(dp);
     }
 
-    /**
-     * Adds or updates a datapoint in the latest values cache for a given external ID.
-     * If a datapoint for the external ID already exists in the cache, it compares the timestamps
-     * and updates only if the new datapoint has a more recent timestamp.
-     *
-     * @param externalId the unique identifier for the external data source.
-     * @param dp the datapoint object to be added or checked against the cache.
-     */
-    private void addToLatestValuesCache(String externalId, DatapointString dp) {
-        try {
-            DatapointString obj = valkeyService.fetchLatestDatapoint(externalId);
-
-            if(obj == null){
-                valkeyService.setLatestDatapoint(externalId, dp);
-            } else {
-                ZonedDateTime latestTime = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(dp.getTimestamp());
-                ZonedDateTime latestSavedTime = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(obj.getTimestamp());
-                if(latestTime.isAfter(latestSavedTime)){
-                    valkeyService.setLatestDatapoint(externalId, dp);
-                }
-            }
-        } catch (JsonProcessingException e) {
-            log.error(e.getMessage(), e);
-        }
-    }
 
 
     /**

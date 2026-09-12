@@ -25,7 +25,7 @@ public class CachingBodyFilter implements Filter {
         // and is parsed straight off the raw stream. ReqLogService only logs bodies when these
         // wrappers are present, so passing the raw request/response through simply skips body
         // logging here.
-        if (StreamingEndpoints.matches(httpRequest)) {
+        if (StreamingEndpoints.matches(httpRequest) || StreamingEndpoints.isBinaryDatapointInsert(httpRequest)) {
             try {
                 chain.doFilter(request, response);
             } catch (IOException | ServletException e) {

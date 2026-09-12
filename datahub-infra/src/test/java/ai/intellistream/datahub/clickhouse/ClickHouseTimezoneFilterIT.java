@@ -60,7 +60,7 @@ class ClickHouseTimezoneFilterIT {
     // which is why serverIsNonUtcButSessionIsPinnedToUtc() guards the premise rather than trusting it.
     @Container
     static final ClickHouseContainer CLICKHOUSE =
-            new ClickHouseContainer(DockerImageName.parse("clickhouse/clickhouse-server:26.5"))
+            new ClickHouseContainer(DockerImageName.parse("clickhouse/clickhouse-server:26.8.2.7"))
                     .withUsername("tester")
                     .withPassword("test")
                     .withCopyToContainer(

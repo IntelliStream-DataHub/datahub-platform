@@ -34,6 +34,7 @@ import java.io.IOException;
 public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
 
     private static final String DATAPOINT_INSERT_PATH = "/timeseries/data";
+    private static final String DATAPOINT_BINARY_PATH = "/timeseries/data/binary";
 
     private final LimitsProperties limits;
     private final IngestQuotaService ingestQuota;
@@ -120,6 +121,9 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
         String contextPath = request.getContextPath();
         if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
             uri = uri.substring(contextPath.length());
+        }
+        if (uri.equals(DATAPOINT_BINARY_PATH) || uri.equals(DATAPOINT_BINARY_PATH + "/")) {
+            return limits.getMaxBodyBytesDatapointsBinary();
         }
         if (uri.equals(DATAPOINT_INSERT_PATH) || uri.equals(DATAPOINT_INSERT_PATH + "/")) {
             return limits.getMaxBodyBytesDatapoints();
