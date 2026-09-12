@@ -5,7 +5,10 @@
 ## How it was verified
 
 <!-- The commands you ran, or why none applied. `./gradlew build` covers the unit
-     suite; container-backed suites run through `./gradlew :<module>:integrationTest`. -->
+     suite; container-backed suites run through `./gradlew :<module>:integrationTest`.
+     CI runs both on every pull request, plus an E2E job that boots the platform and runs
+     the Java, Rust and Python SDK suites against it — so you do not need to run those by
+     hand, but do read the E2E failure if it is the one that goes red. -->
 
 ## Checklist
 

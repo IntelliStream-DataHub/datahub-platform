@@ -47,14 +47,20 @@ class SubscriptionListenIT {
 
         // One subscription bound to two timeseries — exercises the per-subscription fan-out, not just
         // a single-datapoint smoke path.
+        // `unit` is free text and only has to be non-blank; "a.u" (arbitrary units) says this
+        // test does not care what is being measured. unitExternalId is deliberately NOT set:
+        // it is optional, and it is a reference into the seeded unit catalog
+        // (datahub-infra V5/V6), which has no entry for "Celsius" — the Celsius unit's
+        // external id is `temperature_deg_c`. Naming a unit that does not exist is worse
+        // than naming none.
         Timeseries seriesA = new Timeseries();
         seriesA.setExternalId(tsA);
         seriesA.setName("SDK Listen TS A");
-        seriesA.setUnitExternalId("Celsius");
+        seriesA.setUnit("a.u");
         Timeseries seriesB = new Timeseries();
         seriesB.setExternalId(tsB);
         seriesB.setName("SDK Listen TS B");
-        seriesB.setUnitExternalId("Celsius");
+        seriesB.setUnit("a.u");
         client.timeseries().create(seriesA, seriesB);
 
         Subscription sub = new Subscription();

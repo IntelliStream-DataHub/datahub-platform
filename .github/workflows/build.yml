@@ -6,9 +6,19 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+# A pull request that is pushed to twice in a minute should not run twice; the
+# older run can only report on code that no longer exists.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -28,6 +38,62 @@ jobs:
       #
       # Not run here: the @Tag("integration") suites, which need a container
       # runtime. They are excluded from `test` by each module's build.gradle and
-      # run through the separate `integrationTest` task. See CONTRIBUTING.md.
+      # run in the `integration-tests` job below. See CONTRIBUTING.md.
       - name: Build and test all modules
         run: ./gradlew build
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: build-test-reports
+          retention-days: 7
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
+
+  integration-tests:
+    name: Testcontainers integration tests
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # The @Tag("integration") suites, which spin real Postgres, ClickHouse,
+      # Neo4j and Pulsar containers through Testcontainers. Docker is
+      # native on ubuntu-latest, so DOCKER_HOST stays unset and Testcontainers
+      # finds /var/run/docker.sock: the rootless-Podman fallback in each module's
+      # build.gradle is guarded on that socket file existing, and it does not here.
+      #
+      # --continue so one failing module still reports the others, rather than
+      # hiding them behind the first failure.
+      #
+      # Deliberately excluded:
+      #   - @Tag("performance") (:datahub-infra:performanceTest), the long
+      #     ClickHouse aggregate load tests — those belong on a schedule.
+      #   - :datahub-console:integrationTest, which drives a LIVE datahub-api
+      #     rather than containers, so it belongs with the stack in e2e.yml.
+      - name: Run container-backed integration tests
+        run: |
+          ./gradlew --continue \
+            :datahub-infra:integrationTest \
+            :datahub-api:integrationTest \
+            :datahub-stateless-consumer:integrationTest
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-reports
+          retention-days: 7
+          path: |
+            **/build/reports/tests/**
+            **/build/test-results/**
