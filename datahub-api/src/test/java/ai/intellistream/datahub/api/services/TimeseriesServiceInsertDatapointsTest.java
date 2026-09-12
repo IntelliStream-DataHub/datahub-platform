@@ -33,14 +33,17 @@ import org.mockito.quality.Strictness;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -378,5 +381,53 @@ class TimeseriesServiceInsertDatapointsTest {
         timeseriesService.insertDatapoints(request(collection("pump-1", points)));
 
         verify(allDatapointProducer).send(any(DataWrapperBin.class));
+    }
+
+    /**
+     * Holding a pooled connection across the per-datapoint work starved the pool under concurrent
+     * writes. Asserted by watching when the transaction callback is on the stack, since nothing in
+     * the return value would reveal a regression.
+     */
+    @Test
+    @DisplayName("Only the lookup and permission check run inside the transaction")
+    void thePerDatapointWorkDoesNotHoldTheTransaction() throws Exception {
+        // doAnswer, not when(...): re-stubbing would run the @BeforeEach answer with a null callback.
+        AtomicBoolean insideTransaction = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            insideTransaction.set(true);
+            try {
+                return inv.getArgument(0, TransactionCallback.class).doInTransaction(null);
+            } finally {
+                insideTransaction.set(false);
+            }
+        }).when(transactionTemplate).execute(any());
+
+        AtomicBoolean lookupWasInside = new AtomicBoolean(false);
+        when(timeseriesRepository.findByIdOrExternalId(null, "pump-1")).thenAnswer(inv -> {
+            lookupWasInside.set(insideTransaction.get());
+            return Optional.of(timeseries(1L, "pump-1", "FLOAT"));
+        });
+
+        AtomicBoolean permissionCheckWasInside = new AtomicBoolean(false);
+        doAnswer(inv -> {
+            permissionCheckWasInside.set(insideTransaction.get());
+            return null;
+        }).when(dataSecurity).assertCanWrite(any(TimeseriesEntity.class));
+
+        // Charged per collection in the build phase, so it marks the build having started.
+        AtomicBoolean buildWasInside = new AtomicBoolean(true);
+        doAnswer(inv -> {
+            buildWasInside.set(insideTransaction.get());
+            return null;
+        }).when(ingestQuota).checkAndRecord(any(), anyLong());
+
+        timeseriesService.insertDatapoints(request(
+                collection("pump-1", point("2026-08-21T10:00:00Z", "1.5"))));
+
+        assertTrue(lookupWasInside.get(), "the timeseries lookup needs the persistence context");
+        assertTrue(permissionCheckWasInside.get(),
+                "assertCanWrite walks the lazy dataSet association, so it needs the transaction");
+        assertFalse(buildWasInside.get(),
+                "the per-datapoint work must not hold a database connection");
     }
 }
