@@ -28,4 +28,5 @@ include(
         'datahub-java-sdk',
         'datahub-pulsar-filter',
         'datahub-cleanup',
+        'datahub-rvm-converter',
 )

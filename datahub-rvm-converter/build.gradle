@@ -1,0 +1,48 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+}
+
+group = 'ai.intellistream.datahub.rvm'
+version = '0.0.1-SNAPSHOT'
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// Vault contributor plumbing (VaultConfigurationLoader / VaultSecretContributor).
+	implementation project(':datahub-commons')
+
+	// Fetches the RVM and its attribute sidecar from the api, forwarding the caller's JWT, so the
+	// api's per-dataset ACLs decide what this service is allowed to convert.
+	implementation project(':datahub-java-sdk')
+	implementation project(':datahub-api-model')
+
+	// Lean web service, no database. It IS an OAuth2 resource server: it validates the user's own
+	// JWT against the same issuer as the api and requires ROLE_DATAHUB_ACCESS. It holds no state:
+	// a conversion reads a file, runs a child process and returns the model.
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+
+	// The JWT issuer comes from the shared "datahub-platform" Vault secret at startup, exactly as
+	// the api, console and analysis service read it, so no issuer is duplicated in config.
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
