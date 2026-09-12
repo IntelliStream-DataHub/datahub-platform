@@ -865,6 +865,7 @@ public class TimeseriesService {
 
             // We found timeseries entity and can continue with datapoint insert
             DatapointString latestDatapoint = null;
+            long latestEpochMillis = 0;
             for(DatapointString dp : entry.getDatapoints()){
                 switch(ts.getValueType().getId()){
                     case BIGINT -> {
@@ -899,15 +900,12 @@ public class TimeseriesService {
                 }
                 addData(ts, insertData, dp);
 
-                // Find and set the latest datapoint
-                if(latestDatapoint != null){
-                    ZonedDateTime timestamp = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(dp.getTimestamp());
-                    ZonedDateTime latestDatapointTimestamp = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(latestDatapoint.getTimestamp());
-                    if(timestamp.isAfter(latestDatapointTimestamp)){
-                        latestDatapoint = dp;
-                    }
-                } else {
+                // Keep the parsed value: comparing ZonedDateTime re-parsed the incumbent on every
+                // iteration it survived. Ties keep the earlier point, as isAfter did.
+                long epochMillis = DateTimeHandler.toEpochUTCTime(dp.getTimestamp());
+                if(latestDatapoint == null || epochMillis > latestEpochMillis){
                     latestDatapoint = dp;
+                    latestEpochMillis = epochMillis;
                 }
             }
 
