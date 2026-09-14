@@ -150,16 +150,12 @@ public class DataSetController {
                                    @Schema(implementation = IdCollectionDataWrapper.class)
                                    DataWrapper<IdCollection> form
     ){
-        try{
-            DataWrapper<DataSetModel> data = new DataWrapper<>();
-            List<DatasetEntity> dataSetNodes = dataSetRepository.findAllByIdCollection(form.getItems());
-            Collection<DataSetModel> results = DataSetTransformer.toDataSetModel(ResourceTransformer.from(dataSetNodes));
-            data.setItems(results);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-        }
-        return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        DataWrapper<DataSetModel> data = new DataWrapper<>();
+        List<DatasetEntity> dataSetNodes = dataSetRepository.findAllByIdCollection(form.getItems());
+        Collection<DataSetModel> results = DataSetTransformer.toDataSetModel(ResourceTransformer.from(dataSetNodes));
+        data.setItems(results);
+        return new ResponseEntity<>(data, HttpStatus.OK);
+    
     }
 
     @Tag(name = "Data sets")
@@ -295,24 +291,12 @@ public class DataSetController {
             @Schema(implementation = DataSetRetreiver.class)
             DataSetRetreiver form
     ){
-        try{
-            Set<ConstraintViolation<DataSetRetreiver>> errors = validator.validate(form);
-            if (!errors.isEmpty()) {
-                throw new ConstraintViolationException(errors);
-            }
-            return new ResponseEntity<>(dataSetService.filter(form), HttpStatus.OK);
-        } catch (BadRequestException | MalformedCursorException e){
-            // Let these reach their advices. The catch-all below would otherwise report a caller
-            // mistake — a malformed cursor, say — as "Internal programming error." with a 500,
-            // which blames the server for something the request got wrong.
-            throw e;
-        } catch (ConstraintViolationException e){
-            log.error(e.getMessage());
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
+        Set<ConstraintViolation<DataSetRetreiver>> errors = validator.validate(form);
+        if (!errors.isEmpty()) {
+            throw new ConstraintViolationException(errors);
         }
-        return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        return new ResponseEntity<>(dataSetService.filter(form), HttpStatus.OK);
+    
     }
 
     @Tag(name = "Data sets")
@@ -370,55 +354,33 @@ public class DataSetController {
             @RequestBody
                                     @Schema(implementation = DataSetDataWrapper.class)
                                     DataWrapper<DataSetModel> form
-    ){
+    ) throws PulsarClientException {
         // A data set is the unit access is granted on, so managing one is an operator action:
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try{
-            Collection<DataSetModel> dataSets = form.getItems();
+        Collection<DataSetModel> dataSets = form.getItems();
 
-            // We need a collection of policy nodes when creating new data sets.
-            List<PolicyEntity> policies = policyEntityRepository.findAll();
-            Set<Long> dataSetIds = dataSets.stream()
-                    .map(DataSetModel::getConnectedDataSets)
-                    .filter(Objects::nonNull)
-                    .flatMap(Collection::stream)
-                    .collect(Collectors.toSet());
-            List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
+        // We need a collection of policy nodes when creating new data sets.
+        List<PolicyEntity> policies = policyEntityRepository.findAll();
+        Set<Long> dataSetIds = dataSets.stream()
+                .map(DataSetModel::getConnectedDataSets)
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toSet());
+        List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
 
-            GraphDataWrapper<NodeModel, RelForm> newDataSets =
-                    DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
-            var results = resourceService.create(newDataSets);
+        GraphDataWrapper<NodeModel, RelForm> newDataSets =
+                DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
+        var results = resourceService.create(newDataSets);
 
-            DataWrapper<DataSetModel> data = new DataWrapper<>();
-            Collection<DataSetModel> savedDataSets = DataSetTransformer.toDataSetModel(results.getNodes());
-            data.setItems(savedDataSets);
-            // The naming policy runs inside the shared create path; its warnings have to travel
-            // out with the response, or the caller is told nothing about a name it should fix.
-            data.setWarnings(results.getWarnings());
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (PulsarClientException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response. The
-            // BadRequestException catch below would otherwise flatten it into the generic error
-            // envelope and lose the per-item `violations` list, which is the useful part.
-            throw e;
-        } catch (BadRequestException e) {
-            // Return the clean error envelope, not the exception itself — serializing
-            // the Throwable leaks a full stack trace to the client and buries the
-            // message a level deeper than clients expect (mirrors the DuplicateData
-            // handling just below).
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
+        DataWrapper<DataSetModel> data = new DataWrapper<>();
+        Collection<DataSetModel> savedDataSets = DataSetTransformer.toDataSetModel(results.getNodes());
+        data.setItems(savedDataSets);
+        // The naming policy runs inside the shared create path; its warnings have to travel
+        // out with the response, or the caller is told nothing about a name it should fix.
+        data.setWarnings(results.getWarnings());
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
     }
 
     @Tag(name = "Data sets")
@@ -475,35 +437,13 @@ public class DataSetController {
             @RequestBody
                                     @Schema(implementation = DataSetFormDataWrapper.class)
                                     DataWrapper<DataSetForm> form
-    ){
+    ) throws PulsarClientException {
         // A data set is the unit access is granted on, so managing one is an operator action:
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try{
-            DataWrapper<DataSetModel> data = dataSetService.update(form);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (PulsarClientException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response. The
-            // BadRequestException catch below would otherwise flatten it into the generic error
-            // envelope and lose the per-item `violations` list, which is the useful part.
-            throw e;
-        } catch (BadRequestException e) {
-            // Return the clean error envelope, not the exception itself — serializing
-            // the Throwable leaks a full stack trace to the client and buries the
-            // message a level deeper than clients expect (mirrors the DuplicateData
-            // handling just below).
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
+        DataWrapper<DataSetModel> data = dataSetService.update(form);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Data sets")
@@ -550,12 +490,12 @@ public class DataSetController {
             @RequestBody
                                     @Schema(implementation = IdCollectionDataWrapper.class)
                                     DataWrapper<IdCollection> form
-    ){
+    ) throws PulsarClientException {
         // A data set is the unit access is granted on, so managing one is an operator action:
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try{
+        try {
             var entities = new GraphDataWrapper<Resource, EdgeProxy>();
             form.getItems().forEach(it -> {
                 Resource r = new Resource();
@@ -569,28 +509,8 @@ public class DataSetController {
             });
 
             resourceService.delete(entities);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
         } catch (ResourceDeleteException e){
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler as a 409 — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
         return ResponseEntity.noContent().build();
     }
@@ -656,16 +576,8 @@ public class DataSetController {
             // the same mistake.
             @Valid @RequestBody SearchBody<DataSetFilter> form
     ){
-        try{
-            DataWrapper<DataSetModel> items = dataSetService.search(form);
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        }
-        catch (ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        DataWrapper<DataSetModel> items = dataSetService.search(form);
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Data sets")

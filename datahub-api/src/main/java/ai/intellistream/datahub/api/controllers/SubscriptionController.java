@@ -114,25 +114,8 @@ public class SubscriptionController {
             @Schema(implementation = SubscriptionDataWrapper.class)
             DataWrapper<Subscription> apiReqData
     ) {
-        try {
-            DataWrapper<Subscription> data = subscriptionService.create(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve) {
-            log.warn("Subscription create validation failed: {}", cve.getMessage());
-            var err = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(err, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.warn("Subscription create bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (RuntimeException e) {
-            log.error("Subscription create failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        DataWrapper<Subscription> data = subscriptionService.create(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
     }
 
     @Tag(name = "Subscriptions")
@@ -221,18 +204,8 @@ public class SubscriptionController {
             @Valid @RequestBody(required = false)
             SubscriptionRetriever retriever
     ) {
-        try {
-            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
-            return ResponseEntity.ok(data);
-        }
-        // Let a bad cursor reach MalformedCursorExceptionHandler — the broad RuntimeException catch
-        // below would otherwise report a caller mistake as a 500.
-        catch (MalformedCursorException mce) {
-            throw mce;
-        } catch (RuntimeException e) {
-            log.error("Subscription filter failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+        return ResponseEntity.ok(data);
     }
 
     @Tag(name = "Subscriptions")
@@ -278,16 +251,11 @@ public class SubscriptionController {
         if (limit != null) {
             retriever.setLimit(limit);
         }
-        try {
-            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
-            // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
-            // cannot accept it invites a paging loop that silently never advances.
-            data.setNextCursor(null);
-            return ResponseEntity.ok(data);
-        } catch (RuntimeException e) {
-            log.error("Subscription list failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+        // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
+        // cannot accept it invites a paging loop that silently never advances.
+        data.setNextCursor(null);
+        return ResponseEntity.ok(data);
     }
 
     @Tag(name = "Subscriptions")
@@ -359,20 +327,7 @@ public class SubscriptionController {
             @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> apiReqData
     ) {
-        try {
-            subscriptionService.delete(apiReqData);
-            return ResponseEntity.noContent().build();
-        } catch (BadRequestException e) {
-            log.warn("Subscription delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (RuntimeException e) {
-            log.error("Subscription delete failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        subscriptionService.delete(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 }
