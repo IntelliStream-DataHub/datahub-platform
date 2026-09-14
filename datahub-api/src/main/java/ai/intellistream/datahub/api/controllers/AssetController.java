@@ -90,27 +90,12 @@ public class AssetController {
     )
     public ResponseEntity<?> createAsset(
             @Schema(implementation = AssetDataWrapper.class)
-            @RequestBody DataWrapper<Asset> apiReqData) {
+            @RequestBody DataWrapper<Asset> apiReqData) throws PulsarClientException {
         try {
             return new ResponseEntity<>(assetService.create(apiReqData), HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve) {
-            log.warn("Asset create validation failed: {}", cve.getMessage());
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
         } catch (DataIntegrityViolationException dve) {
             return new ResponseEntity<>(
                     BuildErrorResponse.createDataIntegrityViolationError(dve), HttpStatus.CONFLICT);
-        } catch (DuplicateDataException e) {
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (BadRequestException e) {
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Asset create failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 
@@ -288,23 +273,9 @@ public class AssetController {
             ))
     @PostMapping(path = "/update", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> updateAsset(
-            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) {
-        try {
-            GraphDataWrapper<NodeModel, EdgeProxy> results = assetService.update(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (ConstraintViolationException cve) {
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Asset update failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+        GraphDataWrapper<NodeModel, EdgeProxy> results = assetService.update(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.OK);
     }
 
     @Tag(name = "Assets")
@@ -328,22 +299,12 @@ public class AssetController {
     )
     public ResponseEntity<?> deleteAsset(
             @Schema(implementation = IdCollectionDataWrapper.class)
-            @RequestBody DataWrapper<IdCollection> apiReqData) {
+            @RequestBody DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
         try {
             assetService.delete(apiReqData);
             return ResponseEntity.noContent().build();
         } catch (ResourceDeleteException e) {
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.warn("Asset delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Asset delete failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 }
