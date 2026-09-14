@@ -15,13 +15,21 @@ cd "$(dirname "$0")/.."
 
 API="${API:-http://localhost:8081}"
 
+# Which container CLI to drive. Defaults to podman where it exists (this repo's
+# local workflow) and docker otherwise; CI sets CONTAINER_CLI=docker explicitly.
+# Only the container-inspecting checks need it — the api checks are plain curl.
+CLI="${CONTAINER_CLI:-}"
+if [ -z "$CLI" ]; then
+  if command -v podman >/dev/null 2>&1; then CLI=podman; else CLI=docker; fi
+fi
+
 # Which Keycloak host to mint tokens from. It has to be the one vault-seed wrote as the
 # issuer, because the api validates `iss` against exactly that — mint anywhere else and
 # every call 401s with correct credentials. Rather than assume, read it back from the
 # vault-seed container that actually seeded this stack; `up.sh` sets it to the host IP,
 # a bare `compose up` leaves it as the compose DNS name.
 detect_kc_addr() {
-  podman inspect "${COMPOSE_PROJECT:-datahub}-vault-seed-1" \
+  "$CLI" inspect "${COMPOSE_PROJECT:-datahub}-vault-seed-1" \
     --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
   | sed -n 's#^KEYCLOAK=http://\([^:]*\):.*#\1#p' | head -1
 }
@@ -36,8 +44,8 @@ say()  { printf '%s\n' "$*"; }
 ok()   { printf '  ok    %s\n' "$*"; }
 bad()  { printf '  FAIL  %s\n' "$*"; fails=$((fails + 1)); }
 
-ctr() { podman ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$1"; }
-pexec() { podman exec "$1" "${@:2}"; }
+ctr() { "$CLI" ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "$1"; }
+pexec() { "$CLI" exec "$1" "${@:2}"; }
 
 # --- 1. Pulsar delivered everything it was given -------------------------------------------
 #
@@ -127,7 +135,7 @@ fi
 # --- 4. The demo landed, if it is part of this stack ----------------------------------------
 if ctr "${COMPOSE_PROJECT}-demo-seed-1"; then
   say "demo"
-  state=$(podman inspect "${COMPOSE_PROJECT}-demo-seed-1" --format '{{.State.Status}}:{{.State.ExitCode}}')
+  state=$("$CLI" inspect "${COMPOSE_PROJECT}-demo-seed-1" --format '{{.State.Status}}:{{.State.ExitCode}}')
   [ "$state" = "exited:0" ] && ok "demo-seed $state" || bad "demo-seed $state"
   if [ -n "${tok:-}" ]; then
     n=$(curl -s --max-time 20 -X POST "$API/timeseries/data/list" \
