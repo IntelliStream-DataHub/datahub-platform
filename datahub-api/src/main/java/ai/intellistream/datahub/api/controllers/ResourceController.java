@@ -135,15 +135,8 @@ public class ResourceController {
             ))
     @RequestMapping(value = "/fetch-related", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchRelatedResources(@RequestBody RelatedResourcesForm form) {
-        try{
-            ResourceNetwork network = resourceService.fetchRelatedResources(form);
-            return new ResponseEntity<>(network, HttpStatus.OK);
-        } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        ResourceNetwork network = resourceService.fetchRelatedResources(form);
+        return new ResponseEntity<>(network, HttpStatus.OK);
     }
 
     @Tag(name = "Resources")
@@ -179,15 +172,8 @@ public class ResourceController {
             ))
     @RequestMapping(value = "/fetch-nearest", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchNearestResources(@RequestBody FetchNearestResourcesForm form) {
-        try{
-            ResourceNetwork network = resourceService.fetchNearestRelatedResources(form);
-            return new ResponseEntity<>(network, HttpStatus.OK);
-        } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        ResourceNetwork network = resourceService.fetchNearestRelatedResources(form);
+        return new ResponseEntity<>(network, HttpStatus.OK);
     }
 
     @Tag(name = "Resources")
@@ -227,17 +213,10 @@ public class ResourceController {
             @RequestBody @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> apiReqData
     ){
-        try{
-            var idList = apiReqData.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
-            var externalIdList = apiReqData.getItems().stream().map(IdCollection::getExternalId).filter(Objects::nonNull).collect(Collectors.toSet());
-            DataWrapper<NodeModel> resources = resourceService.findAllByIdAndExternalId(idList, externalIdList);
-            return new ResponseEntity<>(resources, HttpStatus.OK);
-        } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        var idList = apiReqData.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
+        var externalIdList = apiReqData.getItems().stream().map(IdCollection::getExternalId).filter(Objects::nonNull).collect(Collectors.toSet());
+        DataWrapper<NodeModel> resources = resourceService.findAllByIdAndExternalId(idList, externalIdList);
+        return new ResponseEntity<>(resources, HttpStatus.OK);
     }
 
     @Tag(name = "Resources")
@@ -377,22 +356,12 @@ public class ResourceController {
                     )
             )
             @Valid @RequestBody ResourceRetreiver apiReqData){
-        try{
-            Set<ConstraintViolation<ResourceRetreiver>> errors = validator.validate(apiReqData);
-            if (!errors.isEmpty()) {
-                throw new ConstraintViolationException(errors);
-            }
-            DataWrapper<NodeModel> items = resourceService.filter(apiReqData);
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        } catch (ConstraintViolationException e){
-            log.error(e.getMessage());
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
+        Set<ConstraintViolation<ResourceRetreiver>> errors = validator.validate(apiReqData);
+        if (!errors.isEmpty()) {
+            throw new ConstraintViolationException(errors);
         }
+        DataWrapper<NodeModel> items = resourceService.filter(apiReqData);
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Resources")
@@ -457,16 +426,8 @@ public class ResourceController {
         // No manual validator.validate here: @Valid on the body already rejected an invalid form
         // before this method ran, so the hand-rolled pass could only ever re-check what had
         // already passed — and its bare-string 400 disagreed with the shape @Valid produces.
-        try{
-            DataWrapper<NodeModel> items = resourceService.search(form);
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        }
-        catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        DataWrapper<NodeModel> items = resourceService.search(form);
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Resources")
@@ -626,45 +587,17 @@ public class ResourceController {
             @RequestBody
             @Schema(implementation = CreateResources.class)
             GraphDataWrapper<NodeModel, RelForm> apiReqData
-    ){
-        try{
+    ) throws PulsarClientException {
+        try {
             Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> errors = validator.validate(apiReqData);
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
             }
             GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.create(apiReqData);
             return new ResponseEntity<>(results, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
         } catch (DataIntegrityViolationException dve){
             var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
             return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        }
-        catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response. The
-            // BadRequestException catch below would otherwise flatten it into the generic error
-            // envelope and lose the per-item `violations` list, which is the useful part.
-            throw e;
-        } catch (BadRequestException e){
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 
@@ -783,45 +716,10 @@ public class ResourceController {
                             )
                     )
             )
-            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData){
-        try{
-            GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.update(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response. The
-            // BadRequestException catch below would otherwise flatten it into the generic error
-            // envelope and lose the per-item `violations` list, which is the useful part.
-            throw e;
-        } catch (BadRequestException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        }
-        catch (DuplicateDataException e){
-            // A rename onto an external id already in use: the shared guard's 409, with the
-            // offending ids, rather than the generic 500 the catch below would give.
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData)
+            throws PulsarClientException {
+        GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.update(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.OK);
     }
 
     @Tag(name = "Resources")
@@ -907,8 +805,8 @@ public class ResourceController {
             )
             @RequestBody @Schema(implementation = IdCollectionDataWrapper.class)
                                         DataWrapper<IdCollection> form
-    ){
-        try{
+    ) throws PulsarClientException {
+        try {
             var entities = new GraphDataWrapper<Resource, EdgeProxy>();
             form.getItems().forEach(it -> {
                 Resource r = new Resource();
@@ -922,28 +820,8 @@ public class ResourceController {
             });
             resourceService.delete(entities);
             return new ResponseEntity<>("", HttpStatus.NO_CONTENT);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
         } catch (ResourceDeleteException e){
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 

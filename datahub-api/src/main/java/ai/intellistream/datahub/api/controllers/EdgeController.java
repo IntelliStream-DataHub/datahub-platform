@@ -117,15 +117,8 @@ public class EdgeController {
     public ResponseEntity<?> byIds(
             @Schema(implementation = IdCollectionDataWrapper.class)
             @RequestBody DataWrapper<IdCollection> apiReqData){
-        try{
-            GraphDataWrapper<Resource, EdgeProxy> items = edgeService.findByIdCollection(apiReqData.getItems());
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        } catch (ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        GraphDataWrapper<Resource, EdgeProxy> items = edgeService.findByIdCollection(apiReqData.getItems());
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Relationships")
@@ -219,36 +212,15 @@ public class EdgeController {
                             )
                     )
             )
-            @RequestBody @Valid DataWrapper<RelForm> apiReqData){
+            @RequestBody @Valid DataWrapper<RelForm> apiReqData) throws PulsarClientException {
         try {
             DataWrapper<EdgeProxy> created = edgeService.createRelationships(apiReqData);
             return new ResponseEntity<>(created, HttpStatus.CREATED);
-        }
-        // Bean constraints the service re-checks (MCP calls it directly), e.g. a relation with
-        // neither a relationship type name nor an id.
-        catch (ConstraintViolationException cve){
-            return new ResponseEntity<>(BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
         }
         // The (start, end, relationship_type) unique constraint — the edge is already there.
         catch (DataIntegrityViolationException dve){
             log.warn("Rejected relationship creation: {}", dve.getMessage());
             return new ResponseEntity<>(BuildErrorResponse.createDataIntegrityViolationError(dve), HttpStatus.CONFLICT);
-        }
-        // Unresolvable endpoint or an edge-rule violation; the error carries its own status.
-        catch (BadRequestException e){
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (AccessDeniedException e){
-            throw e;
-        } catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        } catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 
@@ -353,28 +325,16 @@ public class EdgeController {
             method = {RequestMethod.POST, RequestMethod.DELETE})
     public ResponseEntity<?> delete(
             @Schema(implementation = IdCollectionDataWrapper.class)
-            @RequestBody @Valid DataWrapper<IdCollection> apiReqData){
-        try{
+            @RequestBody @Valid DataWrapper<IdCollection> apiReqData) throws Exception {
+        try {
             edgeService.deleteRelationships(apiReqData);
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // Exception catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
         }
         // Refusing the delete because it would strand node(s) from the graph root is a business
         // rule, not a crash: the exception carries the offending resources (see
         // ResourceService#delete). Surface it as a 400 with that list instead of a bare 500.
         catch (ResourceDeleteException e){
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (AccessDeniedException e){
-            throw e;
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>("error", HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 }

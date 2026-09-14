@@ -170,11 +170,43 @@ class NodeFamilyParityTest {
 
         String source = sourceOf(controller);
         String body = methodBody(source, create.getName());
+        // Inverted. This used to require the catch, because without one the exception met the
+        // controller's catch-all RuntimeException block and came back as a bare 500. Those are
+        // gone and DuplicateDataExceptionHandler answers instead, so a local catch no longer
+        // protects anything — it re-implements the advice, and a re-implementation is free to
+        // drift from it. The invariant is unchanged: a taken external id is a 409.
         assertThat(body)
-                .as("%s.%s should catch DuplicateDataException; the shared create path throws it "
-                        + "for a taken external id, and an uncaught one is a 500", 
+                .as("%s.%s should let DuplicateDataException reach DuplicateDataExceptionHandler "
+                        + "rather than catching it — one 409, built in one place",
                         controller.getSimpleName(), create.getName())
-                .contains("DuplicateDataException");
+                .doesNotContain("catch (DuplicateDataException")
+                .doesNotContain("catch(DuplicateDataException");
+    }
+
+    /** The advice the assertion above now relies on. */
+    @Test
+    @DisplayName("F9b: the duplicate advice exists and answers 409")
+    void duplicateAdviceAnswers409() throws Exception {
+        var handler = Class.forName(
+                "ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler");
+        assertThat(handler.getAnnotation(org.springframework.web.bind.annotation.RestControllerAdvice.class))
+                .as("must be an advice, or nothing routes to it")
+                .isNotNull();
+
+        var error = new ai.intellistream.datahub.api.controllers.errors.DuplicateError();
+        error.setMessage("External id already exists.");
+        var wrapper = new ai.intellistream.datahub.errors.ResponseError<
+                ai.intellistream.datahub.api.controllers.errors.DuplicateError>();
+        wrapper.setError(error);
+
+        Method handle = handler.getMethod("handle",
+                ai.intellistream.datahub.api.controllers.errors.DuplicateDataException.class);
+        var problem = (org.springframework.http.ProblemDetail) handle.invoke(
+                handler.getDeclaredConstructor().newInstance(),
+                new ai.intellistream.datahub.api.controllers.errors.DuplicateDataException(wrapper));
+
+        assertThat(problem.getStatus()).isEqualTo(409);
+        assertThat(problem.getType().toString()).isEqualTo("https://intellistream.ai/errors/duplicate");
     }
 
     /** The controller's own source file, read from the module rather than the classpath. */

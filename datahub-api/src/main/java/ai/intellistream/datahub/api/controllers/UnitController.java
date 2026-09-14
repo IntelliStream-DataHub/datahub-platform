@@ -50,15 +50,10 @@ public class UnitController {
     ))
     @RequestMapping(value = {""}, method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> list(){
-        try{
-            DataWrapper<UnitModel> data = new DataWrapper<>();
-            var units = UnitEntityTransformer.toUnit( unitService.list(100000) );
-            data.setItems(units);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-        }
-        return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        DataWrapper<UnitModel> data = new DataWrapper<>();
+        var units = UnitEntityTransformer.toUnit( unitService.list(100000) );
+        data.setItems(units);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Hidden
@@ -100,20 +95,15 @@ public class UnitController {
                                        @Schema(implementation = IdCollectionDataWrapper.class)
                                        DataWrapper<IdCollection> form
     ){
-        try{
-            DataWrapper<UnitModel> data = new DataWrapper<>();
-            Set<Long> idSet = form.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
-            Set<Long> externalIdHashSet = form.getItems().stream()
-                    .filter(it -> it.getExternalId() != null)
-                    .map( it -> IdGenerator.xxHash(it.getExternalId()))
-                    .collect(Collectors.toSet());
-            var units = unitService.findByIdAndExternalId(idSet, externalIdHashSet);
-            data.setItems(units);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-        }
-        return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        DataWrapper<UnitModel> data = new DataWrapper<>();
+        Set<Long> idSet = form.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<Long> externalIdHashSet = form.getItems().stream()
+                .filter(it -> it.getExternalId() != null)
+                .map( it -> IdGenerator.xxHash(it.getExternalId()))
+                .collect(Collectors.toSet());
+        var units = unitService.findByIdAndExternalId(idSet, externalIdHashSet);
+        data.setItems(units);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
 }
