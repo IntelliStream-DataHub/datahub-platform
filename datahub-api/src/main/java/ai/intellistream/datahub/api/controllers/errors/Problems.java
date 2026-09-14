@@ -59,6 +59,8 @@ public final class Problems {
     public static final URI DUPLICATE = type("duplicate");
     public static final URI CONFLICT = type("conflict");
     public static final URI CONSTRAINT_VIOLATION = type("constraint-violation");
+    public static final URI OPTIMISTIC_LOCK = type("optimistic-lock");
+    public static final URI BAD_REQUEST = type("bad-request");
 
     private Problems() {
     }
@@ -176,6 +178,24 @@ public final class Problems {
     /** A single argument reads better unwrapped; several are worth keeping as a list. */
     private static Object firstOrList(Object[] arguments) {
         return arguments.length == 1 ? arguments[0] : Arrays.asList(arguments);
+    }
+
+    /**
+     * A 400 carrying the loose {@code field -> message} pairs the old {@code BadRequestError} used.
+     *
+     * <p>Those entries are not uniform — some are {@code externalId -> "must not be blank"}, others
+     * {@code "DataSet.Id" -> "5"} — so they become a field and a message and nothing is invented.
+     * New throw sites should build {@link FieldProblem}s directly and get a code and a rejected
+     * value with them; this is the bridge for the ones that already exist.
+     */
+    public static ProblemDetail badRequest(String detail, Collection<Map<String, String>> legacyFields) {
+        List<FieldProblem> fields = new ArrayList<>();
+        if (legacyFields != null) {
+            for (Map<String, String> entry : legacyFields) {
+                entry.forEach((field, message) -> fields.add(new FieldProblem(field, message, null, null)));
+            }
+        }
+        return withFields(of(HttpStatus.BAD_REQUEST, BAD_REQUEST, "Bad Request", detail), fields);
     }
 
     /**
