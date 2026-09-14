@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.controllers.errors.*;
@@ -15,7 +16,6 @@ import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.*;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -588,17 +588,13 @@ public class ResourceController {
             @Schema(implementation = CreateResources.class)
             GraphDataWrapper<NodeModel, RelForm> apiReqData
     ) throws PulsarClientException {
-        try {
-            Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> errors = validator.validate(apiReqData);
-            if (!errors.isEmpty()) {
-                throw new ConstraintViolationException(errors);
-            }
-            GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.create(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.CREATED);
-        } catch (DataIntegrityViolationException dve){
-            var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
-            return new ResponseEntity<>(e, HttpStatus.CONFLICT);
+        Set<ConstraintViolation<GraphDataWrapper<NodeModel, RelForm>>> errors = validator.validate(apiReqData);
+        if (!errors.isEmpty()) {
+            throw new ConstraintViolationException(errors);
         }
+        GraphDataWrapper<NodeModel, EdgeProxy> results = resourceService.create(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.CREATED);
+    
     }
 
     @Tag(name = "Resources")
@@ -819,7 +815,7 @@ public class ResourceController {
                 }
             });
             resourceService.delete(entities);
-            return new ResponseEntity<>("", HttpStatus.NO_CONTENT);
+            return ResponseEntity.noContent().build();
         } catch (ResourceDeleteException e){
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
         }
