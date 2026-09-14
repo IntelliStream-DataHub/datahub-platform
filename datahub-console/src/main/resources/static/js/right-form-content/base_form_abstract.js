@@ -418,13 +418,22 @@ class DatasetFormAbstract extends BaseFormAbstract{
 					this.render();
 					return;
 				}
-				if(json.errors){
+				// A problem document's `fields` extension is already {field, message} per entry —
+				// the same shape this form marks up — so it maps straight across. This is wider
+				// than what it replaces: every rejected field arrives this way now, where the old
+				// envelope only carried them for a duplicate external id.
+				if(Array.isArray(json.fields)){
+					json.fields.forEach( f => this.errors.push({ field: f.field, message: f.message }) );
+				} else if(json.errors){
 					this.errors = json.errors;
 				} else if(json.error){
 					this.errors.push( json.error );
 				}
-				if(json.error && json.error.duplicated){
-					json.error.duplicated.forEach( error => {
+				// `duplicated` is top-level on a problem document and nested under `error` on the
+				// envelope it replaces. Both are read while the two shapes coexist.
+				const duplicated = json.duplicated || (json.error && json.error.duplicated);
+				if(duplicated){
+					duplicated.forEach( error => {
 						const field = Object.keys(error)[0];
 						const message = $L('external.id.exists', null, [error[field]]);
 						this.errors.push( {field: field, message: message} );
@@ -505,6 +514,7 @@ class DatasetFormAbstract extends BaseFormAbstract{
 	anyErrorMessage(json){
 		if(!json || typeof json !== 'object') return null;
 		if(json.error && json.error.message) return json.error.message;
+		if(json.detail) return json.detail;
 		if(Array.isArray(json.errors) && json.errors.length && json.errors[0].message){
 			return json.errors[0].message;
 		}

@@ -180,6 +180,26 @@ public final class Problems {
         return arguments.length == 1 ? arguments[0] : Arrays.asList(arguments);
     }
 
+    /** A 404 for something the caller asked for by name and that is not there (or not theirs). */
+    public static ProblemDetail notFound(String detail) {
+        return of(HttpStatus.NOT_FOUND, type("not-found"), "Not Found", detail);
+    }
+
+    /** A 400 with no per-field breakdown — a malformed header, a path that will not parse. */
+    public static ProblemDetail badRequest(String detail) {
+        return of(HttpStatus.BAD_REQUEST, BAD_REQUEST, "Bad Request", detail);
+    }
+
+    /**
+     * A 500 the caller can do nothing about.
+     *
+     * <p>The detail is deliberately incurious: the cause is logged server-side, and an internal
+     * failure is not something to describe to a caller who cannot act on it.
+     */
+    public static ProblemDetail internal(String detail) {
+        return of(HttpStatus.INTERNAL_SERVER_ERROR, type("internal"), "Internal Server Error", detail);
+    }
+
     /**
      * A 400 carrying the loose {@code field -> message} pairs the old {@code BadRequestError} used.
      *

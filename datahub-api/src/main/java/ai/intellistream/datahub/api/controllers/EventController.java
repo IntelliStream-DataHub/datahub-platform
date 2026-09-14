@@ -15,7 +15,6 @@ import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventRetreiver;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.events.EventFilter;
 import io.swagger.v3.oas.annotations.Operation;

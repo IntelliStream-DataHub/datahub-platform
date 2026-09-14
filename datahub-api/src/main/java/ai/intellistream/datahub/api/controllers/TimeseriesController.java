@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
@@ -26,7 +27,6 @@ import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.transformers.TimeseriesTransformer;
@@ -135,7 +135,7 @@ public class TimeseriesController {
             try {
                 dataSet = Long.parseLong(dataSetId);
             } catch (NumberFormatException e) {
-                return new ResponseEntity<>("dataSetId must be a number", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("dataSetId must be a number"), HttpStatus.BAD_REQUEST);
             }
             timeseries = timeseriesService.readListForDataSet(dataSet, lim);
         }
@@ -909,7 +909,7 @@ public class TimeseriesController {
             @RequestBody DataRetriever<DeleteDatapoint> apiReqData
     ) throws PulsarClientException, JsonProcessingException {
         timeseriesService.deleteDatapoints(apiReqData);
-        return new ResponseEntity<>("", HttpStatus.NO_CONTENT);
+        return ResponseEntity.noContent().build();
     }
 
     @Tag(name = "Time-series")
