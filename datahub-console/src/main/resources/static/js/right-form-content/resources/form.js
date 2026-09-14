@@ -656,13 +656,16 @@ class LabelForm extends DatasetFormAbstract{
                  }
                  */
                 this.errors = [];
-                if(json.errors){
+                if(Array.isArray(json.fields)){
+                    json.fields.forEach( f => this.errors.push({ field: f.field, message: f.message }) );
+                } else if(json.errors){
                     this.errors = json.errors;
                 }
-                if(json.error && json.error.duplicated){
-                    json.error.duplicated.forEach( error => {
+                const duplicated = json.duplicated || (json.error && json.error.duplicated);
+                if(duplicated){
+                    duplicated.forEach( error => {
                         const field = Object.keys(error)[0];
-                        const message = `${json.error.message}`;
+                        const message = `${json.detail || (json.error && json.error.message) || ''}`;
                         this.errors.push( {field: field, message: message} );
                     });
                 }

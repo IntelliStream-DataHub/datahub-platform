@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
+import org.springframework.http.ProblemDetail;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.graphtransfer.GraphFileCodec;
@@ -198,21 +200,12 @@ public class GraphTransferController {
         }
     }
 
-    private static ResponseError<BadRequestError> payloadTooLarge(String message) {
-        var error = new BadRequestError();
-        error.setCode(413);
-        error.setMessage(message);
-        var response = new ResponseError<BadRequestError>();
-        response.setError(error);
-        return response;
+    private static ProblemDetail payloadTooLarge(String message) {
+        return Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.type("request-too-large"),
+                "Payload Too Large", message);
     }
 
-    private static ResponseError<BadRequestError> badRequest(String message) {
-        var error = new BadRequestError();
-        error.setCode(400);
-        error.setMessage(message);
-        var response = new ResponseError<BadRequestError>();
-        response.setError(error);
-        return response;
+    private static ProblemDetail badRequest(String message) {
+        return Problems.badRequest(message);
     }
 }

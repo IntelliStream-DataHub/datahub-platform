@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FileDataWrapper;
@@ -192,17 +193,17 @@ public class FileController {
             // filename), each segment percent-encoded so non-ASCII / spaces survive the header.
             String rawPath = request.getHeader("X-Datahub-Path");
             if (rawPath == null || rawPath.isBlank()) {
-                return new ResponseEntity<>("Missing required header: X-Datahub-Path", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("Missing required header: X-Datahub-Path"), HttpStatus.BAD_REQUEST);
             }
             String fullPath = decodePath(rawPath);
             int lastSlash = fullPath.lastIndexOf('/');
             String filename = fullPath.substring(lastSlash + 1);
             String filePath = lastSlash <= 0 ? "/" : fullPath.substring(0, lastSlash);
             if (filename.isBlank()) {
-                return new ResponseEntity<>("X-Datahub-Path must include a filename", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("X-Datahub-Path must include a filename"), HttpStatus.BAD_REQUEST);
             }
             if (!fileSystemService.validateFolderPath(filePath)) {
-                return new ResponseEntity<>("Invalid folder path", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("Invalid folder path"), HttpStatus.BAD_REQUEST);
             }
 
             INode datahubFile = new INode();
@@ -282,18 +283,10 @@ public class FileController {
             // (path_hash WHERE is_deleted = false) plus the existing unique constraint on
             // external_id_hash make this the authoritative "path is taken" check across all
             // stateless API instances — no filesystem TOCTOU, no NFS caching surprises.
-            try {
-                fileTransformer.setDirectoryOrCreateIfMissing(datahubFile, filePath);
-                iNodeRepository.save(datahubFile);
-                iNodeRepository.flush();
-            } catch (DataIntegrityViolationException e) {
-                log.debug("Path or externalId already taken: {}", datahubFile.getPath());
-                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                return new ResponseEntity<>(
-                        "File with submitted path or externalId already exists.",
-                        HttpStatus.CONFLICT
-                );
-            }
+            fileTransformer.setDirectoryOrCreateIfMissing(datahubFile, filePath);
+            iNodeRepository.save(datahubFile);
+            iNodeRepository.flush();
+        
 
             // Stage the upload in the single per-tenant temp dir (TextValidator.RESERVED_TMP_DIR),
             // then atomically rename into place. CREATE_NEW on the temp path guards against a
@@ -493,14 +486,14 @@ public class FileController {
         }
         boolean hasExternalId = externalId != null && !externalId.isBlank();
         if (!hasExternalId && id == null) {
-            return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest("A file id or externalId is required."), HttpStatus.BAD_REQUEST);
         }
         Optional<INode> maybeNode = hasExternalId
                 ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
                         LongHashFunction.xx3().hashChars(externalId), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(id, false, INode.class);
         if (maybeNode.isEmpty()) {
-            return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
+            return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
         }
         INode node = maybeNode.get();
         // Dataset-less nodes are public; otherwise the caller must be able to read the node's dataset.
@@ -508,7 +501,7 @@ public class FileController {
         if (!dataSecurity.hasReadAccessToEverything() && node.getDataSet() != null) {
             Set<Long> allowed = dataSecurity.readableDataSetIds();
             if (allowed == null || !allowed.contains(node.getDataSet().getId())) {
-                return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
+                return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
             }
         }
         DataWrapper<IndexNode> data = new DataWrapper<>();
@@ -932,7 +925,7 @@ public class FileController {
 
         List<INode> nodes = iNodeRepository.findAllByIdOrExternalIdHashAndDeleted(idList, extHashes);
         if (nodes.isEmpty()) {
-            return new ResponseEntity<>("No matching deleted files.", HttpStatus.NOT_FOUND);
+            return new ResponseEntity<>(Problems.notFound("No matching deleted files."), HttpStatus.NOT_FOUND);
         }
         // Write permission on each node's dataset (public/no-dataset nodes restorable by anyone).
         if (!dataSecurity.hasWriteAccessToEverything()) {
@@ -949,14 +942,14 @@ public class FileController {
             return new ResponseEntity<>(resp, HttpStatus.OK);
         } catch (FileAlreadyExistsException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("A file already exists at the original path.", HttpStatus.CONFLICT);
+            return new ResponseEntity<>(Problems.conflict(null, "A file already exists at the original path."), HttpStatus.CONFLICT);
         } catch (IllegalStateException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return new ResponseEntity<>(e.getMessage(), HttpStatus.CONFLICT);
         } catch (IOException e) {
             log.error("File restore failed: {}", e.getMessage(), e);
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("Internal restore error.", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>(Problems.internal("Internal restore error."), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -1006,7 +999,7 @@ public class FileController {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
         if (request.getExternalId() == null && request.getId() == null) {
-            return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest("A file id or externalId is required."), HttpStatus.BAD_REQUEST);
         }
 
         Optional<INode> maybeNode = (request.getExternalId() != null)
@@ -1014,7 +1007,7 @@ public class FileController {
                         LongHashFunction.xx3().hashChars(request.getExternalId()), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(request.getId(), false, INode.class);
         if (maybeNode.isEmpty()) {
-            return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
+            return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
         }
         INode node = maybeNode.get();
 
@@ -1076,14 +1069,14 @@ public class FileController {
             }
         } catch (FileAlreadyExistsException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("A file or folder already exists at the target path.", HttpStatus.CONFLICT);
+            return new ResponseEntity<>(Problems.conflict(null, "A file or folder already exists at the target path."), HttpStatus.CONFLICT);
         } catch (IllegalArgumentException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
         } catch (IOException e) {
             log.error("File update failed for {}: {}", node.getPath(), e.getMessage(), e);
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("Internal update error.", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>(Problems.internal("Internal update error."), HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
         // Return the transformed DTO (like the search endpoints), not the raw entity: OSIV is off, so
