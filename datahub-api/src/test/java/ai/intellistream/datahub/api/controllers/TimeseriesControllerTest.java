@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.ConstraintViolationExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConcurrencyExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
@@ -69,7 +71,10 @@ class TimeseriesControllerTest {
                 new TimeseriesController(timeseriesService, edgeRepository, timeseriesRepository);
 
         mvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new ConcurrencyExceptionHandler())
+                .setControllerAdvice(new ConcurrencyExceptionHandler(),
+                        // The controller no longer catches these; the advices answer them.
+                        new DuplicateDataExceptionHandler(),
+                        new ConstraintViolationExceptionHandler())
                 .build();
     }
 
@@ -155,7 +160,10 @@ class TimeseriesControllerTest {
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"name\":\"Room A temperature\"}]}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.items[0].externalId").value("must not be blank"));
+                // Was $.items[0].externalId — a success-shaped envelope used as an error body.
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/constraint-violation"))
+                .andExpect(jsonPath("$.fields[0].field").value("externalId"))
+                .andExpect(jsonPath("$.fields[0].message").value("must not be blank"));
     }
 
     // --- 409: write conflicts ----------------------------------------------------------------
@@ -171,8 +179,9 @@ class TimeseriesControllerTest {
                         .content("""
                                 {"items":[{"externalId":"sensor_temp_room_a","name":"Room A temperature","valueType":"FLOAT"}]}"""))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value(409))
-                .andExpect(jsonPath("$.error.duplicated[0].externalId").value("sensor_temp_room_a"));
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/duplicate"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.duplicated[0].externalId").value("sensor_temp_room_a"));
     }
 
     @Test

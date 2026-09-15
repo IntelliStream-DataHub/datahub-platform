@@ -202,35 +202,12 @@ public class PolicyController {
 
             return new ResponseEntity<>(data, HttpStatus.CREATED);
 
-        } catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            // A scope or naming-config rejection is the caller's mistake, not a server fault; the
-            // broad catch below would otherwise report it as a 500 with no usable detail.
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e) {
-            // The shared pipeline's pre-check, which policy create now goes through: it catches a
-            // taken external id before the insert, so this is the 409 the caller gets in practice.
-            // The DataIntegrityViolationException below stays as the net for a race that slips
-            // past the check and reaches the unique index.
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
         } catch (DataIntegrityViolationException dve) {
             // A duplicate externalId is a conflict, not a server fault. This was unhandled, so
             // creating a policy whose externalId already existed produced a bare 500 — the only
             // node type where a duplicate create did not surface as 4xx.
             var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
             return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        }
-        // Let the ACL denial and the concurrency conflict reach their advices; the broad catch
-        // below would otherwise mask a 403 and a 409 as 500s.
-        catch (org.springframework.security.access.AccessDeniedException | OptimisticLockingFailureException e) {
-            throw e;
-        } catch (Exception e) {
-            // Log the detail, return none: the raw exception message was going out to the caller.
-            log.error("Failed to create policies", e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 
@@ -259,24 +236,10 @@ public class PolicyController {
             @RequestBody
             @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> form
-    ) {
-        try {
-            policyService.deletePolicies(form);
-            return ResponseEntity.noContent().build();
+    ) throws Exception {
+        policyService.deletePolicies(form);
+        return ResponseEntity.noContent().build();
 
-        }
-        catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler as a 409 — the broad
-        // Exception catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
     }
 
     // 6. GET SINGLE POLICY NODE
@@ -363,28 +326,8 @@ public class PolicyController {
 
             return ResponseEntity.ok(resp);
 
-        } catch (ConstraintViolationException cve) {
-            // Return the validation detail, not an empty envelope — clients need to know which
-            // field failed.
-            var err = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(err, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            // PolicyScopeValidator (wrong scope / malformed naming regex) and a missing policy id
-            // both surface here — they are the caller's mistake, so 400 with the error body rather
-            // than the broad 500 below.
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
         } catch (IllegalArgumentException e) {
             return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        }
-        // Let concurrency conflicts (409) and not-found (404) reach their dedicated handlers — the
-        // broad Exception catch below would otherwise mask them as a 500.
-        catch (OptimisticLockingFailureException | org.springframework.security.access.AccessDeniedException
-               | ObjectNotFoundException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to update policies", e);
-            DataWrapper<Policy> resp = new DataWrapper<>();
-            return new ResponseEntity<>(resp, HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
