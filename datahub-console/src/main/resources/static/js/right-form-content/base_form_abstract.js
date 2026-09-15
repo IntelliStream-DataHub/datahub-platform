@@ -398,62 +398,18 @@ class DatasetFormAbstract extends BaseFormAbstract{
 
 	handleResponse(response) {
 		if (response.status >= 400) {
-			response.json().then(json => {
-				/** Errors JSON format should be in
-				{
-					"errors": {"field": "fieldName", "message": "errorMessage"}
-				}
-				 Or {
-					"error": {"message": "errorMessage"}
-				 }
-				*/
-				this.errors = [];
-				// A naming-policy rejection is an RFC 9457 body, not the shape above: it names
-				// every offending external id in one response rather than only the first, and the
-				// batch is all-or-nothing so nothing was created. Flash it whole, and mark the
-				// field so the form itself shows where to look.
-				if (window.NamingPolicy && window.NamingPolicy.isViolation(json)) {
-					window.NamingPolicy.flashViolations(json);
-					this.errors.push({ field: 'externalId', message: json.detail || json.title });
+			DataHubProblem.read(response).then(problem => {
+				// A naming-policy rejection names every offending external id, and nothing in the batch was written.
+				if (window.NamingPolicy && window.NamingPolicy.isViolation(problem.body)) {
+					window.NamingPolicy.flashViolations(problem.body);
+					this.errors = [{ field: 'externalId', message: problem.detail || problem.title }];
 					this.render();
 					return;
 				}
-				// A problem document's `fields` extension is already {field, message} per entry —
-				// the same shape this form marks up — so it maps straight across. This is wider
-				// than what it replaces: every rejected field arrives this way now, where the old
-				// envelope only carried them for a duplicate external id.
-				if(Array.isArray(json.fields)){
-					json.fields.forEach( f => this.errors.push({ field: f.field, message: f.message }) );
-				} else if(json.errors){
-					this.errors = json.errors;
-				} else if(json.error){
-					this.errors.push( json.error );
-				}
-				// `duplicated` is top-level on a problem document and nested under `error` on the
-				// envelope it replaces. Both are read while the two shapes coexist.
-				const duplicated = json.duplicated || (json.error && json.error.duplicated);
-				if(duplicated){
-					duplicated.forEach( error => {
-						const field = Object.keys(error)[0];
-						const message = $L('external.id.exists', null, [error[field]]);
-						this.errors.push( {field: field, message: message} );
-					});
-				}
-				// Anything else the api answers with a problem document rather than the field-error
-				// shape above: an access denial, a permissions lookup that could not be reached, a
-				// concurrency conflict. Without this the form redrew with nothing on it and the save
-				// looked like it had simply been ignored.
-				if(this.errors.length === 0){
-					const problem = this.problemMessage(json);
-					if(problem) this.errors.push({ field: null, message: problem });
-				}
-				this.render();
-			},
-			() => {
-				// The body was not JSON (a few endpoints answer an error with an empty one), so
-				// there is nothing to read out of it. Say that the save did not happen anyway:
-				// a form that redraws unchanged reads as though the button did nothing.
-				this.errors = [{ field: null, message: $L('error.save.failed') }];
+				this.errors = problem.fieldErrors();
+				// Without a sentence of its own the form redraws unchanged, which reads as the button doing nothing.
+				this.errors.unshift({ field: null, message: problem.message('error.save.failed') });
+				problem.details(true).forEach(line => this.errors.push({ field: null, message: line }));
 				this.render();
 			});
 		} else {
@@ -481,54 +437,26 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		return json;
 	}
 
-	/**
-	 * The message to show for an RFC 9457 problem body, or null when `json` is not one.
-	 *
-	 * The api's own `detail` is written for an operator (the dataset-ACL one names the Keycloak
-	 * group and the admin role by name) and is never translated, so the types the console knows
-	 * about get a localized message and anything else falls back to the server's own words, which
-	 * beats showing nothing.
-	 */
-	problemMessage(json){
-		if(!json || typeof json !== 'object') return null;
-		if(json.errors || json.error) return null;         // the field-error shape, handled above
-		if(!json.detail && !json.title) return null;       // not a problem document
-		if(json.type === 'https://intellistream.ai/errors/dataset-forbidden'){
-			if(json.permission === 'manage') return $L('error.dataset.manage.forbidden');
-			if(json.permission === 'read') return $L('error.dataset.read.forbidden');
-			return $L('error.dataset.write.forbidden');
-		}
-		if(json.type === 'https://intellistream.ai/errors/permissions-unavailable'){
-			return $L('error.permissions.unavailable');
-		}
-		const limit = window.LimitErrors && window.LimitErrors.message(json);
-		if(limit) return limit;
-		return json.detail || json.title;
-	}
-
-	/**
-	 * One message for a failed request, whatever shape the answer took: the `{error:{message}}` and
-	 * `{errors:[…]}` envelopes, or an RFC 9457 problem document. For the places that show a single
-	 * flash rather than marking up fields (a failed delete).
-	 */
-	anyErrorMessage(json){
-		if(!json || typeof json !== 'object') return null;
-		if(json.error && json.error.message) return json.error.message;
-		if(json.detail) return json.detail;
-		if(Array.isArray(json.errors) && json.errors.length && json.errors[0].message){
-			return json.errors[0].message;
-		}
-		return this.problemMessage(json);
+	/** Flashes why a request that is not a save (a delete, a load) was refused. */
+	flashProblem(response, fallbackKey){
+		return DataHubProblem.read(response).then(problem =>
+			this.flashError(problem.message(fallbackKey), problem.details()));
 	}
 
 	/**
 	 * Prepends a flash to the form body. For errors raised outside a redraw (a failed delete):
 	 * render() would rebuild the form from the submitted values, which is not what a delete wants.
 	 */
-	flashError(message){
+	flashError(message, details){
 		if(!message) return;
 		const flash = Object.assign(document.createElement('DIV'), { className: "flash error" });
-		flash.append(Object.assign(document.createElement('span'), { textContent: message }));
+		const text = Object.assign(document.createElement('span'), { textContent: message });
+		if(Array.isArray(details) && details.length){
+			const list = Object.assign(document.createElement('ul'), { className: "dh-flash-details" });
+			details.forEach(line => list.append(Object.assign(document.createElement('li'), { textContent: line })));
+			text.append(list);
+		}
+		flash.append(text);
 		this.formElement.querySelector('main').prepend(flash);
 	}
 
@@ -732,12 +660,8 @@ class DatasetFormAbstract extends BaseFormAbstract{
 					this.cancelButtonElement.dispatchEvent(new Event('click'));
 					return;
 				}
-				// A delete is refused for the same reasons a save is (an access denial, a
-				// conflict), so say why rather than leaving the form as though the button had
-				// done nothing.
-				xhr.json()
-					.then( json => this.flashError(this.anyErrorMessage(json)) )
-					.catch(() => { /* no body, or not JSON: nothing to say beyond the status */ });
+				// A refused delete says why, or the form looks as though the button did nothing.
+				this.flashProblem(xhr, 'error.problem.failed');
 			})
 			.catch((e) => {
 				console.error(e);

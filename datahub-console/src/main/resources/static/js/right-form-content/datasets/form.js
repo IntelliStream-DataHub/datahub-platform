@@ -315,11 +315,8 @@ class EditDataSetForm extends DataSetForm {
 					this.cancelButtonElement.dispatchEvent(new Event('click'));
 					return;
 				}
-				// A refused delete is either an access denial (a problem document) or the api's
-				// error envelope naming what blocked it, e.g. resources the delete would strand.
-				xhr.json()
-					.then( errorJson => this.flashError(this.anyErrorMessage(errorJson)) )
-					.catch(() => { /* no body, or not JSON: nothing to say beyond the status */ });
+				// An access denial, or the resources the delete would strand.
+				this.flashProblem(xhr, 'error.problem.failed');
 			})
 			.catch((e) => {
 				console.error(e);
@@ -340,7 +337,7 @@ class DataSetList extends BaseList{
 	loadData(afterLoadFn){
 		// Data sets are a small, slow-changing set per tenant, so the picker asks for the lot and
 		// filters client side (doSearch below) rather than round-tripping per keystroke.
-		Api.post(this.apiPath + "/list", { limit: 100 })
+		Api.get(this.apiPath + "?limit=100")
 			.then( resp => resp.json())
 			.then( json => {
 				this.data = {
