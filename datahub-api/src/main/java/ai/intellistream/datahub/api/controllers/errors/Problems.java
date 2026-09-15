@@ -37,10 +37,8 @@ import java.util.Map;
  *
  * <h2>{@code type} is the contract</h2>
  * The one member a client should branch on. Prose changes; a URI does not. All of them live under
- * {@link #BASE} — note that {@code UserInfoRejectedExceptionHandler} currently mints
- * {@code datahub.intellistream.ai}, a second host for the same scheme, which is a bug this class
- * exists to stop repeating. Adding a type here is a wire-contract decision, so they are declared
- * as constants rather than written inline at each throw site.
+ * {@link #BASE}. Adding a type here is a wire-contract decision, so they are declared as constants
+ * rather than written inline at each throw site.
  *
  * <h2>{@code fields} keeps what the old shape threw away</h2>
  * {@link FieldValidationError} carries an i18n key and its arguments — {@code
@@ -76,6 +74,7 @@ public final class Problems {
     public static final URI INTERNAL = type("internal");
     public static final URI UNKNOWN_TENANT = type("unknown-tenant");
     public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
+    public static final URI FEATURE_DISABLED = type("feature-disabled");
 
     private Problems() {
     }
@@ -215,6 +214,13 @@ public final class Problems {
                 "Unknown organization: this deployment has no tenant for the organization in your "
                         + "token. Retrying will not help, the organization has to be onboarded.");
         problem.setProperty("organizationId", organizationId);
+        return problem;
+    }
+
+    /** A 403 for a feature switched off for this organization; an operator turns it on. */
+    public static ProblemDetail featureDisabled(String feature, String detail) {
+        ProblemDetail problem = of(HttpStatus.FORBIDDEN, FEATURE_DISABLED, "Forbidden", detail);
+        problem.setProperty("feature", feature);
         return problem;
     }
 

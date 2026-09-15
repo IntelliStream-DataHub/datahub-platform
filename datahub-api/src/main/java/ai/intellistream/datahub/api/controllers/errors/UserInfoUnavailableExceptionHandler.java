@@ -5,12 +5,12 @@ import ai.intellistream.datahub.api.datasecurity.UserInfoUnavailableException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.net.URI;
 
 /**
  * Translates {@link UserInfoUnavailableException} into an RFC 9457 {@code application/problem+json}
@@ -31,10 +31,10 @@ import java.net.URI;
 @Slf4j
 public class UserInfoUnavailableExceptionHandler {
 
-    private static final String RETRY_AFTER_SECONDS = "10";
+    private static final int RETRY_AFTER_SECONDS = 10;
 
     @ExceptionHandler(UserInfoUnavailableException.class)
-    public ProblemDetail handleUserInfoUnavailable(UserInfoUnavailableException ex) {
+    public ResponseEntity<ProblemDetail> handleUserInfoUnavailable(UserInfoUnavailableException ex) {
         log.error("Cannot resolve caller permissions, failing closed: {}", ex.getMessage());
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(
@@ -42,8 +42,11 @@ public class UserInfoUnavailableExceptionHandler {
                 "Could not verify your permissions because the identity provider is unreachable. "
                         + "This is a temporary fault, not a denial; retry shortly.");
         problem.setTitle("Service Unavailable");
-        problem.setType(URI.create("https://intellistream.ai/errors/permissions-unavailable"));
+        problem.setType(Problems.type("permissions-unavailable"));
         problem.setProperty("retryAfter", RETRY_AFTER_SECONDS);
-        return problem;
+        // The header too, as the 429s send it: a client honouring Retry-After should not have to read the body.
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(RETRY_AFTER_SECONDS))
+                .body(problem);
     }
 }

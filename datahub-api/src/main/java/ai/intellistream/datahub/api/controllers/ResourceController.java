@@ -90,8 +90,8 @@ public class ResourceController {
             "No resource with this `id` exists, or it belongs to a tenant you can't read. " +
                     "Double-check the id and your API token's tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(@Parameter(description = "Numeric id of the resource.", example = "5677892") @PathVariable("id") Long id){
@@ -130,8 +130,8 @@ public class ResourceController {
     @ApiResponse(responseCode = "404", description =
             "The starting resource was not found. Check `id` / `externalId` and your tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/fetch-related", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchRelatedResources(@RequestBody RelatedResourcesForm form) {
@@ -167,8 +167,8 @@ public class ResourceController {
             description = "The starting resource was not found. Check `id` / `externalId` "
                     + "and your tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/fetch-nearest", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchNearestResources(@RequestBody FetchNearestResourcesForm form) {
@@ -243,8 +243,8 @@ public class ResourceController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -252,7 +252,7 @@ public class ResourceController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
