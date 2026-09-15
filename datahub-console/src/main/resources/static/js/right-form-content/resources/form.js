@@ -52,7 +52,6 @@ class ResourceForm extends DatasetFormAbstract{
         this.isRoot = obj.isRoot === undefined ? false : obj.isRoot;
         this.title = $L('create.resource');
         this.apiURL = "/api/resources";
-        this.labelApiUri = "/api/label";
         // A dataset the caller already knows about — what we are cloning, or the node we are
         // connecting from. Beats both the remembered one and an empty field; see prefillDataSet().
         this.dataSet = obj.dataSet || null;
@@ -622,7 +621,7 @@ class LabelForm extends DatasetFormAbstract{
 
     constructor(obj) {
         super(obj);
-        this.apiURL = '/api/label';
+        this.apiPath = '/labels';
     }
 
     getFormFields(){
@@ -644,7 +643,34 @@ class LabelForm extends DatasetFormAbstract{
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/save";
+        this.savePath = this.apiPath + "/create";
+        this.formElement.action = Api.url(this.savePath);
+    }
+
+    submit(){
+        this.formData = new FormData(this.formElement);
+        Api.post(this.savePath, { items: [Object.fromEntries(this.formData)] })
+            .then(response => this.handleResponse(response))
+            .catch(() => console.error("Saving label failed"));
+    }
+
+    savedItem(json){
+        return (json && Array.isArray(json.items)) ? json.items[0] : json;
+    }
+
+    loadData(callback){
+        if(this.entityId === null) return;
+        Api.get(this.apiPath + "/" + encodeURIComponent(this.entityId))
+            .then(response => response.ok ? response.json() : DataHubProblem.read(response).then(problem => { throw problem; }))
+            .then(json => {
+                const label = json.items[0];
+                this.loadCompleteCallback(label);
+                if(callback instanceof Function) callback(label);
+            })
+            .catch(e => {
+                if(e instanceof DataHubProblem) this.flashError(e.message(), e.details());
+                else console.error(e);
+            });
     }
 
 }
@@ -655,53 +681,33 @@ class LabelEditForm extends LabelForm{
         super(obj);
         this.title = $L('edit.label');
         // A truthy deleteUrl makes BaseFormAbstract.render() add the delete button.
-        this.deleteUrl = this.apiURL + "/delete";
+        this.deleteUrl = this.apiPath + "/delete";
     }
 
     render(){
         super.render();
-        this.formElement.action = this.apiURL + "/update";
+        this.savePath = this.apiPath + "/update";
+        this.formElement.action = Api.url(this.savePath);
         if(!this.errors){
             this.loadData();
         }
         this.submitButtonElement.textContent = $L('update');
     }
 
-    // Delete straight on datahub-api (browser-direct, bearer token) rather than through a console
-    // proxy — the same pattern the file/dataset/resource lookups use.
     delete(){
-        const apiBaseUrl = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
-        fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+        // Keep the id as the string it arrived as: the server field is a Long that reads it fine,
+        // and converting rounds above 2^53.
+        Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
             .then(response => {
-                if (response.status === 401) { renderSignedOutDialog(); return null; }
-                if (!response.ok) throw new Error('token');
-                return response.text();
-            })
-            .then(token => {
-                if (!token) return null;
-                return fetch(apiBaseUrl + '/labels/delete', {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': 'Bearer ' + token,
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    },
-                    // Keep the id as the string it arrived as: the server field is a Long that
-                    // reads it fine, so converting buys nothing and rounds above 2^53.
-                    body: JSON.stringify({ items: [{ id: this.entityId }] })
-                });
-            })
-            .then(response => {
-                if (!response) return;
                 if (response.ok) {
                     if (this.afterDeleteFn) this.afterDeleteFn(this);
                     this.cancelButtonElement.dispatchEvent(new Event('click'));
                 } else {
-                    // The api rejects deleting a label still used by resources, so say why.
-                    DataHubProblem.read(response).then(problem => problem.flash('could.not.delete.label'));
+                    // The api refuses to delete a label resources still carry, and names them.
+                    this.flashProblem(response, 'could.not.delete.label');
                 }
             })
-            .catch(e => { console.error('Label delete failed', e); Flash.error($L('could.not.delete.label')); });
+            .catch(e => { console.error('Label delete failed', e); this.flashError($L('could.not.delete.label')); });
     }
 }
 
@@ -713,7 +719,6 @@ class LabelList extends BaseList{
         // Type-labels a caller may pick here (upper-cased). Others in TYPE_LABELS_ALL are hidden
         // from the pick list; the selectable ones are mutually exclusive (see updateTable).
         this.selectableTypeLabels = (obj.selectableTypeLabels || []).map(s => s.toUpperCase());
-        this.apiURL = '/api/label';
         this.loadData();
         this.render();
         this.addCRUDButtons();
@@ -750,12 +755,7 @@ class LabelList extends BaseList{
     }
 
     loadData(afterLoadFn){
-        fetch(this.apiURL + '/list', {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            }
-        })
+        Api.get('/labels')
             .then( resp => resp.json())
             .then( json => {
                 const allItems = json.items || [];

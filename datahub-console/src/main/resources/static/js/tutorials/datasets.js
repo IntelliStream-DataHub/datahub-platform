@@ -317,7 +317,7 @@
             return base;
         };
         // The cluster: a small asset network. Label names must exist in the tenant; we
-        // resolve them from /api/label/list and fall back to the first available label
+        // resolve them from GET /labels and fall back to the first available label
         // (resources require >=1 label).
         // Root + 9 children = a 10-node starter network (user can add more). Reuses the
         // existing label set (PUMP/VALVE/TANK/SENSOR/MOTOR) so every create has a valid label.
@@ -349,7 +349,7 @@
             // Fetch labels + relationship types, then build. (No prior-cluster cleanup —
             // the tour no longer auto-deletes; the user keeps or removes at the end.)
             Promise.all([
-                fetch("/api/label/list", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => ({})),
+                Api.get("/labels").then(r => r.json()).catch(() => ({})),
                 Api.get("/edges/types").then(r => r.json()).catch(() => ({})),
             ]).then(([labelsResp, relsResp]) => {
                 const labels = labelsResp.items || labelsResp || [];
@@ -1908,7 +1908,7 @@
             .then(json => {
                 const items = json && (json.items || (Array.isArray(json) ? json : []));
                 if (items && items.length) return null;          // already have a resource
-                return fetch("/api/label/list", { headers: { Accept: "application/json" } })
+                return Api.get("/labels")
                     .then(r => r.json())
                     .then(labels => {
                         const arr = Array.isArray(labels) ? labels : (labels.items || []);
