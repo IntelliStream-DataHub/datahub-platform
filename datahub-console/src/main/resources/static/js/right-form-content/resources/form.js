@@ -647,40 +647,6 @@ class LabelForm extends DatasetFormAbstract{
         this.formElement.action = this.apiURL + "/save";
     }
 
-    handleResponse(response) {
-        if (response.status >= 400) {
-            response.json().then(json => {
-                /** Errors JSON format should be in
-                 {
-                 "errors": {"field": "fieldName", "message": "errorMessage"}
-                 }
-                 */
-                this.errors = [];
-                if(Array.isArray(json.fields)){
-                    json.fields.forEach( f => this.errors.push({ field: f.field, message: f.message }) );
-                } else if(json.errors){
-                    this.errors = json.errors;
-                }
-                const duplicated = json.duplicated || (json.error && json.error.duplicated);
-                if(duplicated){
-                    duplicated.forEach( error => {
-                        const field = Object.keys(error)[0];
-                        const message = `${json.detail || (json.error && json.error.message) || ''}`;
-                        this.errors.push( {field: field, message: message} );
-                    });
-                }
-                this.render();
-            });
-        } else {
-            this.cancelButtonElement.dispatchEvent(new Event('click'));
-            response.json().then(json => {
-                if (this.afterSaveFn) {
-                    this.afterSaveFn(json);
-                }
-            });
-        }
-    }
-
 }
 
 class LabelEditForm extends LabelForm{
@@ -731,10 +697,8 @@ class LabelEditForm extends LabelForm{
                     if (this.afterDeleteFn) this.afterDeleteFn(this);
                     this.cancelButtonElement.dispatchEvent(new Event('click'));
                 } else {
-                    // The api rejects deleting a label still used by resources — surface why.
-                    response.json()
-                        .then(json => Flash.error((json && json.error && json.error.message) || $L('could.not.delete.label')))
-                        .catch(() => Flash.error($L('could.not.delete.label')));
+                    // The api rejects deleting a label still used by resources, so say why.
+                    DataHubProblem.read(response).then(problem => problem.flash('could.not.delete.label'));
                 }
             })
             .catch(e => { console.error('Label delete failed', e); Flash.error($L('could.not.delete.label')); });

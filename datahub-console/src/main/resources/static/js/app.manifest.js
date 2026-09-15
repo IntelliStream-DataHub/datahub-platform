@@ -8,9 +8,11 @@
 //
 // limit-errors.js needs $L and getByteSize from application.js, and is needed in turn by the form
 // bundle and by the ad-hoc file/upload error paths, so it belongs here rather than in either.
+// datahub-problem.js reads every api error body and uses both, so it comes straight after.
 //
 //= require application.js
 //= require limit-errors.js
+//= require datahub-problem.js
 //= require search-dropdown.js
 //= require enhanced-select.js
 //= require context-menu.js
