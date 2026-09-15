@@ -26,7 +26,6 @@ import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.forms.DataSetForm;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.transformers.DataSetTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;

@@ -11,7 +11,6 @@ import ai.intellistream.datahub.api.services.SubscriptionService;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import io.swagger.v3.oas.annotations.Operation;

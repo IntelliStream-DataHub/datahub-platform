@@ -23,7 +23,6 @@ import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.RelationshipTypeRepository;
 import ai.intellistream.datahub.resource.RelTypeForm;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -213,15 +212,9 @@ public class EdgeController {
                     )
             )
             @RequestBody @Valid DataWrapper<RelForm> apiReqData) throws PulsarClientException {
-        try {
-            DataWrapper<EdgeProxy> created = edgeService.createRelationships(apiReqData);
-            return new ResponseEntity<>(created, HttpStatus.CREATED);
-        }
-        // The (start, end, relationship_type) unique constraint — the edge is already there.
-        catch (DataIntegrityViolationException dve){
-            log.warn("Rejected relationship creation: {}", dve.getMessage());
-            return new ResponseEntity<>(BuildErrorResponse.createDataIntegrityViolationError(dve), HttpStatus.CONFLICT);
-        }
+        DataWrapper<EdgeProxy> created = edgeService.createRelationships(apiReqData);
+        return new ResponseEntity<>(created, HttpStatus.CREATED);
+    
     }
 
     @Tag(name = "Relationships")
@@ -292,12 +285,6 @@ public class EdgeController {
                     .setMessage(e.getMessage())
                     .addFieldError("name", e.getMessage());
             return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
-        }
-        // The relationship_hash_key unique constraint — a type with this (case-insensitive) name
-        // already exists. Surface it as a 409 rather than a bare 500, matching /edges/create.
-        catch (DataIntegrityViolationException dve){
-            log.warn("Rejected relationship type creation: {}", dve.getMessage());
-            return new ResponseEntity<>(BuildErrorResponse.createDataIntegrityViolationError(dve), HttpStatus.CONFLICT);
         }
     }
 

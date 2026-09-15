@@ -15,7 +15,6 @@ import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -73,13 +72,9 @@ public class FunctionController {
     public ResponseEntity<?> createFunction(
             @Schema(implementation = FunctionDataWrapper.class)
             @RequestBody DataWrapper<Function> apiReqData) throws PulsarClientException {
-        try {
-            DataWrapper<Function> data = functionService.create(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (DataIntegrityViolationException dve) {
-            var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
-            return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        }
+        DataWrapper<Function> data = functionService.create(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
+    
     }
 
     @Tag(name = "Functions")
