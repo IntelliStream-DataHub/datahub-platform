@@ -8,7 +8,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
@@ -32,7 +31,7 @@ import java.util.stream.Collectors;
  *
  * <p>It does <strong>no</strong> tenant/ACL work of its own: the api enforces per-dataset ACLs on the
  * data it serves back. This only confirms the caller holds a valid, authorized token — so there is no
- * separate shared secret to provision. Because the browser posts here directly (a different origin
+ * separate shared secret to provision. Because the browser calls here directly (a different origin
  * from this service), CORS is enabled for the console origin.
  */
 @Configuration
@@ -61,16 +60,16 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("DATAHUB_ACCESS"))
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter())))
-                // Stateless: the token is the whole story, no session, so CSRF doesn't apply.
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(AbstractHttpConfigurer::disable);
+                // Stateless: the token is the whole story, so no session.
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        // CSRF stays on: it never checks the GET this service serves, and covers anything added later.
         return http.build();
     }
 
     private static CorsConfigurationSource corsConfigurationSource(String[] origins) {
         CorsConfiguration configuration = new CorsConfiguration();
         configuration.setAllowedOrigins(Arrays.asList(origins));
-        configuration.setAllowedMethods(List.of("*"));
+        configuration.setAllowedMethods(List.of("GET"));
         configuration.setAllowedHeaders(List.of("*"));
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
