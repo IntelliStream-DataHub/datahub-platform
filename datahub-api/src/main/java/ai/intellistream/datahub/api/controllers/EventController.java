@@ -38,7 +38,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Set;
-import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/events")
@@ -357,13 +358,13 @@ public class EventController {
                     "`id` and `externalId` name different resources.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "An event with one of the `externalId`s already exists. Pick a different one.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -442,7 +443,7 @@ public class EventController {
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "429", description = "Too many requests — back off and retry.",
             content = @Content)
@@ -498,7 +499,7 @@ public class EventController {
     @ApiResponse(responseCode = "400", description = "Malformed request — e.g. neither `id` nor `externalId` supplied on an entry.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @RequestMapping(
             path = "/delete",
