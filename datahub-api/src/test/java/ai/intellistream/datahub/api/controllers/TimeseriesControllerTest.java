@@ -185,8 +185,12 @@ class TimeseriesControllerTest {
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"externalId\":\"sensor_temp_room_a\"}]}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value(409))
-                .andExpect(jsonPath("$.error.cause").value("concurrency"));
+                // RFC 9457: the type is the discriminator that ConflictError.cause = "concurrency"
+                // used to be, and the status lives on the response rather than inside the body.
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/optimistic-lock"))
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").doesNotExist());
     }
 
     // --- 400: delete blocked by a subscription -----------------------------------------------
