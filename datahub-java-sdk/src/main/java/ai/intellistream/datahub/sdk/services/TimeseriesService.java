@@ -6,7 +6,6 @@ import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.api.responses.ValueTypeRecommendation;
-import ai.intellistream.datahub.api.responses.swaggerdto.DatapointDTO;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.jpa.dto.DatapointAggsDTO;
 import ai.intellistream.datahub.models.DeleteDatapoint;
@@ -47,7 +46,7 @@ public final class TimeseriesService {
     private final DatapointSpool spool;      // nullable: durable buffering disabled
     private final JavaType timeseries;       // DataWrapper<Timeseries>
     private final JavaType datapoints;       // DataWrapper<DatapointsCollection>
-    private final JavaType latestPoints;     // DataWrapper<DataCollection<DatapointDTO>>
+    private final JavaType latestPoints;     // DataWrapper<DataCollection<DatapointString>>
     private final JavaType valueTypeHint;    // ValueTypeRecommendation
     private final JavaType aggregatedData;   // DataWrapper<DataCollection<DatapointAggsDTO>>
 
@@ -63,7 +62,7 @@ public final class TimeseriesService {
         this.timeseries = tf.constructParametricType(DataWrapper.class, Timeseries.class);
         this.datapoints = tf.constructParametricType(DataWrapper.class, DatapointsCollection.class);
         this.latestPoints = tf.constructParametricType(DataWrapper.class,
-                tf.constructParametricType(DataCollection.class, DatapointDTO.class));
+                tf.constructParametricType(DataCollection.class, DatapointString.class));
         this.valueTypeHint = tf.constructType(ValueTypeRecommendation.class);
         this.aggregatedData = tf.constructParametricType(DataWrapper.class,
                 tf.constructParametricType(DataCollection.class, DatapointAggsDTO.class));
@@ -127,9 +126,6 @@ public final class TimeseriesService {
      * POST /timeseries/update — change fields on series that already exist. Only the fields named
      * in each entry's {@code update} block change; identify the series by {@code id} or
      * {@code externalId}.
-     *
-     * <p>Changing {@code valueType} on a series that already holds data is refused: the stored
-     * points would no longer parse. Create a new series instead.
      */
     public DataWrapper<Timeseries> update(List<UpdateTimeseries> updates) {
         return http.post("/timeseries/update",
@@ -139,8 +135,10 @@ public final class TimeseriesService {
     /**
      * GET /timeseries/recommend-value-type/{unitExternalId} — which {@code valueType} suits a unit.
      *
-     * <p>A hint for a create form, not a constraint: the api recommends (a temperature in celsius
-     * wants {@code FLOAT32}, a counter wants {@code BIGINT}) and you remain free to choose.
+     * <p>A hint for a create form, not a constraint: {@link #create(List)} takes whatever you set.
+     * Always answers {@code 200}, so read {@code recognized} rather than catching a 404 — a unit
+     * the recommender does not know gets the generic analog default ({@code FLOAT32}) with
+     * {@code recognized} false, which is the case worth surfacing to whoever is filling the form.
      */
     public ValueTypeRecommendation recommendValueType(String unitExternalId) {
         return http.get("/timeseries/recommend-value-type/"
@@ -239,12 +237,21 @@ public final class TimeseriesService {
 
     /**
      * POST /timeseries/data/latest — the most recent point of each named series, by id or external
-     * id. Series with no data at all are answered with an empty collection rather than omitted.
+     * id.
      *
-     * <p>Much cheaper than {@link #retrieve(DataRetriever)} with a limit of one: the latest point
-     * is served from the cache the ingest path writes, not from a ClickHouse range scan.
+     * <p>A series that holds no datapoints is <em>omitted</em>, not answered with an empty
+     * collection, so compare what came back against what you asked for rather than indexing into
+     * the result positionally.
+     *
+     * <p>Cheaper than {@link #retrieve(DataRetriever)} with a limit of one: the point is served
+     * from the cache the ingest path writes, falling back to a single-row ClickHouse lookup when
+     * that is cold rather than scanning a range.
+     *
+     * <p>The point comes back as a {@link DatapointString}, the same timestamp-and-value-as-text
+     * pair the datapoint reads use, because a series' value type decides how to read {@code value}
+     * and only the caller knows which series it asked about.
      */
-    public DataWrapper<DataCollection<DatapointDTO>> latest(List<IdCollection> ids) {
+    public DataWrapper<DataCollection<DatapointString>> latest(List<IdCollection> ids) {
         return http.post("/timeseries/data/latest",
                 new DataWrapper<IdCollection>().setItems(ids), latestPoints);
     }

@@ -111,6 +111,17 @@ class SdkWireContractTest {
 
     private static final String PERMISSIONS_RESPONSE = "{\"llm\":{\"read\":true,\"write\":false}}";
 
+    /**
+     * What {@code /timeseries/data/latest} actually serializes: the concrete datapoint DTOs carry
+     * an ISO-8601 {@code timestamp} and a value typed by the series, which is why the SDK reads
+     * them as {@link ai.intellistream.datahub.api.responses.DatapointString}.
+     */
+    private static final String LATEST_RESPONSE = """
+            {"items":[{"id":42,"externalId":"engine_temperature","unit":"DEG_C",
+              "datapoints":[{"timestamp":"2026-09-15T10:00:00Z","value":97.4}]}]}""";
+
+    private static final String FINDINGS_RESPONSE = "{\"findings\":[]}";
+
     private static final String VALUE_TYPE_RESPONSE = """
             {"unitExternalId":"temperature_deg_c","recommendedValueType":"FLOAT32",
              "reason":"a temperature reading","recognized":true}""";
@@ -301,7 +312,7 @@ class SdkWireContractTest {
                     retriever(RetrieveFilter.class),
                     c -> c.timeseries().retrieve(new DataRetriever<>())),
             new Contract("timeseries.latest", "POST", "/timeseries/data/latest", IDS,
-                    c -> c.timeseries().latest(ids())),
+                    c -> c.timeseries().latest(ids()), LATEST_RESPONSE),
             new Contract("timeseries.deleteDatapoints", "POST", "/timeseries/data/delete",
                     retriever(DeleteDatapoint.class),
                     c -> c.timeseries().deleteDatapoints("x", Instant.EPOCH, Instant.EPOCH)),
@@ -389,7 +400,7 @@ class SdkWireContractTest {
                     c -> c.policies().update(List.of(new UpdatePolicyForm()))),
             new Contract("policies.checkNaming", "POST", "/policies/naming/check",
                     TF.constructType(NamingCheckForm.class),
-                    c -> c.policies().checkNaming(new NamingCheckForm())),
+                    c -> c.policies().checkNaming(new NamingCheckForm()), FINDINGS_RESPONSE),
             new Contract("policies.delete", "DELETE", "/policies/delete", IDS,
                     c -> c.policies().delete(ids())),
 

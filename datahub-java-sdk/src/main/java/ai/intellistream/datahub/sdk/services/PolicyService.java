@@ -26,7 +26,7 @@ public final class PolicyService {
 
     private final ApiHttp http;
     private final JavaType policies; // DataWrapper<Policy>
-    private final JavaType findings; // Map<String, List<PolicyFinding>>
+    private final JavaType findings; // {"findings": [...]} — the envelope the endpoint returns
 
     public PolicyService(ApiHttp http) {
         this.http = http;
@@ -77,14 +77,23 @@ public final class PolicyService {
     }
 
     /**
-     * POST /policies/naming/check — dry-run a name against the naming policies, keyed by the
-     * policy that has something to say about it. An empty map means every policy is satisfied.
+     * POST /policies/naming/check — dry-run candidate external ids against the naming policies.
      *
-     * <p>Checks only, changes nothing: use it to tell someone their name is wrong while they are
+     * <p>One finding per id that violates something, carrying a suggested replacement; an empty
+     * list means every candidate is acceptable. Supply {@code names} alongside the ids where you
+     * have them: the suggestion is derived from the name a human chose, so "Valve pressure
+     * sensors" can be offered {@code valve_pressure_sensors} where a broken id alone yields little.
+     *
+     * <p>Checks only, writes nothing: use it to tell someone their name is wrong while they are
      * still typing it, rather than failing the create.
+     *
+     * <p>The endpoint wraps the list in a {@code {"findings": [...]}} envelope; this unwraps it,
+     * as {@code events().count()} unwraps {@code {"count": N}}.
      */
-    public Map<String, List<PolicyFinding>> checkNaming(NamingCheckForm form) {
-        return http.post("/policies/naming/check", form, findings);
+    public List<PolicyFinding> checkNaming(NamingCheckForm form) {
+        Map<String, List<PolicyFinding>> response = http.post("/policies/naming/check", form, findings);
+        List<PolicyFinding> found = response == null ? null : response.get("findings");
+        return found == null ? List.of() : found;
     }
 
     /** DELETE /policies/delete — the endpoint answers {@code 204} with no body. */
