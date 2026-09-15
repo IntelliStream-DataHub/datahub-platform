@@ -29,6 +29,14 @@ public final class FieldLimits {
 
     public static final int RELATED_RESOURCES_MAX = 100;
 
+    /**
+     * Matches the create-side {@code ^$|.{2,128}} on NodeModel.source and EventModel's
+     * {@code @Size(min = 2, max = 128)}. The hand-written update validators capped it at 64, so a
+     * source between 65 and 128 characters could be created and then never updated — the entity was
+     * stuck with a value the update path refused to accept back.
+     */
+    public static final int SOURCE_MAX = 128;
+
     public static final int LABELS_MAX = 64;
 
     public static final int LABEL_LENGTH_MAX = 512;

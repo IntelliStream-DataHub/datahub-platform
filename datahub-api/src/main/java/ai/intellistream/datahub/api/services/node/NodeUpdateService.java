@@ -264,7 +264,16 @@ public class NodeUpdateService {
         return applied;
     }
 
-    public NodeEntity updateNode(NodeEntity resource, UpdateResourceForm form) {
+    /**
+     * Field validation for a node update command, as a 400 carrying every failure.
+     *
+     * <p>Public because {@code updateNode} is not the only entry point. {@code PolicyService.update}
+     * drives this service directly — authorize, guardRenames, judgeNaming, apply — and so reached
+     * the pipeline without ever passing through the check below, which is why a policy update was
+     * the one node update that validated nothing. It translates its form into an
+     * {@link UpdateResourceForm} already; this is the missing half of that translation.
+     */
+    public void validateOrThrow(UpdateResourceForm form) {
         ResponseError<BadRequestError> errors = new ResponseError<>();
         if(!form.getUpdate().validateFields()){
             errors.setError(new BadRequestError());
@@ -273,6 +282,12 @@ public class NodeUpdateService {
             });
             throw new BadRequestException(errors);
         }
+    }
+
+    public NodeEntity updateNode(NodeEntity resource, UpdateResourceForm form) {
+        validateOrThrow(form);
+        // Reused further down for the unrelated "dataset not found" 400.
+        ResponseError<BadRequestError> errors = new ResponseError<>();
 
         ResourceFields fields = form.getUpdate();
         resource.setLastUpdated(ZonedDateTime.now());
