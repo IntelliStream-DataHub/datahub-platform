@@ -702,7 +702,12 @@ public class ClickHouseEventService extends ClickHouseService {
 
             if(timeFilter.getMax() != null){
                 ZonedDateTime startTimeMax = timeFilter.getMax();
-                criterias.add( new SqlField("event_time", startTimeMax, "event_time < {startTimeMax:DateTime64(3)} ") );
+                // Inclusive, like createdTime and lastUpdatedTime above and like every node and
+                // subscription window (which use lessThanOrEqualTo). TimeFilter is one shared type
+                // and its schema says "an inclusive time window"; this was the only bound in the
+                // API that disagreed, so an event landing exactly on max — the common case for a
+                // day boundary such as ...T00:00:00Z — was dropped.
+                criterias.add( new SqlField("event_time", startTimeMax, "event_time <= {startTimeMax:DateTime64(3)} ") );
                 params.put("startTimeMax", toChDateTime(startTimeMax));
             }
         }
@@ -1143,7 +1148,8 @@ public class ClickHouseEventService extends ClickHouseService {
                 params.put("evStart", toChDateTime(tf.getMin()));
             }
             if (tf.getMax() != null) {
-                c.add("event_time < {evEnd:DateTime64(3)}");
+                // Inclusive, matching collectFilterCriteria and TimeFilter's contract.
+                c.add("event_time <= {evEnd:DateTime64(3)}");
                 params.put("evEnd", toChDateTime(tf.getMax()));
             }
         }
