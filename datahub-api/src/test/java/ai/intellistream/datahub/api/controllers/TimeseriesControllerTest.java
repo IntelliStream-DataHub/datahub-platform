@@ -8,6 +8,8 @@ import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
+import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.TimeseriesService;
@@ -74,7 +76,8 @@ class TimeseriesControllerTest {
                 .setControllerAdvice(new ConcurrencyExceptionHandler(),
                         // The controller no longer catches these; the advices answer them.
                         new DuplicateDataExceptionHandler(),
-                        new ConstraintViolationExceptionHandler())
+                        new ConstraintViolationExceptionHandler(),
+                        new ResourceDeleteExceptionHandler())
                 .build();
     }
 
@@ -202,33 +205,35 @@ class TimeseriesControllerTest {
                 .andExpect(jsonPath("$.error").doesNotExist());
     }
 
-    // --- 400: delete blocked by a subscription -----------------------------------------------
+    // --- 409: delete blocked by a subscription -----------------------------------------------
 
     @Test
-    void delete_timeseriesReferencedBySubscription_returns400_withBlockingSubscriptions() throws Exception {
+    void delete_timeseriesReferencedBySubscription_returns409_withBlockingSubscriptions() throws Exception {
         // The shared resource-delete pipeline refuses to delete a timeseries still referenced by a
         // subscription and throws ResourceDeleteException carrying the blocking subscription(s).
-        // The controller must map that to 400 with the error body — not let it fall through to 500.
-        var err = new BadRequestError();
-        err.setMessage("Cannot delete resource(s) that are referenced by subscription(s). "
-                + "Remove the subscriptions first.");
-        err.getFields().add(Map.of(
-                "type", "subscription",
-                "subscriptionExternalId", "sub_a",
-                "timeseriesId", "5"));
-        var resp = new ResponseError<BadRequestError>();
-        resp.setError(err);
-        Mockito.doThrow(new ResourceDeleteException(resp))
+        // The controller no longer catches it; ResourceDeleteExceptionHandler answers with a
+        // problem whose `blockedBy` names the subscription the caller has to remove first.
+        Mockito.doThrow(new ResourceDeleteException(Problems.REFERENCED,
+                        "Cannot delete resource(s) that are referenced by subscription(s). "
+                                + "Remove the subscriptions first.",
+                        List.of(Map.of(
+                                "subscriptionId", "9",
+                                "subscriptionExternalId", "sub_a",
+                                "timeseriesId", "5"))))
                 .when(timeseriesService).deleteTimeseries(any());
 
         mvc.perform(post("/timeseries/delete")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"externalId\":\"sensor_temp_room_a\"}]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.message", containsString("subscription")))
-                .andExpect(jsonPath("$.error.fields[0].subscriptionExternalId").value("sub_a"))
-                .andExpect(jsonPath("$.error.fields[0].timeseriesId").value("5"));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/referenced"))
+                .andExpect(jsonPath("$.title").value("Delete refused"))
+                .andExpect(jsonPath("$.detail", containsString("subscription")))
+                .andExpect(jsonPath("$.blockedBy[0].subscriptionExternalId").value("sub_a"))
+                .andExpect(jsonPath("$.blockedBy[0].timeseriesId").value("5"))
+                // The old ResponseError envelope is gone, not merely renamed.
+                .andExpect(jsonPath("$.error").doesNotExist());
     }
 
     // --- insert data-points ------------------------------------------------------------------

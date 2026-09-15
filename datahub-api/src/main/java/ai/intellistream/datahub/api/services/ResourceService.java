@@ -22,6 +22,7 @@ import ai.intellistream.datahub.api.messaging.events.DatasetAclInvalidationEvent
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.services.graph.GraphSyncCommand;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -1068,18 +1069,13 @@ public class ResourceService {
                 List<String> strandedExternalIds = strandedSorted.stream()
                         .map(id -> externalIdById.getOrDefault(id, String.valueOf(id)))
                         .toList();
-                var err = new BadRequestError();
-                err.setMessage("Deleting this selection would disconnect resource(s) " + strandedExternalIds
-                        + " from the graph root. Include them in the deletion or keep a connecting path.");
-                for (Long id : strandedSorted) {
-                    err.getFields().add(Map.of(
-                            "type", "strandedResource",
-                            "externalId", externalIdById.getOrDefault(id, String.valueOf(id))
-                    ));
-                }
-                var resp = new ResponseError<BadRequestError>();
-                resp.setError(err);
-                throw new ResourceDeleteException(resp);
+                List<Map<String, String>> blockedBy = strandedSorted.stream()
+                        .map(id -> Map.of("externalId", externalIdById.getOrDefault(id, String.valueOf(id))))
+                        .toList();
+                throw new ResourceDeleteException(Problems.WOULD_STRAND,
+                        "Deleting this selection would disconnect resource(s) " + strandedExternalIds
+                                + " from the graph root. Include them in the deletion or keep a connecting path.",
+                        blockedBy);
             }
         }
 
@@ -1127,14 +1123,11 @@ public class ResourceService {
         List<SubscriptionEntity> subs = subscriptionRepository.findAllByTimeseriesIdIn(resourceIdList);
         if (subs.isEmpty()) return;
 
-        var err = new BadRequestError();
-        err.setMessage("Cannot delete resource(s) that are referenced by subscription(s). "
-                + "Remove the subscriptions first.");
+        List<Map<String, String>> blockedBy = new ArrayList<>();
         for (SubscriptionEntity sub : subs) {
             for (TimeseriesEntity ts : sub.getTimeseries()) {
                 if (ts.getId() != null && resourceIdList.contains(ts.getId())) {
-                    err.getFields().add(Map.of(
-                            "type", "subscription",
+                    blockedBy.add(Map.of(
                             "subscriptionId", String.valueOf(sub.getId()),
                             "subscriptionExternalId", sub.getExternalId(),
                             "timeseriesId", String.valueOf(ts.getId())
@@ -1142,9 +1135,10 @@ public class ResourceService {
                 }
             }
         }
-        var resp = new ResponseError<BadRequestError>();
-        resp.setError(err);
-        throw new ResourceDeleteException(resp);
+        throw new ResourceDeleteException(Problems.REFERENCED,
+                "Cannot delete resource(s) that are referenced by subscription(s). "
+                        + "Remove the subscriptions first.",
+                blockedBy);
     }
 
     @Transactional(readOnly = true)
