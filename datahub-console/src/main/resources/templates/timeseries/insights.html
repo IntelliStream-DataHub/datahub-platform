@@ -230,7 +230,6 @@
 				attrs: item => ({ 'data-root-id': item.id, 'data-external-id': item.externalId }),
 				labels: () => ['TIMESERIES'],
 				search: {
-					direct: true,
 					path: '/timeseries/search',
 					body: q => ({ search: { query: q } }),
 					items: json => json.items

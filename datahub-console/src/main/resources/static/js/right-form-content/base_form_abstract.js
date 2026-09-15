@@ -369,25 +369,6 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		});
 	}
 
-	submit(){
-		this.formData = new FormData(this.formElement);
-		const obj = Object.fromEntries(this.formData);
-		fetch(this.formElement.action, {
-			method: this.formElement.method,
-			headers: {
-				'Accept': 'application/json',
-				'Content-Type': 'application/json',
-				[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-			},
-			signal: AbortSignal.timeout(10000),
-			body: JSON.stringify(obj)
-		}).then( response => {
-			this.handleResponse(response);
-		}).catch(() => {
-			console.error("Update failed");
-		});
-	}
-
 	handleResponse(response) {
 		if (response.status >= 400) {
 			DataHubProblem.read(response).then(problem => {
@@ -421,9 +402,8 @@ class DatasetFormAbstract extends BaseFormAbstract{
 	}
 
 	/**
-	 * The entity handed to `afterSave`. Forms posting through the console's proxy get a bare object
-	 * back; forms calling datahub-api directly get its `{items:[…]}` envelope and override this to
-	 * unwrap, so an afterSave callback sees one saved entity either way.
+	 * What `afterSave` receives. The api answers a write with an envelope, and each form decides
+	 * whether its callers want that envelope or the one entity in it.
 	 */
 	savedItem(json){
 		return json;
@@ -612,37 +592,27 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		}
 	}
 
+	/** GET {apiPath}/{id}; the api answers a single lookup in its {items:[…]} envelope too. */
 	loadData(callback){
 		if(this.entityId === null) return;
-		fetch(this.apiURL + "/" + this.entityId, {
-			method: 'GET',
-			headers: {
-				'Accept': 'application/json'
-			}
-		})
-			.then(response => {
-				return response.json();
-			})
+		Api.get(this.apiPath + "/" + encodeURIComponent(this.entityId))
+			.then(response => response.ok ? response.json() : DataHubProblem.read(response).then(problem => { throw problem; }))
 			.then(json => {
-				this.loadCompleteCallback(json);
+				const entity = json.items[0];
+				this.loadCompleteCallback(entity);
 				if(callback instanceof Function){
-					callback(json);
+					callback(entity);
 				}
 			})
 			.catch( e => {
-				console.error(e);
+				if(e instanceof DataHubProblem) this.flashError(e.message(), e.details());
+				else console.error(e);
 			});
 	};
 
 	delete(){
-		fetch(this.apiURL + "/delete/" + this.entityId,
-			{
-				method: 'DELETE',
-				headers: {
-					'Accept': 'application/json',
-					[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-				}
-			})
+		// The id stays the string it arrived as: the server reads it into a Long, and converting rounds above 2^53.
+		Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
 			.then( xhr => {
 				// If successful delete
 				if(xhr.status === 200 || xhr.status === 204){

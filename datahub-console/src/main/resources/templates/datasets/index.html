@@ -55,7 +55,6 @@
 				attrs: item => ({ 'data-id': item.id }),
 				labels: () => ['DATASET'],
 				search: {
-					direct: true,                 // straight to datahub-api (bearer token), no console proxy
 					path: '/datasets/search',
 					body: q => ({ search: { query: q } }),
 					items: json => json.items
