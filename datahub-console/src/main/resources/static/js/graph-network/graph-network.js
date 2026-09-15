@@ -542,7 +542,7 @@ class GraphNetwork {
 
         // Add (or re-open) the dataset's policy node. One policy per dataset: if a POLICY child is
         // already in view, open it; otherwise create one (PolicyForm create mode, dataSetId pre-set
-        // → /api/policies/create builds the node + ENFORCED_ON edge and publishes it to the graph).
+        // → POST /policies/create builds the node + ENFORCED_ON edge and publishes it to the graph).
         const openPolicyFlow = () => {
             const existingPolicy = node.outgoers('node').filter(n =>
                 (n.data('labels') || []).map(l => String(l).toUpperCase()).includes('POLICY'));
