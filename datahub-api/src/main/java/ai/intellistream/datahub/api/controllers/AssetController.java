@@ -5,7 +5,6 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.AssetDataWrapper;
@@ -43,6 +42,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.http.ProblemDetail;
 
 /**
  * The typed endpoint family for assets: the node type that can be a navigation root and the only
@@ -286,6 +286,30 @@ public class AssetController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = BadRequestError.class)
             ))
+    @ApiResponse(responseCode = "409", description =
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
+            ))
     @RequestMapping(
             path = "/delete",
             produces = MediaType.APPLICATION_JSON_VALUE,
@@ -295,11 +319,7 @@ public class AssetController {
     public ResponseEntity<?> deleteAsset(
             @Schema(implementation = IdCollectionDataWrapper.class)
             @RequestBody DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
-        try {
-            assetService.delete(apiReqData);
-            return ResponseEntity.noContent().build();
-        } catch (ResourceDeleteException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        assetService.delete(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 }

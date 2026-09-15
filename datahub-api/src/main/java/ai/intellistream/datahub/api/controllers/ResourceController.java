@@ -41,6 +41,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/resources")
@@ -745,35 +746,30 @@ public class ResourceController {
     )
     @ApiResponse(responseCode = "204", description = "The targeted resources (and any connected relationships pointing AT them) were deleted. No response body.",
             content = @Content)
-    @ApiResponse(responseCode = "400", description =
-            "Something prevents the delete from being safe. Most commonly the delete would " +
-                    "disconnect part of the graph from its root — the response names the " +
-                    "resources that would be stranded so you can include them or re-attach them.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
-                    examples = @ExampleObject(value = """
-                            {
-                              "error": {
-                                "code": 400,
-                                "message": "Deleting this selection would disconnect resource(s) [42, 43] from the graph root. Include them in the deletion or keep a connecting path."
-                              }
-                            }
-                            """)
-            ))
     @ApiResponse(responseCode = "409", description =
-            "Someone else changed or deleted one of the targeted resources while your delete " +
-                    "was in flight. No resources were removed. Re-fetch state and retry.",
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/referenced` — a targeted node is a timeseries still bound to a \
+              subscription (this endpoint resolves nodes whatever their type). `blockedBy` names \
+              the subscriptions so you can remove them first.
+            - `.../errors/optimistic-lock` — someone else changed or deleted one of the targeted \
+              resources while your delete was in flight. Re-fetch state and retry.
+            """,
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
-                              "error": {
-                                "code": 409,
-                                "cause": "concurrency",
-                                "message": "The resource was modified or removed by another request. Re-read and retry."
-                              }
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
                             }
                             """)
             ))
@@ -802,23 +798,19 @@ public class ResourceController {
             @RequestBody @Schema(implementation = IdCollectionDataWrapper.class)
                                         DataWrapper<IdCollection> form
     ) throws PulsarClientException {
-        try {
-            var entities = new GraphDataWrapper<Resource, EdgeProxy>();
-            form.getItems().forEach(it -> {
-                Resource r = new Resource();
-                if(it.getId() != null){
-                    r.setId(it.getId());
-                    entities.getNodes().add(r);
-                } else if(it.getExternalId() != null){
-                    r.setExternalId(it.getExternalId());
-                    entities.getNodes().add(r);
-                }
-            });
-            resourceService.delete(entities);
-            return ResponseEntity.noContent().build();
-        } catch (ResourceDeleteException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        var entities = new GraphDataWrapper<Resource, EdgeProxy>();
+        form.getItems().forEach(it -> {
+            Resource r = new Resource();
+            if(it.getId() != null){
+                r.setId(it.getId());
+                entities.getNodes().add(r);
+            } else if(it.getExternalId() != null){
+                r.setExternalId(it.getExternalId());
+                entities.getNodes().add(r);
+            }
+        });
+        resourceService.delete(entities);
+        return ResponseEntity.noContent().build();
     }
 
 }

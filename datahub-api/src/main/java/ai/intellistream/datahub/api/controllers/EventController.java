@@ -530,14 +530,9 @@ public class EventController {
             @RequestBody
             DataWrapper<UUIDAndExternalIdCollection> apiReqData
     ) throws PulsarClientException {
-        try {
-            eventService.delete(apiReqData);
-            // 204, like every other delete on the API. This was the lone 200-with-empty-body.
-            return ResponseEntity.noContent().build();
-        } catch (ResourceDeleteException e){
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        eventService.delete(apiReqData);
+        // 204, like every other delete on the API. This was the lone 200-with-empty-body.
+        return ResponseEntity.noContent().build();
     }
 
     @Tag(name = "Events")
