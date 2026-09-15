@@ -10,7 +10,8 @@ import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetAccessDeniedException;
-import ai.intellistream.datahub.repositories.node.SeriesMeta;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository.IngestTarget;
 import ai.intellistream.datahub.tenant.TenantContext;
 import org.apache.pulsar.client.api.Producer;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
@@ -26,6 +27,7 @@ import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +36,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -55,7 +58,7 @@ class DatapointBinaryIngestServiceTest {
     static final PayloadCodec ZSTD = new ZstdPayloadCodec(1);
     static final String TENANT = "acme";
 
-    @Mock TimeseriesMetaLookup metaLookup;
+    @Mock TimeseriesRepository timeseriesRepository;
     @Mock DataSecurity dataSecurity;
     @Mock IngestQuotaService ingestQuota;
     @Mock LatestDatapointCache latestDatapointCache;
@@ -64,7 +67,7 @@ class DatapointBinaryIngestServiceTest {
     @Mock LiveIngestCounter counter;
 
     final LimitsProperties limits = new LimitsProperties();
-    final Map<Long, SeriesMeta> catalogue = new HashMap<>();
+    final Map<Long, IngestTarget> catalogue = new HashMap<>();
     DatapointBinaryIngestService service;
 
     @BeforeEach
@@ -73,14 +76,14 @@ class DatapointBinaryIngestServiceTest {
         when(producer.newMessage()).thenReturn(message);
         when(message.property(anyString(), anyString())).thenReturn(message);
         when(message.value(any())).thenReturn(message);
-        when(metaLookup.resolve(any())).thenAnswer(inv -> {
-            Map<Long, SeriesMeta> found = new HashMap<>();
+        when(timeseriesRepository.findIngestTargetsByIdIn(anyCollection())).thenAnswer(inv -> {
+            List<IngestTarget> found = new ArrayList<>();
             for (Long id : inv.<Collection<Long>>getArgument(0)) {
-                if (catalogue.containsKey(id)) found.put(id, catalogue.get(id));
+                if (catalogue.containsKey(id)) found.add(catalogue.get(id));
             }
             return found;
         });
-        service = new DatapointBinaryIngestService(metaLookup, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
+        service = new DatapointBinaryIngestService(timeseriesRepository, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
     }
 
     @AfterEach
@@ -89,7 +92,7 @@ class DatapointBinaryIngestServiceTest {
     }
 
     private void series(long id, DatapointValueType type, long dataset) {
-        catalogue.put(id, new SeriesMeta(id, "s" + id, type.id(), dataset));
+        catalogue.put(id, new IngestTarget(id, "s" + id, type.id(), dataset));
     }
 
     private static byte[] frame(DatapointValueType type, long... ids) {
@@ -179,7 +182,7 @@ class DatapointBinaryIngestServiceTest {
 
     @Test
     void aStaleExternalIdIsRefused() {
-        catalogue.put(1L, new SeriesMeta(1, "renamed", DatapointValueType.FLOAT32.id(), 10L));
+        catalogue.put(1L, new IngestTarget(1, "renamed", DatapointValueType.FLOAT32.id(), 10L));
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
 
         assertThatThrownBy(() -> service.ingest(body, body.length))
@@ -241,7 +244,7 @@ class DatapointBinaryIngestServiceTest {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
                     assertThat(e.getReason()).isEqualTo("frame-too-large");
                 });
-        verify(metaLookup, never()).resolve(any());
+        verify(timeseriesRepository, never()).findIngestTargetsByIdIn(any());
     }
 
     @Test
@@ -257,7 +260,7 @@ class DatapointBinaryIngestServiceTest {
     void tooManyInFlightIsA429WithRetryAfter() {
         limits.setMaxInFlightDatapointsBinary(0);
         DatapointBinaryIngestService saturated = new DatapointBinaryIngestService(
-                metaLookup, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
+                timeseriesRepository, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
 
         assertThatThrownBy(() -> saturated.ingest(body, body.length))
@@ -272,7 +275,7 @@ class DatapointBinaryIngestServiceTest {
     void thePermitIsReleasedAfterARefusal() {
         limits.setMaxInFlightDatapointsBinary(1);
         DatapointBinaryIngestService single = new DatapointBinaryIngestService(
-                metaLookup, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
+                timeseriesRepository, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
         byte[] garbage = new byte[10];
         assertThatThrownBy(() -> single.ingest(garbage, 10)).isInstanceOf(DatapointBlockRejectedException.class);
         series(1, DatapointValueType.FLOAT32, 10);

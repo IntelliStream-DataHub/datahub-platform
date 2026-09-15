@@ -9,7 +9,8 @@ import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
-import ai.intellistream.datahub.repositories.node.SeriesMeta;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository.IngestTarget;
 import ai.intellistream.datahub.tenant.TenantContext;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.Producer;
@@ -18,6 +19,8 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -35,7 +38,7 @@ import java.util.concurrent.Semaphore;
  * end to end; this class decompresses copies only to check them.
  *
  * <p>Order of work, and why: the envelopes and directories first (cheap, no payload touched),
- * then the payloads in parallel, then one cached lookup per distinct series, the dataset write
+ * then the payloads in parallel, then one lookup of every distinct series, the dataset write
  * check once per distinct dataset, the value type and external id of every series against what
  * the frame claims, the quotas, and only then the publish. A failure anywhere means nothing was
  * sent, so the SDK can retry the whole request without double inserts.
@@ -47,7 +50,10 @@ public class DatapointBinaryIngestService {
     public record Summary(int frames, long rows, int series) {
     }
 
-    private final TimeseriesMetaLookup metaLookup;
+    /** Ids per query, so a request naming very many series stays under Postgres' bind-parameter limit. */
+    static final int QUERY_CHUNK = 5_000;
+
+    private final TimeseriesRepository timeseriesRepository;
     private final DataSecurity dataSecurity;
     private final IngestQuotaService ingestQuota;
     private final LatestDatapointCache latestDatapointCache;
@@ -57,14 +63,14 @@ public class DatapointBinaryIngestService {
     private final Semaphore inFlight;
     private final PayloadCodec codec = new ZstdPayloadCodec();
 
-    public DatapointBinaryIngestService(TimeseriesMetaLookup metaLookup,
+    public DatapointBinaryIngestService(TimeseriesRepository timeseriesRepository,
                                         DataSecurity dataSecurity,
                                         IngestQuotaService ingestQuota,
                                         LatestDatapointCache latestDatapointCache,
                                         @Qualifier("allDatapointBlockProducer") Producer<byte[]> blockProducer,
                                         @Qualifier("datapointIngestCounter") LiveIngestCounter datapointIngestCounter,
                                         LimitsProperties limits) {
-        this.metaLookup = metaLookup;
+        this.timeseriesRepository = timeseriesRepository;
         this.dataSecurity = dataSecurity;
         this.ingestQuota = ingestQuota;
         this.latestDatapointCache = latestDatapointCache;
@@ -100,10 +106,10 @@ public class DatapointBinaryIngestService {
                 ids.add(id);
             }
         }
-        Map<Long, SeriesMeta> meta = metaLookup.resolve(ids);
+        Map<Long, IngestTarget> series = findSeries(ids);
         List<Long> unknown = new ArrayList<>();
         for (Long id : ids) {
-            if (!meta.containsKey(id)) {
+            if (!series.containsKey(id)) {
                 unknown.add(id);
             }
         }
@@ -113,8 +119,8 @@ public class DatapointBinaryIngestService {
 
         // Writing datapoints is a write to the series' dataset; check each dataset once.
         Set<Long> datasets = new HashSet<>();
-        for (SeriesMeta m : meta.values()) {
-            datasets.add(m.dataSetId());
+        for (IngestTarget target : series.values()) {
+            datasets.add(target.dataSetId());
         }
         for (Long dataset : datasets) {
             dataSecurity.assertCanWriteDataSet(dataset);
@@ -127,10 +133,10 @@ public class DatapointBinaryIngestService {
             List<Long> wrongType = new ArrayList<>();
             List<Long> renamed = new ArrayList<>();
             for (Run run : f.runs()) {
-                SeriesMeta m = meta.get(run.id());
-                if (m.valueTypeId() != f.valueType().id()) {
+                IngestTarget target = series.get(run.id());
+                if (target.valueTypeId() != f.valueType().id()) {
                     wrongType.add(run.id());
-                } else if (!m.externalId().equals(run.externalId())) {
+                } else if (!target.externalId().equals(run.externalId())) {
                     renamed.add(run.id());
                 }
             }
@@ -184,6 +190,18 @@ public class DatapointBinaryIngestService {
         }
         datapointIngestCounter.recordIngested(tenantId, totalRows);
         return new Summary(frames.size(), totalRows, ids.size());
+    }
+
+    private Map<Long, IngestTarget> findSeries(Collection<Long> ids) {
+        List<Long> wanted = List.copyOf(ids);
+        Map<Long, IngestTarget> found = new HashMap<>();
+        for (int from = 0; from < wanted.size(); from += QUERY_CHUNK) {
+            List<Long> chunk = wanted.subList(from, Math.min(wanted.size(), from + QUERY_CHUNK));
+            for (IngestTarget target : timeseriesRepository.findIngestTargetsByIdIn(chunk)) {
+                found.put(target.id(), target);
+            }
+        }
+        return found;
     }
 
     private List<DatapointFrame> parse(byte[] body) {

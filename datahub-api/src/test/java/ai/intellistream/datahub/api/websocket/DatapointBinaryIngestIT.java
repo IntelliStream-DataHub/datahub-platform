@@ -11,8 +11,8 @@ import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
 import ai.intellistream.datahub.api.services.IngestQuotaService;
 import ai.intellistream.datahub.api.services.LatestDatapointCache;
 import ai.intellistream.datahub.api.services.LiveIngestCounter;
-import ai.intellistream.datahub.api.services.TimeseriesMetaLookup;
-import ai.intellistream.datahub.repositories.node.SeriesMeta;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository.IngestTarget;
 import ai.intellistream.datahub.tenant.TenantContext;
 import org.apache.pulsar.client.api.CompressionType;
 import org.apache.pulsar.client.api.Consumer;
@@ -24,15 +24,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -55,22 +56,22 @@ class DatapointBinaryIngestIT extends AbstractPulsarWebSocketIT {
         if (producer != null) producer.close();
     }
 
-    private DatapointBinaryIngestService service(Map<Long, SeriesMeta> catalogue) throws Exception {
+    private DatapointBinaryIngestService service(Map<Long, IngestTarget> catalogue) throws Exception {
         producer = pulsarClient.newProducer(Schema.BYTES)
                 .topic(ALL_DATAPOINT_BLOCKS_TOPIC)
                 .compressionType(CompressionType.NONE)
                 .enableBatching(true)
                 .create();
-        TimeseriesMetaLookup metaLookup = mock(TimeseriesMetaLookup.class);
-        when(metaLookup.resolve(any())).thenAnswer(inv -> {
-            Map<Long, SeriesMeta> found = new HashMap<>();
+        TimeseriesRepository timeseriesRepository = mock(TimeseriesRepository.class);
+        when(timeseriesRepository.findIngestTargetsByIdIn(anyCollection())).thenAnswer(inv -> {
+            List<IngestTarget> found = new ArrayList<>();
             for (Long id : inv.<Collection<Long>>getArgument(0)) {
-                if (catalogue.containsKey(id)) found.put(id, catalogue.get(id));
+                if (catalogue.containsKey(id)) found.add(catalogue.get(id));
             }
             return found;
         });
         TenantContext.setTenantId(TENANT);
-        return new DatapointBinaryIngestService(metaLookup, mock(DataSecurity.class), mock(IngestQuotaService.class),
+        return new DatapointBinaryIngestService(timeseriesRepository, mock(DataSecurity.class), mock(IngestQuotaService.class),
                 mock(LatestDatapointCache.class), producer, mock(LiveIngestCounter.class), new LimitsProperties());
     }
 
@@ -85,9 +86,9 @@ class DatapointBinaryIngestIT extends AbstractPulsarWebSocketIT {
 
     @Test
     void framesReachTheTopicAsSent() throws Exception {
-        Map<Long, SeriesMeta> catalogue = new HashMap<>();
-        catalogue.put(1L, new SeriesMeta(1, "a", DatapointValueType.FLOAT32.id(), 10L));
-        catalogue.put(2L, new SeriesMeta(2, "b", DatapointValueType.TEXT.id(), 10L));
+        Map<Long, IngestTarget> catalogue = new HashMap<>();
+        catalogue.put(1L, new IngestTarget(1, "a", DatapointValueType.FLOAT32.id(), 10L));
+        catalogue.put(2L, new IngestTarget(2, "b", DatapointValueType.TEXT.id(), 10L));
         Consumer<byte[]> sub = subscribe("it-blocks-" + System.nanoTime());
         DatapointBinaryIngestService service = service(catalogue);
 
@@ -122,11 +123,11 @@ class DatapointBinaryIngestIT extends AbstractPulsarWebSocketIT {
     void aFrameAtTheSizeCapPassesTheBroker() throws Exception {
         // 100k rows over 10k series with incompressible values: the largest numeric frame the
         // contract allows, and the closest a real frame gets to the broker's 5 MiB message limit.
-        Map<Long, SeriesMeta> catalogue = new HashMap<>();
+        Map<Long, IngestTarget> catalogue = new HashMap<>();
         DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.FLOAT);
         Random random = new Random(42);
         for (long id = 1; id <= 10_000; id++) {
-            catalogue.put(id, new SeriesMeta(id, "series_" + id, DatapointValueType.FLOAT.id(), 10L));
+            catalogue.put(id, new IngestTarget(id, "series_" + id, DatapointValueType.FLOAT.id(), 10L));
             w.series(id, "series_" + id);
             long ts = 1_700_000_000_000L;
             for (int p = 0; p < 10; p++) {

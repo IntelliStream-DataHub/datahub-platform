@@ -4,6 +4,7 @@ package ai.intellistream.datahub.repositories.node;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesValueType;
+import ai.intellistream.datahub.repositories.node.TimeseriesRepository.IngestTarget;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -37,12 +38,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("integration")
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@ContextConfiguration(classes = SeriesMetaProjectionIT.JpaConfig.class)
-class SeriesMetaProjectionIT {
+@ContextConfiguration(classes = IngestTargetProjectionIT.JpaConfig.class)
+class IngestTargetProjectionIT {
 
     @DynamicPropertySource
     static void datasource(DynamicPropertyRegistry registry) {
-        String url = SharedPostgres.newDatabase("series_meta_projection_it");
+        String url = SharedPostgres.newDatabase("ingest_target_projection_it");
         registry.add("spring.datasource.url", () -> url);
         registry.add("spring.datasource.username", SharedPostgres::username);
         registry.add("spring.datasource.password", SharedPostgres::password);
@@ -87,8 +88,8 @@ class SeriesMetaProjectionIT {
         long floatId = series("pump_pressure", TimeseriesValueType.FLOAT32, dataset);
         long textId = series("pump_state", TimeseriesValueType.TEXT, dataset);
 
-        Map<Long, SeriesMeta> found = timeseriesRepository.findSeriesMetaByIdIn(List.of(floatId, textId))
-                .stream().collect(Collectors.toMap(SeriesMeta::id, Function.identity()));
+        Map<Long, IngestTarget> found = timeseriesRepository.findIngestTargetsByIdIn(List.of(floatId, textId))
+                .stream().collect(Collectors.toMap(IngestTarget::id, Function.identity()));
 
         assertThat(found).hasSize(2);
         assertThat(found.get(floatId).externalId()).isEqualTo("pump_pressure");
@@ -106,7 +107,7 @@ class SeriesMetaProjectionIT {
     void orphanSeriesSurvivesTheJoin() {
         long orphanId = series("orphan_sensor", TimeseriesValueType.BIGINT, null);
 
-        List<SeriesMeta> found = timeseriesRepository.findSeriesMetaByIdIn(List.of(orphanId));
+        List<IngestTarget> found = timeseriesRepository.findIngestTargetsByIdIn(List.of(orphanId));
 
         assertThat(found).singleElement().satisfies(meta -> {
             assertThat(meta.id()).isEqualTo(orphanId);
@@ -121,8 +122,8 @@ class SeriesMetaProjectionIT {
     void unknownIdsAreAbsent() {
         long known = series("known_sensor", TimeseriesValueType.FLOAT, null);
 
-        List<SeriesMeta> found = timeseriesRepository.findSeriesMetaByIdIn(List.of(known, 987_654_321L));
+        List<IngestTarget> found = timeseriesRepository.findIngestTargetsByIdIn(List.of(known, 987_654_321L));
 
-        assertThat(found).extracting(SeriesMeta::id).containsExactly(known);
+        assertThat(found).extracting(IngestTarget::id).containsExactly(known);
     }
 }
