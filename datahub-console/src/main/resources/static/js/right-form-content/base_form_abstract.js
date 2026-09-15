@@ -746,11 +746,6 @@ class DatasetFormAbstract extends BaseFormAbstract{
 	}
 }
 
-class DataWrapper {
-	constructor() {
-		this.items = [];
-	}
-}
 class UpdateFields {
 	constructor() {}
 	set(field, value){

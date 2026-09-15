@@ -1,21 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.api;
 
-import ai.intellistream.datahub.api.responses.DataCollection;
-import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.files.IndexNode;
-import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
-import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.api.responses.ResourceNetwork;
 import ai.intellistream.dhconsole.models.TimeseriesQueryParams;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import feign.Headers;
 import feign.Param;
 import feign.QueryMap;
@@ -57,9 +52,6 @@ public interface DatahubApi {
 
 
 
-    @RequestLine("POST /timeseries/data/list")
-    DataWrapper<DataCollection<?>> retrieveDatapoints(DataRetriever<RetrieveFilter> apiReqData);
-
     @RequestLine("POST /edges/byids")
     GraphDataWrapper<Resource, EdgeProxy> getEdgesAndRelatedNodes(DataWrapper<IdCollection> apiReqData);
 
@@ -80,21 +72,6 @@ public interface DatahubApi {
     // TIMESERIES
     @RequestLine("GET /timeseries")
     DataWrapper<Timeseries> getTimeseriesList(@QueryMap TimeseriesQueryParams queryParams);
-
-    @RequestLine("POST /timeseries/create")
-    DataWrapper<Timeseries> createTimeseries(DataWrapper<Timeseries> data);
-
-    @RequestLine("POST /timeseries/update")
-    DataWrapper<Timeseries> updateTimeseries(DataWrapper<UpdateTimeseries> data);
-
-    @RequestLine("POST /timeseries/search")
-    DataWrapper<Timeseries> searchTimeseries(SearchBody<TimeseriesFilter> reqData);
-
-    @RequestLine("POST /timeseries/byids")
-    DataWrapper<Timeseries> findTimeseriesByIds(DataWrapper<IdCollection> apiReqData);
-
-    @RequestLine("POST /timeseries/delete")
-    void deleteTimeseries(DataWrapper<IdCollection> data);
 
     // TENANT
     @RequestLine("GET /tenant/features")

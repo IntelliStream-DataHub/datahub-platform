@@ -54,85 +54,6 @@
 	<script th:inline="javascript">
 		document.addEventListener("DOMContentLoaded", () => {
 
-			const renderTopicStats = data => {
-				const rightMenuEle = document.querySelector("section.timeseries-data");
-				const existingTable = rightMenuEle.querySelector('table.topic-stats');
-				if(existingTable) existingTable.remove();
-				const tableEle = Object.assign(document.createElement('TABLE'), {
-					innerHTML: `
-						<table class="data listing">
-						<tbody>
-							<tr>
-								<td>${$L('messages.per.second')}</td>
-								<td></td>
-							</tr>
-							<tr>
-								<td>${$L('message.throughput.per.second')}</td>
-								<td></td>
-							</tr>
-							<tr>
-								<td>${$L('average.msg.size')}</td>
-								<td></td>
-							</tr>
-							<tr>
-								<td>${$L('total.messages')}</td>
-								<td></td>
-							</tr>
-							<tr>
-								<td>${$L('total.megabytes')}</td>
-								<td></td>
-							</tr>
-							<tr>
-								<td colspan="2">
-									<div>${$L('subscriptions')}</div>
-									<ul></ul>
-								</td>
-							</tr>
-						</tbody>
-						</table>
-					`,
-					className: "w100 data listing topic-stats"
-				});
-				rightMenuEle.append(tableEle);
-				rightMenuEle.querySelector("table:first-of-type tr:nth-child(1) td:nth-child(2)").textContent = data.msgRateIn;
-				rightMenuEle.querySelector("table:first-of-type tr:nth-child(2) td:nth-child(2)").textContent = data.msgThroughputIn;
-				rightMenuEle.querySelector("table:first-of-type tr:nth-child(3) td:nth-child(2)").textContent = data.averageMsgSize;
-				rightMenuEle.querySelector("table:first-of-type tr:nth-child(4) td:nth-child(2)").textContent = data.msgInCounter;
-				rightMenuEle.querySelector("table:first-of-type tr:nth-child(5) td:nth-child(2)").textContent = data.bytesInCounter;
-				const subcriptionCell = rightMenuEle.querySelector("table:first-of-type tr:nth-child(6) td:first-child ul");
-				for(let i = 0; i < data.subscriptionNames.length; i++){
-					const subName = data.subscriptionNames[i];
-					subcriptionCell.append( Object.assign(document.createElement('li'), {
-						className: 'subscription-name',
-						textContent: subName
-					}));
-				}
-			};
-
-			// TODO: This may be relevant for other functionality
-			const fetchTopicStats = externalId => {
-				fetch('/api/timeseries/topic-stats', {
-					method: 'POST',
-					headers: {
-						'Accept': 'application/json',
-						'Content-type': 'application/json',
-						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-					},
-					body: JSON.stringify({items: [{"externalId": externalId}]})
-				})
-					.then(response => {
-						return response.json();
-					})
-					.then( json => {
-						if(json.items.length > 0){
-							renderTopicStats(json.items[0]);
-						}
-					})
-					.catch((e) => {
-						console.log(e);
-					});
-			}
-
 			// Time-window controls live in the sub-nav (rendered by
 			// timeseries/nav.html). They start hidden on this page and reveal
 			// once the user picks a series. The picker writes wall-clock local
@@ -207,20 +128,7 @@
 				const endIso   = range.end.toISOString();
 				const spanSec  = (range.end - range.start) / 1000;
 				const granularity = InsightsChart.pickGranularityForSpan(spanSec);
-				fetch('/api/timeseries/data/by-hours-ago', {
-					method: 'POST',
-					headers: {
-						'Accept': 'application/json',
-						'Content-type': 'application/json',
-						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-					},
-					body: JSON.stringify({
-						"externalId": externalId,
-						"startTime": startIso,
-						"endTime": endIso,
-						"granularity": granularity
-					})
-				})
+				InsightsChart.requestDatapoints(externalId, startIso, endIso, { granularity: granularity })
 					.then(response => {
 						if(!response.ok) {
 							return DataHubProblem.read(response).then(problem => {
@@ -230,8 +138,6 @@
 									flash.style.margin = '10px';
 									flash.textContent = problem.message('error.problem.failed');
 									tsDataEle.replaceChildren(flash);
-									const topicStatsEle = tsDataEle.parentElement.querySelector('table.topic-stats');
-									if(topicStatsEle) topicStatsEle.remove();
 								}
 							});
 						}
@@ -260,7 +166,8 @@
 				attrs: item => ({ 'data-root-id': item.id, 'data-external-id': item.externalId }),
 				labels: () => ['TIMESERIES'],
 				search: {
-					url: '/api/timeseries/search',
+					direct: true,
+					path: '/timeseries/search',
 					body: q => ({ search: { query: q } }),
 					items: json => json.items
 				},
