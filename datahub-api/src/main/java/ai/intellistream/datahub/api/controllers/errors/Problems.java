@@ -62,6 +62,11 @@ public final class Problems {
     public static final URI OPTIMISTIC_LOCK = type("optimistic-lock");
     public static final URI BAD_REQUEST = type("bad-request");
 
+    /** A 409: a timeseries cannot be deleted while a subscription still reads it. */
+    public static final URI REFERENCED = type("referenced");
+    /** A 409: a deletion that would cut the surviving nodes off from the graph root. */
+    public static final URI WOULD_STRAND = type("would-strand");
+
     private Problems() {
     }
 
@@ -240,5 +245,31 @@ public final class Problems {
      */
     public static ProblemDetail conflict(URI type, String detail) {
         return of(HttpStatus.CONFLICT, type == null ? CONFLICT : type, "Conflict", detail);
+    }
+
+    /**
+     * A 409 for a delete something still depends on, listing what is in the way.
+     *
+     * <p>409, not the 400 these used to answer: nothing is wrong with the request. It is
+     * well-formed, the ids exist, and the caller may repeat it verbatim once the subscription is
+     * removed or the stranded nodes are included. That is the definition of a conflict with the
+     * current state of the resource, and it puts a refused delete alongside the other 409s — a
+     * taken external id, a lost optimistic lock — which are the same kind of "try again once the
+     * world changes" answer. A 400 told clients to fix their payload, which was never the remedy.
+     *
+     * <p>The blockers are structured records — a subscription's id and external id, or a stranded
+     * node's external id — not the {@code field -> message} pairs {@link #badRequest(String,
+     * Collection)} bridges. Flattening them through that bridge would turn one subscription into
+     * four unrelated "field errors", so they keep their own extension member: a caller can read the
+     * subscription external id and go delete it, which is the whole point of the message.
+     */
+    public static ProblemDetail deleteBlocked(URI type, String detail,
+                                              Collection<Map<String, String>> blockedBy) {
+        ProblemDetail problem = of(HttpStatus.CONFLICT, type == null ? CONFLICT : type,
+                "Delete refused", detail);
+        if (blockedBy != null && !blockedBy.isEmpty()) {
+            problem.setProperty("blockedBy", blockedBy);
+        }
+        return problem;
     }
 }

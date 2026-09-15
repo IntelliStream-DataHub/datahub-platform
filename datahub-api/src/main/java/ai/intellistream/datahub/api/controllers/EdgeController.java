@@ -4,8 +4,6 @@ package ai.intellistream.datahub.api.controllers;
 import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.docs.RelationshipTypeDataWrapper;
@@ -44,6 +42,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
 import java.util.List;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/edges")
@@ -302,26 +301,35 @@ public class EdgeController {
     @ApiResponse(responseCode = "204", description = "The relationships were deleted. No response body.",
             content = @Content)
     @ApiResponse(responseCode = "409", description =
-            "Concurrency conflict — another request modified or deleted the relationship " +
-                    "between read and write. Clients should re-fetch the current state and retry.",
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
             content = @Content(
-                    mediaType = "application/json",
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
             ))
     @RequestMapping(value = "/delete",
             method = {RequestMethod.POST, RequestMethod.DELETE})
     public ResponseEntity<?> delete(
             @Schema(implementation = IdCollectionDataWrapper.class)
             @RequestBody @Valid DataWrapper<IdCollection> apiReqData) throws Exception {
-        try {
-            edgeService.deleteRelationships(apiReqData);
-            return new ResponseEntity<>(HttpStatus.NO_CONTENT);
-        }
-        // Refusing the delete because it would strand node(s) from the graph root is a business
-        // rule, not a crash: the exception carries the offending resources (see
-        // ResourceService#delete). Surface it as a 400 with that list instead of a bare 500.
-        catch (ResourceDeleteException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        edgeService.deleteRelationships(apiReqData);
+        return new ResponseEntity<>(HttpStatus.NO_CONTENT);
     }
 }

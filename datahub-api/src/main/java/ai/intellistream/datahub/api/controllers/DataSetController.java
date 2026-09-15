@@ -6,10 +6,8 @@ import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -460,11 +458,28 @@ public class DataSetController {
     @ApiResponse(responseCode = "204", description = "The datasets were deleted. No response body.",
             content = @Content)
     @ApiResponse(responseCode = "409", description =
-            "Someone else changed or deleted one of the datasets while your delete was in " +
-                    "flight. No datasets were removed. Re-fetch state and retry.",
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
             ))
     @RequestMapping(value = { "/delete"},
             method = {RequestMethod.POST, RequestMethod.DELETE},
@@ -494,23 +509,19 @@ public class DataSetController {
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try {
-            var entities = new GraphDataWrapper<Resource, EdgeProxy>();
-            form.getItems().forEach(it -> {
-                Resource r = new Resource();
-                if(it.getId() != null){
-                    r.setId(it.getId());
-                    entities.getNodes().add(r);
-                } else if(it.getExternalId() != null){
-                    r.setExternalId(it.getExternalId());
-                    entities.getNodes().add(r);
-                }
-            });
+        var entities = new GraphDataWrapper<Resource, EdgeProxy>();
+        form.getItems().forEach(it -> {
+            Resource r = new Resource();
+            if(it.getId() != null){
+                r.setId(it.getId());
+                entities.getNodes().add(r);
+            } else if(it.getExternalId() != null){
+                r.setExternalId(it.getExternalId());
+                entities.getNodes().add(r);
+            }
+        });
 
-            resourceService.delete(entities);
-        } catch (ResourceDeleteException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        resourceService.delete(entities);
         return ResponseEntity.noContent().build();
     }
 
