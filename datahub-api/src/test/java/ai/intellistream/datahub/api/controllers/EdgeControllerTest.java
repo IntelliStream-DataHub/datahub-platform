@@ -3,14 +3,12 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.DataIntegrityViolationExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestExceptionHandler;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.EdgeService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.RelationshipType;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.RelForm;
@@ -117,7 +115,8 @@ class EdgeControllerTest {
     @Test
     void createTypes_nameNormalisesToNothing_returns400_viaServiceGuard() throws Exception {
         // "@#$" is not blank, so it passes @NotBlank, but RelationshipType.setName rejects it
-        // because it has no letter or digit. The controller must map that to a 400, not a 500.
+        // because it has no letter or digit. The controller must map that to a 400, not a 500 —
+        // and as a problem, not the bare unwrapped error object it used to return.
         when(edgeService.createRelationshipTypes(any()))
                 .thenThrow(new IllegalArgumentException("Relationship type name must not be blank"));
 
@@ -126,8 +125,10 @@ class EdgeControllerTest {
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"name\":\"@#$\"}]}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value(400))
-                .andExpect(jsonPath("$.fields[0].name").value("Relationship type name must not be blank"));
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.detail").value("Relationship type name must not be blank"))
+                .andExpect(jsonPath("$.fields[0].field").value("name"))
+                .andExpect(jsonPath("$.fields[0].message").value("Relationship type name must not be blank"));
     }
 
     @Test
@@ -205,11 +206,8 @@ class EdgeControllerTest {
 
     @Test
     void create_unknownEndpoint_returns400_withTheOffendingIdentifier() throws Exception {
-        ResponseError<BadRequestError> error = new ResponseError<>();
-        error.setError(new BadRequestError()
-                .setMessage("Could not find toNode")
-                .addFieldError("externalId", "valve_v9"));
-        when(edgeService.createRelationships(any())).thenThrow(new BadRequestException(error));
+        when(edgeService.createRelationships(any())).thenThrow(
+                new BadRequestException("Could not find toNode", "externalId", "valve_v9"));
 
         mvc.perform(post("/edges/create")
                         .contentType(MediaType.APPLICATION_JSON)

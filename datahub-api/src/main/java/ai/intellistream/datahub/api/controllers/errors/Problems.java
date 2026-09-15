@@ -206,20 +206,13 @@ public final class Problems {
     }
 
     /**
-     * A 400 carrying the loose {@code field -> message} pairs the old {@code BadRequestError} used.
+     * A 400 naming the fields that made the API refuse the request.
      *
-     * <p>Those entries are not uniform — some are {@code externalId -> "must not be blank"}, others
-     * {@code "DataSet.Id" -> "5"} — so they become a field and a message and nothing is invented.
-     * New throw sites should build {@link FieldProblem}s directly and get a code and a rejected
-     * value with them; this is the bridge for the ones that already exist.
+     * <p>Same {@code fields} shape as {@link #constraintViolation} and {@link #bindingFailure}: a
+     * caller correcting their request should not have to care whether the rule that rejected it
+     * ran in a bean validator or in a hand-written check.
      */
-    public static ProblemDetail badRequest(String detail, Collection<Map<String, String>> legacyFields) {
-        List<FieldProblem> fields = new ArrayList<>();
-        if (legacyFields != null) {
-            for (Map<String, String> entry : legacyFields) {
-                entry.forEach((field, message) -> fields.add(new FieldProblem(field, message, null, null)));
-            }
-        }
+    public static ProblemDetail badRequest(String detail, Collection<FieldProblem> fields) {
         return withFields(of(HttpStatus.BAD_REQUEST, BAD_REQUEST, "Bad Request", detail), fields);
     }
 

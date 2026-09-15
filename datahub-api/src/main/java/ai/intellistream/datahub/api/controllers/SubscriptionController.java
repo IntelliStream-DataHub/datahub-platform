@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.SubscriptionDataWrapper;
@@ -28,6 +26,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/subscriptions")
@@ -68,15 +67,15 @@ public class SubscriptionController {
                     "the referenced timeseries doesn't exist. The `fields` list tells you " +
                     "which input was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "One of the referenced timeseries was modified or deleted while your subscription " +
                     "was being created. Re-fetch the timeseries and retry.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -280,8 +279,8 @@ public class SubscriptionController {
             "At least one subscription still has a live client connected. The response names " +
                     "the offending `externalId` and the connected-consumer count.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -298,8 +297,8 @@ public class SubscriptionController {
             "Someone else changed or deleted one of the subscriptions while your delete was " +
                     "in flight. No subscriptions were removed.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(
             path = "/delete",

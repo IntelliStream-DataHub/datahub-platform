@@ -209,8 +209,8 @@ class TenantSettingsServiceTest {
         assertThatThrownBy(() -> service.updateLlm(new TenantLlmSettingsForm(
                 "telepathy", null, null, null, null, "ludicrous", "soon", -1, 0, null)))
                 .isInstanceOfSatisfying(BadRequestException.class, failure -> {
-                    var names = failure.getError().getError().getFields().stream()
-                            .flatMap(field -> field.keySet().stream()).toList();
+                    var names = failure.getFields().stream()
+                            .map(field -> field.field()).toList();
                     assertThat(names).contains("provider", "model", "effort", "turnTimeout",
                             "maxOutputTokens", "maxIterations");
                 });

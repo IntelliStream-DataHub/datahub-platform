@@ -2,11 +2,8 @@
 package ai.intellistream.datahub.api.controllers.errors;
 
 import org.springframework.http.ProblemDetail;
-import ai.intellistream.datahub.errors.ResponseError;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -23,9 +20,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * Spring Data might throw is also covered.
  *
  * <p>Clients discriminate on the problem {@code type} — {@code .../errors/optimistic-lock} —
- * rather than string-matching the message. That was already the intent: {@code ConflictError}
+ * rather than string-matching the message. That was already the intent: the retired {@code ConflictError}
  * carried {@code cause = "concurrency"} for it. A type URI is the RFC 9457 member meant for the
- * job, so a lock conflict is now distinguishable from a duplicate one without a bespoke field.
+ * job, so a lock conflict is distinguishable from a duplicate one without a bespoke field.
  */
 @RestControllerAdvice
 @Slf4j
