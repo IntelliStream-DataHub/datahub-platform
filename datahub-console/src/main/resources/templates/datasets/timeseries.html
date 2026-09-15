@@ -247,22 +247,8 @@
 			};
 
 			const doSearch = query => {
-				fetch('/api/datasets/search', {
-					method: 'POST',
-					headers: {
-						'Accept': 'application/json',
-						'Content-type': 'application/json',
-						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-					},
-					body: JSON.stringify({
-						"search": {
-							"query": query
-						}
-					})
-				})
-					.then(response => {
-						return response.json();
-					})
+				Api.post('/datasets/search', { search: { query: query } })
+					.then(response => response.ok ? response.json() : { items: [] })
 					.then( json => {
 						renderSearchResults(json.items);
 					})

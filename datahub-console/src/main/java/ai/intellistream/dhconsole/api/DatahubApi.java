@@ -13,7 +13,6 @@ import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.api.responses.ResourceNetwork;
 import ai.intellistream.dhconsole.models.TimeseriesQueryParams;
-import ai.intellistream.datahub.models.datafilters.DataSetFilter;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
@@ -73,14 +72,6 @@ public interface DatahubApi {
     // way the rest of the collections do, so a limit is all this has to send.
     @RequestLine("GET /datasets?limit={limit}")
     DataWrapper<DataSetModel> listDataSets(@Param("limit") int limit);
-
-    @RequestLine("POST /datasets/search")
-    DataWrapper<DataSetModel> searchDataSets(SearchBody<DataSetFilter> apiReqData);
-
-    // Creating, updating and loading a single dataset are gone from here: the console's dataset
-    // form calls datahub-api from the browser instead.
-    @RequestLine("POST /datasets/delete")
-    DataWrapper<DataSetModel> deleteDataSets(DataWrapper<IdCollection> apiReqData);
 
     // POLICIES
     @RequestLine("GET /policies")

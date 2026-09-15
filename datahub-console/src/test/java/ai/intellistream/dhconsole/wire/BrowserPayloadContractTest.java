@@ -181,6 +181,16 @@ class BrowserPayloadContractTest {
                         new TypeReference<SearchBody<DataSetFilter>>() {},
                         "templates/datasets/index.html"),
 
+                new Payload("POST /datasets/search (timeseries page)", """
+                        {"search":{"query":"pump"}}""",
+                        new TypeReference<SearchBody<DataSetFilter>>() {},
+                        "templates/datasets/timeseries.html"),
+
+                new Payload("DELETE /datasets/delete", """
+                        {"items":[{"id":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/tutorials/datasets.js"),
+
                 new Payload("POST /edges/types/create", """
                         {"items":[{"name":"FLOWS_TO","i18nCode":"flows.to","description":"d"}]}""",
                         new TypeReference<DataWrapper<RelTypeForm>>() {},
