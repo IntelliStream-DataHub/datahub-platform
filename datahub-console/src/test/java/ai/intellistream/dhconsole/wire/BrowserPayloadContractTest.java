@@ -184,7 +184,7 @@ class BrowserPayloadContractTest {
                 // fields. Pinned here so the next removal breaks the build instead of the page.
                 new Payload("POST /datasets/create", """
                         {"items":[{"name":"Pump readings","externalId":"pump_readings",
-                        "description":"d","connectedDataSets":[],"policies":[]}]}""",
+                        "description":"d","metadata":{"owner":"ops"},"connectedDataSets":[],"policies":[]}]}""",
                         new TypeReference<DataWrapper<DataSetModel>>() {},
                         "static/js/right-form-content/datasets/form.js"),
 
