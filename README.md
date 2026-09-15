@@ -246,7 +246,10 @@ All services are designed to run as multiple instances behind a load balancer, w
 Stateless, including for its two WebSocket endpoints:
 
 - `/timeseries/datapoints/subscription/listen/**` — stream one or more durable subscriptions over one socket (Bearer-JWT handshake; ack/nack).
-- `/timeseries/datapoints/listen` — live per-timeseries tail for the browser (token in the `?token=` query param).
+- `/timeseries/datapoints/listen` — live per-timeseries tail for the browser. The token is offered as the
+  `datahub.bearer.<jwt>` handshake subprotocol, alongside `datahub.v1` for the server to echo back. This
+  replaced a `?token=` query parameter, which is no longer read: a client still sending one is closed as
+  unauthenticated.
 
 **Neither endpoint needs session affinity (sticky sessions).** A single WebSocket is one TCP connection, already pinned to the instance that accepted it for its whole life. On reconnect, no instance holds unrecoverable state: the subscription endpoint's cursor lives in Pulsar (`Failover`/`Key_Shared`), and the per-timeseries endpoint is a non-durable tail from `latest` — so a reconnect can land on any instance and resume. The load balancer only has to **support WebSocket upgrades** and keep long-lived connections open. Add instances to scale; let the LB round-robin everything.
 
