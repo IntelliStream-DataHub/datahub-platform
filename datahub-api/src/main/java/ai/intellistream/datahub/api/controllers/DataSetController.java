@@ -3,13 +3,9 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -20,13 +16,11 @@ import ai.intellistream.datahub.api.responses.swaggerdto.PolicyDataWrapper;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.services.DataSetService;
 import ai.intellistream.datahub.api.services.ResourceService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.forms.DataSetForm;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.transformers.DataSetTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
@@ -44,9 +38,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -62,6 +56,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/datasets")
@@ -150,16 +147,12 @@ public class DataSetController {
                                    @Schema(implementation = IdCollectionDataWrapper.class)
                                    DataWrapper<IdCollection> form
     ){
-        try{
-            DataWrapper<DataSetModel> data = new DataWrapper<>();
-            List<DatasetEntity> dataSetNodes = dataSetRepository.findAllByIdCollection(form.getItems());
-            Collection<DataSetModel> results = DataSetTransformer.toDataSetModel(ResourceTransformer.from(dataSetNodes));
-            data.setItems(results);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-        }
-        return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        DataWrapper<DataSetModel> data = new DataWrapper<>();
+        List<DatasetEntity> dataSetNodes = dataSetRepository.findAllByIdCollection(form.getItems());
+        Collection<DataSetModel> results = DataSetTransformer.toDataSetModel(ResourceTransformer.from(dataSetNodes));
+        data.setItems(results);
+        return new ResponseEntity<>(data, HttpStatus.OK);
+    
     }
 
     @Tag(name = "Data sets")
@@ -188,8 +181,8 @@ public class DataSetController {
     ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = { "application/json", "application/xml" })
     public ResponseEntity<?> list(
@@ -197,7 +190,7 @@ public class DataSetController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ){
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -295,24 +288,12 @@ public class DataSetController {
             @Schema(implementation = DataSetRetreiver.class)
             DataSetRetreiver form
     ){
-        try{
-            Set<ConstraintViolation<DataSetRetreiver>> errors = validator.validate(form);
-            if (!errors.isEmpty()) {
-                throw new ConstraintViolationException(errors);
-            }
-            return new ResponseEntity<>(dataSetService.filter(form), HttpStatus.OK);
-        } catch (BadRequestException | MalformedCursorException e){
-            // Let these reach their advices. The catch-all below would otherwise report a caller
-            // mistake — a malformed cursor, say — as "Internal programming error." with a 500,
-            // which blames the server for something the request got wrong.
-            throw e;
-        } catch (ConstraintViolationException e){
-            log.error(e.getMessage());
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
+        Set<ConstraintViolation<DataSetRetreiver>> errors = validator.validate(form);
+        if (!errors.isEmpty()) {
+            throw new ConstraintViolationException(errors);
         }
-        return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        return new ResponseEntity<>(dataSetService.filter(form), HttpStatus.OK);
+    
     }
 
     @Tag(name = "Data sets")
@@ -334,13 +315,13 @@ public class DataSetController {
     ))
     @ApiResponse(responseCode = "400", description = "The request has a problem the server spotted before saving. The `fields` list tells you which input was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "A dataset with one of the `externalId`s already exists. Pick a different one, or use `POST /datasets/update`.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(value = { "/create"},
             method = RequestMethod.POST,
@@ -370,55 +351,33 @@ public class DataSetController {
             @RequestBody
                                     @Schema(implementation = DataSetDataWrapper.class)
                                     DataWrapper<DataSetModel> form
-    ){
+    ) throws PulsarClientException {
         // A data set is the unit access is granted on, so managing one is an operator action:
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try{
-            Collection<DataSetModel> dataSets = form.getItems();
+        Collection<DataSetModel> dataSets = form.getItems();
 
-            // We need a collection of policy nodes when creating new data sets.
-            List<PolicyEntity> policies = policyEntityRepository.findAll();
-            Set<Long> dataSetIds = dataSets.stream()
-                    .map(DataSetModel::getConnectedDataSets)
-                    .filter(Objects::nonNull)
-                    .flatMap(Collection::stream)
-                    .collect(Collectors.toSet());
-            List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
+        // We need a collection of policy nodes when creating new data sets.
+        List<PolicyEntity> policies = policyEntityRepository.findAll();
+        Set<Long> dataSetIds = dataSets.stream()
+                .map(DataSetModel::getConnectedDataSets)
+                .filter(Objects::nonNull)
+                .flatMap(Collection::stream)
+                .collect(Collectors.toSet());
+        List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
 
-            GraphDataWrapper<NodeModel, RelForm> newDataSets =
-                    DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
-            var results = resourceService.create(newDataSets);
+        GraphDataWrapper<NodeModel, RelForm> newDataSets =
+                DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
+        var results = resourceService.create(newDataSets);
 
-            DataWrapper<DataSetModel> data = new DataWrapper<>();
-            Collection<DataSetModel> savedDataSets = DataSetTransformer.toDataSetModel(results.getNodes());
-            data.setItems(savedDataSets);
-            // The naming policy runs inside the shared create path; its warnings have to travel
-            // out with the response, or the caller is told nothing about a name it should fix.
-            data.setWarnings(results.getWarnings());
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (PulsarClientException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response. The
-            // BadRequestException catch below would otherwise flatten it into the generic error
-            // envelope and lose the per-item `violations` list, which is the useful part.
-            throw e;
-        } catch (BadRequestException e) {
-            // Return the clean error envelope, not the exception itself — serializing
-            // the Throwable leaks a full stack trace to the client and buries the
-            // message a level deeper than clients expect (mirrors the DuplicateData
-            // handling just below).
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
+        DataWrapper<DataSetModel> data = new DataWrapper<>();
+        Collection<DataSetModel> savedDataSets = DataSetTransformer.toDataSetModel(results.getNodes());
+        data.setItems(savedDataSets);
+        // The naming policy runs inside the shared create path; its warnings have to travel
+        // out with the response, or the caller is told nothing about a name it should fix.
+        data.setWarnings(results.getWarnings());
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
     }
 
     @Tag(name = "Data sets")
@@ -439,13 +398,13 @@ public class DataSetController {
     ))
     @ApiResponse(responseCode = "400", description = "Dataset not found or update rules malformed.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "The new `externalId` already belongs to another dataset.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(value = { "/update"},
             method = RequestMethod.POST,
@@ -475,35 +434,13 @@ public class DataSetController {
             @RequestBody
                                     @Schema(implementation = DataSetFormDataWrapper.class)
                                     DataWrapper<DataSetForm> form
-    ){
+    ) throws PulsarClientException {
         // A data set is the unit access is granted on, so managing one is an operator action:
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try{
-            DataWrapper<DataSetModel> data = dataSetService.update(form);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (PulsarClientException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response. The
-            // BadRequestException catch below would otherwise flatten it into the generic error
-            // envelope and lose the per-item `violations` list, which is the useful part.
-            throw e;
-        } catch (BadRequestException e) {
-            // Return the clean error envelope, not the exception itself — serializing
-            // the Throwable leaks a full stack trace to the client and buries the
-            // message a level deeper than clients expect (mirrors the DuplicateData
-            // handling just below).
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
+        DataWrapper<DataSetModel> data = dataSetService.update(form);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Data sets")
@@ -521,11 +458,28 @@ public class DataSetController {
     @ApiResponse(responseCode = "204", description = "The datasets were deleted. No response body.",
             content = @Content)
     @ApiResponse(responseCode = "409", description =
-            "Someone else changed or deleted one of the datasets while your delete was in " +
-                    "flight. No datasets were removed. Re-fetch state and retry.",
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
             ))
     @RequestMapping(value = { "/delete"},
             method = {RequestMethod.POST, RequestMethod.DELETE},
@@ -550,48 +504,24 @@ public class DataSetController {
             @RequestBody
                                     @Schema(implementation = IdCollectionDataWrapper.class)
                                     DataWrapper<IdCollection> form
-    ){
+    ) throws PulsarClientException {
         // A data set is the unit access is granted on, so managing one is an operator action:
         // creating, renaming or re-parenting it changes what existing grants cover.
         // Requires an all-datasets write grant. See DATASET_ACL_SETUP.md.
         dataSecurity.assertCanManageDataSets();
-        try{
-            var entities = new GraphDataWrapper<Resource, EdgeProxy>();
-            form.getItems().forEach(it -> {
-                Resource r = new Resource();
-                if(it.getId() != null){
-                    r.setId(it.getId());
-                    entities.getNodes().add(r);
-                } else if(it.getExternalId() != null){
-                    r.setExternalId(it.getExternalId());
-                    entities.getNodes().add(r);
-                }
-            });
+        var entities = new GraphDataWrapper<Resource, EdgeProxy>();
+        form.getItems().forEach(it -> {
+            Resource r = new Resource();
+            if(it.getId() != null){
+                r.setId(it.getId());
+                entities.getNodes().add(r);
+            } else if(it.getExternalId() != null){
+                r.setExternalId(it.getExternalId());
+                entities.getNodes().add(r);
+            }
+        });
 
-            resourceService.delete(entities);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (ResourceDeleteException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler as a 409 — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        resourceService.delete(entities);
         return ResponseEntity.noContent().build();
     }
 
@@ -629,8 +559,8 @@ public class DataSetController {
             "The request failed validation — usually a missing or too-short `search.query`. " +
                     "Response lists the offending fields.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @RequestMapping(value = "/search", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(
@@ -656,16 +586,8 @@ public class DataSetController {
             // the same mistake.
             @Valid @RequestBody SearchBody<DataSetFilter> form
     ){
-        try{
-            DataWrapper<DataSetModel> items = dataSetService.search(form);
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        }
-        catch (ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        DataWrapper<DataSetModel> items = dataSetService.search(form);
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Data sets")

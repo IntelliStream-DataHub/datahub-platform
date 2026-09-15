@@ -2,12 +2,16 @@
 package ai.intellistream.datahub.config;
 
 import ai.intellistream.datahub.api.config.LimitsProperties;
+import ai.intellistream.datahub.api.controllers.errors.ProblemResponses;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.filters.RateLimitFilter;
 import ai.intellistream.datahub.api.filters.TenantProvisioningFilter;
 import ai.intellistream.datahub.api.services.TenantLimitsService;
 import ai.intellistream.datahub.services.ValkeyService;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
@@ -17,24 +21,27 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
 import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
 import org.springframework.security.oauth2.jwt.*;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
+import org.springframework.security.oauth2.server.resource.web.access.BearerTokenAccessDeniedHandler;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -91,6 +98,8 @@ public class SecurityConfig {
                         .requestMatchers("/swagger-ui/**").permitAll()
                         .requestMatchers("/api-docs/**").permitAll()
                         .requestMatchers("/static/redoc/**").permitAll()
+                        // An error dispatch renders a problem body, including for anonymous callers.
+                        .requestMatchers("/error").permitAll()
                         .requestMatchers(
                                 Stream.of(permitAll)
                                         .map(pattern -> pattern.startsWith("/") ? pattern : "/" + pattern)
@@ -114,6 +123,8 @@ public class SecurityConfig {
                                 .decoder(jwtDecoder())
                                 .jwtAuthenticationConverter(jwtAuthenticationConverter())
                         )
+                        // A token that fails verification is refused here, not by exceptionHandling's entry point.
+                        .authenticationEntryPoint(SecurityConfig::refuseUnauthenticated)
                 );
 
         // Rate limiting runs on the authenticated identity, so it goes after authz — and is added
@@ -147,18 +158,15 @@ public class SecurityConfig {
         // Disable CSRF because of state-less session-management
         http.csrf(AbstractHttpConfigurer::disable);
 
-        // Return 401 (unauthorized) instead of 302 (redirect to login) when
-        // authorization is missing or invalid
-        http.exceptionHandling(eh ->
-                eh.authenticationEntryPoint((
-                        request,
-                        response,
-                        authException
-                ) -> {
-            log.error("Authentication failure: {}", authException.getMessage());
-            response.addHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer realm=\"Restricted Content\"");
-            response.sendError(HttpStatus.UNAUTHORIZED.value(), HttpStatus.UNAUTHORIZED.getReasonPhrase());
-        }));
+        // Return 401 (unauthorized) instead of 302 (redirect to login) when authorization is
+        // missing or invalid. Both refusals write their problem here.
+        http.exceptionHandling(eh -> eh
+                .authenticationEntryPoint(SecurityConfig::refuseUnauthenticated)
+                .accessDeniedHandler((request, response, denied) -> {
+                    BEARER_ACCESS_DENIED.handle(request, response, denied);
+                    ProblemResponses.write(request, response, Problems.forbidden(
+                            "This token does not carry the DATAHUB_ACCESS role, which every endpoint requires."));
+                }));
 
         // If SSL enabled, disable http (https only)
         if (serverProperties.getSsl() != null && serverProperties.getSsl().isEnabled()) {
@@ -166,6 +174,40 @@ public class SecurityConfig {
         }
 
         return http.build();
+    }
+
+    private static void refuseUnauthenticated(HttpServletRequest request, HttpServletResponse response,
+                                              AuthenticationException failure) throws IOException {
+        log.error("Authentication failure: {}", failure.getMessage());
+        response.addHeader(HttpHeaders.WWW_AUTHENTICATE, failure instanceof OAuth2AuthenticationException
+                ? "Bearer realm=\"Restricted Content\", error=\"invalid_token\""
+                : "Bearer realm=\"Restricted Content\"");
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        ProblemResponses.write(request, response, Problems.unauthorized(authenticationFailureDetail(failure)));
+    }
+
+    /** Sets the RFC 6750 insufficient_scope header and the status; the body is written after it. */
+    private static final BearerTokenAccessDeniedHandler BEARER_ACCESS_DENIED = new BearerTokenAccessDeniedHandler();
+
+    /**
+     * Why a token was refused, in words a caller can act on. Validator descriptions are ours or Spring
+     * Security's and name the failed check; a decoder's exception text is not forwarded.
+     */
+    static String authenticationFailureDetail(AuthenticationException failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof JwtValidationException invalid && !invalid.getErrors().isEmpty()) {
+                return invalid.getErrors().stream()
+                        .map(error -> error.getDescription() == null ? error.getErrorCode() : error.getDescription())
+                        .collect(Collectors.joining(" "));
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        if (failure instanceof OAuth2AuthenticationException) {
+            return "The bearer token could not be verified. Obtain a new token and retry.";
+        }
+        return "Authentication is required. Send a bearer token in the Authorization header.";
     }
 
     @Bean

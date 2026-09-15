@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.SubscriptionDataWrapper;
 import ai.intellistream.datahub.api.services.SubscriptionService;
 import ai.intellistream.datahub.models.IdCollection;
-import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,8 +23,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/subscriptions")
@@ -69,15 +68,15 @@ public class SubscriptionController {
                     "the referenced timeseries doesn't exist. The `fields` list tells you " +
                     "which input was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "One of the referenced timeseries was modified or deleted while your subscription " +
                     "was being created. Re-fetch the timeseries and retry.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -114,25 +113,8 @@ public class SubscriptionController {
             @Schema(implementation = SubscriptionDataWrapper.class)
             DataWrapper<Subscription> apiReqData
     ) {
-        try {
-            DataWrapper<Subscription> data = subscriptionService.create(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve) {
-            log.warn("Subscription create validation failed: {}", cve.getMessage());
-            var err = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(err, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.warn("Subscription create bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (RuntimeException e) {
-            log.error("Subscription create failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        DataWrapper<Subscription> data = subscriptionService.create(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
     }
 
     @Tag(name = "Subscriptions")
@@ -221,18 +203,8 @@ public class SubscriptionController {
             @Valid @RequestBody(required = false)
             SubscriptionRetriever retriever
     ) {
-        try {
-            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
-            return ResponseEntity.ok(data);
-        }
-        // Let a bad cursor reach MalformedCursorExceptionHandler — the broad RuntimeException catch
-        // below would otherwise report a caller mistake as a 500.
-        catch (MalformedCursorException mce) {
-            throw mce;
-        } catch (RuntimeException e) {
-            log.error("Subscription filter failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+        return ResponseEntity.ok(data);
     }
 
     @Tag(name = "Subscriptions")
@@ -259,8 +231,8 @@ public class SubscriptionController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listSubscriptions(
@@ -268,9 +240,9 @@ public class SubscriptionController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
-            return new ResponseEntity<>("limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT,
-                    HttpStatus.BAD_REQUEST);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
+        if (rejection != null) {
+            return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
         var retriever = new SubscriptionRetriever();
         // The setter is what turns an absent, zero or negative limit into the shared default, so
@@ -278,16 +250,11 @@ public class SubscriptionController {
         if (limit != null) {
             retriever.setLimit(limit);
         }
-        try {
-            DataWrapper<Subscription> data = subscriptionService.filter(retriever);
-            // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
-            // cannot accept it invites a paging loop that silently never advances.
-            data.setNextCursor(null);
-            return ResponseEntity.ok(data);
-        } catch (RuntimeException e) {
-            log.error("Subscription list failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        DataWrapper<Subscription> data = subscriptionService.filter(retriever);
+        // No cursor: there is nowhere to send it back to. Handing one out on an endpoint that
+        // cannot accept it invites a paging loop that silently never advances.
+        data.setNextCursor(null);
+        return ResponseEntity.ok(data);
     }
 
     @Tag(name = "Subscriptions")
@@ -313,8 +280,8 @@ public class SubscriptionController {
             "At least one subscription still has a live client connected. The response names " +
                     "the offending `externalId` and the connected-consumer count.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -331,8 +298,8 @@ public class SubscriptionController {
             "Someone else changed or deleted one of the subscriptions while your delete was " +
                     "in flight. No subscriptions were removed.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(
             path = "/delete",
@@ -359,20 +326,7 @@ public class SubscriptionController {
             @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> apiReqData
     ) {
-        try {
-            subscriptionService.delete(apiReqData);
-            return ResponseEntity.noContent().build();
-        } catch (BadRequestException e) {
-            log.warn("Subscription delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (RuntimeException e) {
-            log.error("Subscription delete failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        subscriptionService.delete(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 }

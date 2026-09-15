@@ -8,14 +8,12 @@ import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FunctionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.services.FunctionService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -30,8 +28,12 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 /**
  * A Function is a plain datastore node distinguished by its {@code FUNCTION} type-label.
@@ -62,8 +64,8 @@ public class FunctionController {
             ))
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -72,33 +74,10 @@ public class FunctionController {
     )
     public ResponseEntity<?> createFunction(
             @Schema(implementation = FunctionDataWrapper.class)
-            @RequestBody DataWrapper<Function> apiReqData) {
-        try {
-            DataWrapper<Function> data = functionService.create(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve) {
-            log.warn("Function create validation failed: {}", cve.getMessage());
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
-        } catch (DataIntegrityViolationException dve) {
-            var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
-            return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        } catch (DuplicateDataException e) {
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (BadRequestException e) {
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (LimitException e) {
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Function create failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody DataWrapper<Function> apiReqData) throws PulsarClientException {
+        DataWrapper<Function> data = functionService.create(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
+    
     }
 
     @Tag(name = "Functions")
@@ -121,8 +100,8 @@ public class FunctionController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listFunctions(
@@ -130,16 +109,11 @@ public class FunctionController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
-        try {
-            return ResponseEntity.ok(functionService.list(ListingLimit.resolve(limit)));
-        } catch (RuntimeException e) {
-            log.error("Function list failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        return ResponseEntity.ok(functionService.list(ListingLimit.resolve(limit)));
     }
 
     @Tag(name = "Functions")
@@ -159,7 +133,6 @@ public class FunctionController {
         return new ResponseEntity<>(functionService.get(id), HttpStatus.OK);
     }
 
-
     @Tag(name = "Functions")
     @Operation(
             summary = "Update function",
@@ -169,35 +142,17 @@ public class FunctionController {
     @ApiResponse(responseCode = "200", description = "Function(s) updated.")
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(
             path = "/update",
             produces = MediaType.APPLICATION_JSON_VALUE
     )
     public ResponseEntity<?> updateFunction(
-            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) {
-        try {
-            GraphDataWrapper<NodeModel, EdgeProxy> results = functionService.update(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (LimitException e) {
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Function update failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+        GraphDataWrapper<NodeModel, EdgeProxy> results = functionService.update(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.OK);
     }
 
     @Tag(name = "Functions")
@@ -210,8 +165,32 @@ public class FunctionController {
             content = @Content)
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @ApiResponse(responseCode = "409", description =
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
             ))
     @RequestMapping(
             path = "/delete",
@@ -221,22 +200,8 @@ public class FunctionController {
     )
     public ResponseEntity<?> deleteFunction(
             @Schema(implementation = IdCollectionDataWrapper.class)
-            @RequestBody DataWrapper<IdCollection> apiReqData) {
-        try {
-            functionService.delete(apiReqData);
-            return ResponseEntity.noContent().build();
-        } catch (ResourceDeleteException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.warn("Function delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Function delete failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
+        functionService.delete(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 }

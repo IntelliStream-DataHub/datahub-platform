@@ -64,9 +64,14 @@
 			.then(send)
 			.then(function(r){ return (r.status === 401) ? getToken(true).then(send) : r; })
 			.then(function(r){
-				if(!r.ok) return r.text().then(function(b){ return Promise.reject("HTTP " + r.status + (b ? ": " + b.slice(0,200) : "")); });
+				if(!r.ok) return DataHubProblem.read(r).then(function(problem){ return Promise.reject(problem); });
 				return r.status === 204 ? null : r.json();
 			});
+	}
+
+	// A refusal in the user's language; anything else (a network failure, no token) as it came.
+	function reason(err){
+		return err instanceof DataHubProblem ? err.message() : String(err);
 	}
 
 	// ---- time range ---------------------------------------------------------------------------
@@ -195,7 +200,7 @@
 				// carries the time window and limit, not just the focus series.
 				if(!applyPendingView()) consumePreselect();
 			})
-			.catch(function(err){ setStatus("Failed to load time series: " + err); });
+			.catch(function(err){ setStatus("Failed to load time series: " + reason(err)); });
 	}
 
 	// If another page (e.g. Explore's "Related series" panel) navigated here with a series pre-selected
@@ -303,7 +308,7 @@
 			body: JSON.stringify(body)
 		}, analysisBase())
 			.then(function(resp){ if(token === runToken) render(resp); })
-			.catch(function(err){ if(token === runToken) setStatus(L("insights.analysis.error", "Analysis failed.") + " " + err); })
+			.catch(function(err){ if(token === runToken) setStatus(L("insights.analysis.error", "Analysis failed.") + " " + reason(err)); })
 			.then(function(){ if(token === runToken) document.getElementById("an-run").disabled = false; });
 	}
 

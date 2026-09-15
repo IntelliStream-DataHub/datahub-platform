@@ -12,7 +12,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.net.URI;
 
 /**
  * Translates {@link UserInfoRejectedException} into an RFC 9457 {@code application/problem+json}
@@ -49,7 +48,7 @@ public class UserInfoRejectedExceptionHandler {
                 HttpStatus.UNAUTHORIZED,
                 "Your session is no longer valid. Sign in again.");
         problem.setTitle("Unauthorized");
-        problem.setType(URI.create("https://datahub.intellistream.ai/errors/token-rejected"));
+        problem.setType(Problems.type("token-rejected"));
 
         // The upstream detail (which check failed, which host answered) stays in the log above.
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

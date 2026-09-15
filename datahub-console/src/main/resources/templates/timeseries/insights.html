@@ -185,18 +185,8 @@
 			}
 
 			function fetchTimeseriesRange(externalId, startIso, endIso, granularity, raw){
-				const body = { "externalId": externalId, "startTime": startIso, "endTime": endIso };
-				if(raw) body.raw = true;
-				else if(granularity) body.granularity = granularity;
-				return fetch('/api/timeseries/data/by-hours-ago', {
-					method: 'POST',
-					headers: {
-						'Accept': 'application/json',
-						'Content-type': 'application/json',
-						[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-					},
-					body: JSON.stringify(body)
-				}).then(r => r.json());
+				return InsightsChart.requestDatapoints(externalId, startIso, endIso, { granularity: granularity, raw: raw })
+					.then(r => r.json());
 			}
 
 			// Seed each selected series with raw datapoints for the initial live window so the live
@@ -240,7 +230,7 @@
 				attrs: item => ({ 'data-root-id': item.id, 'data-external-id': item.externalId }),
 				labels: () => ['TIMESERIES'],
 				search: {
-					url: '/api/timeseries/search',
+					path: '/timeseries/search',
 					body: q => ({ search: { query: q } }),
 					items: json => json.items
 				},

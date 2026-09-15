@@ -1,17 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.AssetDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.services.AssetService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
@@ -21,7 +17,6 @@ import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -38,12 +33,15 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 /**
  * The typed endpoint family for assets: the node type that can be a navigation root and the only
@@ -80,8 +78,8 @@ public class AssetController {
             ))
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -90,28 +88,9 @@ public class AssetController {
     )
     public ResponseEntity<?> createAsset(
             @Schema(implementation = AssetDataWrapper.class)
-            @RequestBody DataWrapper<Asset> apiReqData) {
-        try {
-            return new ResponseEntity<>(assetService.create(apiReqData), HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve) {
-            log.warn("Asset create validation failed: {}", cve.getMessage());
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
-        } catch (DataIntegrityViolationException dve) {
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createDataIntegrityViolationError(dve), HttpStatus.CONFLICT);
-        } catch (DuplicateDataException e) {
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (BadRequestException e) {
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Asset create failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody DataWrapper<Asset> apiReqData) throws PulsarClientException {
+        return new ResponseEntity<>(assetService.create(apiReqData), HttpStatus.CREATED);
+    
     }
 
     @Tag(name = "Assets")
@@ -189,8 +168,8 @@ public class AssetController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -198,7 +177,7 @@ public class AssetController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -266,8 +245,8 @@ public class AssetController {
             ))
     @ApiResponse(responseCode = "400", description = "The request failed validation.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(path = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> search(@Valid @RequestBody SearchBody<ResourceFilter> form) {
@@ -283,28 +262,14 @@ public class AssetController {
     @ApiResponse(responseCode = "200", description = "Asset(s) updated.")
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(path = "/update", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> updateAsset(
-            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) {
-        try {
-            GraphDataWrapper<NodeModel, EdgeProxy> results = assetService.update(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (ConstraintViolationException cve) {
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Asset update failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+        GraphDataWrapper<NodeModel, EdgeProxy> results = assetService.update(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.OK);
     }
 
     @Tag(name = "Assets")
@@ -317,8 +282,32 @@ public class AssetController {
             content = @Content)
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @ApiResponse(responseCode = "409", description =
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
             ))
     @RequestMapping(
             path = "/delete",
@@ -328,22 +317,8 @@ public class AssetController {
     )
     public ResponseEntity<?> deleteAsset(
             @Schema(implementation = IdCollectionDataWrapper.class)
-            @RequestBody DataWrapper<IdCollection> apiReqData) {
-        try {
-            assetService.delete(apiReqData);
-            return ResponseEntity.noContent().build();
-        } catch (ResourceDeleteException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.warn("Asset delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Asset delete failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
+        assetService.delete(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 }

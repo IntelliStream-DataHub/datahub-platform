@@ -417,10 +417,7 @@ class UploadFileForm extends FileFormAbstract {
 					document.location = '/files/list';
 				}
 			} else {
-				// The raw body is a problem document, so show what it means rather than its JSON.
-				this.handleUploadError(
-					window.LimitErrors.fromStatus(xhr.status, xhr.responseText)
-					|| $L('upload.failed'));
+				this.handleUploadError(DataHubProblem.parse(xhr.status, xhr.responseText).message('upload.failed'));
 			}
 		});
 
@@ -648,7 +645,7 @@ class SetDataSetForm extends DatasetFormAbstract {
 					Flash.info($L('dataset.updated'));
 				} else {
 					this.submitButtonElement.disabled = false;
-					Flash.error($L('update.failed'));
+					DataHubProblem.read(response).then(problem => problem.flash('update.failed'));
 				}
 			})
 			.catch(() => {
@@ -702,8 +699,7 @@ class SetRelatedResourcesForm extends FileFormAbstract {
 					Flash.info($L('file.updated'));
 				} else {
 					this.submitButtonElement.disabled = false;
-					response.text().then(t =>
-						Flash.error(window.LimitErrors.fromStatus(response.status, t) || t || $L('update.failed')));
+					DataHubProblem.read(response).then(problem => problem.flash('update.failed'));
 				}
 			})
 			.catch(() => {
@@ -805,8 +801,7 @@ class UpdateFileForm extends FileFormAbstract {
 					document.location.reload();
 				} else {
 					this.submitButtonElement.disabled = false;
-					response.text().then(t =>
-						Flash.error(window.LimitErrors.fromStatus(response.status, t) || t || $L('update.failed')));
+					DataHubProblem.read(response).then(problem => problem.flash('update.failed'));
 				}
 			})
 			.catch(() => {

@@ -8,12 +8,11 @@ import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.models.policy.PolicyWarning;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.TenantLimitReachedException;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import org.springframework.dao.OptimisticLockingFailureException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.edge.EdgeMapper;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -22,13 +21,13 @@ import ai.intellistream.datahub.api.messaging.events.DatasetAclInvalidationEvent
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.services.graph.GraphSyncCommand;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.asset.GraphReadScope;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.InvalidResourceException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.*;
 // Disambiguate from the api-model wire type ai.intellistream.datahub.models.RelationshipType,
 // also on this file's wildcard imports: here RelationshipType is the JPA entity.
@@ -223,9 +222,6 @@ public class ResourceService {
         }
         assertRoomForMoreNodes(apiReqData.getNodes().size());
 
-        // Create error list that can return missing nodes to user
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-
         // Authorize the whole batch before judging its shape, so a caller who may not create
         // what they asked for is told that — not handed a 400 about a data set id they were
         // never allowed to name. Same stage order the update pipeline runs in.
@@ -333,24 +329,21 @@ public class ResourceService {
                 if(cause instanceof org.hibernate.exception.ConstraintViolationException){
                     String constraintName = ((org.hibernate.exception.ConstraintViolationException) cause).getConstraintName();
                     if(constraintName != null && constraintName.equals("node_external_id_hash_key")){
-                        var de = new BadRequestError();
-                        de.setCode(409);
-                        de.setMessage("External id already exists.");
-
                         // Regular expression to match the pattern
                         Pattern pattern = Pattern.compile("\\(([^)]+)\\)=\\(([^)]+)\\)");
                         Matcher matcher = pattern.matcher(cause.getMessage());
                         if (matcher.find()) {
                             long offendingValue = Long.parseLong(matcher.group(2));
-                            nodes.stream()
+                            var offending = nodes.stream()
                                     .filter( it -> it.getExternalIdHash() == offendingValue)
-                                    .findFirst()
-                                    .ifPresent( node -> describeExternalIdCollision(de, node.getExternalId(), offendingValue));
+                                    .findFirst();
+                            if (offending.isPresent()) {
+                                throw externalIdCollision(offending.get().getExternalId(), offendingValue);
+                            }
                         } else {
                             log.error("Could not parse the offending value.");
                         }
-                        errors.setError(de);
-                        throw new BadRequestException(errors);
+                        throw new BadRequestException("External id already exists.");
                     }
                 }
                 // Other DataIntegrityViolationException — pass it back to the controller
@@ -426,21 +419,21 @@ public class ResourceService {
      * byte-identical to what was submitted, say plainly that the two collide and name the one
      * already stored.
      */
-    private void describeExternalIdCollision(BadRequestError error, String submittedExternalId, long collidingHash) {
-        error.getFields().add(Map.of("externalId", submittedExternalId));
+    private BadRequestException externalIdCollision(String submittedExternalId, long collidingHash) {
+        var fields = new FieldErrors().addFieldError("externalId", submittedExternalId);
+        String message = "External id already exists.";
 
         // A separate read: the offending row is not in this transaction's flushed batch.
         NameAndExternalId existing = nodeRepository.findByExternalIdHash(collidingHash, NameAndExternalId.class);
-        if (existing == null || existing.getExternalId() == null) {
-            return;
+        if (existing != null && existing.getExternalId() != null) {
+            fields.addFieldError("existingExternalId", existing.getExternalId());
+            if (!existing.getExternalId().equals(submittedExternalId)) {
+                message = "External id '" + submittedExternalId + "' collides with the existing '"
+                        + existing.getExternalId() + "'. External ids are stored exactly as sent "
+                        + "but must be unique ignoring case, so these two cannot both exist.";
+            }
         }
-        error.getFields().add(Map.of("existingExternalId", existing.getExternalId()));
-        if (!existing.getExternalId().equals(submittedExternalId)) {
-            error.setMessage(
-                    "External id '" + submittedExternalId + "' collides with the existing '"
-                            + existing.getExternalId() + "'. External ids are stored exactly as sent "
-                            + "but must be unique ignoring case, so these two cannot both exist.");
-        }
+        return new BadRequestException(message, fields);
     }
 
     /**
@@ -537,7 +530,7 @@ public class ResourceService {
             // Same shape: the controller has a handler for this, which the re-wrap below hid.
             throw e;
         } catch (BadRequestException e){
-            throw new BadRequestException(e.getError());
+            throw e;
         } catch (InvalidResourceException e){
             // e.g. an invalid label name reached label resolution — surface it as a 400, not a 500.
             throw toBadRequest(e);
@@ -557,26 +550,19 @@ public class ResourceService {
      * message, plus the offending field when the source set one.
      */
     private BadRequestException toBadRequest(InvalidResourceException e) {
-        var source = e.getError().getError();
-        var de = new BadRequestError();
-        de.setMessage(source.getErrorMessage());
-        if (source.getField() != null && !source.getField().isBlank()) {
-            de.addFieldError(source.getField(), source.getErrorMessage());
+        if (e.getField() != null && !e.getField().isBlank()) {
+            return new BadRequestException(e.getMessage(), e.getField(), e.getMessage());
         }
-        var resp = new ResponseError<BadRequestError>();
-        resp.setError(de);
-        return new BadRequestException(resp);
+        return new BadRequestException(e.getMessage());
     }
 
     @Transactional
     public EdgeEntity updateEdge(EdgeEntity edge, UpdateRelForm form) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
         if(!form.getUpdate().validateFields()){
-            errors.setError(new BadRequestError());
-            form.getUpdate().getErrors().forEach( error -> {
-                errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-            });
-            throw new BadRequestException(errors);
+            var errors = new FieldErrors();
+            form.getUpdate().getErrors().forEach( error ->
+                    errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
+            throw new BadRequestException("One or more fields are invalid.", errors);
         }
 
         RelFields fields = form.getUpdate();
@@ -748,11 +734,7 @@ public class ResourceService {
                     .forEach(taken -> collisions.add(Map.of("externalId", taken.getExternalId())));
         }
         if (!collisions.isEmpty()) {
-            var error = new DuplicateError();
-            error.setCode(409);
-            error.setMessage("A node with that externalId already exists.");
-            error.setDuplicated(collisions);
-            throw new DuplicateDataException(new ResponseError<DuplicateError>().setError(error));
+            throw new DuplicateDataException("A node with that externalId already exists.", collisions);
         }
     }
 
@@ -783,10 +765,9 @@ public class ResourceService {
                 .map(id -> Map.of("dataSetId", String.valueOf(id)))
                 .toList();
         if (!missing.isEmpty()) {
-            var de = new BadRequestError();
-            de.setMessage("DataSet cannot be found.");
-            de.getFields().addAll(missing);
-            throw new BadRequestException(new ResponseError<BadRequestError>().setError(de));
+            var fields = new FieldErrors();
+            missing.forEach(entry -> entry.forEach(fields::addFieldError));
+            throw new BadRequestException("DataSet cannot be found.", fields);
         }
     }
 
@@ -1068,18 +1049,13 @@ public class ResourceService {
                 List<String> strandedExternalIds = strandedSorted.stream()
                         .map(id -> externalIdById.getOrDefault(id, String.valueOf(id)))
                         .toList();
-                var err = new BadRequestError();
-                err.setMessage("Deleting this selection would disconnect resource(s) " + strandedExternalIds
-                        + " from the graph root. Include them in the deletion or keep a connecting path.");
-                for (Long id : strandedSorted) {
-                    err.getFields().add(Map.of(
-                            "type", "strandedResource",
-                            "externalId", externalIdById.getOrDefault(id, String.valueOf(id))
-                    ));
-                }
-                var resp = new ResponseError<BadRequestError>();
-                resp.setError(err);
-                throw new ResourceDeleteException(resp);
+                List<Map<String, String>> blockedBy = strandedSorted.stream()
+                        .map(id -> Map.of("externalId", externalIdById.getOrDefault(id, String.valueOf(id))))
+                        .toList();
+                throw new ResourceDeleteException(Problems.WOULD_STRAND,
+                        "Deleting this selection would disconnect resource(s) " + strandedExternalIds
+                                + " from the graph root. Include them in the deletion or keep a connecting path.",
+                        blockedBy);
             }
         }
 
@@ -1127,14 +1103,11 @@ public class ResourceService {
         List<SubscriptionEntity> subs = subscriptionRepository.findAllByTimeseriesIdIn(resourceIdList);
         if (subs.isEmpty()) return;
 
-        var err = new BadRequestError();
-        err.setMessage("Cannot delete resource(s) that are referenced by subscription(s). "
-                + "Remove the subscriptions first.");
+        List<Map<String, String>> blockedBy = new ArrayList<>();
         for (SubscriptionEntity sub : subs) {
             for (TimeseriesEntity ts : sub.getTimeseries()) {
                 if (ts.getId() != null && resourceIdList.contains(ts.getId())) {
-                    err.getFields().add(Map.of(
-                            "type", "subscription",
+                    blockedBy.add(Map.of(
                             "subscriptionId", String.valueOf(sub.getId()),
                             "subscriptionExternalId", sub.getExternalId(),
                             "timeseriesId", String.valueOf(ts.getId())
@@ -1142,9 +1115,10 @@ public class ResourceService {
                 }
             }
         }
-        var resp = new ResponseError<BadRequestError>();
-        resp.setError(err);
-        throw new ResourceDeleteException(resp);
+        throw new ResourceDeleteException(Problems.REFERENCED,
+                "Cannot delete resource(s) that are referenced by subscription(s). "
+                        + "Remove the subscriptions first.",
+                blockedBy);
     }
 
     @Transactional(readOnly = true)

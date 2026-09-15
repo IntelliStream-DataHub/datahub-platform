@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FileDataWrapper;
@@ -41,6 +42,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRange;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
@@ -73,6 +75,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.RestoreRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/files")
@@ -169,13 +174,13 @@ public class FileController {
             ))
     @ApiResponse(responseCode = "400", description = "Invalid upload request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "X-Datahub-Path must include a filename")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "Upload failed, a file already exists at that path.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "A file already exists at the target path.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "", method = RequestMethod.PUT,
             produces = { "application/json", "application/xml" }
@@ -183,26 +188,26 @@ public class FileController {
     @Transactional
     public ResponseEntity<?> upload(HttpServletRequest request){
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
-        try{
+        try {
             // The file content is the raw request body; all metadata is in headers. Headers are
             // available before the body, so we fully validate and authorise the upload before
             // reading a single body byte. X-Datahub-Path is the full destination path (folder +
             // filename), each segment percent-encoded so non-ASCII / spaces survive the header.
             String rawPath = request.getHeader("X-Datahub-Path");
             if (rawPath == null || rawPath.isBlank()) {
-                return new ResponseEntity<>("Missing required header: X-Datahub-Path", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("Missing required header: X-Datahub-Path"), HttpStatus.BAD_REQUEST);
             }
             String fullPath = decodePath(rawPath);
             int lastSlash = fullPath.lastIndexOf('/');
             String filename = fullPath.substring(lastSlash + 1);
             String filePath = lastSlash <= 0 ? "/" : fullPath.substring(0, lastSlash);
             if (filename.isBlank()) {
-                return new ResponseEntity<>("X-Datahub-Path must include a filename", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("X-Datahub-Path must include a filename"), HttpStatus.BAD_REQUEST);
             }
             if (!fileSystemService.validateFolderPath(filePath)) {
-                return new ResponseEntity<>("Invalid folder path", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("Invalid folder path"), HttpStatus.BAD_REQUEST);
             }
 
             INode datahubFile = new INode();
@@ -246,10 +251,7 @@ public class FileController {
 
             Set<ConstraintViolation<INode>> violations = validator.validate(datahubFile);
             if (!violations.isEmpty()) {
-                String errorMessage = violations.stream()
-                        .map(v -> v.getPropertyPath() + ": " + v.getMessage())
-                        .collect(Collectors.joining("; "));
-                return new ResponseEntity<>(errorMessage, HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.constraintViolation(violations), HttpStatus.BAD_REQUEST);
             }
 
             // A file with no dataset is public — anyone with file access may upload it. Otherwise
@@ -258,7 +260,7 @@ public class FileController {
             if (uploadDataSetId != null && !dataSecurity.hasWritePermissionToDataSet(uploadDataSetId)) {
                 TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 return new ResponseEntity<>(
-                        "No write permission for data set: " + uploadDataSetId,
+                        Problems.forbidden("No write permission for data set " + uploadDataSetId + "."),
                         HttpStatus.FORBIDDEN
                 );
             }
@@ -272,7 +274,8 @@ public class FileController {
                 if (!dataSecurity.hasWritePermissionToDataSet(parentDataSetId)) {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                     return new ResponseEntity<>(
-                            "No write permission for parent folder data set: " + parentDataSetId,
+                            Problems.forbidden("No write permission for data set " + parentDataSetId
+                                    + ", which the destination folder belongs to."),
                             HttpStatus.FORBIDDEN
                     );
                 }
@@ -282,18 +285,10 @@ public class FileController {
             // (path_hash WHERE is_deleted = false) plus the existing unique constraint on
             // external_id_hash make this the authoritative "path is taken" check across all
             // stateless API instances — no filesystem TOCTOU, no NFS caching surprises.
-            try {
-                fileTransformer.setDirectoryOrCreateIfMissing(datahubFile, filePath);
-                iNodeRepository.save(datahubFile);
-                iNodeRepository.flush();
-            } catch (DataIntegrityViolationException e) {
-                log.debug("Path or externalId already taken: {}", datahubFile.getPath());
-                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                return new ResponseEntity<>(
-                        "File with submitted path or externalId already exists.",
-                        HttpStatus.CONFLICT
-                );
-            }
+            fileTransformer.setDirectoryOrCreateIfMissing(datahubFile, filePath);
+            iNodeRepository.save(datahubFile);
+            iNodeRepository.flush();
+        
 
             // Stage the upload in the single per-tenant temp dir (TextValidator.RESERVED_TMP_DIR),
             // then atomically rename into place. CREATE_NEW on the temp path guards against a
@@ -327,14 +322,12 @@ public class FileController {
             return new ResponseEntity<>(data, HttpStatus.OK);
         } catch (IllegalArgumentException e){
             // Malformed header: bad percent-encoding, a non-numeric dataset id, or invalid
-            // metadata / relatedResources JSON.
+            // metadata / relatedResources JSON. The exception text can be the JDK's, so it is not sent.
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            // Mark transaction for rollback
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>(Problems.badRequest("An X-Datahub-* header could not be read. "
+                    + "Check that each value is percent-encoded, X-Datahub-Dataset-Id is a number, "
+                    + "X-Datahub-Metadata is a JSON object and X-Datahub-Related-Resources is a JSON "
+                    + "array of ids."), HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -439,7 +432,7 @@ public class FileController {
             produces = { "application/json", "application/xml" })
     public ResponseEntity<?> listDirectory(HttpServletRequest req){
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
 
         String foundPath = httpHelper.getRequestPath(req, "/files/list");
@@ -449,27 +442,22 @@ public class FileController {
         // dataset are public (visible to everyone); dataset-bearing ones show only if readable.
         boolean readAll = dataSecurity.hasReadAccessToEverything();
         Set<Long> allowed = readAll ? null : dataSecurity.readableDataSetIds();
-        try{
-            if(fileSystemService.validateFolderPath(foundPath)){
-                List<INode> nodes;
-                if(foundPath.isEmpty() || foundPath.equals("/")){
-                    nodes = readAll
-                            ? iNodeRepository.findAllByParentAndIsDeletedEquals(null, false, INode.class)
-                            : iNodeRepository.findReadableInRoot(false, allowed, INode.class);
-                } else {
-                    var pathHash = IdGenerator.xxHash(foundPath);
-                    nodes = readAll
-                            ? iNodeRepository.findAllByParentPathHashAndIsDeletedEquals(pathHash, false, INode.class)
-                            : iNodeRepository.findReadableByParentPathHash(pathHash, false, allowed, INode.class);
-                }
-                data.setItems(fileTransformer.transformToIndexNode(nodes));
-                return new ResponseEntity<>(data, HttpStatus.OK);
+        if(fileSystemService.validateFolderPath(foundPath)){
+            List<INode> nodes;
+            if(foundPath.isEmpty() || foundPath.equals("/")){
+                nodes = readAll
+                        ? iNodeRepository.findAllByParentAndIsDeletedEquals(null, false, INode.class)
+                        : iNodeRepository.findReadableInRoot(false, allowed, INode.class);
+            } else {
+                var pathHash = IdGenerator.xxHash(foundPath);
+                nodes = readAll
+                        ? iNodeRepository.findAllByParentPathHashAndIsDeletedEquals(pathHash, false, INode.class)
+                        : iNodeRepository.findReadableByParentPathHash(pathHash, false, allowed, INode.class);
             }
-            return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+            data.setItems(fileTransformer.transformToIndexNode(nodes));
+            return new ResponseEntity<>(data, HttpStatus.OK);
         }
+        return new ResponseEntity<>(Problems.notFound("No folder exists at this path."), HttpStatus.NOT_FOUND);
     }
 
     @Tag(name = "Files")
@@ -483,13 +471,13 @@ public class FileController {
             ))
     @ApiResponse(responseCode = "400", description = "Neither id nor externalId supplied.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "A file id or externalId is required.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "404", description = "Not found or not readable.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "File or folder not found.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     // Read-only transaction so the transformer's lazy metadata/relatedResources/dataSet loads succeed
@@ -499,18 +487,18 @@ public class FileController {
             @Parameter(description = "Numeric id of the file or folder. Supply this or externalId.", example = "5677892") @RequestParam(value = "id", required = false) Long id,
             @Parameter(description = "External id of the file or folder. Supply this or id.", example = "reports/2026/q1.pdf") @RequestParam(value = "externalId", required = false) String externalId) {
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         boolean hasExternalId = externalId != null && !externalId.isBlank();
         if (!hasExternalId && id == null) {
-            return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest("A file id or externalId is required."), HttpStatus.BAD_REQUEST);
         }
         Optional<INode> maybeNode = hasExternalId
                 ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
                         LongHashFunction.xx3().hashChars(externalId), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(id, false, INode.class);
         if (maybeNode.isEmpty()) {
-            return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
+            return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
         }
         INode node = maybeNode.get();
         // Dataset-less nodes are public; otherwise the caller must be able to read the node's dataset.
@@ -518,7 +506,7 @@ public class FileController {
         if (!dataSecurity.hasReadAccessToEverything() && node.getDataSet() != null) {
             Set<Long> allowed = dataSecurity.readableDataSetIds();
             if (allowed == null || !allowed.contains(node.getDataSet().getId())) {
-                return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
+                return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
             }
         }
         DataWrapper<IndexNode> data = new DataWrapper<>();
@@ -554,7 +542,7 @@ public class FileController {
             @Parameter(description = "Cap on results returned. Defaults to 100, max 1000.", example = "50")
             @RequestParam(value = "limit", required = false) Integer limit){
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         DataWrapper<IndexNode> data = new DataWrapper<>();
         if (q == null || q.isBlank()) {
@@ -564,23 +552,18 @@ public class FileController {
         // LIMIT 0 in SQL and returns nothing, which reads as "no matches" rather than as a bad
         // request. The cap was previously fixed at 100 with no way for a caller to say otherwise.
         int cap = (limit == null || limit <= 0) ? SEARCH_LIMIT : Math.min(limit, MAX_SEARCH_LIMIT);
-        try {
-            List<INode> nodes;
-            if (dataSecurity.hasReadAccessToEverything()) {
-                nodes = iNodeRepository.searchByName(q.trim(), false, cap);
-            } else {
-                Set<Long> allowed = dataSecurity.readableDataSetIds();
-                // Empty IN (...) is invalid SQL in a native query; a non-existent id keeps it valid and
-                // matches nothing, so only public (no-dataset) inodes come back.
-                Collection<Long> ids = allowed.isEmpty() ? List.of(-1L) : allowed;
-                nodes = iNodeRepository.searchReadableByName(q.trim(), false, ids, cap);
-            }
-            data.setItems(fileTransformer.transformToIndexNode(nodes));
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        List<INode> nodes;
+        if (dataSecurity.hasReadAccessToEverything()) {
+            nodes = iNodeRepository.searchByName(q.trim(), false, cap);
+        } else {
+            Set<Long> allowed = dataSecurity.readableDataSetIds();
+            // Empty IN (...) is invalid SQL in a native query; a non-existent id keeps it valid and
+            // matches nothing, so only public (no-dataset) inodes come back.
+            Collection<Long> ids = allowed.isEmpty() ? List.of(-1L) : allowed;
+            nodes = iNodeRepository.searchReadableByName(q.trim(), false, ids, cap);
         }
+        data.setItems(fileTransformer.transformToIndexNode(nodes));
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Files")
@@ -625,24 +608,21 @@ public class FileController {
                     + "them is current.")
             @RequestHeader(value = HttpHeaders.IF_NONE_MATCH, required = false) String ifNoneMatch) {
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
 
-        try{
-            Optional<INodeDownload> inode = Optional.empty();
-            if(id.isPresent()){
-                inode = findIndexNode(id.get(), inode);
-                if (inode.isPresent()) {
-                    String filesystemPath = filesConfig.getRoot().toString();
-                    return doFileDownload(res, filesystemPath, inode.get(), range, ifRange, ifNoneMatch);
-                } else {
-                    return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
-                }
+        Optional<INodeDownload> inode = Optional.empty();
+        if(id.isPresent()){
+            inode = findIndexNode(id.get(), inode);
+            if (inode.isPresent()) {
+                String filesystemPath = filesConfig.getRoot().toString();
+                return doFileDownload(res, filesystemPath, inode.get(), range, ifRange, ifNoneMatch);
+            } else {
+                return new ResponseEntity<>(Problems.notFound("File not found."), HttpStatus.NOT_FOUND);
             }
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
         }
-        return new ResponseEntity<>("", HttpStatus.INTERNAL_SERVER_ERROR);
+
+        return new ResponseEntity<>(Problems.badRequest("A file id or externalId is required."), HttpStatus.BAD_REQUEST);
     }
 
     private static ResponseEntity<?> doFileDownload(
@@ -724,10 +704,7 @@ public class FileController {
                 return null;
             }
             log.error("Error downloading file: {}", sourcePath, e);
-            return new ResponseEntity<>(
-                    "Error downloading file",
-                    HttpStatus.INTERNAL_SERVER_ERROR
-            );
+            return new ResponseEntity<>(Problems.internal(Problems.INTERNAL_DETAIL), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -823,8 +800,8 @@ public class FileController {
             content = @Content)
     @ApiResponse(responseCode = "409", description = "The folder is not empty.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Folder is not empty.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(
             value = { "/delete"},
@@ -838,7 +815,7 @@ public class FileController {
             DataWrapper<IdCollection> data
     ){
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
         Set<String> externalIdHashes = data.getItems().stream()
@@ -868,10 +845,7 @@ public class FileController {
             fileSystemService.delete(idList, externalIdHashes);
         } catch (IOException e){
             log.error(e.getMessage(), e);
-            return new ResponseEntity<>(
-                    "Internal delete operation error!",
-                    HttpStatus.INTERNAL_SERVER_ERROR
-            );
+            return new ResponseEntity<>(Problems.internal(Problems.INTERNAL_DETAIL), HttpStatus.INTERNAL_SERVER_ERROR);
         }
         return new ResponseEntity<>(HttpStatus.NO_CONTENT);
     }
@@ -890,7 +864,7 @@ public class FileController {
     @Transactional(readOnly = true)
     public ResponseEntity<?> listTrash() {
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         List<INode> deleted;
         if (dataSecurity.hasReadAccessToEverything()) {
@@ -918,18 +892,18 @@ public class FileController {
             ))
     @ApiResponse(responseCode = "403", description = "No write permission on a file's dataset.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "No write permission on this dataset.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "404", description = "None of the given ids/externalIds match a deleted file.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "File or folder not found.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "Original name/path or externalId already taken, or the original folder is gone.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "A file already exists at the original path.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = RestoreRefusedProblem.class)
             ))
     @RequestMapping(value = "/restore", method = RequestMethod.POST,
             consumes = { MediaType.APPLICATION_JSON_VALUE },
@@ -939,7 +913,7 @@ public class FileController {
             @RequestBody @Schema(implementation = IdCollectionDataWrapper.class) DataWrapper<IdCollection> data
     ) {
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
         // Hash the RAW external id (getExternalIdHash), NOT getExternalId() — the latter
@@ -950,7 +924,7 @@ public class FileController {
 
         List<INode> nodes = iNodeRepository.findAllByIdOrExternalIdHashAndDeleted(idList, extHashes);
         if (nodes.isEmpty()) {
-            return new ResponseEntity<>("No matching deleted files.", HttpStatus.NOT_FOUND);
+            return new ResponseEntity<>(Problems.notFound("No matching deleted files."), HttpStatus.NOT_FOUND);
         }
         // Write permission on each node's dataset (public/no-dataset nodes restorable by anyone).
         if (!dataSecurity.hasWriteAccessToEverything()) {
@@ -967,14 +941,16 @@ public class FileController {
             return new ResponseEntity<>(resp, HttpStatus.OK);
         } catch (FileAlreadyExistsException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("A file already exists at the original path.", HttpStatus.CONFLICT);
-        } catch (IllegalStateException e) {
+            return new ResponseEntity<>(Problems.conflict(null, "A file already exists at the original path."), HttpStatus.CONFLICT);
+        } catch (FileSystemService.RestoreRefusedException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.CONFLICT);
+            ProblemDetail problem = Problems.conflict(null, e.getMessage());
+            problem.setProperty("reason", e.reason());
+            return new ResponseEntity<>(problem, HttpStatus.CONFLICT);
         } catch (IOException e) {
             log.error("File restore failed: {}", e.getMessage(), e);
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("Internal restore error.", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>(Problems.internal("Internal restore error."), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -994,23 +970,23 @@ public class FileController {
             ))
     @ApiResponse(responseCode = "400", description = "Invalid request (e.g. illegal name).",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Invalid folder path")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "403", description = "No write permission.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "No write permission on this dataset.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "404", description = "File or folder not found.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "File or folder not found.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "A file or folder already exists at the target path.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "A file already exists at the target path.")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/update", method = RequestMethod.POST,
             consumes = { "application/json" },
@@ -1021,10 +997,10 @@ public class FileController {
             @RequestBody FileUpdate request
     ) {
         if (isFilesDisabled()) {
-            return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
+            return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         if (request.getExternalId() == null && request.getId() == null) {
-            return new ResponseEntity<>("A file id or externalId is required.", HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest("A file id or externalId is required."), HttpStatus.BAD_REQUEST);
         }
 
         Optional<INode> maybeNode = (request.getExternalId() != null)
@@ -1032,7 +1008,7 @@ public class FileController {
                         LongHashFunction.xx3().hashChars(request.getExternalId()), false, INode.class)
                 : iNodeRepository.findByIdAndIsDeletedEquals(request.getId(), false, INode.class);
         if (maybeNode.isEmpty()) {
-            return new ResponseEntity<>("File or folder not found.", HttpStatus.NOT_FOUND);
+            return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
         }
         INode node = maybeNode.get();
 
@@ -1094,14 +1070,17 @@ public class FileController {
             }
         } catch (FileAlreadyExistsException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("A file or folder already exists at the target path.", HttpStatus.CONFLICT);
+            return new ResponseEntity<>(Problems.conflict(null, "A file or folder already exists at the target path."), HttpStatus.CONFLICT);
         } catch (IllegalArgumentException e) {
+            // A rejected name or destination path; the text quotes what was sent, so it stays in the log.
+            log.debug("File update rejected: {}", e.getMessage());
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest(
+                    "The new name or destination path is not valid."), HttpStatus.BAD_REQUEST);
         } catch (IOException e) {
             log.error("File update failed for {}: {}", node.getPath(), e.getMessage(), e);
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>("Internal update error.", HttpStatus.INTERNAL_SERVER_ERROR);
+            return new ResponseEntity<>(Problems.internal("Internal update error."), HttpStatus.INTERNAL_SERVER_ERROR);
         }
 
         // Return the transformed DTO (like the search endpoints), not the raw entity: OSIV is off, so

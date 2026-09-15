@@ -11,8 +11,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.net.URI;
-
 /**
  * Turns the two limit refusals into RFC 9457 responses, with the status carrying the difference
  * between them: a daily quota clears on its own, a lifetime ceiling does not.
@@ -31,16 +29,20 @@ public class LimitExceptionHandler {
     public ResponseEntity<ProblemDetail> handleQuotaExceeded(IngestQuotaExceededException ex) {
         log.info("Daily {} quota reached (limit {})", ex.getMetric(), ex.getLimit());
 
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
+                .body(quotaProblem(ex));
+    }
+
+    /** Shared with RequestBodySizeLimitFilter, which charges the byte quota before any advice can run. */
+    public static ProblemDetail quotaProblem(IngestQuotaExceededException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.detail());
         problem.setTitle("Ingest quota exceeded");
-        problem.setType(URI.create("https://intellistream.ai/errors/ingest-quota-exceeded"));
+        problem.setType(Problems.type("ingest-quota-exceeded"));
         problem.setProperty("metric", ex.getMetric());
         problem.setProperty("limit", ex.getLimit());
         problem.setProperty("retryAfter", ex.getRetryAfterSeconds());
-
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header(HttpHeaders.RETRY_AFTER, String.valueOf(ex.getRetryAfterSeconds()))
-                .body(problem);
+        return problem;
     }
 
     /**
@@ -54,7 +56,7 @@ public class LimitExceptionHandler {
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.detail());
         problem.setTitle("Tenant limit reached");
-        problem.setType(URI.create("https://intellistream.ai/errors/tenant-limit-reached"));
+        problem.setType(Problems.type("tenant-limit-reached"));
         problem.setProperty("metric", ex.getMetric());
         problem.setProperty("limit", ex.getLimit());
         return problem;

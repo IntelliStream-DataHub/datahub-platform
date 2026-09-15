@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
+import org.springframework.http.ProblemDetail;
 import ai.intellistream.datahub.api.graphtransfer.GraphFileCodec;
 import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
 import ai.intellistream.datahub.api.graphtransfer.GraphTransferLimitException;
 import ai.intellistream.datahub.api.graphtransfer.InvalidGraphFileException;
-import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.services.GraphTransferService;
-import ai.intellistream.datahub.errors.ResponseError;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -18,7 +16,6 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -32,6 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.io.InputStream;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 /**
  * Export / import of a resource graph component as a portable binary file. Split out of
@@ -73,15 +72,15 @@ public class GraphTransferController {
     @ApiResponse(responseCode = "404", description =
             "The starting resource was not found. Check `id` and your tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "400", description =
             "The component is over the export limit (2,000,000 nodes / 2,000,000 relationships). "
                     + "Nothing is exported partially.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(value = "/export/{id}", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<?> export(
@@ -150,20 +149,20 @@ public class GraphTransferController {
     @ApiResponse(responseCode = "400", description =
             "The body is not a readable graph export file, or its content failed validation.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "413", description =
             "The file is over a transfer limit: larger than 512 MB, or more than 2,000,000 nodes "
                     + "or 2,000,000 relationships. Nothing is imported.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @PostMapping(value = "/import",
             consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE,
             produces = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<?> importGraph(HttpServletRequest request) {
+    public ResponseEntity<?> importGraph(HttpServletRequest request) throws IOException {
         // Cheap early rejection when the client declares its size. The streaming cap inside the
         // service still guards chunked uploads and lying Content-Length headers.
         long declared = request.getContentLengthLong();
@@ -179,40 +178,15 @@ public class GraphTransferController {
             return new ResponseEntity<>(payloadTooLarge(e.getMessage()), HttpStatus.PAYLOAD_TOO_LARGE);
         } catch (InvalidGraphFileException e) {
             return new ResponseEntity<>(badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
-        } catch (ConstraintViolationException e) {
-            return new ResponseEntity<>(badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
-        } catch (NamingPolicyViolationException e) {
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response with the
-            // per-item violations list, same as /resources/create.
-            throw e;
-        } catch (BadRequestException e) {
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatus.valueOf(error.getError().getCode()));
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (IOException | RuntimeException e) {
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 
-    private static ResponseError<BadRequestError> payloadTooLarge(String message) {
-        var error = new BadRequestError();
-        error.setCode(413);
-        error.setMessage(message);
-        var response = new ResponseError<BadRequestError>();
-        response.setError(error);
-        return response;
+    private static ProblemDetail payloadTooLarge(String message) {
+        return Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.type("request-too-large"),
+                "Payload Too Large", message);
     }
 
-    private static ResponseError<BadRequestError> badRequest(String message) {
-        var error = new BadRequestError();
-        error.setCode(400);
-        error.setMessage(message);
-        var response = new ResponseError<BadRequestError>();
-        response.setError(error);
-        return response;
+    private static ProblemDetail badRequest(String message) {
+        return Problems.badRequest(message);
     }
 }

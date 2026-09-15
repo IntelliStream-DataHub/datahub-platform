@@ -83,19 +83,19 @@
 		});
 	}
 
+	/** Marks each field the form renders, and returns the lines for the ones it does not. */
 	function showFieldErrors(fields) {
-		(fields || []).forEach(function (entry) {
-			Object.keys(entry).forEach(function (name) {
-				var element = form.querySelector('[data-error-for="' + name + '"]');
-				if (element) {
-					element.textContent = entry[name];
-					element.hidden = false;
-				} else {
-					// A field the form does not render still has to reach the user somehow.
-					Flash.error(name + ": " + entry[name]);
-				}
-			});
+		var unshown = [];
+		fields.forEach(function (entry) {
+			var element = entry.field && form.querySelector('[data-error-for="' + entry.field + '"]');
+			if (element) {
+				element.textContent = entry.message;
+				element.hidden = false;
+			} else {
+				unshown.push(entry.field ? entry.field + ": " + entry.message : entry.message);
+			}
 		});
+		return unshown;
 	}
 
 	function renderApiKeyHelp(stored) {
@@ -185,12 +185,13 @@
 			Flash.error($L("settings.session.expired"));
 			return;
 		}
-		if (error && error.status === 400 && error.body && error.body.error) {
-			showFieldErrors(error.body.error.fields);
-			Flash.error(error.body.error.message || $L(fallbackKey));
+		if (!(error instanceof SettingsApi.ApiError)) {
+			Flash.error($L(fallbackKey));
 			return;
 		}
-		Flash.error($L(fallbackKey));
+		var problem = DataHubProblem.parse(error.status, error.body);
+		var unshown = showFieldErrors(problem.fieldErrors());
+		Flash.error(problem.message(fallbackKey), { details: unshown.concat(problem.details(true)) });
 	}
 
 	function setEditable(canWrite) {

@@ -51,8 +51,7 @@ class ResourceForm extends DatasetFormAbstract{
         this.network = obj.network || null;
         this.isRoot = obj.isRoot === undefined ? false : obj.isRoot;
         this.title = $L('create.resource');
-        this.apiURL = "/api/resources";
-        this.labelApiUri = "/api/label";
+        this.apiPath = "/resources";
         // A dataset the caller already knows about — what we are cloning, or the node we are
         // connecting from. Beats both the remembered one and an empty field; see prefillDataSet().
         this.dataSet = obj.dataSet || null;
@@ -132,7 +131,8 @@ class ResourceForm extends DatasetFormAbstract{
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/save";
+        this.savePath = this.apiPath + "/create";
+        this.formElement.action = Api.url(this.savePath);
         this.labelListBtn = this.formElement.querySelector('[data-type="label-list-btn"]');
         const openLabelListEvent = e => {
             const picker = new LabelList({
@@ -268,20 +268,37 @@ class ResourceForm extends DatasetFormAbstract{
                 obj.metadata[keyField.value] = valueField.value;
             }
         });
-        fetch(this.formElement.action, {
-            method: this.formElement.method,
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            //signal: AbortSignal.timeout(10000),
-            body: JSON.stringify(obj)
-        }).then( response => {
-            this.handleResponse(response);
-        }).catch( error => {
-            console.error("Update failed", error);
-        });
+        Api.post(this.savePath, this.requestBody(obj), { timeout: 30000 })
+            .then( response => this.handleResponse(response))
+            .catch( error => console.error("Saving resource failed", error));
+    }
+
+    /**
+     * The create body: the node, plus one relation per picked type when the form was opened from
+     * another node. Named field by field, since the api refuses fields it does not have.
+     */
+    requestBody(obj){
+        const node = {
+            name: obj.name,
+            externalId: obj.externalId,
+            description: obj.description,
+            source: obj.source,
+            isRoot: obj.isRoot === 'true',
+            labels: obj.labels,
+            metadata: obj.metadata
+        };
+        if(obj.dataSetId) node.dataSetId = obj.dataSetId;
+        const relations = (obj.relationFrom && obj.relationTypes ? obj.relationTypes : []).map(type => ({
+            fromId: obj.relationFrom,
+            toExternalId: obj.externalId,
+            relationshipType: type
+        }));
+        return { nodes: [node], relations: relations };
+    }
+
+    /** The saved node. Policy warnings stay on the envelope, where handleResponse already reads them. */
+    savedItem(json){
+        return (json && Array.isArray(json.nodes)) ? json.nodes[0] : json;
     }
 
     createLabel(data, idx, name){
@@ -371,7 +388,7 @@ class ResourceEditForm extends ResourceForm{
     constructor(obj) {
         super(obj);
         this.title = $L('edit.resource') + " : " + obj.entityId;
-        this.deleteUrl = this.apiURL + "/delete";
+        this.deleteUrl = this.apiPath + "/delete";
         // The node's type is fixed at create: no type-label is offered in the picker, and the
         // existing one is shown as a locked (non-removable) chip.
         this.selectableTypeLabels = [];
@@ -380,7 +397,8 @@ class ResourceEditForm extends ResourceForm{
 
     render(){
         super.render();
-        this.formElement.action = this.apiURL + "/update";
+        this.savePath = this.apiPath + "/update";
+        this.formElement.action = Api.url(this.savePath);
         if(!this.errors){
             this.loadData( json => {
                 this.addLabels(json);
@@ -393,6 +411,23 @@ class ResourceEditForm extends ResourceForm{
         }
         this.renderOpenFindings();
         this.submitButtonElement.firstElementChild.textContent = $L('update');
+    }
+
+    /**
+     * The update body. The form always shows the whole resource, so every field it has is set; an
+     * empty dataset picker is a decision too, and clears the dataset.
+     */
+    requestBody(obj){
+        const update = {
+            name: { set: obj.name },
+            externalId: { set: obj.externalId },
+            metadata: { set: obj.metadata },
+            labels: { set: obj.labels },
+            dataSetId: obj.dataSetId ? { set: obj.dataSetId } : { setNull: true }
+        };
+        if(obj.description != null) update.description = { set: obj.description };
+        if(obj.source != null) update.source = { set: obj.source };
+        return { nodes: [{ id: obj.id, update: update }] };
     }
 
     // Never the remembered dataset. This form posts whatever the field holds, so prefilling an
@@ -603,7 +638,6 @@ class ResourceCloneForm extends ResourceRelationForm{
 
     render(){
         super.render();
-        this.formElement.action = this.apiURL + "/save";
         this.submitButtonElement.textContent = $L('datahub.save');
         if(!this.errors){
             this.loadData( json => {
@@ -622,7 +656,7 @@ class LabelForm extends DatasetFormAbstract{
 
     constructor(obj) {
         super(obj);
-        this.apiURL = '/api/label';
+        this.apiPath = '/labels';
     }
 
     getFormFields(){
@@ -644,38 +678,19 @@ class LabelForm extends DatasetFormAbstract{
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/save";
+        this.savePath = this.apiPath + "/create";
+        this.formElement.action = Api.url(this.savePath);
     }
 
-    handleResponse(response) {
-        if (response.status >= 400) {
-            response.json().then(json => {
-                /** Errors JSON format should be in
-                 {
-                 "errors": {"field": "fieldName", "message": "errorMessage"}
-                 }
-                 */
-                this.errors = [];
-                if(json.errors){
-                    this.errors = json.errors;
-                }
-                if(json.error && json.error.duplicated){
-                    json.error.duplicated.forEach( error => {
-                        const field = Object.keys(error)[0];
-                        const message = `${json.error.message}`;
-                        this.errors.push( {field: field, message: message} );
-                    });
-                }
-                this.render();
-            });
-        } else {
-            this.cancelButtonElement.dispatchEvent(new Event('click'));
-            response.json().then(json => {
-                if (this.afterSaveFn) {
-                    this.afterSaveFn(json);
-                }
-            });
-        }
+    submit(){
+        this.formData = new FormData(this.formElement);
+        Api.post(this.savePath, { items: [Object.fromEntries(this.formData)] })
+            .then(response => this.handleResponse(response))
+            .catch(() => console.error("Saving label failed"));
+    }
+
+    savedItem(json){
+        return (json && Array.isArray(json.items)) ? json.items[0] : json;
     }
 
 }
@@ -686,55 +701,33 @@ class LabelEditForm extends LabelForm{
         super(obj);
         this.title = $L('edit.label');
         // A truthy deleteUrl makes BaseFormAbstract.render() add the delete button.
-        this.deleteUrl = this.apiURL + "/delete";
+        this.deleteUrl = this.apiPath + "/delete";
     }
 
     render(){
         super.render();
-        this.formElement.action = this.apiURL + "/update";
+        this.savePath = this.apiPath + "/update";
+        this.formElement.action = Api.url(this.savePath);
         if(!this.errors){
             this.loadData();
         }
         this.submitButtonElement.textContent = $L('update');
     }
 
-    // Delete straight on datahub-api (browser-direct, bearer token) rather than through a console
-    // proxy — the same pattern the file/dataset/resource lookups use.
     delete(){
-        const apiBaseUrl = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
-        fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
+        // Keep the id as the string it arrived as: the server field is a Long that reads it fine,
+        // and converting rounds above 2^53.
+        Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
             .then(response => {
-                if (response.status === 401) { renderSignedOutDialog(); return null; }
-                if (!response.ok) throw new Error('token');
-                return response.text();
-            })
-            .then(token => {
-                if (!token) return null;
-                return fetch(apiBaseUrl + '/labels/delete', {
-                    method: 'DELETE',
-                    headers: {
-                        'Authorization': 'Bearer ' + token,
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json'
-                    },
-                    // Keep the id as the string it arrived as: the server field is a Long that
-                    // reads it fine, so converting buys nothing and rounds above 2^53.
-                    body: JSON.stringify({ items: [{ id: this.entityId }] })
-                });
-            })
-            .then(response => {
-                if (!response) return;
                 if (response.ok) {
                     if (this.afterDeleteFn) this.afterDeleteFn(this);
                     this.cancelButtonElement.dispatchEvent(new Event('click'));
                 } else {
-                    // The api rejects deleting a label still used by resources — surface why.
-                    response.json()
-                        .then(json => Flash.error((json && json.error && json.error.message) || $L('could.not.delete.label')))
-                        .catch(() => Flash.error($L('could.not.delete.label')));
+                    // The api refuses to delete a label resources still carry, and names them.
+                    this.flashProblem(response, 'could.not.delete.label');
                 }
             })
-            .catch(e => { console.error('Label delete failed', e); Flash.error($L('could.not.delete.label')); });
+            .catch(e => { console.error('Label delete failed', e); this.flashError($L('could.not.delete.label')); });
     }
 }
 
@@ -746,7 +739,6 @@ class LabelList extends BaseList{
         // Type-labels a caller may pick here (upper-cased). Others in TYPE_LABELS_ALL are hidden
         // from the pick list; the selectable ones are mutually exclusive (see updateTable).
         this.selectableTypeLabels = (obj.selectableTypeLabels || []).map(s => s.toUpperCase());
-        this.apiURL = '/api/label';
         this.loadData();
         this.render();
         this.addCRUDButtons();
@@ -783,12 +775,7 @@ class LabelList extends BaseList{
     }
 
     loadData(afterLoadFn){
-        fetch(this.apiURL + '/list', {
-            method: 'GET',
-            headers: {
-                'Accept': 'application/json'
-            }
-        })
+        Api.get('/labels')
             .then( resp => resp.json())
             .then( json => {
                 const allItems = json.items || [];
@@ -884,7 +871,7 @@ class RelationForm extends DatasetFormAbstract{
     constructor(obj) {
         super(obj);
         this.title = obj.title || $L('create.relationship');
-        this.apiURL = "/api/relationship";
+        this.savePath = "/edges/types/create";
     }
 
     getFormFields(){
@@ -907,44 +894,29 @@ class RelationForm extends DatasetFormAbstract{
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/save";
+        this.formElement.action = Api.url(this.savePath);
+    }
+
+    submit(){
+        this.formData = new FormData(this.formElement);
+        Api.post(this.savePath, { items: [Object.fromEntries(this.formData)] })
+            .then(response => this.handleResponse(response))
+            .catch(() => console.error("Saving relationship type failed"));
+    }
+
+    savedItem(json){
+        return (json && Array.isArray(json.items)) ? json.items[0] : json;
     }
 }
 
-class RelationEditForm extends RelationForm{
-
-    constructor(obj) {
-        super(obj);
-        this.title = obj.title || $L('edit.relationship')
-        this.deleteUrl = this.apiURL + "/delete";
-    }
-
-    render(){
-        super.render();
-        this.formElement.action = this.apiURL + "/update";
-        if(!this.errors){
-            this.loadData();
-        }
-        this.submitButtonElement.firstElementChild.textContent = $L('update');
-    }
-}
-
+// No edit form: the api can create and list relationship types, but not change or delete one.
 class RelationList extends BaseList{
 
     constructor(obj) {
         super(obj);
         this.network = obj.network || null;
-        this.apiURL = '/api/relationship';
+        this.apiPath = '/edges/types';
         this.title = obj.title || $L('relationships')
-
-        this.editEvent = e => {
-            e.stopPropagation(); // Prevent row click event to run
-            const id = e.target.closest('td').getAttribute("data-id");
-            new RelationEditForm({
-                entityId: id,
-                afterSave: this.updateTableList
-            }).render();
-        }
     }
 
     render() {
@@ -976,7 +948,6 @@ class ResourceSearch extends BaseList{
     constructor(obj) {
         super(obj);
         this.network = obj.network || null;
-        this.apiURL = '/api/resources/search';
         this.title = obj.title || $L('search.for.resource')
     }
 
@@ -1002,18 +973,8 @@ class ResourceSearch extends BaseList{
     }
 
     fetchAndRefreshSearchResults(query) {
-        fetch(this.apiURL, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify({"query": query})
-        })
-            .then(response => {
-                return response.json();
-            })
+        Api.post('/resources/search', ResourceList.searchBody(query))
+            .then(response => response.ok ? response.json() : { items: [] })
             .then( json => {
                 this.data = {
                     items: json.items.map( it => {
@@ -1108,7 +1069,7 @@ class ResourceEdgeForm extends DatasetFormAbstract{
     constructor(obj) {
         super(obj);
         this.title = obj.title || $L('create.edge');
-        this.apiURL = "/api/edges";
+        this.apiPath = "/edges";
         this.fromNode = obj.fromNode || null;
         this.network = obj.network || null;
     }
@@ -1175,7 +1136,8 @@ class ResourceEdgeForm extends DatasetFormAbstract{
     render() {
         super.render();
         this.createClickEvents();
-        this.formElement.action = this.apiURL + "/save";
+        this.savePath = "/resources/create";
+        this.formElement.action = Api.url(this.savePath);
         this.setFromNode(this.fromNode);
         this.renderMetadataContent();
     }
@@ -1381,8 +1343,11 @@ class ResourceEdgeForm extends DatasetFormAbstract{
 
     submit(){
         this.formData = new FormData(this.formElement);
-        const obj = Object.fromEntries(this.formData);
-        obj.metadata = {};
+        const form = Object.fromEntries(this.formData);
+        const obj = { description: form.description, metadata: {} };
+        ['fromId', 'toId', 'relationshipTypeId'].forEach(field => {
+            if(form[field]) obj[field] = form[field];
+        });
         const metadataFields = this.formElement.querySelectorAll(`table.metadata tbody tr`);
         metadataFields.forEach( it => {
             const keyField = it.querySelector('[name$="key"]');
@@ -1398,20 +1363,18 @@ class ResourceEdgeForm extends DatasetFormAbstract{
         if(animateToggle && animateToggle.checked && animateValue && animateValue.value.trim()){
             obj.metadata[ResourceEdgeForm.ANIMATE_KEY] = animateValue.value.trim();
         }
-        fetch(this.formElement.action, {
-            method: this.formElement.method,
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            signal: AbortSignal.timeout(10000),
-            body: JSON.stringify(obj)
-        }).then( response => {
-            this.handleResponse(response);
-        }).catch(() => {
-            console.error("Saving edge failed");
-        });
+        Api.post(this.savePath, this.requestBody(obj))
+            .then( response => this.handleResponse(response))
+            .catch(() => console.error("Saving edge failed"));
+    }
+
+    requestBody(relation){
+        return { relations: [relation] };
+    }
+
+    /** The saved edge, which the graph draws whole. */
+    savedItem(json){
+        return (json && Array.isArray(json.relations)) ? json.relations[0] : json;
     }
 
 }
@@ -1421,21 +1384,15 @@ class ResourceEditEdgeForm extends ResourceEdgeForm {
     constructor(obj) {
         super(obj);
         this.title = $L('edit.edge') + " : " + obj.entityId;
-        this.deleteUrl = this.apiURL + "/delete";
+        this.deleteUrl = this.apiPath + "/delete";
     }
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/update";
+        this.savePath = "/resources/update";
+        this.formElement.action = Api.url(this.savePath);
         if(!this.errors){
-            this.loadData( data => {
-                // GET /api/edges/{id} → DataWrapper { items: [EdgeProxy] }. (Tolerate a
-                // { relations } shape too, in case the endpoint returns a GraphDataWrapper.)
-                const edge = (data.items || data.relations || [])[0];
-                if(!edge){
-                    console.warn("edit edge: no edge returned for id", this.entityId);
-                    return;
-                }
+            this.loadData( edge => {
                 // The from/to resources come from the graph the user is already looking at, so
                 // the form doesn't depend on the edge endpoint also returning its endpoints.
                 this.setFromNode(this.nodeFromGraph(edge.start));
@@ -1452,6 +1409,21 @@ class ResourceEditEdgeForm extends ResourceEdgeForm {
             });
         }
         this.submitButtonElement.firstElementChild.textContent = $L('update');
+    }
+
+    /** Every field the form holds, as an update to the edge's relation. */
+    requestBody(relation){
+        const update = { metadata: { set: relation.metadata } };
+        if(relation.description != null) update.description = { set: relation.description };
+        if(relation.relationshipTypeId) update.relationshipId = { set: relation.relationshipTypeId };
+        if(relation.fromId) update.start = { set: relation.fromId };
+        if(relation.toId) update.end = { set: relation.toId };
+        return { relations: [{ id: this.entityId, update: update }] };
+    }
+
+    /** The whole envelope: the graph moves each returned relation to its new endpoints. */
+    savedItem(json){
+        return json;
     }
 
     // Build the from/to node data for a label from the live cytoscape graph (the edge being
@@ -1615,23 +1587,22 @@ class PolicyForm extends DatasetFormAbstract {
         // default: that row is technically a create, because no policy node exists yet, but it is
         // presented as the rule already in force, so "Create policy" would misdescribe it.
         obj.title = obj.title || (obj.entityId ? $L('edit.policy') : $L('create.policy'));
-        obj.apiUrl = "/api/policies";               // used by loadData()
         // Deliberately no deleteUrl: the base form draws its delete button from one, and a policy
         // is deactivated rather than deleted. See addDeactivateButton().
         super(obj);
 
         this.entityId = obj.entityId || null;
         // When a policy is created from a dataset node, attach it to that dataset: the id rides
-        // inside the existing /api/policies/create payload and the API adds a ENFORCED_ON edge.
+        // inside the POST /policies/create payload and the API adds a ENFORCED_ON edge.
         this.dataSetId = obj.dataSetId || null;
         // Optional starting values for a create; see the assignment to this.meta in render().
         this.seedMeta = obj.meta || null;
         // Mirrors the policy's `deactivated` metadata key; loaded in loadExistingPolicy().
         this.deactivated = false;
 
-        this.submitUrl = this.entityId
-            ? "/api/policies/update"
-            : "/api/policies/create";
+        this.submitPath = this.entityId
+            ? "/policies/update"
+            : "/policies/create";
     }
 
     // Policy kinds (the issue's families). Params are captured as node metadata.
@@ -1984,8 +1955,8 @@ class PolicyForm extends DatasetFormAbstract {
     }
 
     loadExistingPolicy() {
-        fetch(`/api/policies/${this.entityId}`)
-            .then(r => r.json())
+        Api.get('/policies/' + encodeURIComponent(this.entityId))
+            .then(r => r.ok ? r.json() : DataHubProblem.read(r).then(problem => { throw problem; }))
             .then(json => {
                 const p = json.items[0];
                 this.formElement.querySelector('input[name="name"]').value = p.name || '';
@@ -1994,13 +1965,18 @@ class PolicyForm extends DatasetFormAbstract {
                 // Rebuild working state from stored metadata (kind + params).
                 this.meta = Object.assign({ kind:'LIFECYCLE', enforced:'CONTINUOUS', onFailure:'WARN' }, p.metadata || {});
                 if (!this.meta.kind) this.meta.kind = 'LIFECYCLE';
-                this.deactivated = p.isDeactivated === true;
+                // The api names the flag `deactivated`; reading isDeactivated left an edit reactivating it.
+                this.deactivated = p.deactivated === true;
                 delete this.meta.deactivated;   // storage detail, not a kind param
                 this.syncDeactivateButton();
                 this.renderKindSelector();
                 this.renderKindParams();
                 this.syncCommonInputs();
                 this.updateSummary();
+            })
+            .catch(e => {
+                if (e instanceof DataHubProblem) this.flashError(e.message(), e.details());
+                else console.error(e);
             });
     }
 
@@ -2112,22 +2088,13 @@ class PolicyForm extends DatasetFormAbstract {
                 name,
                 externalId,
                 description,
-                isDeactivated: this.deactivated,
+                deactivated: this.deactivated,
                 // Set only when creating from a dataset node.
                 dataSetId: this.dataSetId,
                 metadata: this.buildMetadata()
             }]};
 
-        fetch(this.submitUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                [document.querySelector('meta[name="_csrf_header"]').content]:
-                document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify(payload)
-        })
+        Api.post(this.submitPath, payload)
             .then(response => this.handleResponse(response))
             .catch(err => console.error("Policy save failed", err));
     }
@@ -2140,21 +2107,14 @@ class PolicyForm extends DatasetFormAbstract {
             ]
         };
 
-        fetch(`/api/policies/delete`, {
-            method: "DELETE",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                [document.querySelector('meta[name="_csrf_header"]').content]:
-                document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify(body)
-        })
+        Api.del('/policies/delete', body)
             .then(r => {
                 if (r.status === 200 || r.status === 204) {
                     const cancelBtn = this.formElement.querySelector('.dh-btn.secondary');
                     cancelBtn?.click();
                     if (this.afterDeleteFn) this.afterDeleteFn(this);
+                } else {
+                    this.flashProblem(r, 'error.problem.failed');
                 }
             });
     }

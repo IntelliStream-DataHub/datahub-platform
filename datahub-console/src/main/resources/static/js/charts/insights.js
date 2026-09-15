@@ -184,9 +184,23 @@ class InsightsChart {
 		return axis;
 	}
 
+	/**
+	 * One series' datapoints between two ISO instants, from datahub-api: avg/min/max per
+	 * granularity bucket ("1 min" unless given), or every raw point with {raw: true}.
+	 */
+	static requestDatapoints(externalId, startIso, endIso, opts){
+		const o = opts || {};
+		const filter = { externalId: externalId, start: startIso, end: endIso, limit: 100000 };
+		if(!o.raw){
+			filter.aggregates = ["avg", "min", "max"];
+			filter.granularity = o.granularity || "1 min";
+		}
+		return Api.post('/timeseries/data/list', { items: [filter] }, { timeout: 60000 });
+	}
+
 	// Pick the smallest aggregation bucket that keeps the response around 500
 	// points for the given span (seconds). Names match the granularity the
-	// backend's DatapointService accepts. Used by the brush-zoom refetch so
+	// api's /timeseries/data/list accepts. Used by the brush-zoom refetch so
 	// zooming into a long range re-pulls data at finer resolution instead of
 	// trying to download raw points for the whole window. Exposed as a static
 	// so callers (e.g. the timeseries explore page) can size their initial
@@ -757,21 +771,9 @@ class InsightsChart {
 				// brush refetch and the original fetch agree on the window.
 				const startIso = x0.toISOString();
 				const endIso = x1.toISOString();
-				const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
-				const csrfToken = document.querySelector('meta[name="_csrf"]').content;
-				const fetchOne = (dataSet, extras) => fetch('/api/timeseries/data/by-hours-ago', {
-					method: 'POST',
-					headers: {
-						'Accept': 'application/json',
-						'Content-type': 'application/json',
-						[csrfHeader]: csrfToken
-					},
-					body: JSON.stringify(Object.assign({
-						externalId: dataSet.timeserieId,
-						startTime: startIso,
-						endTime: endIso
-					}, extras))
-				}).then(r => r.json()).then(json => ({ dataSet, json }));
+				const fetchOne = (dataSet, extras) =>
+					InsightsChart.requestDatapoints(dataSet.timeserieId, startIso, endIso, extras)
+						.then(r => r.json()).then(json => ({ dataSet, json }));
 
 				const fetchAggregated = ds => fetchOne(ds, { granularity: granularity });
 				const fetchRaw = ds => fetchOne(ds, { raw: true });

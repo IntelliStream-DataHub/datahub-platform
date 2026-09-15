@@ -5,12 +5,9 @@ import ai.intellistream.datahub.tenant.UnknownTenantException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.net.URI;
 
 /**
  * Translates {@link UnknownTenantException} into an RFC 9457 {@code application/problem+json}
@@ -39,13 +36,6 @@ public class UnknownTenantExceptionHandler {
     public ProblemDetail handleUnknownTenant(UnknownTenantException ex) {
         log.warn("Refusing request for unknown tenant {}", ex.getTenantId());
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(
-                HttpStatus.FORBIDDEN,
-                "Unknown organization: this deployment has no tenant for the organization in your "
-                        + "token. Retrying will not help — the organization has to be onboarded.");
-        problem.setTitle("Forbidden");
-        problem.setType(URI.create("https://intellistream.ai/errors/unknown-tenant"));
-        problem.setProperty("organizationId", ex.getTenantId());
-        return problem;
+        return Problems.unknownTenant(ex.getTenantId());
     }
 }
