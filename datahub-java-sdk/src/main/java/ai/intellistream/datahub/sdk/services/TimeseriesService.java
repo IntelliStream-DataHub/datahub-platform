@@ -5,6 +5,9 @@ import ai.intellistream.datahub.api.responses.DataCollection;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
+import ai.intellistream.datahub.api.responses.ValueTypeRecommendation;
+import ai.intellistream.datahub.api.responses.swaggerdto.DatapointDTO;
+import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.jpa.dto.DatapointAggsDTO;
 import ai.intellistream.datahub.models.DeleteDatapoint;
 import ai.intellistream.datahub.models.IdCollection;
@@ -24,6 +27,8 @@ import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -42,6 +47,8 @@ public final class TimeseriesService {
     private final DatapointSpool spool;      // nullable: durable buffering disabled
     private final JavaType timeseries;       // DataWrapper<Timeseries>
     private final JavaType datapoints;       // DataWrapper<DatapointsCollection>
+    private final JavaType latestPoints;     // DataWrapper<DataCollection<DatapointDTO>>
+    private final JavaType valueTypeHint;    // ValueTypeRecommendation
     private final JavaType aggregatedData;   // DataWrapper<DataCollection<DatapointAggsDTO>>
 
     public TimeseriesService(ApiHttp http) {
@@ -55,6 +62,9 @@ public final class TimeseriesService {
         TypeFactory tf = http.typeFactory();
         this.timeseries = tf.constructParametricType(DataWrapper.class, Timeseries.class);
         this.datapoints = tf.constructParametricType(DataWrapper.class, DatapointsCollection.class);
+        this.latestPoints = tf.constructParametricType(DataWrapper.class,
+                tf.constructParametricType(DataCollection.class, DatapointDTO.class));
+        this.valueTypeHint = tf.constructType(ValueTypeRecommendation.class);
         this.aggregatedData = tf.constructParametricType(DataWrapper.class,
                 tf.constructParametricType(DataCollection.class, DatapointAggsDTO.class));
     }
@@ -92,6 +102,49 @@ public final class TimeseriesService {
      */
     public void delete(List<IdCollection> ids) {
         http.send("POST", "/timeseries/delete", new DataWrapper<IdCollection>().setItems(ids));
+    }
+
+    /**
+     * GET /timeseries — the first {@code limit} series, newest created first, with no criteria.
+     *
+     * <p>The cheap "what have I got" read. Anything narrower is
+     * {@link #filter(ai.intellistream.datahub.models.datafilters.TimeseriesFilter)}.
+     */
+    public DataWrapper<Timeseries> list(int limit) {
+        return http.get("/timeseries?limit=" + limit, timeseries);
+    }
+
+    /**
+     * {@link #list(int)} restricted to one data set and everything beneath it in the
+     * {@code BELONGS_TO} hierarchy. The data set is named by id or external id.
+     */
+    public DataWrapper<Timeseries> list(int limit, String dataSetId) {
+        return http.get("/timeseries?limit=" + limit
+                + "&dataSetId=" + URLEncoder.encode(dataSetId, StandardCharsets.UTF_8), timeseries);
+    }
+
+    /**
+     * POST /timeseries/update — change fields on series that already exist. Only the fields named
+     * in each entry's {@code update} block change; identify the series by {@code id} or
+     * {@code externalId}.
+     *
+     * <p>Changing {@code valueType} on a series that already holds data is refused: the stored
+     * points would no longer parse. Create a new series instead.
+     */
+    public DataWrapper<Timeseries> update(List<UpdateTimeseries> updates) {
+        return http.post("/timeseries/update",
+                new DataWrapper<UpdateTimeseries>().setItems(updates), timeseries);
+    }
+
+    /**
+     * GET /timeseries/recommend-value-type/{unitExternalId} — which {@code valueType} suits a unit.
+     *
+     * <p>A hint for a create form, not a constraint: the api recommends (a temperature in celsius
+     * wants {@code FLOAT32}, a counter wants {@code BIGINT}) and you remain free to choose.
+     */
+    public ValueTypeRecommendation recommendValueType(String unitExternalId) {
+        return http.get("/timeseries/recommend-value-type/"
+                + URLEncoder.encode(unitExternalId, StandardCharsets.UTF_8), valueTypeHint);
     }
 
     /** POST /timeseries/byids */
@@ -182,6 +235,18 @@ public final class TimeseriesService {
      */
     public DataWrapper<DataCollection<DatapointAggsDTO>> retrieveAggregated(DataRetriever<RetrieveFilter> request) {
         return http.post("/timeseries/data/list", request, aggregatedData);
+    }
+
+    /**
+     * POST /timeseries/data/latest — the most recent point of each named series, by id or external
+     * id. Series with no data at all are answered with an empty collection rather than omitted.
+     *
+     * <p>Much cheaper than {@link #retrieve(DataRetriever)} with a limit of one: the latest point
+     * is served from the cache the ingest path writes, not from a ClickHouse range scan.
+     */
+    public DataWrapper<DataCollection<DatapointDTO>> latest(List<IdCollection> ids) {
+        return http.post("/timeseries/data/latest",
+                new DataWrapper<IdCollection>().setItems(ids), latestPoints);
     }
 
     /**

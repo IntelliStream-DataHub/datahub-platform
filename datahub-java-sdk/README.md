@@ -4,8 +4,26 @@ A thin, synchronous Java client for the **DataHub Platform** REST API. Built on 
 `java.net.http.HttpClient` (no Feign) and Jackson 3, it reuses the platform's own
 wire-contract types from `ai.intellistream:datahub-api-model`.
 
-The SDK covers resources, timeseries (including datapoint ingestion), events, datasets,
-units, files, and subscriptions (including WebSocket listen with per-subscription ack/nack).
+One accessor on `DatahubClient` per area of the API:
+
+| Accessor | Covers |
+|---|---|
+| `resources()` | the graph: read, write, traverse, and the export/import file pair |
+| `assets()`, `functions()` | the `ASSET` and `FUNCTION` corners of that graph, typed |
+| `timeseries()` | series definitions, datapoint read/write, and batched ingestion |
+| `events()` | events, plus the distinct-value reads behind a type-ahead |
+| `datasets()` | data sets and the policy nodes they can be held to |
+| `labels()` | the vocabulary resources and timeseries are categorised by |
+| `policies()`, `governance()` | the rules a data set is held to, and the templates behind them |
+| `files()` | upload, download, search, move, trash and restore |
+| `units()` | the shared catalogue of measurement units |
+| `subscriptions()` | durable subscriptions, and WebSocket listen with per-subscription ack/nack |
+| `tenant()` | which features your tenant has, and the settings it administers itself |
+
+Every REST endpoint the api publishes is reachable this way. The two that are not: `GET /stats`,
+which is internal to the console and excluded from the published contract, and the browser
+datapoint tail (`/timeseries/datapoints/listen`), which authenticates with a token in the query
+string; `subscriptions().listen(..)` is the server-side way to the same data.
 
 ## Requirements
 

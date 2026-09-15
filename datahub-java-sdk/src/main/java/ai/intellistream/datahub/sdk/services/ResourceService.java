@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.sdk.services;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.ResourceNetwork;
 import ai.intellistream.datahub.models.EdgeProxy;
@@ -33,6 +34,7 @@ public final class ResourceService {
     private final JavaType nodes;            // DataWrapper<NodeModel> — typed reads
     private final JavaType nodeGraph;        // GraphDataWrapper<NodeModel, EdgeProxy> — typed create echo
     private final JavaType resourceNetwork;  // ResourceNetwork
+    private final JavaType graphImportResult; // GraphImportResult
 
     public ResourceService(ApiHttp http) {
         this.http = http;
@@ -40,6 +42,7 @@ public final class ResourceService {
         this.nodes = tf.constructParametricType(DataWrapper.class, NodeModel.class);
         this.nodeGraph = tf.constructParametricType(GraphDataWrapper.class, NodeModel.class, EdgeProxy.class);
         this.resourceNetwork = tf.constructType(ResourceNetwork.class);
+        this.graphImportResult = tf.constructType(GraphImportResult.class);
     }
 
     /**
@@ -139,6 +142,34 @@ public final class ResourceService {
     public void delete(List<IdCollection> ids) {
         DataWrapper<IdCollection> request = new DataWrapper<IdCollection>().setItems(ids);
         http.send("DELETE", "/resources/delete", request);
+    }
+
+    /**
+     * GET /resources/export/{id} — the sub-graph rooted at one resource, as an opaque export file.
+     *
+     * <p>The bytes are the transfer format {@link #importGraph(byte[])} reads, not something to
+     * parse: use {@link #fetchRelated(RelatedResourcesForm)} when you want the graph as data. The
+     * pairing is what moves a slice of one tenant into another.
+     */
+    public byte[] export(long id) {
+        return http.getBytes("/resources/export/" + id);
+    }
+
+    /**
+     * POST /resources/import — read an {@link #export(long)} file back in, streamed as
+     * {@code application/octet-stream}.
+     *
+     * <p>Skipping is not failure. A node whose externalId already exists here is skipped rather
+     * than rejected, so re-importing a file into the tenant it came from is a no-op, and the
+     * result counts what was created against what was left alone. Timeseries cannot be created
+     * through the resource api, so any in the file are listed for you to create first.
+     *
+     * <p>The import streams in segments, each its own transaction: a failure part-way leaves the
+     * segments already committed in place rather than rolling the whole file back.
+     */
+    public GraphImportResult importGraph(byte[] exported) {
+        return http.postBytes("/resources/import", exported,
+                "application/octet-stream", graphImportResult);
     }
 
     /**

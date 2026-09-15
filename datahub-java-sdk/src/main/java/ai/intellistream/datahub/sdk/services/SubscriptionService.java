@@ -31,6 +31,14 @@ public final class SubscriptionService {
     }
 
     /**
+     * GET /subscriptions — the first {@code limit} subscriptions, with no criteria. The cheap
+     * "what have I got" read; anything narrower is {@link #filter(SubscriptionRetriever)}.
+     */
+    public DataWrapper<Subscription> list(int limit) {
+        return http.get("/subscriptions?limit=" + limit, subscriptions);
+    }
+
+    /**
      * POST /subscriptions/filter — subscriptions matching the retriever's criteria, one keyset page
      * at a time. Named and shaped like {@code datasets().filter} and the rest of the family; page
      * with {@code nextCursor} the same way.

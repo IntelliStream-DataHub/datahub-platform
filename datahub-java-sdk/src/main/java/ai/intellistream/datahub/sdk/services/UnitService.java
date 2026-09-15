@@ -7,6 +7,8 @@ import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /** Units of measure. Mirrors the {@code /units} endpoints. */
@@ -23,6 +25,15 @@ public final class UnitService {
     /** GET /units — list all units. */
     public DataWrapper<UnitModel> list() {
         return http.get("/units", units);
+    }
+
+    /**
+     * GET /units/{externalId} — one unit by its external id, which is how a timeseries names the
+     * unit it is measured in. A {@code 404} when there is none, where {@link #byIds(List)} would
+     * simply omit it.
+     */
+    public DataWrapper<UnitModel> getByExternalId(String externalId) {
+        return http.get("/units/" + URLEncoder.encode(externalId, StandardCharsets.UTF_8), units);
     }
 
     /**

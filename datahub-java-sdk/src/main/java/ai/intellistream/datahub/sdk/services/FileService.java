@@ -3,6 +3,7 @@ package ai.intellistream.datahub.sdk.services;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.files.IndexNode;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
@@ -45,6 +46,67 @@ public final class FileService {
      */
     public DataWrapper<IndexNode> upload(FileUploadRequest request) {
         return http.put("/files", request.content(), headers(request), indexNodes);
+    }
+
+    /** GET /files?id= — one file or folder by its numeric id; {@code 404} when there is none. */
+    public DataWrapper<IndexNode> getById(long id) {
+        return http.get("/files?id=" + id, indexNodes);
+    }
+
+    /** GET /files?externalId= — one file or folder by its external id. */
+    public DataWrapper<IndexNode> getByExternalId(String externalId) {
+        return http.get("/files?externalId=" + URLEncoder.encode(externalId, StandardCharsets.UTF_8),
+                indexNodes);
+    }
+
+    /**
+     * GET /files/search — full-text search over file names, paths and metadata.
+     *
+     * <p>Pass {@code null} for {@code limit} to take the server default. Unlike
+     * {@link #list(String)} this crosses folders, so it is the way to find a file whose location
+     * you do not know.
+     */
+    public DataWrapper<IndexNode> search(String q, Integer limit) {
+        StringBuilder url = new StringBuilder("/files/search?q=")
+                .append(URLEncoder.encode(q, StandardCharsets.UTF_8));
+        if (limit != null) {
+            url.append("&limit=").append(limit);
+        }
+        return http.get(url.toString(), indexNodes);
+    }
+
+    /**
+     * GET /files/trash — the soft-deleted files the caller can read.
+     *
+     * <p>Their {@code name} and {@code path} are the pre-deletion values; the deletion time is
+     * encoded in the externalId as {@code DELETED_..._<epochMillis>}. Put one back with
+     * {@link #restore(List)}.
+     */
+    public DataWrapper<IndexNode> trash() {
+        return http.get("/files/trash", indexNodes);
+    }
+
+    /**
+     * POST /files/restore — move soft-deleted files back to the path they were deleted from.
+     *
+     * <p>A {@code 409} when something else already occupies that path: restore is not a
+     * force-overwrite, so move or rename the occupant first.
+     */
+    public DataWrapper<IndexNode> restore(List<IdCollection> ids) {
+        return http.post("/files/restore", new DataWrapper<IdCollection>().setItems(ids), indexNodes);
+    }
+
+    /**
+     * POST /files/update — rename, move, or edit the metadata of one file or folder.
+     *
+     * <p>Identify it by {@code externalId} or {@code id}; every other field is optional and null
+     * means "leave unchanged". Setting {@code path} moves it (the target folder is created if
+     * missing), and {@code metadata} and {@code relatedResources} replace rather than merge.
+     *
+     * <p>Takes a bare {@link FileUpdate}, not a wrapper: this endpoint updates one node per call.
+     */
+    public DataWrapper<IndexNode> update(FileUpdate request) {
+        return http.post("/files/update", request, indexNodes);
     }
 
     /** POST /files/delete — delete files by id. The endpoint answers {@code 204} with no body. */

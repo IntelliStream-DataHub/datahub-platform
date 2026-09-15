@@ -5,6 +5,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.DataSetRetreiver;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
 import ai.intellistream.datahub.models.forms.DataSetForm;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
@@ -17,11 +18,13 @@ import java.util.List;
 public final class DatasetService {
 
     private final ApiHttp http;
-    private final JavaType datasets; // DataWrapper<DataSetModel>
+    private final JavaType datasets;    // DataWrapper<DataSetModel>
+    private final JavaType policyNodes; // DataWrapper<Resource>
 
     public DatasetService(ApiHttp http) {
         this.http = http;
         this.datasets = http.typeFactory().constructParametricType(DataWrapper.class, DataSetModel.class);
+        this.policyNodes = http.typeFactory().constructParametricType(DataWrapper.class, Resource.class);
     }
 
     /**
@@ -99,6 +102,16 @@ public final class DatasetService {
     /** POST /datasets/update */
     public DataWrapper<DataSetModel> update(List<DataSetForm> forms) {
         return http.post("/datasets/update", new DataWrapper<DataSetForm>().setItems(forms), datasets);
+    }
+
+    /**
+     * GET /datasets/policies — the policy nodes a data set can be held to, as graph resources.
+     *
+     * <p>The dataset-facing view of the catalogue {@code PolicyService} manages: use it to offer
+     * "which policy" when creating or re-pointing a data set.
+     */
+    public DataWrapper<Resource> policies() {
+        return http.get("/datasets/policies", policyNodes);
     }
 
     /** POST /datasets/delete — the endpoint answers {@code 204} with no body. */
