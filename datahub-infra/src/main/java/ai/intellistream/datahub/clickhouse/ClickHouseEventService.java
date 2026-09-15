@@ -927,11 +927,21 @@ public class ClickHouseEventService extends ClickHouseService {
             return EventSortSpec.DEFAULT;
         }
         for (String property : sort.getProperty()) {
-            String column = SORTABLE_COLUMNS.get(property);
+            // Trimmed before the lookup, as NodeSort.resolve and SubscriptionSort.resolve already
+            // do. Surrounding whitespace is not a different request, but an untrimmed key misses
+            // SORTABLE_COLUMNS and falls through to the default below — so " eventTime " ordered a
+            // node or subscription query and silently defaulted an event one, a difference the
+            // caller cannot see in their own payload.
+            String normalised = property == null ? null : property.trim();
+            String column = SORTABLE_COLUMNS.get(normalised);
             if (column != null) {
+                // The normalised spelling, not the caller's: this value is what the cursor carries
+                // and what assertCursorIsUsable compares a returned cursor against, so a stray
+                // space would otherwise make a cursor unusable on the next page of its own walk.
+                //
                 // Anything that is not an explicit "desc" is ascending, so a malformed order
                 // degrades to the documented default instead of silently reversing the results.
-                return new EventSortSpec(property, column, "desc".equalsIgnoreCase(sort.getOrder()));
+                return new EventSortSpec(normalised, column, "desc".equalsIgnoreCase(sort.getOrder()));
             }
             log.debug("Ignoring unsortable event property '{}'", property);
         }
