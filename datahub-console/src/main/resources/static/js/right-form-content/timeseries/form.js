@@ -12,7 +12,7 @@ class TimeseriesForm extends DatasetFormAbstract{
 	constructor(obj) {
 		super(obj);
 		this.title = $L('create.timeseries');
-		this.apiURL = "/api/timeseries";
+		this.apiPath = "/timeseries";
 		this.network = obj.network || null;
 		this.removeRelResourceFn = function() {
 			this.node.closest('li').remove();
@@ -104,21 +104,14 @@ class TimeseriesForm extends DatasetFormAbstract{
 					<option value="mixed" title="${$L('value.type.help.mixed')}">${$L('mixed')}</option>
 				</select>
 			</section>
-			
-			<label class="checkbox-icons ${this.fieldError('isStep')}" for="isStep">
-				<input type="checkbox" id="isStep" name="isStep" tabindex="90"
-					${this.getFormProperty('isStep') === true ? "checked=''" : ""}/>
-				<span>
-					<img class="row-check" src="/static/img/row-check.svg" alt="row selected">
-				</span>
-				<span>${$L('is.step')}</span>
-			</label>
+
 		`;
 	}
 
 	render() {
 		super.render();
-		this.formElement.action = this.apiURL + "/save";
+		this.savePath = this.apiPath + "/create";
+		this.formElement.action = Api.url(this.savePath);
 
 		this.wireExternalIdField();
 
@@ -135,20 +128,30 @@ class TimeseriesForm extends DatasetFormAbstract{
 
 	submit(){
 		this.formData = new FormData(this.formElement);
-		const obj = Object.fromEntries(this.formData);
-		obj.metadata = {};
-		// `relatedResources`, not the old `relationsFrom`: that field is gone from the wire
-		// contract, so anything sent under it is dropped and the timeseries is created with no
-		// relations at all.
-		obj.relatedResources = [];
+		const form = Object.fromEntries(this.formData);
+		// Named field by field: the form also holds the metadata and relation row inputs, and the
+		// api refuses a body with fields it does not have.
+		const obj = {
+			name: form.name,
+			externalId: form.externalId,
+			description: form.description,
+			unit: form.unit,
+			valueType: form.valueType,
+			metadata: {},
+			relatedResources: []
+		};
+		if(form.unitExternalId) obj.unitExternalId = form.unitExternalId;
+		if(form.dataSetId) obj.dataSetId = form.dataSetId;
+		// Kept only to refill this form after a refused save; the api is not sent the names.
+		const relationNames = [];
 		this.formElement.querySelectorAll('ul.node-container li').forEach( fromResource => {
-			const fromResourceId = fromResource.querySelector('input[name="relationsFromNodeId"]').value;
-			const relType = fromResource.querySelector('input[name="relationsFromRelType"]').value;
 			// Keep the node id as a string: Number() rounds 64-bit ids above 2^53. The server
 			// field is a Long and Jackson coerces the JSON string.
-			// `name` is for re-populating this form after a failed validation, and is ignored
-			// by the server.
-			obj.relatedResources.push({id: fromResourceId, relationshipType: relType, name: fromResource.querySelector('span').textContent});
+			obj.relatedResources.push({
+				id: fromResource.querySelector('input[name="relationsFromNodeId"]').value,
+				relationshipType: fromResource.querySelector('input[name="relationsFromRelType"]').value
+			});
+			relationNames.push(fromResource.querySelector('span').textContent);
 		});
 
 		const metadataFields = this.formElement.querySelectorAll(`table.metadata tbody tr`);
@@ -160,22 +163,13 @@ class TimeseriesForm extends DatasetFormAbstract{
 			}
 		});
 
-		this.jsonData = obj;
-
-		fetch(this.formElement.action, {
-			method: this.formElement.method,
-			headers: {
-				'Accept': 'application/json',
-				'Content-Type': 'application/json',
-				[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-			},
-			signal: AbortSignal.timeout(10000),
-			body: JSON.stringify(obj)
-		}).then( response => {
-			this.handleResponse(response);
-		}).catch(() => {
-			console.error("Update failed");
+		this.jsonData = Object.assign({}, obj, {
+			relatedResources: obj.relatedResources.map((r, i) => Object.assign({ name: relationNames[i] }, r))
 		});
+
+		Api.post(this.savePath, { items: [obj] })
+			.then( response => this.handleResponse(response))
+			.catch(() => console.error("Saving timeseries failed"));
 	}
 
 	addFromResourceAndRelType(data){
@@ -380,24 +374,12 @@ class TimeseriesEditForm extends TimeseriesForm{
 	constructor(obj) {
 		super(obj);
 		this.title = $L('edit.timeseries') + " : " + obj.entityId;
-		this.deleteUrl = this.apiURL + "/delete";
+		this.deleteUrl = this.apiPath + "/delete";
 	}
 
 	loadData(callback){
 		if(this.entityId === null) return;
-		fetch(this.apiURL + "/byids", {
-			method: 'POST',
-			headers: {
-				'Accept': 'application/json',
-				'Content-Type': 'application/json',
-				[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-			},
-			body: JSON.stringify({
-				"items": [
-					{"id": this.entityId}
-				]
-			})
-		})
+		Api.post(this.apiPath + "/byids", { items: [{ id: this.entityId }] })
 			.then(response => {
 				if(response.status === 200){
 					return response.json().then(json => {
@@ -421,7 +403,8 @@ class TimeseriesEditForm extends TimeseriesForm{
 
 	render(){
 		super.render();
-		this.formElement.action = this.apiURL + "/update";
+		this.savePath = this.apiPath + "/update";
+		this.formElement.action = Api.url(this.savePath);
 		if(!this.errors){
 			this.loadData( json => {
 				this.addRelationsFrom(inboundRelations(json.relatedResources));
@@ -438,18 +421,7 @@ class TimeseriesEditForm extends TimeseriesForm{
 	}
 
 	addRelationsFrom(relations){
-		const requestBody = {"items": []};
-		relations.forEach(it =>  requestBody.items.push({id: it.id}));
-
-		fetch("/api/resources/fetch-related-nodes", {
-			method: 'POST',
-			headers: {
-				'Accept': 'application/json',
-				'Content-Type': 'application/json',
-				[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-			},
-			body: JSON.stringify({id: this.entityId, depth: 1})
-		}).then(response => {
+		Api.post("/resources/fetch-related", { id: this.entityId, depth: 1 }).then(response => {
 			if(response.status === 200){
 				const nodeContainer = this.formElement.querySelector('.node-container');
 				response.json().then(json => {
@@ -488,7 +460,8 @@ class TimeseriesEditForm extends TimeseriesForm{
 
 	submit(){
 		const tsFields = new TimeseriesFields();
-		const allowedUpdateFields = ["externalId", "name", "unit", "unitExternalId", "description", "valueType", "isStep", "dataSetId"];
+		// valueType cannot change after create, so it is not among them.
+		const allowedUpdateFields = ["externalId", "name", "unit", "unitExternalId", "description", "dataSetId"];
 
 		const metadataFields = this.formElement.querySelectorAll(`table.metadata tbody tr`);
 
@@ -499,31 +472,34 @@ class TimeseriesEditForm extends TimeseriesForm{
 			}
 		}
 		if( metadataFields.length > 0 ) {
-			tsFields["metadata"] = {"set": []};
+			// A map, as the api reads it; a list of {key, value} could never bind.
+			const metadata = {};
 			metadataFields.forEach( it => {
 				const keyField = it.querySelector('[name$="key"]');
 				const valueField = it.querySelector('[name$="value"]');
-				tsFields["metadata"]["set"].push({key: keyField.value, value: valueField.value});
+				if(keyField.value !== "") metadata[keyField.value] = valueField.value;
 			});
+			tsFields.set("metadata", metadata);
 		}
 		const updateTimeseries = new UpdateTimeseries({id: this.entityId, update: tsFields});
-		const dw = new DataWrapper();
-		dw.items = [updateTimeseries];
 
-		fetch(this.formElement.action, {
-			method: this.formElement.method,
-			headers: {
-				'Accept': 'application/json',
-				'Content-Type': 'application/json',
-				[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-			},
-			signal: AbortSignal.timeout(10000),
-			body: JSON.stringify(dw)
-		}).then( response => {
-			this.handleResponse(response);
-		}).catch(() => {
-			console.error("Update failed");
-		});
+		Api.post(this.savePath, { items: [updateTimeseries] })
+			.then( response => this.handleResponse(response))
+			.catch(() => console.error("Updating timeseries failed"));
+	}
+
+	delete(){
+		Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
+			.then( response => {
+				if(response.ok){
+					if(this.afterDeleteFn) this.afterDeleteFn(this);
+					this.cancelButtonElement.dispatchEvent(new Event('click'));
+					return;
+				}
+				// A subscription still reading the series, or resources the delete would strand.
+				this.flashProblem(response, 'error.problem.failed');
+			})
+			.catch(e => console.error(e));
 	}
 }
 
@@ -543,7 +519,6 @@ class TimeseriesFields extends UpdateFields{
 		this.metadata = undefined;
 		this.unit = undefined;
 		this.unitExternalId = undefined;
-		this.isStep = undefined;
 		this.dataSetId = undefined;
 	}
 }
