@@ -350,7 +350,7 @@
             // the tour no longer auto-deletes; the user keeps or removes at the end.)
             Promise.all([
                 fetch("/api/label/list", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => ({})),
-                fetch("/api/relationship/list", { headers: { Accept: "application/json" } }).then(r => r.json()).catch(() => ({})),
+                Api.get("/edges/types").then(r => r.json()).catch(() => ({})),
             ]).then(([labelsResp, relsResp]) => {
                 const labels = labelsResp.items || labelsResp || [];
                 const rels = relsResp.items || relsResp || [];

@@ -851,7 +851,7 @@ class RelationForm extends DatasetFormAbstract{
     constructor(obj) {
         super(obj);
         this.title = obj.title || $L('create.relationship');
-        this.apiURL = "/api/relationship";
+        this.savePath = "/edges/types/create";
     }
 
     getFormFields(){
@@ -874,44 +874,29 @@ class RelationForm extends DatasetFormAbstract{
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/save";
+        this.formElement.action = Api.url(this.savePath);
+    }
+
+    submit(){
+        this.formData = new FormData(this.formElement);
+        Api.post(this.savePath, { items: [Object.fromEntries(this.formData)] })
+            .then(response => this.handleResponse(response))
+            .catch(() => console.error("Saving relationship type failed"));
+    }
+
+    savedItem(json){
+        return (json && Array.isArray(json.items)) ? json.items[0] : json;
     }
 }
 
-class RelationEditForm extends RelationForm{
-
-    constructor(obj) {
-        super(obj);
-        this.title = obj.title || $L('edit.relationship')
-        this.deleteUrl = this.apiURL + "/delete";
-    }
-
-    render(){
-        super.render();
-        this.formElement.action = this.apiURL + "/update";
-        if(!this.errors){
-            this.loadData();
-        }
-        this.submitButtonElement.firstElementChild.textContent = $L('update');
-    }
-}
-
+// No edit form: the api can create and list relationship types, but not change or delete one.
 class RelationList extends BaseList{
 
     constructor(obj) {
         super(obj);
         this.network = obj.network || null;
-        this.apiURL = '/api/relationship';
+        this.apiPath = '/edges/types';
         this.title = obj.title || $L('relationships')
-
-        this.editEvent = e => {
-            e.stopPropagation(); // Prevent row click event to run
-            const id = e.target.closest('td').getAttribute("data-id");
-            new RelationEditForm({
-                entityId: id,
-                afterSave: this.updateTableList
-            }).render();
-        }
     }
 
     render() {
