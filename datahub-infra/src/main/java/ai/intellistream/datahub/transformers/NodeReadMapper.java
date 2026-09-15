@@ -16,7 +16,6 @@ import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.Resource;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -61,7 +60,7 @@ public final class NodeReadMapper {
         NodeModel dto = switchOnType(node);
         // Uniform label source, applied last so delegated tails can't diverge. setLabels keeps
         // the type-label present even for a row whose labels string never carried it.
-        dto.setLabels(labelsOf(node));
+        dto.setLabels(NodeBaseFields.labelsOf(node));
         // The delegated tails each decide their own metadata handling — PolicyTransformer passes a
         // null through, where mapBase always produces a map. Normalise here so one node type does
         // not answer `"metadata": null` while the rest answer `{}`.
@@ -262,11 +261,4 @@ public final class NodeReadMapper {
         };
     }
 
-    private static List<String> labelsOf(NodeEntity node) {
-        String labels = node.getLabels();
-        if (labels == null || labels.isBlank()) {
-            return new ArrayList<>();
-        }
-        return new ArrayList<>(Arrays.asList(labels.split(",")));
-    }
 }
