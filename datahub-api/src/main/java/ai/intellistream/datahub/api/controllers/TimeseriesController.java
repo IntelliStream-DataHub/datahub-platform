@@ -10,7 +10,6 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -57,6 +56,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Collection;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/timeseries")
@@ -614,37 +614,36 @@ public class TimeseriesController {
     )
     @ApiResponse(responseCode = "204", description = "The timeseries were deleted and their data-points scheduled for purge. No response body.",
             content = @Content)
-    @ApiResponse(responseCode = "400",
-            description =
-                    "A safety check failed. Either the timeseries is still linked to other " +
-                    "resources via a relationship, or it's still bound to a subscription. " +
-                    "Response lists the blocking items so you can clean them up first.",
+    @ApiResponse(responseCode = "409", description =
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/referenced` — the timeseries is still bound to a subscription. \
+              `blockedBy` names them so you can remove them first.
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded.
+            - `.../errors/optimistic-lock` — another request modified or deleted the timeseries \
+              between read and write. Re-fetch the current state and retry.
+            """,
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
-                              "error": {
-                                "code": 400,
-                                "message": "Cannot delete timeseries that are referenced by subscription(s). Remove the subscriptions first.",
-                                "fields": [
-                                  {
-                                    "type": "subscription",
-                                    "subscriptionId": "91",
-                                    "subscriptionExternalId": "fleet_dashboard",
-                                    "timeseriesId": "5677892"
-                                  }
-                                ]
-                              }
+                              "type": "https://intellistream.ai/errors/referenced",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Cannot delete resource(s) that are referenced by subscription(s). Remove the subscriptions first.",
+                              "blockedBy": [
+                                {
+                                  "subscriptionId": "91",
+                                  "subscriptionExternalId": "fleet_dashboard",
+                                  "timeseriesId": "5677892"
+                                }
+                              ]
                             }
                             """)
-            ))
-    @ApiResponse(responseCode = "409", description =
-            "Concurrency conflict — another request modified or deleted the timeseries " +
-                    "between read and write. Clients should re-fetch the current state and retry.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
             ))
     @RequestMapping(
             path = "/delete",
@@ -671,16 +670,7 @@ public class TimeseriesController {
             @Schema(implementation = IdCollectionDataWrapper.class)
             @Valid @RequestBody DataWrapper<IdCollection> apiReqData
     ) throws PulsarClientException, JsonProcessingException {
-        try {
-            timeseriesService.deleteTimeseries(apiReqData);
-        }
-        // A timeseries still referenced by a subscription can't be deleted; the shared resource
-        // delete pipeline throws ResourceDeleteException listing the blocking subscription(s).
-        // Map it to a 400 with that body (as ResourceController/EventController do) instead of
-        // letting it fall through to the bare 500 below.
-        catch (ResourceDeleteException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        timeseriesService.deleteTimeseries(apiReqData);
         return ResponseEntity.noContent().build();
     }
 

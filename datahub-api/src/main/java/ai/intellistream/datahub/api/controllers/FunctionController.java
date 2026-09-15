@@ -31,6 +31,8 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.ProblemDetail;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 
 /**
  * A Function is a plain datastore node distinguished by its {@code FUNCTION} type-label.
@@ -165,6 +167,30 @@ public class FunctionController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = BadRequestError.class)
             ))
+    @ApiResponse(responseCode = "409", description =
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
+            ))
     @RequestMapping(
             path = "/delete",
             produces = MediaType.APPLICATION_JSON_VALUE,
@@ -174,11 +200,7 @@ public class FunctionController {
     public ResponseEntity<?> deleteFunction(
             @Schema(implementation = IdCollectionDataWrapper.class)
             @RequestBody DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
-        try {
-            functionService.delete(apiReqData);
-            return ResponseEntity.noContent().build();
-        } catch (ResourceDeleteException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        functionService.delete(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 }
