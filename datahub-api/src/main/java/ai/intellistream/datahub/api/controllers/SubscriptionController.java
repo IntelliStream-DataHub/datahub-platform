@@ -25,7 +25,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/subscriptions")
@@ -67,14 +68,14 @@ public class SubscriptionController {
                     "which input was wrong.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "One of the referenced timeseries was modified or deleted while your subscription " +
                     "was being created. Re-fetch the timeseries and retry.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -279,7 +280,7 @@ public class SubscriptionController {
                     "the offending `externalId` and the connected-consumer count.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = ValidationProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -297,7 +298,7 @@ public class SubscriptionController {
                     "in flight. No subscriptions were removed.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(
             path = "/delete",

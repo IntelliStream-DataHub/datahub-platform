@@ -38,7 +38,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -56,6 +55,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/datasets")
@@ -313,12 +315,12 @@ public class DataSetController {
     @ApiResponse(responseCode = "400", description = "The request has a problem the server spotted before saving. The `fields` list tells you which input was wrong.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "A dataset with one of the `externalId`s already exists. Pick a different one, or use `POST /datasets/update`.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(value = { "/create"},
             method = RequestMethod.POST,
@@ -396,12 +398,12 @@ public class DataSetController {
     @ApiResponse(responseCode = "400", description = "Dataset not found or update rules malformed.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "The new `externalId` already belongs to another dataset.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(value = { "/update"},
             method = RequestMethod.POST,
@@ -467,7 +469,7 @@ public class DataSetController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/would-strand",
@@ -557,7 +559,7 @@ public class DataSetController {
                     "Response lists the offending fields.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @RequestMapping(value = "/search", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(

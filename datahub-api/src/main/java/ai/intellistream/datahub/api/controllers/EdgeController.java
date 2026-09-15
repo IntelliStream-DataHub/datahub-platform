@@ -41,7 +41,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
 import java.util.List;
-import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/edges")
@@ -167,7 +168,7 @@ public class EdgeController {
                     "rules forbid.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = ValidationProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -260,7 +261,7 @@ public class EdgeController {
             "A type name was rejected — for example one that normalises down to nothing.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "A relationship type with the same (case-insensitive) name already exists.", content = @Content)
@@ -311,7 +312,7 @@ public class EdgeController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/would-strand",

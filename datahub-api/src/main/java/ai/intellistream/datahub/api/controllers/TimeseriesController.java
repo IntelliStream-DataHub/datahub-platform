@@ -53,6 +53,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.PartialWriteProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/timeseries")
@@ -369,7 +373,7 @@ public class TimeseriesController {
                     "doesn't exist, unknown `unit`.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "A timeseries with one of the `externalId`s already exists. The `duplicated` " +
@@ -377,7 +381,7 @@ public class TimeseriesController {
                     "`POST /timeseries/update` to modify the existing timeseries.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -454,7 +458,7 @@ public class TimeseriesController {
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "Conflict — branch on `type`. Either the new `externalId` already belongs to another " +
@@ -463,7 +467,7 @@ public class TimeseriesController {
                     "(`.../errors/optimistic-lock` — re-fetch with `/byids` and retry).",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/update",
@@ -608,7 +612,7 @@ public class TimeseriesController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/referenced",
@@ -687,11 +691,12 @@ public class TimeseriesController {
             content = @Content)
     @ApiResponse(responseCode = "404", description =
             "One or more targeted timeseries don't exist. The data-points for the timeseries " +
-                    "that *do* exist are still inserted; the response body lists the missing ones " +
-                    "as per-entry errors, each carrying the offending `externalId`/`id`.",
+                    "that *do* exist are still inserted — this is a partial success. `missing` " +
+                    "lists the targets that were skipped, each carrying the `externalId`/`id` " +
+                    "you sent, so you can create them and retry just those.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = PartialWriteProblem.class)
             ))
     @PostMapping( path = "/data",
             produces = {"application/json"},
@@ -844,7 +849,7 @@ public class TimeseriesController {
             "A named timeseries does not exist, or a window bound is neither ISO-8601 nor epoch milliseconds.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)))
+                    schema = @Schema(implementation = ValidationProblem.class)))
     @ApiResponse(responseCode = "500", description =
             "The delete couldn't be accepted right now. Safe to retry after a short backoff.",
             content = @Content)
