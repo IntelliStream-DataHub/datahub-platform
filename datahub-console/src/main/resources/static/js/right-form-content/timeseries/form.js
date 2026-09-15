@@ -284,17 +284,7 @@ class TimeseriesForm extends DatasetFormAbstract{
 
 	updateUnitField(data){
 		if(data.unitExternalId !== null){
-			fetch("/api/units/byids", {
-				method: 'POST',
-				headers: {
-					'Accept': 'application/json',
-					'Content-Type': 'application/json',
-					[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-				},
-				body: JSON.stringify({
-					"items": [{"externalId": data.unitExternalId}]
-				})
-			}).then(response => {
+			Api.post("/units/byids", { items: [{ externalId: data.unitExternalId }] }).then(response => {
 				if(response.status === 200){
 					return response.json().then(json => {
 						this.setUnitAndExternalUnit(json.items[0]);

@@ -565,7 +565,7 @@
             }
             const bearer = () => fetch("/token", { headers: { Accept: "text/plain" }, credentials: "same-origin" }).then(r => (r.ok ? r.text() : null));
             // A real unit keeps /timeseries/save valid; reuse one unit for all three.
-            fetch("/api/units", { headers: { Accept: "application/json" } })
+            Api.get("/units")
                 .then(r => (r.ok ? r.json() : null)).catch(() => null)
                 .then(j => {
                     const units = (j && (j.items || (Array.isArray(j) ? j : []))) || [];
