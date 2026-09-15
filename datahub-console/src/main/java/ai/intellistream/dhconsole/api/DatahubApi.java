@@ -9,7 +9,6 @@ import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.files.IndexNode;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
-import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
@@ -124,13 +123,6 @@ public interface DatahubApi {
 
     @RequestLine("POST /timeseries/delete")
     void deleteTimeseries(DataWrapper<IdCollection> data);
-
-    // UNITS
-    @RequestLine("GET /units")
-    DataWrapper<UnitModel> getUnits();
-
-    @RequestLine("POST /units/byids")
-    DataWrapper<UnitModel> findUnitsByIds(DataWrapper<UnitModel> apiReqData);
 
     // TENANT
     @RequestLine("GET /tenant/features")

@@ -3,7 +3,6 @@ class UnitList extends BaseList{
 	constructor(obj) {
 		super(obj);
 		this.network = obj.network || null;
-		this.apiURL = '/api/units';
 		this.title = obj.title || $L('main.units');
 		this.multiSelect = false;
 		this.loadData();
@@ -11,12 +10,7 @@ class UnitList extends BaseList{
 	}
 
 	loadData(afterLoadFn){
-		fetch(this.apiURL, {
-			method: 'GET',
-			headers: {
-				'Accept': 'application/json'
-			}
-		})
+		Api.get('/units')
 			.then( resp => resp.json())
 			.then( json => {
 				this.data = {
@@ -30,14 +24,15 @@ class UnitList extends BaseList{
 							prefix: "symbol"
 						}
 					],
-					items: json.items.map( it => {
-						return {
+					// The api lists units unordered; sort by name in the browser's own collation.
+					items: json.items
+						.sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+						.map( it => ({
 							id: it.id,
 							name: it.name,
 							symbol: it.symbol,
 							externalId: it.externalId,
-						};
-					})
+						}))
 				}
 				this.updateTable();
 			});
