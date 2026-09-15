@@ -57,6 +57,10 @@ class TenantProvisioningFilterTest {
         assertThat(response.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
         assertThat(response.getStatus()).isNotEqualTo(HttpStatus.INTERNAL_SERVER_ERROR.value());
         assertThat(chain.getRequest()).isNull();
+        assertThat(response.getContentType()).startsWith("application/problem+json");
+        assertThat(response.getContentAsString())
+                .contains("\"type\":\"https://intellistream.ai/errors/unknown-tenant\"", "\"organizationId\":\"" + UNKNOWN + "\"")
+                .doesNotContain("\"properties\"");
     }
 
     /**
@@ -95,6 +99,8 @@ class TenantProvisioningFilterTest {
         assertThat(response.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
         assertThat(response.getHeader(HttpHeaders.RETRY_AFTER)).isEqualTo("30");
         assertThat(chain.getRequest()).isNull();
+        assertThat(response.getContentType()).startsWith("application/problem+json");
+        assertThat(response.getContentAsString()).contains("\"type\":\"https://intellistream.ai/errors/tenant-provisioning\"");
     }
 
     @Test
