@@ -135,6 +135,30 @@ class GraphConnectivityValidatorTest {
     }
 
     @Test
+    void rootlessCliqueAllowsDeletingAnyMember() {
+        // A rootless triangle. Every member is redundantly connected, so removing one cannot
+        // disjoint the rest — the rootless rule is "do not split the component", and nothing more.
+        var net = net(
+                List.of(node(1, false), node(2, false), node(3, false)),
+                List.of(edge(10, 1, 2), edge(11, 2, 3), edge(12, 1, 3)));
+
+        assertTrue(stranded(net, Set.of(1L), Set.of(10L, 12L)).isEmpty());
+        assertTrue(stranded(net, Set.of(2L), Set.of(10L, 11L)).isEmpty());
+        assertTrue(stranded(net, Set.of(3L), Set.of(11L, 12L)).isEmpty());
+    }
+
+    @Test
+    void rootlessRingAllowsDeletingAnyMember() {
+        // 1 - 2 - 3 - 4 - 1, no roots. Deleting 2 leaves 1-4-3 connected the long way round, so
+        // the survivors are still one piece even though 2 sat between 1 and 3.
+        var net = net(
+                List.of(node(1, false), node(2, false), node(3, false), node(4, false)),
+                List.of(edge(10, 1, 2), edge(11, 2, 3), edge(12, 3, 4), edge(13, 4, 1)));
+
+        assertTrue(stranded(net, Set.of(2L), Set.of(10L, 11L)).isEmpty());
+    }
+
+    @Test
     void rootlessComponentLeafDeleteThatKeepsOnePieceIsAllowed() {
         // 1 - 2 - 3, no roots ; deleting leaf 3 keeps 1-2 together
         var net = net(
