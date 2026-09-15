@@ -33,6 +33,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -78,8 +79,8 @@ public class PolicyController {
     )
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listPolicies(
@@ -87,7 +88,7 @@ public class PolicyController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -316,7 +317,8 @@ public class PolicyController {
         // items.iterator().next(), silently discarding the rest, and threw NoSuchElementException
         // on an empty wrapper — which the broad catch below turned into a bodyless 500.
         if (wrapper == null || wrapper.getItems() == null || wrapper.getItems().isEmpty()) {
-            return ResponseEntity.badRequest().body(new DataWrapper<>());
+            return new ResponseEntity<>(Problems.badRequest("items must hold at least one policy update."),
+                    HttpStatus.BAD_REQUEST);
         }
 
         try {
@@ -333,7 +335,10 @@ public class PolicyController {
             return ResponseEntity.ok(resp);
 
         } catch (IllegalArgumentException e) {
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+            // PolicyService's own wording, but an IllegalArgumentException can come from anywhere below it.
+            log.debug("Policy update rejected: {}", e.getMessage());
+            return new ResponseEntity<>(Problems.badRequest(
+                    "Each policy update must identify the policy by id or externalId."), HttpStatus.BAD_REQUEST);
         }
     }
 

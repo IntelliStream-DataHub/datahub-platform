@@ -7,7 +7,6 @@ import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper
 import ai.intellistream.datahub.api.responses.swaggerdto.SubscriptionDataWrapper;
 import ai.intellistream.datahub.api.services.SubscriptionService;
 import ai.intellistream.datahub.models.IdCollection;
-import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
@@ -230,8 +229,8 @@ public class SubscriptionController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listSubscriptions(
@@ -239,9 +238,9 @@ public class SubscriptionController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
-            return new ResponseEntity<>("limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT,
-                    HttpStatus.BAD_REQUEST);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
+        if (rejection != null) {
+            return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
         var retriever = new SubscriptionRetriever();
         // The setter is what turns an absent, zero or negative limit into the shared default, so

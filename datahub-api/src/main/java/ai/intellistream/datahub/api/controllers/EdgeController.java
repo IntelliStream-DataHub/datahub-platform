@@ -74,8 +74,8 @@ public class EdgeController {
     @ApiResponse(responseCode = "404", description =
             "No relationship with this id exists, or you lack read access to it.",
             content = @Content(
-                    mediaType = "application/json",
-                    schema = @Schema(type = "string", example = "Could not find edge with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(
@@ -107,8 +107,8 @@ public class EdgeController {
             ))
     @ApiResponse(responseCode = "404", description = "None of the given ids match a relationship.",
             content = @Content(
-                    mediaType = "application/json",
-                    schema = @Schema(type = "string", example = "Could not find edges for the given ids")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/byids", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> byIds(

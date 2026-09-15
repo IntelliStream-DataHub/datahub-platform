@@ -72,8 +72,8 @@ public class EventController {
     @ApiResponse(responseCode = "404", description =
             "No event with this id exists, or it belongs to a tenant you can't read.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find event with id: 0195f3a2-...")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(@NotNull @Parameter(description = "UUID of the event to look up.", example = "0195f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90") @PathVariable("id") String id){
@@ -151,8 +151,8 @@ public class EventController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -160,7 +160,7 @@ public class EventController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
