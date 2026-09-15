@@ -7,6 +7,7 @@
  * a bearer token.
  *
  *   GET {api}/files/download/{externalId} -> the model bytes
+ *   GET {rvm-converter}/models/gltf?rvm={externalId}&attributes={externalId} -> an AVEVA model as GLB
  *
  * The vendored library is a megabyte, so it is injected on first open rather than loaded with the
  * files page. Browsing files costs nothing until someone actually opens a model.
@@ -41,6 +42,25 @@ window.ModelViewer = (function () {
 
 	function isModel(name) {
 		return MODEL_PATTERN.test(name || "");
+	}
+
+	// AVEVA writes the extension in upper case, so match either.
+	var RVM_PATTERN = /\.rvm$/i;
+
+	/** The converter service's base URL; blank when this deployment runs none. */
+	function converterUrl() {
+		var meta = document.querySelector('meta[name="datahub-rvm-converter-url"]');
+		return (meta ? meta.content : "").replace(/\/+$/, "");
+	}
+
+	/** A filename's extension as a format label, "RVM" for WD1-PSUP.rvm. */
+	function formatOf(name) {
+		var m = /\.([^./]+)$/.exec(name || "");
+		return m ? m[1].toUpperCase() : "";
+	}
+
+	function isConvertible(name) {
+		return RVM_PATTERN.test(name || "") && converterUrl() !== "";
 	}
 
 	function loadLibrary() {
@@ -162,6 +182,37 @@ window.ModelViewer = (function () {
 		});
 	}
 
+	/**
+	 * What sits beside an RVM under the same base name: `attributes`, the externalId of its .att or
+	 * .txt sidecar or null, and `glb`, the stored GLB's filename when one already exists.
+	 */
+	function siblingsOf(node, glbName) {
+		var base = (node.name || "").replace(RVM_PATTERN, "").toLowerCase();
+		var folder = (node.path || "").replace(/\/[^/]*$/, "");
+		return listFolder(folder).then(function (byName) {
+			var names = Object.keys(byName);
+			var named = function (lower) {
+				return names.filter(function (n) { return n.toLowerCase() === lower; })[0];
+			};
+			var sidecar = named(base + ".att") || named(base + ".txt");
+			return { attributes: sidecar ? byName[sidecar] : null, glb: byName[glbName] ? glbName : null };
+		}).catch(function () {
+			return { attributes: null, glb: null }; // converts without tags rather than not at all
+		});
+	}
+
+	// The converter is a service of its own, so window.Api cannot address it; the token is the same.
+	function convert(rvm, attributes) {
+		var query = "?rvm=" + encodeURIComponent(rvm)
+			+ (attributes ? "&attributes=" + encodeURIComponent(attributes) : "");
+		return window.Api.token().then(function (token) {
+			return fetch(converterUrl() + "/models/gltf" + query, {
+				headers: { Accept: "model/gltf-binary", Authorization: "Bearer " + token },
+				signal: AbortSignal.timeout(FILE_TIMEOUT_MS)
+			});
+		});
+	}
+
 	function fetchNamed(names, byName, already) {
 		var have = {};
 		already.forEach(function (f) { have[f.name] = true; });
@@ -206,6 +257,102 @@ window.ModelViewer = (function () {
 	}
 
 	function open(node) {
+		show(node, node, function () {
+			return window.Api.request("/files/download/" + encodeURIComponent(node.externalId), {
+				headers: { Accept: "*/*" },
+				timeout: FILE_TIMEOUT_MS
+			});
+		});
+	}
+
+	/**
+	 * Stores a converted model beside its source, in the same dataset, so it opens later without the
+	 * converter. Never overwrites: an existing file of that name is left as it is.
+	 */
+	function save(node, name, glb) {
+		var folder = (node.path || "").replace(/\/[^/]*$/, "");
+		function upload(externalId) {
+			var headers = {
+				"Content-Type": "model/gltf-binary",
+				"X-Datahub-Path": (folder + "/" + name).split("/").map(encodeURIComponent).join("/"),
+				"X-Datahub-External-Id": encodeURIComponent(externalId),
+				"X-Datahub-Source": "datahub-rvm-converter",
+				"X-Datahub-Metadata": encodeURIComponent(JSON.stringify({ convertedFrom: node.externalId }))
+			};
+			if (node.dataSetId) {
+				headers["X-Datahub-Dataset-Id"] = String(node.dataSetId);
+			}
+			return window.Api.token().then(function (token) {
+				headers.Authorization = "Bearer " + token;
+				return fetch(window.Api.url("/files"), {
+					method: "PUT",
+					headers: headers,
+					body: glb,
+					signal: AbortSignal.timeout(FILE_TIMEOUT_MS)
+				});
+			});
+		}
+		// Derived from the source's id, since a name-derived default collides across folders. A
+		// deleted GLB keeps its id, so a conflict may be the id rather than the path: retry once
+		// under a fresh one, and only a second conflict means the file is really there.
+		var id = node.externalId + "_glb";
+		return upload(id).then(function (response) {
+			return response.status === 409 ? upload(id + "_" + Date.now().toString(36)) : response;
+		}).then(function (response) {
+			if (response.ok) {
+				Flash.info($L("model.saved", null, [name]));
+				return true;
+			}
+			Flash.warning(response.status === 409 ? $L("model.save.exists", null, [name])
+				: response.status === 403 ? $L("model.save.forbidden")
+				: $L("model.save.failed"));
+			return false;
+		}).catch(function () {
+			Flash.warning($L("model.save.failed"));
+			return false;
+		});
+	}
+
+	/**
+	 * Opens an AVEVA model as the GLB the converter makes of it, tagged from its attribute sidecar,
+	 * and saves that GLB beside it unless one is already there. `afterSave` runs once the dialog has
+	 * closed and a file was saved.
+	 */
+	function openConverted(node, afterSave) {
+		var model = { name: (node.name || "model").replace(RVM_PATTERN, "") + ".glb", path: node.path };
+		var saving = Promise.resolve(false);
+		show(node, model, function (status) {
+			status($L("model.converting"));
+			return siblingsOf(node, model.name).then(function (siblings) {
+				return convert(node.externalId, siblings.attributes).then(function (response) {
+					return { response: response, stored: siblings.glb };
+				});
+			}).then(function (result) {
+				var response = result.response;
+				if (!response.ok || result.stored) {
+					return response;
+				}
+				return response.blob().then(function (glb) {
+					// The upload runs alongside the viewer rather than holding the model back.
+					saving = save(node, model.name, glb);
+					return new Response(glb);
+				});
+			});
+		}, function () {
+			saving.then(function (saved) {
+				if (saved && afterSave) {
+					afterSave();
+				}
+			});
+		});
+	}
+
+	/**
+	 * The viewer modal for `node`, showing `model` (the file the importer sees, by name) from the
+	 * Response `source` resolves to. The title names the stored file. When `model` is not that file,
+	 * Download is offered for both, by format. `onClose`, if given, runs after the dialog is gone.
+	 */
+	function show(node, model, source, onClose) {
 		var overlay = document.createElement("div");
 		overlay.className = "dh-modal-overlay";
 		overlay.innerHTML =
@@ -218,6 +365,7 @@ window.ModelViewer = (function () {
 			+ '<div class="btns flex-end mtop20">'
 			+ '<button type="button" class="dh-btn secondary" data-act="close"><span></span></button>'
 			+ '<a class="dh-btn primary" data-act="download"><i class="fa fa-fw fa-download"></i> <span></span></a>'
+			+ '<a class="dh-btn primary" data-act="download-model" hidden><i class="fa fa-fw fa-download"></i> <span></span></a>'
 			+ '</div></div>';
 		document.body.appendChild(overlay);
 
@@ -225,7 +373,11 @@ window.ModelViewer = (function () {
 		overlay.querySelector('[data-act="close"] span').textContent = $L("close");
 		var download = overlay.querySelector('[data-act="download"]');
 		download.href = "/files/download/" + encodeURIComponent(node.externalId);
-		download.querySelector("span").textContent = $L("download");
+		var derived = model !== node;
+		download.querySelector("span").textContent = derived
+			? $L("model.download.as", null, [formatOf(node.name)]) : $L("download");
+		var downloadModel = overlay.querySelector('[data-act="download-model"]');
+		var modelUrl = null;
 
 		var canvasEl = overlay.querySelector('[data-type="model-canvas"]');
 		var statusEl = overlay.querySelector('[data-type="model-status"]');
@@ -254,9 +406,15 @@ window.ModelViewer = (function () {
 				viewer.Destroy();
 				viewer = null;
 			}
+			if (modelUrl) {
+				URL.revokeObjectURL(modelUrl);
+			}
 			window.removeEventListener("resize", onResize);
 			document.removeEventListener("keydown", onKey);
 			overlay.remove();
+			if (onClose) {
+				onClose();
+			}
 		}
 
 		function onKey(ev) {
@@ -279,10 +437,7 @@ window.ModelViewer = (function () {
 		status($L("model.loading"));
 		loadLibrary()
 			.then(function () {
-				return window.Api.request("/files/download/" + encodeURIComponent(node.externalId), {
-					headers: { Accept: "*/*" },
-					timeout: FILE_TIMEOUT_MS
-				});
+				return source(status);
 			})
 			.then(function (response) {
 				if (!response.ok) {
@@ -297,7 +452,16 @@ window.ModelViewer = (function () {
 					return null; // closed while it was still downloading
 				}
 				status($L("model.loading"));
-				return companionsOf(node, blob).then(function (extra) {
+				if (derived) {
+					// The model only exists in this page, so it downloads from memory, saved or not.
+					modelUrl = URL.createObjectURL(blob);
+					downloadModel.href = modelUrl;
+					downloadModel.download = model.name;
+					downloadModel.querySelector("span").textContent =
+						$L("model.download.as", null, [formatOf(model.name)]);
+					downloadModel.hidden = false;
+				}
+				return companionsOf(model, blob).then(function (extra) {
 					if (!overlay.isConnected) {
 						return null;
 					}
@@ -311,15 +475,18 @@ window.ModelViewer = (function () {
 					});
 					// The library picks its importer from the extension and resolves a model's
 					// references by filename across the list, so both have to carry real names.
-					viewer.LoadModelFromFileList([new File([blob], node.name)].concat(extra));
+					viewer.LoadModelFromFileList([new File([blob], model.name)].concat(extra));
 				});
 			})
 			.catch(function (reason) {
 				// 404 covers "no such file" and "not yours to read" alike: the api hides a file
 				// outside the caller's readable datasets rather than admitting it exists.
-				status(reason === 404 ? $L("model.not.found") : $L("model.load.failed"), true);
+				// 422 is the converter reading the file and finding no model it can convert.
+				status(reason === 404 ? $L("model.not.found")
+					: reason === 422 ? $L("model.convert.failed")
+					: $L("model.load.failed"), true);
 			});
 	}
 
-	return { isModel: isModel, open: open };
+	return { isModel: isModel, isConvertible: isConvertible, open: open, openConverted: openConverted };
 })();
