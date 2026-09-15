@@ -54,7 +54,7 @@ class ClickHouseReadOnlyUserIT {
      */
     @Container
     static final ClickHouseContainer CLICKHOUSE =
-            new ClickHouseContainer(DockerImageName.parse("clickhouse/clickhouse-server:24.8"))
+            new ClickHouseContainer(DockerImageName.parse("clickhouse/clickhouse-server:26.8.2.7"))
                     .withUsername("admin")
                     .withPassword("admin")
                     .withEnv("CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT", "1")

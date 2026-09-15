@@ -115,6 +115,19 @@ public class IngestQuotaService {
      * @throws TenantLimitReachedException  if the lifetime ceiling is reached (403, not retryable)
      */
     public void checkAndRecord(QuotaMetric metric, long count) {
+        check(metric, count);
+        record(metric, count);
+    }
+
+    /**
+     * Refuse {@code count} if it would take the current tenant past either ceiling, without charging
+     * it. For work that is charged piece by piece with {@link #record} as it completes, but has to be
+     * allowed as a whole before any of it starts.
+     *
+     * @throws IngestQuotaExceededException if the daily allowance is spent (429, retryable)
+     * @throws TenantLimitReachedException  if the lifetime ceiling is reached (403, not retryable)
+     */
+    public void check(QuotaMetric metric, long count) {
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null || count <= 0) {
             return;
@@ -122,24 +135,31 @@ public class IngestQuotaService {
         TenantLimits limits = tenantLimits.forTenant(tenantId);
 
         long dailyLimit = dailyLimit(limits, metric);
-        Counter daily = dailyCounter(tenantId, metric);
-        if (!TenantLimits.unlimited(dailyLimit) && used(daily) + count > dailyLimit) {
+        if (!TenantLimits.unlimited(dailyLimit) && used(dailyCounter(tenantId, metric)) + count > dailyLimit) {
             throw new IngestQuotaExceededException(metric.label(), dailyLimit, secondsUntilUtcMidnight());
         }
 
         long lifetimeLimit = lifetimeLimit(limits, metric);
-        Counter lifetime = lifetimeCounter(tenantId, metric);
-        if (!TenantLimits.unlimited(lifetimeLimit) && used(lifetime) + count > lifetimeLimit) {
+        if (!TenantLimits.unlimited(lifetimeLimit) && used(lifetimeCounter(tenantId, metric)) + count > lifetimeLimit) {
             throw new TenantLimitReachedException(metric.label(), lifetimeLimit);
         }
+    }
+
+    /** Charge {@code count} to the current tenant without checking it, for work {@link #check} allowed. */
+    public void record(QuotaMetric metric, long count) {
+        String tenantId = TenantContext.getTenantId();
+        if (tenantId == null || count <= 0) {
+            return;
+        }
+        TenantLimits limits = tenantLimits.forTenant(tenantId);
 
         // Only what is actually bounded is counted: the daily counter is the rate, the lifetime one
         // the running total, and a metric with neither limit set costs no Valkey traffic at all.
-        if (!TenantLimits.unlimited(dailyLimit)) {
-            add(daily, count);
+        if (!TenantLimits.unlimited(dailyLimit(limits, metric))) {
+            add(dailyCounter(tenantId, metric), count);
         }
-        if (!TenantLimits.unlimited(lifetimeLimit)) {
-            add(lifetime, count);
+        if (!TenantLimits.unlimited(lifetimeLimit(limits, metric))) {
+            add(lifetimeCounter(tenantId, metric), count);
         }
     }
 

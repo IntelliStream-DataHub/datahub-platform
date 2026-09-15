@@ -85,9 +85,9 @@ public class ClickHouseService {
 
     protected InsertSettings getSettings(){
         return new InsertSettings()
-                // 16KB buffer for efficient copying from your Pipe to the Network
                 .setInputStreamCopyBufferSize(BUFFER_SIZE)
-                // Crucial: Tell server the stream is ALREADY compressed
+                // The header picks the request codec: client-v2 compresses the body with zstd on
+                // the way out and the server decompresses it. The stream handed in is plain.
                 .httpHeader(HttpHeaders.CONTENT_ENCODING, "zstd");
     }
 

@@ -52,7 +52,7 @@ services:
       retries: 10
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:26.5
+    image: docker.io/clickhouse/clickhouse-server:26.8.2.7
     environment:
       CLICKHOUSE_USER: foobar
       CLICKHOUSE_PASSWORD: changeme

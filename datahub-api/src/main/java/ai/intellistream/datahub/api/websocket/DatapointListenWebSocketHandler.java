@@ -192,10 +192,23 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
                 tenantId, rawSession.getId(), requestedInterest.size(), initialInterest.size());
 
         Consumer<DataWrapperBin> consumer;
+        Consumer<byte[]> blockConsumer;
         try {
             consumer = buildConsumer();
         } catch (PulsarClientException e) {
             log.error("Failed to create all-datapoints consumer for tenant {}: {}", tenantId, e.getMessage(), e);
+            closeQuietly(rawSession, CloseStatus.SERVER_ERROR.withReason("Failed to subscribe to datapoints"));
+            return;
+        }
+        try {
+            blockConsumer = buildBlockConsumer();
+        } catch (PulsarClientException e) {
+            log.error("Failed to create all-datapoint-blocks consumer for tenant {}: {}", tenantId, e.getMessage(), e);
+            try {
+                consumer.close();
+            } catch (PulsarClientException ignored) {
+                // best effort
+            }
             closeQuietly(rawSession, CloseStatus.SERVER_ERROR.withReason("Failed to subscribe to datapoints"));
             return;
         }
@@ -213,7 +226,7 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
         }
 
         DatapointListenSession listen = new DatapointListenSession(
-                safeSession, consumer, jsonMapper, tenantId, permissions, initialInterest);
+                safeSession, consumer, blockConsumer, jsonMapper, tenantId, permissions, initialInterest);
         sessions.put(rawSession.getId(), listen);
         wsSessions.put(rawSession.getId(), safeSession);
         listen.start(receiveExecutor);
@@ -283,6 +296,25 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
         String name = "ws-dp-listen-" + Long.toHexString(System.nanoTime());
         return pulsarClient.newConsumer(Schema.AVRO(DataWrapperBin.class))
                 .topic(topicNames.getAllDatapointsTopicName())
+                .subscriptionName(name)
+                .consumerName(name)
+                .subscriptionType(SubscriptionType.Exclusive)
+                .subscriptionMode(SubscriptionMode.NonDurable)
+                .subscriptionInitialPosition(SubscriptionInitialPosition.Latest)
+                .autoUpdatePartitionsInterval(30, TimeUnit.SECONDS)
+                .batchReceivePolicy(BatchReceivePolicy.builder()
+                        .maxNumMessages(BATCH_MAX_MESSAGES)
+                        .maxNumBytes(BATCH_MAX_BYTES)
+                        .timeout(BATCH_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                        .build())
+                .subscribe();
+    }
+
+    /** The same tail, on the binary frames topic; frames are opaque bytes with a tenant property. */
+    private Consumer<byte[]> buildBlockConsumer() throws PulsarClientException {
+        String name = "ws-dp-listen-blocks-" + Long.toHexString(System.nanoTime());
+        return pulsarClient.newConsumer(Schema.BYTES)
+                .topic(topicNames.getAllDatapointBlocksTopicName())
                 .subscriptionName(name)
                 .consumerName(name)
                 .subscriptionType(SubscriptionType.Exclusive)

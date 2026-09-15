@@ -146,6 +146,12 @@ datahub:
     # POST /timeseries/data only. Higher because a full 100 000-point numeric batch is around 5 MB of
     # JSON by itself, and a maxed-out text batch around 11 MB.
     max-body-bytes-datapoints: 16777216
+    # POST /timeseries/data/binary only: the cap on the compressed body. The frames inside declare
+    # their decompressed sizes, which the endpoint caps at 64 MiB per request itself.
+    max-body-bytes-datapoints-binary: 67108864
+    # Binary bodies are validated in memory before anything is published; this bounds how many one
+    # instance holds at once. Beyond it a request gets a 429 with Retry-After: 1.
+    max-in-flight-datapoints-binary: 16
     # How long a tenant's tenant_limits row is cached in-process. Also the propagation delay: an
     # UPDATE to that table takes effect across every instance within this window, no restart needed.
     cache-ttl: 5m

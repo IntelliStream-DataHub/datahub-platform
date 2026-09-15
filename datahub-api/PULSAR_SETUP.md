@@ -5,6 +5,18 @@ bin/pulsar-admin namespaces create ${TENANT}/datapoints
 bin/pulsar-admin namespaces grant-permission ${TENANT}/datapoints --actions produce,consume --role istream
 bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/datapoints -l 10G -p producer_exception
 bin/pulsar-admin namespaces set-retention ${TENANT}/datapoints -s 11G -t 3d
+
+# The binary datapoint frames (POST /timeseries/data/binary). Frames arrive zstd-compressed
+# from the client and are stored as sent, so this namespace holds several times the points of
+# datapoints/ for the same quota. The API creates the partitioned all-datapoint-blocks topic at
+# startup; the auto-creation policy closes the window before that for a consumer that connects
+# first.
+bin/pulsar-admin namespaces create ${TENANT}/datapoint-blocks
+bin/pulsar-admin namespaces grant-permission ${TENANT}/datapoint-blocks --actions produce,consume --role istream
+bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/datapoint-blocks -l 10G -p producer_exception
+bin/pulsar-admin namespaces set-retention ${TENANT}/datapoint-blocks -s 11G -t 3d
+bin/pulsar-admin namespaces set-auto-topic-creation ${TENANT}/datapoint-blocks --enable --type partitioned --num-partitions 16
+
 bin/pulsar-admin namespaces create ${TENANT}/events
 bin/pulsar-admin namespaces grant-permission ${TENANT}/events --actions produce,consume --role istream
 bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/events -l 10G -p producer_exception
