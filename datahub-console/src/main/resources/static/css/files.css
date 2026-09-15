@@ -278,6 +278,13 @@ table.files-table .fs-empty td{
 	overflow: hidden;
 }
 .dh-model-canvas canvas{ display: block; }
+.dh-model-canvas .dh-model-lines{
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
+}
 .dh-model-status{
 	position: absolute;
 	left: 50%;
@@ -293,3 +300,34 @@ table.files-table .fs-empty td{
 	pointer-events: none;
 }
 .dh-model-status.is-error{ color: #e5534b; }
+.dh-model-dims{
+	position: absolute;
+	left: 12px;
+	top: 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	max-width: calc(100% - 24px);
+	padding: 8px 12px;
+	border-radius: 8px;
+	background: var(--menu-bg);
+	border: 1px solid var(--border);
+	color: var(--text);
+	font-size: 13px;
+	line-height: 1.4;
+	pointer-events: none;
+}
+.dh-model-dims[hidden]{ display: none; }
+.dh-model-dims-part{
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.dh-model-dims-size{
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+}
+.dh-model-dims-note{
+	color: var(--text-muted);
+	font-size: 12px;
+}

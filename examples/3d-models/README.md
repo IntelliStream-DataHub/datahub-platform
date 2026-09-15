@@ -37,10 +37,10 @@ formats do not share vertices between faces, which is correct, not a fault.
 
 ## cube.step: the CAD decoder path
 
-A 1 m cube as a STEP AP214 manifold solid B-rep, written by `make-step.py`. Unlike everything else
-here it does not go through the viewer's own parsers at all: STEP is handed to `occt-import-js`,
-the 7.7 MB WASM decoder the console vendors, so this is the fixture that proves that whole path
-works.
+A 1 m cube as a STEP AP214 manifold solid B-rep, written by `make-step.py` with 1000 mm edges in a
+millimetre length unit. Unlike everything else here it does not go through the viewer's own parsers
+at all: STEP is handed to `occt-import-js`, the 7.7 MB WASM decoder the console vendors, so this is
+the fixture that proves that whole path works, and that its millimetres reach the size readout.
 
 ```bash
 python3 make-step.py cube.step
@@ -77,6 +77,36 @@ of 0.85, so it exercises the environment-map lighting as well as the texture.
 
 Both are Y-up, as glTF specifies and the viewer assumes. Both pass the Khronos glTF validator with
 no errors, warnings or infos.
+
+## Sizes
+
+The viewer shows the model's length, width and height in its top-left corner and draws them beside
+the model as dimension lines, CAD style, and does the same for a part when you click it,
+highlighted; click empty space to go back. The lines run along the bottom edges facing the camera
+and up one end, and move as you orbit. Sizes are metric: millimetres while everything is under a
+metre, metres from there.
+
+- **Height is Y**, the axis the viewer always shows as up. Length and width are the two horizontal
+  sides, longer first. A Z-up model, which the viewer shows lying on its side, reports its depth as
+  height.
+- **The model's box follows the viewer's axes; a part's turns with the part.** A clicked part is
+  measured in the tightest box found among its own frame, its principal axes, and minimal
+  cross-sections about the vertical, its long axis and its main face directions. A pipe laid at an
+  angle reads its length and diameter. Within 1% the viewer's axes win, so a faceted pipe along an
+  axis reads its nominal diameter rather than the width across its flats.
+- **The unit** comes from the file: metres for glTF, VRML and COLLADA, millimetres for STEP, IGES,
+  BREP, FCStd and AMF, and whatever a 3MF's root model declares, millimetres if it declares none.
+  STL, OBJ, PLY and OFF carry no unit, so those are read as metres and say so under the size.
+
+Expected readouts:
+
+| File | Reads |
+|---|---|
+| `uv-cube.glb`, `.gltf` | L 1.00 × W 1.00 × H 1.00 m |
+| `uv-cube.obj`, `cut-cube.stl` | 1.00 m each way, noted as assumed metres |
+| `cube.step` | L 1.00 × W 1.00 × H 1.00 m, from 1000 mm |
+| `pipe-valves.glb` | L 4.00 × W 0.40 × H 0.67 m; a handwheel L 292 × W 292 × H 40 mm |
+| `cut-cube.3mf` | L 1.00 × W 1.00 × H 1.00 m, from its `unit="meter"` |
 
 ## Multi-file models
 
