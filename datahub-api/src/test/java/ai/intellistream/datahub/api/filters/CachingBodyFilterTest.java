@@ -4,12 +4,11 @@ package ai.intellistream.datahub.api.filters;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import org.springframework.web.util.ContentCachingRequestWrapper;
-import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -18,62 +17,87 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * A failure below the body cache must reach the container. Swallowed, it left the status unset and
- * the caller saw {@code 200} with an empty body for a request the api never finished, which is how a
- * datapoint insert that failed on the server was reported as stored.
+ * Body caching must not change what the caller is told happened.
+ *
+ * <p>The filter used to log a failure below it and return, which left the response at Tomcat's
+ * default 200 with an empty body — a request the server dropped, reported to the client as a
+ * success. DispatcherServlet wraps everything a handler throws into {@code ServletException}, so
+ * that applied to every unhandled failure on every non-streaming endpoint.
  */
 class CachingBodyFilterTest {
 
-    /** Both branches the filter takes: wrapped, and streaming. */
-    @ParameterizedTest
-    @CsvSource({
-            "POST, /timeseries/data",
-            "PUT,  /files",
-    })
-    void aFailureDownTheChainPropagates(String method, String uri) {
-        // What DispatcherServlet raises for anything no handler answered, an Error included.
-        ServletException failure = new ServletException("Handler dispatch failed",
-                new OutOfMemoryError("Java heap space"));
-        FilterChain chain = (req, res) -> {
-            throw failure;
-        };
-        MockHttpServletResponse response = new MockHttpServletResponse();
+    private final CachingBodyFilter filter = new CachingBodyFilter();
+    private final MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThatThrownBy(() -> new CachingBodyFilter()
-                .doFilter(new MockHttpServletRequest(method, uri), response, chain))
-                .isSameAs(failure);
-        assertThat(response.isCommitted())
-                .as("left uncommitted, so the container can still answer with a 500")
-                .isFalse();
-    }
-
-    @ParameterizedTest
-    @CsvSource({
-            "POST, /timeseries/data",
-            "PUT,  /files",
-    })
-    void anIoFailureDownTheChainPropagates(String method, String uri) {
-        IOException failure = new IOException("connection reset");
-        FilterChain chain = (req, res) -> {
-            throw failure;
-        };
-
-        assertThatThrownBy(() -> new CachingBodyFilter()
-                .doFilter(new MockHttpServletRequest(method, uri), new MockHttpServletResponse(), chain))
-                .isSameAs(failure);
+    private static MockHttpServletRequest post(String uri) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", uri);
+        request.setContent("{\"items\":[]}".getBytes(StandardCharsets.UTF_8));
+        request.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        return request;
     }
 
     @Test
-    void aSuccessfulResponseIsWrappedAndItsBodyReachesTheClient() throws Exception {
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        FilterChain chain = (req, res) -> {
-            assertThat(req).isInstanceOf(ContentCachingRequestWrapper.class);
-            assertThat(res).isInstanceOf(ContentCachingResponseWrapper.class);
-            res.getOutputStream().write("{\"items\":[]}".getBytes(StandardCharsets.UTF_8));
+    void aFailureBelowTheFilterIsNotReportedAsSuccess() {
+        FilterChain exploding = (req, res) -> {
+            throw new ServletException("Handler dispatch failed", new OutOfMemoryError("Java heap space"));
         };
 
-        new CachingBodyFilter().doFilter(new MockHttpServletRequest("POST", "/timeseries/data/list"), response, chain);
+        assertThatThrownBy(() -> filter.doFilter(post("/timeseries/data"), response, exploding))
+                .isInstanceOf(ServletException.class)
+                .hasMessage("Handler dispatch failed");
 
+        // Left uncommitted, so the container is still free to turn this into a 500.
+        assertThat(response.isCommitted()).isFalse();
+        assertThat(response.getContentAsByteArray()).isEmpty();
+    }
+
+    @Test
+    void anIoFailureBelowTheFilterAlsoPropagates() {
+        FilterChain exploding = (req, res) -> {
+            throw new IOException("broken pipe");
+        };
+
+        assertThatThrownBy(() -> filter.doFilter(post("/events/create"), response, exploding))
+                .isInstanceOf(IOException.class);
+    }
+
+    @Test
+    void aFailureOnAStreamingEndpointAlsoPropagates() {
+        FilterChain exploding = (req, res) -> {
+            throw new ServletException("Handler dispatch failed");
+        };
+
+        assertThatThrownBy(() -> filter.doFilter(post("/resources/import"), response, exploding))
+                .isInstanceOf(ServletException.class);
+    }
+
+    @Test
+    void aBodyWrittenBeforeAFailureStillReachesTheCaller() throws Exception {
+        FilterChain writesThenFails = (req, res) -> {
+            res.getWriter().write("{\"error\":\"boom\"}");
+            throw new ServletException("Handler dispatch failed");
+        };
+
+        assertThatThrownBy(() -> filter.doFilter(post("/events/create"), response, writesThenFails))
+                .isInstanceOf(ServletException.class);
+
+        assertThat(response.getContentAsString()).isEqualTo("{\"error\":\"boom\"}");
+    }
+
+    @Test
+    void aSuccessfulResponseIsCopiedThroughExactlyOnce() throws Exception {
+        MockFilterChain chain = new MockFilterChain() {
+            @Override
+            public void doFilter(jakarta.servlet.ServletRequest req, jakarta.servlet.ServletResponse res)
+                    throws IOException, ServletException {
+                res.getWriter().write("{\"items\":[]}");
+                super.doFilter(req, res);
+            }
+        };
+
+        filter.doFilter(post("/events/create"), response, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.OK.value());
         assertThat(response.getContentAsString()).isEqualTo("{\"items\":[]}");
     }
 }

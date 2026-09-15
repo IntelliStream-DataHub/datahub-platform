@@ -9,19 +9,18 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
 
-/**
- * Wraps the request and response so {@code ReqLogService} can log their bodies.
- *
- * <p>A failure from further down the chain always propagates. Nothing here may catch it: an
- * exception no handler answered has left the status unset, so swallowing it sends the caller a
- * {@code 200} with an empty body however much of the request was lost, which is how a datapoint
- * insert that failed on the server came back to the SDK as stored. Propagated, the container
- * answers it with a {@code 500} the SDKs retry.
- */
 public class CachingBodyFilter implements Filter {
 
     // https://stackoverflow.com/questions/39935190/contentcachingresponsewrapper-produces-empty-response
 
+    /**
+     * Nothing is caught here, deliberately. This filter exists to make bodies loggable, so a
+     * failure below it is never its business to handle: swallowing one would leave the response
+     * at Tomcat's default 200 with an empty body, reporting a request that was dropped on the
+     * floor as a success. DispatcherServlet wraps everything a handler throws — {@code Error}s
+     * included — into {@code ServletException: Handler dispatch failed}, so a catch here would
+     * mask every unhandled failure on every endpoint, not just the odd I/O fault.
+     */
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
@@ -40,10 +39,15 @@ public class CachingBodyFilter implements Filter {
 
         ContentCachingRequestWrapper reqWrapper = new ContentCachingRequestWrapper(httpRequest, 1024 * 1024 * 20);
         ContentCachingResponseWrapper resWrapper = new ContentCachingResponseWrapper((HttpServletResponse) response);
-        chain.doFilter(reqWrapper, resWrapper);
-        // Only on success, never in a finally: copying a half-written body would commit the
-        // response and leave the container unable to answer the failure with its 500.
-        resWrapper.copyBodyToResponse();
+        try {
+            chain.doFilter(reqWrapper, resWrapper);
+        } finally {
+            // In a finally, not after the call: whatever was buffered before a failure has to reach
+            // the real response either way, or an error body written further down is discarded and
+            // the caller gets an empty one. Copying an empty buffer is a no-op, so the container is
+            // still free to write its own error page over an uncommitted response.
+            resWrapper.copyBodyToResponse();
+        }
     }
 
 }
