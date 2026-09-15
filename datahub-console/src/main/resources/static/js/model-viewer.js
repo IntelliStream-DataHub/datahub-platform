@@ -94,6 +94,13 @@ window.ModelViewer = (function () {
 			parts.length > 3 ? Math.round(parts[3] * 255) : 255);
 	}
 
+	/** A clicked mesh's name, preferring its node's, which is where CAD exports keep the tag. */
+	function partName(mesh) {
+		var instance = mesh.userData && mesh.userData.originalMeshInstance;
+		var node = instance && instance.node;
+		return (node && node.GetName && node.GetName()) || mesh.name || "";
+	}
+
 	// A model may name files beside it: an OBJ its material library and that library its textures,
 	// a glTF its buffer and images. Only that many are ever fetched, and only from the model's own
 	// folder, so a folder of unrelated files costs nothing.
@@ -361,6 +368,12 @@ window.ModelViewer = (function () {
 			+ '<div class="dh-model-stage">'
 			+   '<div class="dh-model-canvas" data-type="model-canvas"></div>'
 			+   '<p class="dh-model-status" data-type="model-status"></p>'
+			+   '<div class="dh-model-dims" data-type="model-dims" hidden>'
+			+     '<span class="dh-model-dims-part" hidden></span>'
+			+     '<span class="dh-model-dims-size"></span>'
+			+     '<span class="dh-model-dims-note" data-type="model-dims-hint"></span>'
+			+     '<span class="dh-model-dims-note" data-type="model-dims-unit" hidden></span>'
+			+   '</div>'
 			+ '</div>'
 			+ '<div class="btns flex-end mtop20">'
 			+ '<button type="button" class="dh-btn secondary" data-act="close"><span></span></button>'
@@ -391,6 +404,52 @@ window.ModelViewer = (function () {
 
 		function failed() {
 			status($L("model.load.failed"), true);
+		}
+
+		// The whole model's size once it loads; clicking a part shows that part's, and empty space
+		// goes back to the whole.
+		function measure(declared) {
+			var three = viewer.GetViewer();
+			var bounds = three.GetBoundingBox(function () { return true; });
+			if (!bounds) {
+				return;
+			}
+			var whole = ModelMeasure.modelBox(bounds);
+			var scale = ModelMeasure.unitScale(viewer.GetModel(), model.name, declared);
+			var dims = overlay.querySelector('[data-type="model-dims"]');
+			var part = dims.querySelector(".dh-model-dims-part");
+			var hint = dims.querySelector('[data-type="model-dims-hint"]');
+			var unit = dims.querySelector('[data-type="model-dims-unit"]');
+			var highlight = new OV.RGBColor(64, 160, 255);
+			var lines = ModelDimensions.attach(three, canvasEl);
+			// The library fits the model edge to edge; step back so the dimension lines fit too.
+			var sphere = three.GetBoundingSphere(function () { return true; });
+			three.FitSphereToWindow({ center: sphere.center, radius: sphere.radius * 1.35 }, false);
+
+			function render(name, box) {
+				var size = ModelMeasure.dimensions(box, scale.metres);
+				part.textContent = name || "";
+				part.hidden = !name;
+				dims.querySelector(".dh-model-dims-size").textContent = ModelMeasure.format(size);
+				lines.show(box, scale.metres, ModelMeasure.units(size));
+				hint.textContent = $L("model.dims.hint");
+				hint.hidden = !!name;
+				unit.textContent = $L("model.dims.assumed");
+				unit.hidden = scale.known;
+				dims.hidden = false;
+			}
+
+			render(null, whole);
+			three.SetMouseClickHandler(function (button, position) {
+				if (button !== 1) {
+					return;
+				}
+				var hit = three.GetMeshIntersectionUnderMouse(OV.IntersectionMode.MeshOnly, position);
+				var mesh = hit ? hit.object : null;
+				var box = mesh ? ModelMeasure.partBox(mesh) : null;
+				three.SetMeshesHighlight(highlight, function (data) { return !!box && data === mesh.userData; });
+				render(box ? partName(mesh) : null, box || whole);
+			});
 		}
 
 		function onResize() {
@@ -452,6 +511,7 @@ window.ModelViewer = (function () {
 					return null; // closed while it was still downloading
 				}
 				status($L("model.loading"));
+				var declared = ModelMeasure.declaredUnit(model.name, blob);
 				if (derived) {
 					// The model only exists in this page, so it downloads from memory, saved or not.
 					modelUrl = URL.createObjectURL(blob);
@@ -470,7 +530,14 @@ window.ModelViewer = (function () {
 						defaultColor: new OV.RGBColor(160, 168, 180),
 						// false: light the model with it, but keep the dialog's own background.
 						environmentSettings: new OV.EnvironmentSettings(ENVMAP, false),
-						onModelLoaded: function () { status(null); },
+						onModelLoaded: function () {
+							status(null);
+							declared.then(function (metres) {
+								if (viewer) {
+									measure(metres);
+								}
+							});
+						},
 						onModelLoadFailed: failed
 					});
 					// The library picks its importer from the extension and resolves a model's
