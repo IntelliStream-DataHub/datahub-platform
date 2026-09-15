@@ -46,6 +46,8 @@ import java.time.ZonedDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
+import org.springframework.security.access.AccessDeniedException;
 
 @Slf4j
 @RestController
@@ -268,6 +270,19 @@ public class PolicyController {
         catch (ConstraintViolationException cve) {
             var e = BuildErrorResponse.createConstraintViolationError(cve);
             return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
+        }
+        // The shared resource-delete pipeline refuses a delete that would strand a surviving node,
+        // and it carries the offending resources. Every other delete endpoint surfaces that as a
+        // 400 with that list; this one had no catch, so it met the broad Exception below and came
+        // back as a bodyless 500 naming nothing.
+        catch (ResourceDeleteException e) {
+            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
+        }
+        // Deleting a policy asserts write on its data set, so a denial is reachable here. Let it
+        // reach AccessDeniedExceptionHandler as a 403 rather than being reported as a server fault
+        // the caller should retry.
+        catch (AccessDeniedException e) {
+            throw e;
         }
         // Let the concurrency conflict reach ConcurrencyExceptionHandler as a 409 — the broad
         // Exception catch below would otherwise mask it as a 500.

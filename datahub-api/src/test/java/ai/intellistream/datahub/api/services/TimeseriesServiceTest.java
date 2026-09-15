@@ -559,4 +559,33 @@ class TimeseriesServiceTest {
         }
     }
 
+
+    // --- update validation -------------------------------------------------------------------
+
+    @Test
+    void update_invalidField_is400NamingTheField_not500() {
+        // A name shorter than the three-character floor fails validateUpdateFields, which is the
+        // only path into the per-field error branch. That branch built a ResponseError and never
+        // put a BadRequestError inside it, so the first addFieldError dereferenced null: every
+        // invalid /timeseries/update came back as a 500 where the endpoint documents a 400.
+        var fields = new ai.intellistream.datahub.timeseries.TimeseriesFields();
+        fields.getName().set("ab");
+        var item = new ai.intellistream.datahub.timeseries.UpdateTimeseries();
+        item.setExternalId("sensor_temp_room_a");
+        item.setUpdate(fields);
+        var request = new DataWrapper<ai.intellistream.datahub.timeseries.UpdateTimeseries>();
+        request.getItems().add(item);
+
+        BadRequestException thrown = assertThrows(BadRequestException.class,
+                () -> timeseriesService.updateTimeseries(request));
+
+        assertNotNull(thrown.getError().getError(), "the 400 must carry a body, not a null payload");
+        assertTrue(thrown.getError().getError().getFields().stream()
+                        .anyMatch(f -> f.values().stream()
+                                .anyMatch(v -> v.contains("min length"))),
+                "the body must name why the field was rejected, got "
+                        + thrown.getError().getError().getFields());
+        // Nothing may be written: validation runs over the whole batch before any update lands.
+        verifyNoInteractions(timeseriesRepository);
+    }
 }

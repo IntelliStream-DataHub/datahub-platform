@@ -1348,9 +1348,14 @@ public class TimeseriesService {
             }
             if(!ts.getUpdate().validateUpdateFields()){
                 ResponseError<BadRequestError> errors = new ResponseError<>();
-                ts.getUpdate().getErrors().forEach( error -> {
-                    errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-                });
+                // The payload has to exist before a field error can be added to it. Without this
+                // line getError() is null and the first addFieldError throws, so every invalid
+                // update came back as a 500 instead of the 400 the endpoint documents.
+                var badRequestError = new BadRequestError();
+                badRequestError.setMessage("One or more fields are invalid.");
+                errors.setError(badRequestError);
+                ts.getUpdate().getErrors().forEach( error ->
+                        errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage()));
                 throw new BadRequestException(errors);
             }
         });

@@ -29,6 +29,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.security.access.AccessDeniedException;
 
 @RestController
 @RequestMapping("/subscriptions")
@@ -124,6 +125,12 @@ public class SubscriptionController {
         } catch (BadRequestException e) {
             log.warn("Subscription create bad request: {}", e.getError().getError().getMessage());
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
+        }
+        // Creating a subscription asserts read on every timeseries it names, so a denial is
+        // reachable here. Let it reach AccessDeniedExceptionHandler as a 403 rather than being
+        // reported as a server fault the caller should retry.
+        catch (AccessDeniedException e) {
+            throw e;
         }
         // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
         // RuntimeException catch below would otherwise mask it as a 500.
