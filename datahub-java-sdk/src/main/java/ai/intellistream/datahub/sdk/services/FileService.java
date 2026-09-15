@@ -47,9 +47,9 @@ public final class FileService {
         return http.put("/files", request.content(), headers(request), indexNodes);
     }
 
-    /** POST /files/delete — delete files by id. */
-    public DataWrapper<IndexNode> delete(List<IdCollection> ids) {
-        return http.post("/files/delete", new DataWrapper<IdCollection>().setItems(ids), indexNodes);
+    /** POST /files/delete — delete files by id. The endpoint answers {@code 204} with no body. */
+    public void delete(List<IdCollection> ids) {
+        http.send("POST", "/files/delete", new DataWrapper<IdCollection>().setItems(ids));
     }
 
     private static Map<String, String> headers(FileUploadRequest r) {

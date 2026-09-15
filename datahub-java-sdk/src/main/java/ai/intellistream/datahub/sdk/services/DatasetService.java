@@ -101,8 +101,8 @@ public final class DatasetService {
         return http.post("/datasets/update", new DataWrapper<DataSetForm>().setItems(forms), datasets);
     }
 
-    /** POST /datasets/delete */
-    public DataWrapper<DataSetModel> delete(List<IdCollection> ids) {
-        return http.post("/datasets/delete", new DataWrapper<IdCollection>().setItems(ids), datasets);
+    /** POST /datasets/delete — the endpoint answers {@code 204} with no body. */
+    public void delete(List<IdCollection> ids) {
+        http.send("POST", "/datasets/delete", new DataWrapper<IdCollection>().setItems(ids));
     }
 }

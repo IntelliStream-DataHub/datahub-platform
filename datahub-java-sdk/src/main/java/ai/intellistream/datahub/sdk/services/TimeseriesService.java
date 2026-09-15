@@ -41,7 +41,6 @@ public final class TimeseriesService {
     private final DatapointIngestor ingestor;
     private final DatapointSpool spool;      // nullable: durable buffering disabled
     private final JavaType timeseries;       // DataWrapper<Timeseries>
-    private final JavaType strings;          // DataWrapper<String>
     private final JavaType datapoints;       // DataWrapper<DatapointsCollection>
     private final JavaType aggregatedData;   // DataWrapper<DataCollection<DatapointAggsDTO>>
 
@@ -55,7 +54,6 @@ public final class TimeseriesService {
         this.ingestor = new DatapointIngestor(http, DATA_PATH);
         TypeFactory tf = http.typeFactory();
         this.timeseries = tf.constructParametricType(DataWrapper.class, Timeseries.class);
-        this.strings = tf.constructParametricType(DataWrapper.class, String.class);
         this.datapoints = tf.constructParametricType(DataWrapper.class, DatapointsCollection.class);
         this.aggregatedData = tf.constructParametricType(DataWrapper.class,
                 tf.constructParametricType(DataCollection.class, DatapointAggsDTO.class));
@@ -89,9 +87,11 @@ public final class TimeseriesService {
     /**
      * POST /timeseries/delete — delete timeseries (and their datapoints) by id or external id.
      * Any referencing subscriptions or edges must be removed first, or the backend responds 409.
+     *
+     * <p>The endpoint answers {@code 204} with no body, so there is nothing to return.
      */
-    public DataWrapper<Timeseries> delete(List<IdCollection> ids) {
-        return http.post("/timeseries/delete", new DataWrapper<IdCollection>().setItems(ids), timeseries);
+    public void delete(List<IdCollection> ids) {
+        http.send("POST", "/timeseries/delete", new DataWrapper<IdCollection>().setItems(ids));
     }
 
     /** POST /timeseries/byids */
@@ -233,9 +233,13 @@ public final class TimeseriesService {
     /**
      * Insert datapoints in a single request (no chunking). Fine for small volumes; for large or
      * unbounded amounts prefer {@link #ingest(List)} / {@link #ingest(List, IngestOptions)}.
+     *
+     * <p>Returns once the api has accepted every point: the endpoint answers {@code 204} with no
+     * body, and a series that does not exist is a {@link
+     * ai.intellistream.datahub.sdk.http.DatahubApiException} rather than a partial success.
      */
-    public DataWrapper<String> insertDatapoints(List<DatapointsCollection> data) {
-        return http.post(DATA_PATH, new DataWrapper<DatapointsCollection>().setItems(data), strings);
+    public void insertDatapoints(List<DatapointsCollection> data) {
+        http.send("POST", DATA_PATH, new DataWrapper<DatapointsCollection>().setItems(data));
     }
 
     /** Ingest datapoints concurrently with the default {@link IngestOptions}. */

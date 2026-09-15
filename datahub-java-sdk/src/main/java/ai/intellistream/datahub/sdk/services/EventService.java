@@ -224,10 +224,13 @@ public final class EventService {
         return http.get(url.toString(), stringWrapper);
     }
 
-    /** POST /events/delete — same reference type as {@link #byIds(List)}, for the same reason. */
-    public DataWrapper<EventModel> delete(List<UUIDAndExternalIdCollection> ids) {
-        return http.post("/events/delete",
-                new DataWrapper<UUIDAndExternalIdCollection>().setItems(ids), eventWrapper);
+    /**
+     * POST /events/delete — same reference type as {@link #byIds(List)}, for the same reason.
+     * The endpoint answers {@code 204} with no body.
+     */
+    public void delete(List<UUIDAndExternalIdCollection> ids) {
+        http.send("POST", "/events/delete",
+                new DataWrapper<UUIDAndExternalIdCollection>().setItems(ids));
     }
 
     /** Ingest events concurrently with the default {@link IngestOptions}. */

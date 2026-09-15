@@ -32,7 +32,6 @@ public final class ResourceService {
     private final ApiHttp http;
     private final JavaType nodes;            // DataWrapper<NodeModel> — typed reads
     private final JavaType nodeGraph;        // GraphDataWrapper<NodeModel, EdgeProxy> — typed create echo
-    private final JavaType resourceGraph;    // GraphDataWrapper<Resource, EdgeProxy> — flat delete echo
     private final JavaType resourceNetwork;  // ResourceNetwork
 
     public ResourceService(ApiHttp http) {
@@ -40,7 +39,6 @@ public final class ResourceService {
         TypeFactory tf = http.typeFactory();
         this.nodes = tf.constructParametricType(DataWrapper.class, NodeModel.class);
         this.nodeGraph = tf.constructParametricType(GraphDataWrapper.class, NodeModel.class, EdgeProxy.class);
-        this.resourceGraph = tf.constructParametricType(GraphDataWrapper.class, Resource.class, EdgeProxy.class);
         this.resourceNetwork = tf.constructType(ResourceNetwork.class);
     }
 
@@ -132,10 +130,15 @@ public final class ResourceService {
         return http.post("/resources/create", request, nodeGraph);
     }
 
-    /** DELETE /resources/delete — delete resources by id; returns the removed graph. */
-    public GraphDataWrapper<Resource, EdgeProxy> delete(List<IdCollection> ids) {
+    /**
+     * DELETE /resources/delete — delete resources by id or external id, along with their edges.
+     *
+     * <p>The endpoint answers {@code 204} with no body, so there is nothing to return: this was
+     * typed as the removed graph and handed back {@code null} on every successful call.
+     */
+    public void delete(List<IdCollection> ids) {
         DataWrapper<IdCollection> request = new DataWrapper<IdCollection>().setItems(ids);
-        return http.delete("/resources/delete", request, resourceGraph);
+        http.send("DELETE", "/resources/delete", request);
     }
 
     /**

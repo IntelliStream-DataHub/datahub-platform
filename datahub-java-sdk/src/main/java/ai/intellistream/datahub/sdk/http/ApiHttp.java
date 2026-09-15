@@ -66,10 +66,6 @@ public final class ApiHttp {
         return exchange("POST", path, body, responseType);
     }
 
-    public <T> T delete(String path, Object body, JavaType responseType) {
-        return exchange("DELETE", path, body, responseType);
-    }
-
     /** A request whose response body is ignored (e.g. delete/void endpoints). */
     public void send(String method, String path, Object body) {
         exchange(method, path, body, null);
