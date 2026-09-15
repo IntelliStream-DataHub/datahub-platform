@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
 import ai.intellistream.datahub.tenant.LlmProvider;
@@ -89,30 +88,25 @@ public class TenantSettingsService {
      * back marked up once instead of one field at a time.
      */
     private LlmSection validated(TenantLlmSettingsForm form, TenantLlm existing) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        errors.setError(new BadRequestError());
-        boolean[] failed = {false};
+        var errors = new FieldErrors();
 
         LlmProvider provider = null;
         String rawProvider = trimmed(form.provider());
         if (rawProvider == null) {
-            failed[0] = true;
-            errors.getError().addFieldError("provider", "A provider is required: "
+            errors.addFieldError("provider", "A provider is required: "
                     + String.join(" or ", TenantLlmSettings.PROVIDERS));
         } else {
             try {
                 provider = LlmProvider.parse(rawProvider);
             } catch (RuntimeException e) {
-                failed[0] = true;
-                errors.getError().addFieldError("provider", "Unknown provider '" + rawProvider
+                errors.addFieldError("provider", "Unknown provider '" + rawProvider
                         + "'. Use " + String.join(" or ", TenantLlmSettings.PROVIDERS) + ".");
             }
         }
 
         String model = trimmed(form.model());
         if (model == null) {
-            failed[0] = true;
-            errors.getError().addFieldError("model", "A model name is required.");
+            errors.addFieldError("model", "A model name is required.");
         }
 
         // Absent and empty both mean "leave the stored credential alone"; only a value replaces
@@ -130,19 +124,16 @@ public class TenantSettingsService {
         // The cache is good enough to decide whether a key exists at all: wrong, it costs a
         // needless "needs an API key" or an incomplete config, never a credential.
         if (provider == LlmProvider.ANTHROPIC && submittedKey == null && keyOf(existing) == null) {
-            failed[0] = true;
-            errors.getError().addFieldError("apiKey", "Anthropic needs an API key.");
+            errors.addFieldError("apiKey", "Anthropic needs an API key.");
         }
         if (provider == LlmProvider.OPENAI_COMPATIBLE && baseUrl == null) {
-            failed[0] = true;
-            errors.getError().addFieldError("baseUrl",
+            errors.addFieldError("baseUrl",
                     "An OpenAI-compatible provider needs a base URL, e.g. http://localhost:11434/v1");
         }
 
         String effort = trimmed(form.effort());
         if (effort != null && !TenantLlmSettings.EFFORT_LEVELS.contains(effort.toLowerCase())) {
-            failed[0] = true;
-            errors.getError().addFieldError("effort", "Unknown effort level '" + effort + "'. Use one of "
+            errors.addFieldError("effort", "Unknown effort level '" + effort + "'. Use one of "
                     + String.join(", ", TenantLlmSettings.EFFORT_LEVELS) + ".");
         }
 
@@ -151,23 +142,20 @@ public class TenantSettingsService {
             try {
                 DurationStyle.detectAndParse(turnTimeout);
             } catch (IllegalArgumentException e) {
-                failed[0] = true;
-                errors.getError().addFieldError("turnTimeout",
+                errors.addFieldError("turnTimeout",
                         "Not a duration: '" + turnTimeout + "'. Try 10m, 90s or PT10M.");
             }
         }
 
         if (form.maxOutputTokens() != null && form.maxOutputTokens() < 1) {
-            failed[0] = true;
-            errors.getError().addFieldError("maxOutputTokens", "Must be a positive number, or left empty.");
+            errors.addFieldError("maxOutputTokens", "Must be a positive number, or left empty.");
         }
         if (form.maxIterations() != null && form.maxIterations() < 1) {
-            failed[0] = true;
-            errors.getError().addFieldError("maxIterations", "Must be a positive number, or left empty.");
+            errors.addFieldError("maxIterations", "Must be a positive number, or left empty.");
         }
 
-        if (failed[0]) {
-            throw new BadRequestException(errors);
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The LLM settings are invalid.", errors);
         }
 
         Map<String, String> section = new LinkedHashMap<>();

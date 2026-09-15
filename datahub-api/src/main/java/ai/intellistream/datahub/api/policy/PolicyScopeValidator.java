@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.policy;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.PolicyType;
 import ai.intellistream.datahub.models.policy.NamingPolicy;
@@ -75,9 +73,6 @@ public final class PolicyScopeValidator {
     }
 
     private static BadRequestException badRequest(String message, String field, String value) {
-        var error = new BadRequestError();
-        error.setMessage(message);
-        error.addFieldError(field, value);
-        return new BadRequestException(new ResponseError<BadRequestError>().setError(error));
+        return new BadRequestException(message, field, value);
     }
 }

@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.services;
 
-import ai.intellistream.datahub.errors.FieldError;
 import ai.intellistream.datahub.errors.InvalidResourceException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.*;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
@@ -203,11 +201,7 @@ public class NodeService {
     }
 
     private static InvalidResourceException invalidResource(String message) {
-        ResponseError<FieldError> error = new ResponseError<>();
-        var fieldError = new FieldError();
-        fieldError.setErrorMessage(message);
-        error.setError(fieldError);
-        return new InvalidResourceException(error);
+        return new InvalidResourceException(message);
     }
     /**
      * Copies the fields every node shares (the {@code NodeModel} primitives) onto the entity —

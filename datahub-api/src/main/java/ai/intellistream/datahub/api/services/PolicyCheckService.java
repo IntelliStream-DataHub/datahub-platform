@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.policy.PolicyCandidate;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import lombok.RequiredArgsConstructor;
@@ -54,11 +52,9 @@ public class PolicyCheckService {
         // Names pair with ids by position, so a partial list would silently attach the wrong name to
         // the wrong id and produce a confidently-wrong suggestion. Refuse rather than guess.
         if (form.hasNames() && form.getNames().size() != form.getExternalIds().size()) {
-            var error = new BadRequestError();
-            error.setMessage("If names are supplied there must be exactly one per external id: got "
-                    + form.getNames().size() + " names for " + form.getExternalIds().size() + " external ids.");
-            error.addFieldError("names", String.valueOf(form.getNames().size()));
-            throw new BadRequestException(new ResponseError<BadRequestError>().setError(error));
+            throw new BadRequestException("If names are supplied there must be exactly one per external id: got "
+                    + form.getNames().size() + " names for " + form.getExternalIds().size() + " external ids.",
+                    "names", String.valueOf(form.getNames().size()));
         }
 
         List<PolicyCandidate> candidates = new ArrayList<>(form.getExternalIds().size());

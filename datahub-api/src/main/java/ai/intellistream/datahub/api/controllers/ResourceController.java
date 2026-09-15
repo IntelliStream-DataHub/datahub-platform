@@ -13,7 +13,6 @@ import ai.intellistream.datahub.api.responses.swaggerdto.ResourceDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.ResourceGraphDataWrapper;
 import ai.intellistream.datahub.api.services.ResourceService;
 import ai.intellistream.datahub.asset.ResourceNetwork;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
@@ -403,8 +402,8 @@ public class ResourceController {
             "The request failed validation — usually a missing or too-short `query`. Response " +
                     "lists the offending fields.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             )
     )
     @RequestMapping(value = "/search", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
@@ -503,8 +502,8 @@ public class ResourceController {
                     "points at a resource that isn't in the request and doesn't exist. The " +
                     "`fields` list tells you which input was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -522,8 +521,8 @@ public class ResourceController {
                     "The `duplicated` list tells you which ones. Either pick a different " +
                     "`externalId`, or use `POST /resources/update` to modify the existing resource.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -535,12 +534,6 @@ public class ResourceController {
                               }
                             }
                             """)
-            ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules (length limits, character set, " +
-                    "required-ness). Response lists the offending fields per entry.",
-            content = @Content(
-                    schema = @Schema(implementation = DataWrapper.class)
             ))
     @PostMapping(
             path = "/create",
@@ -647,8 +640,8 @@ public class ResourceController {
                     "both present on the same field). The `fields` list tells you which input " +
                     "was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -666,8 +659,8 @@ public class ResourceController {
                     "Your write was not applied. Re-fetch the resource with `POST /resources/byids` " +
                     "and retry the update with fresh state.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {

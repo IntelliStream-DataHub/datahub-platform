@@ -3,11 +3,9 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -18,7 +16,6 @@ import ai.intellistream.datahub.api.responses.swaggerdto.PolicyDataWrapper;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.services.DataSetService;
 import ai.intellistream.datahub.api.services.ResourceService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.*;
@@ -315,13 +312,13 @@ public class DataSetController {
     ))
     @ApiResponse(responseCode = "400", description = "The request has a problem the server spotted before saving. The `fields` list tells you which input was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description = "A dataset with one of the `externalId`s already exists. Pick a different one, or use `POST /datasets/update`.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = { "/create"},
             method = RequestMethod.POST,
@@ -398,13 +395,13 @@ public class DataSetController {
     ))
     @ApiResponse(responseCode = "400", description = "Dataset not found or update rules malformed.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description = "The new `externalId` already belongs to another dataset.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = { "/update"},
             method = RequestMethod.POST,
@@ -559,7 +556,7 @@ public class DataSetController {
             "The request failed validation — usually a missing or too-short `search.query`. " +
                     "Response lists the offending fields.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    mediaType = "application/problem+json",
                     schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/search", method = RequestMethod.POST, produces = { "application/json", "application/xml" })

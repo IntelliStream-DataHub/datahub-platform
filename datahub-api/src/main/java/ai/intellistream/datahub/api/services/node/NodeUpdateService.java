@@ -2,14 +2,12 @@
 package ai.intellistream.datahub.api.services.node;
 
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import java.util.Objects;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.policy.PolicyCandidate;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
@@ -117,28 +115,23 @@ public class NodeUpdateService {
      * so the batch can still be rejected whole.
      */
     public List<Target> resolveAndAuthorize(Collection<UpdateResourceForm> forms) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
         List<Target> targets = new ArrayList<>();
         for (UpdateResourceForm form : forms) {
             Long id = form.getId();
             String externalId = form.getExternalId();
             if (id == null && externalId == null) {
-                var de = new BadRequestError();
-                de.setMessage("Missing both id and externalId, asset cannot be found.");
-                de.getFields().add(Map.of("externalId", "null", "id", "null"));
-                errors.setError(de);
-                throw new BadRequestException(errors);
+                throw new BadRequestException("Missing both id and externalId, asset cannot be found.",
+                        new FieldErrors().addFieldError("externalId", "null").addFieldError("id", "null"));
             }
             NodeEntity resource = id != null
                     ? nodeRepository.findById(id).orElse(null)
                     : nodeRepository.findByExternalIdHash(ExternalIds.hash(externalId));
 
             if (resource == null) {
-                var de = new BadRequestError();
-                de.setMessage("Resource cannot be found.");
-                de.getFields().add(Map.of("externalId", String.valueOf(externalId), "id", String.valueOf(id)));
-                errors.setError(de);
-                throw new BadRequestException(errors);
+                throw new BadRequestException("Resource cannot be found.",
+                        new FieldErrors()
+                                .addFieldError("externalId", String.valueOf(externalId))
+                                .addFieldError("id", String.valueOf(id)));
             }
             // Functions are plain datastore nodes now — editable like any resource.
             targets.add(authorize(form, resource));
@@ -239,11 +232,7 @@ public class NodeUpdateService {
             }
         }
         if (!collisions.isEmpty()) {
-            var error = new DuplicateError();
-            error.setCode(409);
-            error.setMessage("A node with that externalId already exists.");
-            error.setDuplicated(collisions);
-            throw new DuplicateDataException(new ResponseError<DuplicateError>().setError(error));
+            throw new DuplicateDataException("A node with that externalId already exists.", collisions);
         }
     }
 
@@ -265,13 +254,11 @@ public class NodeUpdateService {
     }
 
     public NodeEntity updateNode(NodeEntity resource, UpdateResourceForm form) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
         if(!form.getUpdate().validateFields()){
-            errors.setError(new BadRequestError());
-            form.getUpdate().getErrors().forEach( error -> {
-                errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-            });
-            throw new BadRequestException(errors);
+            var errors = new FieldErrors();
+            form.getUpdate().getErrors().forEach( error ->
+                    errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
+            throw new BadRequestException("One or more fields are invalid.", errors);
         }
 
         ResourceFields fields = form.getUpdate();
@@ -342,13 +329,9 @@ public class NodeUpdateService {
             Long dataSetId = fields.getDataSetId().getSet();
             // Moving a resource into a dataset also requires write access to the target.
             dataSecurity.assertCanWriteDataSet(dataSetId);
-            DatasetEntity dataSet = dataSetRepository.findById(dataSetId).orElseThrow(()->{
-                var de = new BadRequestError();
-                de.setMessage("DataSet cannot be found.");
-                de.getFields().add(Map.of("DataSet.Id", String.valueOf(dataSetId)));
-                errors.setError(de);
-                return new BadRequestException(errors);
-            });
+            DatasetEntity dataSet = dataSetRepository.findById(dataSetId).orElseThrow(()->
+                    new BadRequestException("DataSet cannot be found.",
+                            "DataSet.Id", String.valueOf(dataSetId)));
             resource.setDataSet(dataSet);
         }
         if(fields.getDataSetId().getSetNull()){
