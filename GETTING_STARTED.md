@@ -613,9 +613,15 @@ This is a **v1 scaffold** — expect to tweak a few things for your machine:
 
 - **Image tags may need adjusting** if a specific patch tag isn't available for
   your platform/arch. `hashicorp/vault:1.18` is a floating minor tag; the rest are
-  pinned. Neo4j is built from `deploy/neo4j/Dockerfile` (pinned `neo4j:5.26.26` with
-  `apoc-5.26.27-core.jar` baked into `plugins/`, allowlist `apoc.path.*`) — the
-  resource/dataset graph view calls `apoc.path.subgraphAll`, so without APOC it 500s.
+  pinned. Neo4j is built from `deploy/neo4j/Dockerfile` (pinned `neo4j:5.26.30` with
+  `apoc-5.26.27-core.jar` baked into `plugins/`, allowlist `apoc.path.*,apoc.coll.*`) —
+  the resource/dataset graph view calls `apoc.path.subgraphAll`, so without APOC it 500s.
+  **Both namespaces have to be allowlisted**: `/resources/fetch-nearest` also returns
+  `apoc.coll.toSet(apoc.coll.flatten(...))`, and the allowlist governs user-defined
+  functions as well as procedures, so omitting `apoc.coll.*` fails it with
+  `Unknown function 'apoc.coll.toSet'` — which reads as a missing plugin rather than a
+  blocked one. That endpoint backs the console's nearest-N view and is how
+  datahub-analysis gathers its graph data, so both break with it.
   Image names are fully qualified (`docker.io/...`) so Podman resolves them without an
   `unqualified-search-registries` entry.
 - **Host vs. compose-network hostnames.** `vault-seed.sh` writes `localhost`

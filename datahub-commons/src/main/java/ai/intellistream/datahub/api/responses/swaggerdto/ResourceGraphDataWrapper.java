@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.Size;
 
+import ai.intellistream.datahub.models.policy.PolicyWarning;
 import java.util.ArrayList;
 import java.util.Collection;
 
@@ -37,5 +38,20 @@ public class ResourceGraphDataWrapper {
     @JsonInclude(JsonInclude.Include.ALWAYS)
     public Collection<EdgeProxy> getRelations() {
         return relations;
+    }
+
+    /**
+     * Mirrors {@code DataWrapper.warnings}. Attached on the way out by
+     * {@code PolicyWarningResponseAdvice} for the write paths that evaluate policies
+     * ({@code ResourceService}, {@code TimeseriesService}, {@code DataSetService},
+     * {@code GraphTransferService}), and absent when there is nothing to report.
+     */
+    @Schema(accessMode = Schema.AccessMode.READ_ONLY,
+            description = "Policy violations that were allowed through and recorded for review. "
+                    + "Absent when there are none.")
+    private Collection<PolicyWarning> warnings;
+
+    public Collection<PolicyWarning> getWarnings() {
+        return warnings;
     }
 }

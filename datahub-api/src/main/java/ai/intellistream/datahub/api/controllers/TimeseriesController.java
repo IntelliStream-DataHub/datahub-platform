@@ -31,7 +31,6 @@ import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.transformers.TimeseriesTransformer;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
-import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.extensions.Extension;
@@ -80,7 +79,7 @@ public class TimeseriesController {
             description = """
                     List timeseries in your tenant, newest first.
 
-                    Use `limit` to cap the response (default 100, max 10000). For targeted
+                    Use `limit` to cap the response (default 1000, max 10000). For targeted
                     lookups, use `POST /timeseries/byids` or `POST /timeseries/search` instead
                     — this endpoint is mainly for browsing.
 
@@ -144,20 +143,6 @@ public class TimeseriesController {
         var data = new DataWrapper<Timeseries>();
         data.setItems(tsList);
         return new ResponseEntity<>(data, HttpStatus.OK);
-    }
-
-    /**
-     * {@code GET /timeseries/} — the same listing, for a caller that typed the trailing slash.
-     * Boot stopped matching it to the slashless route by default, so it is mapped explicitly.
-     *
-     * <p>Its default limit used to be 100 where the route it delegates to defaults to 1000, so the
-     * page size depended on whether the caller typed a slash. Same default now.
-     */
-    @Hidden
-    @RequestMapping(value = {"/"}, method = RequestMethod.GET, produces = { "application/json", "application/xml" })
-    public ResponseEntity<?> listWithSlash(@Parameter(description = "Maximum number of timeseries to return. Must be a positive integer up to 10000.", example = "1000") @RequestParam(name="limit", defaultValue = "1000") String limit,
-                                           @Parameter(description = "Restrict results to this dataset and every dataset beneath it.", example = "5677892") @RequestParam(name="dataSetId", required = false) String dataSetId){
-        return list(limit, dataSetId);
     }
 
     @Tag(name = "Time-series")

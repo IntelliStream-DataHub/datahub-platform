@@ -1,0 +1,56 @@
+diff --git a/src/ExportGLTF.cpp b/src/ExportGLTF.cpp
+index 76ff7bf..7807a1b 100644
+--- a/src/ExportGLTF.cpp
++++ b/src/ExportGLTF.cpp
+@@ -81,6 +81,7 @@ namespace {
+     bool rotateZToY = true;
+     bool includeAttributes = false;
+     bool glbContainer = false;
++    bool writeToStdout = false;
+     bool mergeGeometries = true;
+   };
+ 
+@@ -1001,7 +1002,7 @@ namespace {
+     }
+     assert(out);
+ #else
+-    FILE* out = fopen(path, "w");
++    FILE* out = ctx.writeToStdout ? stdout : fopen(path, "w");
+     if (out == nullptr) {
+       ctx.logger(2, "Failed to open %s for writing.", path);
+       return false;
+@@ -1017,7 +1018,12 @@ namespace {
+       success = writeAsGLTF(ctx, out, path, rjDoc);
+     }
+ 
+-    fclose(out);
++    if (ctx.writeToStdout) {
++      fflush(out);
++    }
++    else {
++      fclose(out);
++    }
+ 
+     return success;
+   }
+@@ -1036,7 +1042,19 @@ bool exportGLTF(Store* store, Logger logger, const char* path, size_t splitLevel
+   };
+   ctx.split.level = splitLevel;
+ 
+-  { // Split into stem and suffix
++  if (path[0] == '-' && path[1] == '\0') {
++    // "-" is a GLB written to stdout, for a caller that pipes it rather than keeping a file.
++    // All logging already goes to stderr, so the stream carries nothing but the container.
++    if (splitLevel != 0) {
++      ctx.logger(2, "exportGLTF: cannot split output across files when writing to stdout");
++      return false;
++    }
++    ctx.glbContainer = true;
++    ctx.writeToStdout = true;
++    ctx.path = store->strings.intern("-");
++    ctx.suffix = store->strings.intern("");
++  }
++  else { // Split into stem and suffix
+     size_t o = 0; // offset of last dot
+     size_t n = 0; // string length of output
+     assert(path);

@@ -89,7 +89,13 @@ services:
       # "apoc.path.subgraphAll() was not registered". Allowlist just apoc.path.* —
       # unrestricted is intentionally NOT set: APOC path procedures don't need it
       # (only GDS would).
-      NEO4J_dbms_security_procedures_allowlist: apoc.path.*
+      # Both namespaces the platform actually calls. apoc.path.* alone is not enough:
+      # Neo4JService.fetchNearest RETURNs apoc.coll.toSet(apoc.coll.flatten(...)), and the
+      # allowlist covers user-defined functions as well as procedures — so a missing entry
+      # surfaces as "Unknown function 'apoc.coll.toSet'", which reads like the plugin is
+      # absent rather than blocked. That breaks /resources/fetch-nearest, and with it the
+      # console's nearest-N view and datahub-analysis, which gathers its data through it.
+      NEO4J_dbms_security_procedures_allowlist: apoc.path.*,apoc.coll.*
       # Neo4j sizes heap and page cache from host RAM when left unset, which is how this
       # drifted to 1.5GB for a graph of a few hundred nodes. The demo fleet is ~164 nodes and
       # 242 edges — the page cache only has to hold the store, which is far under a megabyte.

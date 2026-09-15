@@ -252,6 +252,10 @@ public class PolicyService {
         // discarded, but a policy identified by externalId alone must still publish a usable id.
         form.setId(node.getId());
         UpdateResourceForm command = asNodeCommand(form, fields);
+        // Driving the pipeline piecewise skips updateNode, which is where field validation lives —
+        // so this was the one node update that enforced no length or size caps at all. Judged on
+        // the translated command, before authorize, so a rejected update costs no writes.
+        nodeUpdateService.validateOrThrow(command);
         List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
         nodeUpdateService.guardRenames(targets);
         // A NOT_OK verdict throws; a WARN verdict comes back as findings, and dropping them would
