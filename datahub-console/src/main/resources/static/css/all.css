@@ -1547,7 +1547,7 @@ ul.data-list li.is-deactivated .dl-chip[data-label="POLICY"]{ opacity: 0.75; }
 
 /* Resource rows (resources / datasets / timeseries pickers) mirror their graph node: the name and
    its labels as tinted chips. Chip colours are set by resource-list.js via --dl-chip-color from
-   /api/label/list. */
+   GET /labels. */
 li.dl-row{
 	display: flex;
 	align-items: center;

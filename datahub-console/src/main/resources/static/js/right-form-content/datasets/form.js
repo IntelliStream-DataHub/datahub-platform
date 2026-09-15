@@ -177,7 +177,7 @@ class EditDataSetForm extends DataSetForm {
 				this.preloadLabels(json.labels || []);
 			});
 		};
-		fetch('/api/label/list', { headers: { 'Accept': 'application/json' } })
+		Api.get('/labels')
 			.then(r => r.json())
 			.then(json => {
 				this.labelNetwork.labels = json.items || [];
