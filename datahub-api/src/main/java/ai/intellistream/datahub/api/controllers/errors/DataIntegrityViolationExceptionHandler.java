@@ -49,6 +49,9 @@ public class DataIntegrityViolationExceptionHandler {
             return Problems.duplicate("The request conflicts with data that already exists.", List.of());
         }
         log.debug("Rejecting write, constraint {}", constraint);
-        return Problems.duplicate(field.values().iterator().next(), List.of(field));
+        Map.Entry<String, String> entry = field.entrySet().iterator().next();
+        // The constraint names the field but not the value, and duplicated pairs a field with its value.
+        return Problems.withFields(Problems.duplicate(entry.getValue(), List.of()),
+                List.of(new Problems.FieldProblem(entry.getKey(), entry.getValue(), null, null)));
     }
 }
