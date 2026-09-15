@@ -22,8 +22,9 @@ public class FieldProblem {
     private String code;
 
     @Schema(description = """
-            The offending value, or the bound that was exceeded, where the source carried one. \
-            Any JSON type. Absent where the throw site had none.""",
+            The bound a length or count broke, or for an `externalId` outside the allowed \
+            characters, the externalId itself. Any JSON type. Absent for every other rule, so a \
+            refused value is never echoed back.""",
             example = "129")
     private Object rejected;
 

@@ -84,7 +84,7 @@ public class PolicyController {
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listPolicies(

@@ -40,6 +40,7 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import io.swagger.v3.oas.annotations.Parameter;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -181,7 +182,7 @@ public class DataSetController {
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = { "application/json", "application/xml" })
     public ResponseEntity<?> list(

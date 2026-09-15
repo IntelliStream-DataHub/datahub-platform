@@ -73,7 +73,7 @@ public class GraphTransferController {
             "The starting resource was not found. Check `id` and your tenant.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "400", description =
             "The component is over the export limit (2,000,000 nodes / 2,000,000 relationships). "

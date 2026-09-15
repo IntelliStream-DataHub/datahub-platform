@@ -33,9 +33,18 @@ public class ApiProblem {
     @Schema(description = """
             The problem type, and the only member worth branching on. Known values: \
             `.../errors/bad-request`, `.../errors/validation-failed`, \
-            `.../errors/constraint-violation`, `.../errors/not-found`, `.../errors/duplicate`, \
-            `.../errors/conflict`, `.../errors/optimistic-lock`, `.../errors/referenced`, \
-            `.../errors/would-strand`, `.../errors/naming-policy`, `.../errors/internal`. \
+            `.../errors/constraint-violation`, `.../errors/unreadable-request-body`, \
+            `.../errors/filter-expression`, `.../errors/malformed-cursor`, \
+            `.../errors/naming-policy`, `.../errors/unauthorized`, `.../errors/token-rejected`, \
+            `.../errors/forbidden`, `.../errors/dataset-forbidden`, `.../errors/feature-disabled`, \
+            `.../errors/unknown-tenant`, `.../errors/not-found`, `.../errors/method-not-allowed`, \
+            `.../errors/not-acceptable`, `.../errors/unsupported-media-type`, \
+            `.../errors/duplicate`, `.../errors/conflict`, `.../errors/optimistic-lock`, \
+            `.../errors/referenced`, `.../errors/would-strand`, `.../errors/request-too-large`, \
+            `.../errors/rate-limit-exceeded`, `.../errors/ingest-quota-exceeded`, \
+            `.../errors/tenant-limit-reached`, `.../errors/tenant-provisioning`, \
+            `.../errors/permissions-unavailable`, `.../errors/messaging-unavailable`, \
+            `.../errors/internal`. \
             Treat an unrecognised value as the generic case for its status rather than an error.""",
             format = "uri",
             example = "https://intellistream.ai/errors/bad-request")
@@ -57,9 +66,25 @@ public class ApiProblem {
             format = "uri", example = "/timeseries/create")
     private String instance;
 
+    @Schema(description = """
+            What the caller can do about it: `same-request` (repeat it unchanged, after \
+            `Retry-After` where sent), `change-request` (the request itself must change) or \
+            `needs-operator` (nothing the caller sends will fix it).""",
+            allowableValues = {"same-request", "change-request", "needs-operator"},
+            example = "change-request")
+    private String retry;
+
+    @Schema(description = """
+            The id this request was served under, the same value as the `X-Request-Id` response \
+            header. Quote it to an operator, who can find the request in the logs by it.""",
+            example = "0199f2a4-6c1e-7b3a-9d4f-2e8c5a1b7d90")
+    private String requestId;
+
     public String getType() { return type; }
     public String getTitle() { return title; }
     public Integer getStatus() { return status; }
     public String getDetail() { return detail; }
     public String getInstance() { return instance; }
+    public String getRetry() { return retry; }
+    public String getRequestId() { return requestId; }
 }
