@@ -222,18 +222,20 @@
 					})
 				})
 					.then(response => {
-						if(response.status !== 200 && response.status >= 400 && response.status < 500) {
-							return response.json().then(json => {
+						if(!response.ok) {
+							return DataHubProblem.read(response).then(problem => {
 								const tsDataEle = document.getElementById("datapoints-chart");
 								if(tsDataEle){
-									tsDataEle.innerHTML = `<div class="flash error" style="margin: 10px">${json.error.message}</div>`;
+									const flash = Object.assign(document.createElement('div'), { className: 'flash error' });
+									flash.style.margin = '10px';
+									flash.textContent = problem.message('error.problem.failed');
+									tsDataEle.replaceChildren(flash);
 									const topicStatsEle = tsDataEle.parentElement.querySelector('table.topic-stats');
 									if(topicStatsEle) topicStatsEle.remove();
 								}
 							});
-						} else {
-							return response.json();
 						}
+						return response.json();
 					})
 					.then( json => {
 						if(json && json.items.length > 0){
