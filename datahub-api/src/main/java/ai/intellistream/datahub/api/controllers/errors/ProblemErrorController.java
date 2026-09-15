@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers.errors;
 
+import ai.intellistream.datahub.api.filters.RequestIdFilter;
 import io.swagger.v3.oas.annotations.Hidden;
 import jakarta.servlet.RequestDispatcher;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,8 +52,8 @@ public class ProblemErrorController implements ErrorController {
             return Problems.forStatus(status, framework.getBody().getDetail());
         }
         if (status >= 500 && error != null) {
-            log.error("Unhandled {} on {} {}", error.getClass().getSimpleName(),
-                    request.getMethod(), request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI), error);
+            log.error("Unhandled {} on {} {}, requestId {}", error.getClass().getSimpleName(), request.getMethod(),
+                    request.getAttribute(RequestDispatcher.ERROR_REQUEST_URI), RequestIdFilter.current(request), error);
         }
         // The servlet error message is never forwarded: for an uncaught exception it is the exception's text.
         return Problems.forStatus(status, null);

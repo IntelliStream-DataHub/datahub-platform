@@ -4,7 +4,7 @@
 
 	<appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
 		<encoder>
-			<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} -%kvp- %msg%n</pattern>
+			<pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} %X{requestId} -%kvp- %msg%n</pattern>
 		</encoder>
 	</appender>
 
@@ -13,7 +13,7 @@
 		<file>${LOGS}/spring-boot-logger.log</file>
 		<encoder
 				class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-			<Pattern>%d %p %C{1} [%t] %m%n</Pattern>
+			<Pattern>%d %p %C{1} [%t] %X{requestId} %m%n</Pattern>
 		</encoder>
 
 		<rollingPolicy
