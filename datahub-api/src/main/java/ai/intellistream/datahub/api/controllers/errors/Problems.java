@@ -76,6 +76,13 @@ public final class Problems {
     public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
     public static final URI FEATURE_DISABLED = type("feature-disabled");
 
+    /** {@code retry}: the same request can succeed later; honour Retry-After when it is sent. */
+    public static final String RETRY_SAME_REQUEST = "same-request";
+    /** {@code retry}: only a different request can succeed. */
+    public static final String RETRY_CHANGE_REQUEST = "change-request";
+    /** {@code retry}: nothing the caller sends will succeed until an operator acts; quote the requestId. */
+    public static final String RETRY_NEEDS_OPERATOR = "needs-operator";
+
     private Problems() {
     }
 
@@ -103,7 +110,7 @@ public final class Problems {
      * @param field    the property path, e.g. {@code externalId} or {@code items[0].name}
      * @param message  the resolved, human-readable reason
      * @param code     the i18n key, so a caller can localise rather than parse prose
-     * @param rejected the offending value or bound, where the source carried one
+     * @param rejected an i18n argument such as a length; never the submitted value itself
      */
     public record FieldProblem(String field, String message, String code, Object rejected) {
 
@@ -142,7 +149,8 @@ public final class Problems {
                     // The template is the key before interpolation, e.g. {jakarta.validation…Size.message}
                     // or a project key like resource.source.max.length.error.
                     violation.getMessageTemplate(),
-                    violation.getInvalidValue()));
+                    // Not the invalid value: it can be a credential or a whole object, and the caller has it.
+                    null));
         }
         return withFields(of(HttpStatus.BAD_REQUEST, CONSTRAINT_VIOLATION,
                 "Validation failed", "One or more fields are invalid."), fields);
@@ -159,8 +167,8 @@ public final class Problems {
         List<FieldProblem> fields = new ArrayList<>();
         for (ObjectError error : errors) {
             String path = error instanceof FieldError fieldError ? fieldError.getField() : error.getObjectName();
-            Object rejected = error instanceof FieldError fieldError ? fieldError.getRejectedValue() : null;
-            fields.add(new FieldProblem(path, error.getDefaultMessage(), error.getCode(), rejected));
+            // Not the rejected value: it can be a credential or a whole object, and the caller has it.
+            fields.add(new FieldProblem(path, error.getDefaultMessage(), error.getCode(), null));
         }
         return withFields(of(HttpStatus.BAD_REQUEST, VALIDATION_FAILED,
                 "Validation failed", "One or more fields are invalid."), fields);
@@ -337,4 +345,35 @@ public final class Problems {
         }
         return problem;
     }
+
+    /** Adds what every problem carries: the request's id and what the caller can do about it. */
+    public static ProblemDetail decorate(ProblemDetail problem, String requestId) {
+        Map<String, Object> properties = problem.getProperties();
+        if (requestId != null && (properties == null || !properties.containsKey("requestId"))) {
+            problem.setProperty("requestId", requestId);
+        }
+        if (properties == null || !properties.containsKey("retry")) {
+            problem.setProperty("retry", retryFor(problem));
+        }
+        return problem;
+    }
+
+    static String retryFor(ProblemDetail problem) {
+        String type = problem.getType() == null ? "" : problem.getType().toString();
+        String slug = type.startsWith(BASE) ? type.substring(BASE.length()) : "";
+        return switch (slug) {
+            case "optimistic-lock", "rate-limit-exceeded", "ingest-quota-exceeded", "messaging-unavailable",
+                 "permissions-unavailable", "tenant-provisioning" -> RETRY_SAME_REQUEST;
+            case "unknown-tenant", "tenant-limit-reached", "feature-disabled", "dataset-forbidden", "internal" ->
+                    RETRY_NEEDS_OPERATOR;
+            default -> {
+                int status = problem.getStatus();
+                if (status == 429 || status == 502 || status == 503 || status == 504) {
+                    yield RETRY_SAME_REQUEST;
+                }
+                yield status == 403 || status >= 500 ? RETRY_NEEDS_OPERATOR : RETRY_CHANGE_REQUEST;
+            }
+        };
+    }
+
 }

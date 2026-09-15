@@ -91,6 +91,7 @@ class ErrorResponseContractTest {
 
         assertProblem(response, 500, "internal");
         assertThat(response.body()).doesNotContain(SECRET).doesNotContain("IllegalStateException");
+        assertThat(json(response).path("retry").asString()).isEqualTo("needs-operator");
         assertThat(json(response).path("instance").asString()).isEqualTo("/__contract/boom");
     }
 
@@ -101,6 +102,7 @@ class ErrorResponseContractTest {
 
         assertProblem(response, 401, "unauthorized");
         assertThat(response.headers().firstValue("WWW-Authenticate")).hasValueSatisfying(h -> assertThat(h).startsWith("Bearer"));
+        assertThat(json(response).path("retry").asString()).isEqualTo("change-request");
         assertThat(json(response).path("detail").asString()).contains("Authorization header");
     }
 
@@ -130,6 +132,7 @@ class ErrorResponseContractTest {
 
         assertProblem(response, 403, "forbidden");
         assertThat(json(response).path("detail").asString()).contains("DATAHUB_ACCESS");
+        assertThat(json(response).path("retry").asString()).isEqualTo("needs-operator");
         assertThat(response.headers().firstValue("WWW-Authenticate"))
                 .hasValueSatisfying(h -> assertThat(h).contains("insufficient_scope"));
     }
@@ -146,6 +149,40 @@ class ErrorResponseContractTest {
         assertThat(json(missingParam).path("detail").asString()).contains("q");
     }
 
+    @Test
+    @DisplayName("A handler's own problem is labelled application/problem+json despite produces = application/json")
+    void controllerProblemsCarryTheProblemMediaType() throws Exception {
+        HttpResponse<String> response = send("GET", "/events?limit=999999", WITH_ROLE, null, null);
+
+        assertProblem(response, 400, "validation-failed");
+        assertThat(json(response).path("fields").get(0).path("field").asString()).isEqualTo("limit");
+    }
+
+    @Test
+    @DisplayName("A problem an @ExceptionHandler returns bare gets requestId and retry as well")
+    void adviceProblemsAreDecorated() throws Exception {
+        HttpResponse<String> response = send("POST", "/resources/filter", WITH_ROLE, "application/json", "{not json");
+
+        assertProblem(response, 400, "unreadable-request-body");
+        assertThat(json(response).path("retry").asString()).isEqualTo("change-request");
+    }
+
+    @Test
+    @DisplayName("Every problem carries the X-Request-Id it was served under")
+    void requestIdIsInTheHeaderAndTheBody() throws Exception {
+        HttpResponse<String> generated = send("GET", "/__no-such-path", WITH_ROLE, null, null);
+        String id = generated.headers().firstValue("X-Request-Id").orElseThrow();
+        assertThat(json(generated).path("requestId").asString()).isEqualTo(id);
+
+        HttpResponse<String> clientSent = send("GET", "/resources", null, null, null, "client-trace:42");
+        assertThat(clientSent.headers().firstValue("X-Request-Id")).hasValue("client-trace:42");
+        assertThat(json(clientSent).path("requestId").asString()).isEqualTo("client-trace:42");
+
+        String unusable = "../" + "x".repeat(80);
+        HttpResponse<String> replaced = send("GET", "/resources", null, null, null, unusable);
+        assertThat(json(replaced).path("requestId").asString()).isNotBlank().isNotEqualTo(unusable);
+    }
+
     private void assertProblem(HttpResponse<String> response, int status, String typeSlug) throws Exception {
         assertThat(response.statusCode()).as(response.body()).isEqualTo(status);
         assertThat(response.headers().firstValue("Content-Type")).hasValueSatisfying(
@@ -155,6 +192,8 @@ class ErrorResponseContractTest {
         assertThat(body.path("status").asInt()).isEqualTo(status);
         assertThat(body.path("title").asString()).isNotBlank();
         assertThat(body.has("properties")).isFalse();
+        assertThat(body.path("requestId").asString()).isEqualTo(response.headers().firstValue("X-Request-Id").orElse(null));
+        assertThat(body.path("retry").asString()).isIn("same-request", "change-request", "needs-operator");
     }
 
     private static JsonNode json(HttpResponse<String> response) {
@@ -163,6 +202,11 @@ class ErrorResponseContractTest {
 
     private HttpResponse<String> send(String method, String path, String token, String contentType, String body)
             throws Exception {
+        return send(method, path, token, contentType, body, null);
+    }
+
+    private HttpResponse<String> send(String method, String path, String token, String contentType, String body,
+                                      String requestId) throws Exception {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Accept", "application/json")
                 .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
@@ -171,6 +215,9 @@ class ErrorResponseContractTest {
         }
         if (contentType != null) {
             request.header("Content-Type", contentType);
+        }
+        if (requestId != null) {
+            request.header("X-Request-Id", requestId);
         }
         return HTTP.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
