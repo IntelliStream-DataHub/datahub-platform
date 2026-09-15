@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.models.validation;
 
+import ai.intellistream.datahub.models.forms.DataSetFields;
+import ai.intellistream.datahub.timeseries.TimeseriesFields;
 import ai.intellistream.datahub.validation.FieldValidationError;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -144,5 +146,105 @@ class UpdateFieldSizeCapsTest {
                  "metadata": {"add": {"work_order": "wo-sap-12344"}},
                  "labels": {"add": ["PIPE"]}}""", ResourceFields.class);
         assertTrue(fields.validateFields());
+    }
+
+    // ---- data sets ---------------------------------------------------------------------------
+
+    /**
+     * These were the families the earlier fix did not reach. {@code DataSetFields} and
+     * {@code TimeseriesFields} called {@code SizeRules} nowhere at all, so update was a way to store
+     * a description, a metadata map and a label list that create refuses — and this test stopped at
+     * events and resources, which are exactly the two it did reach.
+     */
+    @Test
+    void dataset_descriptionOverMax_isRejected() {
+        DataSetFields fields = mapper.readValue(
+                "{\"description\": {\"set\": \"%s\"}}".formatted(repeat(FieldLimits.DESCRIPTION_MAX + 1)),
+                DataSetFields.class);
+        assertFalse(fields.validateUpdateFields());
+        assertTrue(mentions(fields.getErrors(), "dataset.description.max.length.error"));
+    }
+
+    @Test
+    void dataset_descriptionAtMax_isAccepted() {
+        DataSetFields fields = mapper.readValue(
+                "{\"description\": {\"set\": \"%s\"}}".formatted(repeat(FieldLimits.DESCRIPTION_MAX)),
+                DataSetFields.class);
+        assertTrue(fields.validateUpdateFields());
+    }
+
+    @Test
+    void dataset_tooManyMetadataEntries_isRejected() {
+        DataSetFields fields = mapper.readValue(
+                "{\"metadata\": {\"set\": %s}}".formatted(metadataJson(FieldLimits.METADATA_MAX_ENTRIES + 1)),
+                DataSetFields.class);
+        assertFalse(fields.validateUpdateFields());
+        assertTrue(mentions(fields.getErrors(), "dataset.metadata.too.many.entries"));
+    }
+
+    @Test
+    void dataset_tooManyLabels_isRejected() {
+        String labels = java.util.stream.IntStream.range(0, FieldLimits.LABELS_MAX + 1)
+                .mapToObj(i -> "\"label_%d\"".formatted(i))
+                .collect(Collectors.joining(",", "[", "]"));
+        DataSetFields fields = mapper.readValue(
+                "{\"labels\": {\"set\": %s}}".formatted(labels), DataSetFields.class);
+        assertFalse(fields.validateUpdateFields());
+        assertTrue(mentions(fields.getErrors(), "dataset.too.many.labels"));
+    }
+
+    // ---- time series -------------------------------------------------------------------------
+
+    @Test
+    void timeseries_descriptionOverMax_isRejected() {
+        TimeseriesFields fields = mapper.readValue(
+                "{\"description\": {\"set\": \"%s\"}}".formatted(repeat(FieldLimits.DESCRIPTION_MAX + 1)),
+                TimeseriesFields.class);
+        assertFalse(fields.validateUpdateFields());
+        assertTrue(mentions(fields.getErrors(), "timeseries.description.max.length.error"));
+    }
+
+    @Test
+    void timeseries_metadataValueOverMax_isRejected() {
+        TimeseriesFields fields = mapper.readValue(
+                "{\"metadata\": {\"set\": {\"k\": \"%s\"}}}".formatted(repeat(FieldLimits.METADATA_VALUE_MAX + 1)),
+                TimeseriesFields.class);
+        assertFalse(fields.validateUpdateFields());
+        assertTrue(mentions(fields.getErrors(), "timeseries.metadata.value.too.long"));
+    }
+
+    @Test
+    void timeseries_ordinaryUpdate_isStillAccepted() {
+        TimeseriesFields fields = mapper.readValue(
+                "{\"description\": {\"set\": \"a normal description\"}}", TimeseriesFields.class);
+        assertTrue(fields.validateUpdateFields());
+    }
+
+    // ---- source: the cap update enforced was half the one create allows -------------------------
+
+    /**
+     * {@code NodeModel.source} is {@code ^$|.{2,128}} and {@code EventModel.source} is
+     * {@code @Size(min = 2, max = 128)}, but both update validators rejected anything over 64. A
+     * source of 65 to 128 characters could be created and then never updated: the entity was stuck
+     * with a value its own update path refused to take back.
+     */
+    @Test
+    void source_betweenTheOldCapAndTheCreateCap_isNowAccepted() {
+        ResourceFields resource = mapper.readValue(
+                "{\"source\": {\"set\": \"%s\"}}".formatted(repeat(100)), ResourceFields.class);
+        assertTrue(resource.validateFields(), "create allows 128, so update must too");
+
+        EventFields event = mapper.readValue(
+                "{\"source\": {\"set\": \"%s\"}}".formatted(repeat(100)), EventFields.class);
+        assertTrue(event.validateFields());
+    }
+
+    @Test
+    void source_overTheCreateCap_isStillRejected() {
+        ResourceFields resource = mapper.readValue(
+                "{\"source\": {\"set\": \"%s\"}}".formatted(repeat(FieldLimits.SOURCE_MAX + 1)),
+                ResourceFields.class);
+        assertFalse(resource.validateFields());
+        assertTrue(mentions(resource.getErrors(), "resource.source.max.length.error"));
     }
 }

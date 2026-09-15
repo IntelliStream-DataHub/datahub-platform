@@ -60,6 +60,38 @@ class EventSortResolutionTest {
                 ClickHouseEventService.resolveSort(sortBy("asc", "noSuchColumn")));
     }
 
+    /**
+     * Surrounding whitespace does not make a property unrecognised, and the trimmed name is what
+     * the cursor is then minted under.
+     *
+     * <p>The same fix landed on {@code NodeSort.resolve} and {@code SubscriptionSort.resolve} and
+     * never reached here, so one request body sorted a resource or subscription query and silently
+     * defaulted an event one. Silent is the problem: the caller gets a 200 and a page ordered by
+     * something they did not ask for.
+     */
+    @Test
+    void surroundingWhitespaceIsNotWhatMakesAPropertyUnrecognised() {
+        var spec = ClickHouseEventService.resolveSort(sortBy("desc", " source "));
+
+        assertEquals("source", spec.property(), "the property is recognised despite the padding");
+        assertEquals("source", spec.column());
+        assertTrue(spec.descending());
+    }
+
+    /**
+     * The trimmed spelling has to be what the spec carries, not the caller's. It is what the cursor
+     * encodes and what {@code EventService.assertCursorIsUsable} compares a returned cursor
+     * against, so a stray space would otherwise make a cursor unusable on the next page of its own
+     * walk.
+     */
+    @Test
+    void theTrimmedSpellingIsWhatTheCursorWillCarry() {
+        // Deliberately not eventTime: that is the default, so both sides would agree even when the
+        // padded one had fallen through to it, and the test would pass on the broken code.
+        assertEquals(ClickHouseEventService.resolveSort(sortBy("asc", "status")).property(),
+                ClickHouseEventService.resolveSort(sortBy("asc", "  status  ")).property());
+    }
+
     @Test
     void theFirstRecognisedPropertyWins() {
         // One column, for now: the cursor encodes a single position, and a multi-column position

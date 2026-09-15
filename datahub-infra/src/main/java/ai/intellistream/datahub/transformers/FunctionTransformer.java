@@ -4,10 +4,8 @@ package ai.intellistream.datahub.transformers;
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.stream.Collectors;
 
 /**
@@ -26,23 +24,8 @@ public final class FunctionTransformer {
 
     public static Function from(FunctionEntity entity) {
         Function dto = NodeBaseFields.apply(new Function(), entity);
-        dto.setLabels(labelsOf(entity));
+        dto.setLabels(NodeBaseFields.labelsOf(entity));
         return dto;
     }
 
-    /**
-     * From the denormalised {@code labels} column, not the {@code labelEntities} M2M.
-     *
-     * <p>The M2M is LAZY, so reading it costs a query per row inside a session and throws
-     * {@code LazyInitializationException} outside one — which is exactly what a DTO serialized
-     * after the transaction closes does. Every other read path uses the denormalised string; this
-     * one used to be the exception.
-     */
-    private static List<String> labelsOf(FunctionEntity entity) {
-        String labels = entity.getLabels();
-        if (labels == null || labels.isBlank()) {
-            return List.of();
-        }
-        return Arrays.stream(labels.split(",")).collect(Collectors.toList());
-    }
 }
