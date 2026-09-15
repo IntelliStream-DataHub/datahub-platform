@@ -503,7 +503,7 @@
         // --- Correlation chapter: two sibling series that co-move with the user's series ---
         // Create them, seed all three off one shared industry rhythm, and arm the Insights overlay.
         // Best-effort: create/seed can lag or fail; the payoff copy holds and the overlay
-        // degrades to whatever series exist (at least the user's own). Reuses csrfHeaders() above.
+        // degrades to whatever series exist (at least the user's own).
         //
         // A shared, industry-flavoured hourly rhythm (unitless). All three series derive from it so
         // they visibly move together; each then lags/leads it and adds a small distinct wiggle, so
@@ -564,7 +564,7 @@
                 return;
             }
             const bearer = () => fetch("/token", { headers: { Accept: "text/plain" }, credentials: "same-origin" }).then(r => (r.ok ? r.text() : null));
-            // A real unit keeps /timeseries/save valid; reuse one unit for all three.
+            // A real unit keeps /timeseries/create valid; reuse one unit for all three.
             Api.get("/units")
                 .then(r => (r.ok ? r.json() : null)).catch(() => null)
                 .then(j => {
@@ -576,7 +576,7 @@
                         const body = { name, externalId, unit, valueType: "float" };
                         if (unitExternalId) body.unitExternalId = unitExternalId;
                         if (dsId) body.dataSetId = dsId;
-                        return fetch("/api/timeseries/save", { method: "POST", headers: csrfHeaders(), body: JSON.stringify(body) })
+                        return Api.post("/timeseries/create", { items: [body] })
                             .then(r => (r.ok ? r.json() : null)).catch(() => null)
                             .then(res => { const item = res && res.items && res.items[0]; return item ? { externalId, id: item.id } : null; });
                     };
@@ -1412,12 +1412,7 @@
                     if (row) row.remove();
                     const snap = timeseriesSnapshot || {};
                     setFieldValue('.right-form form input[name="name"]', snap.name);
-                    const header = document.querySelector('meta[name="_csrf_header"]')?.content;
-                    const token = document.querySelector('meta[name="_csrf"]')?.content;
-                    return fetch(`/api/timeseries/delete/${encodeURIComponent(id)}`, {
-                        method: "DELETE",
-                        headers: header ? { [header]: token } : {},
-                    }).catch(() => { /* best effort */ });
+                    return Api.del("/timeseries/delete", { items: [{ id: id }] }).catch(() => { /* best effort */ });
                 }
             },
             {
@@ -1833,13 +1828,15 @@
         // The timeseries belongs to the dataset, but delete it explicitly too (node +
         // datapoints) so nothing dangles if the dataset delete doesn't cascade to it.
         const tsId = ctx && ctx.recall && ctx.recall("tutorialTimeseriesId");
-        const tsDelete = tsId ? del(`/api/timeseries/delete/${encodeURIComponent(tsId)}`) : Promise.resolve();
+        const deleteTimeseries = ids => Api.del("/timeseries/delete", { items: ids.map(id => ({ id: id })) })
+            .catch(() => { /* best effort */ });
+        const tsDelete = tsId ? deleteTimeseries([tsId]) : Promise.resolve();
 
         // The two correlation sibling series (created directly via the API in the correlation
         // chapter). Delete explicitly like tsDelete so they don't linger.
         const corrIds = (ctx && ctx.recall && ctx.recall("correlationTimeseriesIds")) || [];
         const corrDeletes = (Array.isArray(corrIds) && corrIds.length)
-            ? Promise.all(corrIds.map(id => del(`/api/timeseries/delete/${encodeURIComponent(id)}`)))
+            ? deleteTimeseries(corrIds)
             : Promise.resolve();
 
         const datasetId = ctx && ctx.getSelectedDatasetId && ctx.getSelectedDatasetId();

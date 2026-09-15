@@ -8,6 +8,7 @@ import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.Policy;
+import ai.intellistream.datahub.models.RelatedResourcesForm;
 import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.events.EventRetreiver;
@@ -18,7 +19,10 @@ import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
+import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.resource.RelTypeForm;
+import ai.intellistream.datahub.timeseries.Timeseries;
+import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import tools.jackson.core.type.TypeReference;
@@ -226,6 +230,51 @@ class BrowserPayloadContractTest {
                         "deactivated":{"set":true},"metadata":{"set":{"kind":"naming"}}}}]}""",
                         new TypeReference<DataWrapper<UpdatePolicyForm>>() {},
                         "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /timeseries/create", """
+                        {"items":[{"name":"Pump pressure","externalId":"pump_pressure","description":"d",
+                        "unit":"bar","valueType":"float","metadata":{"owner":"ops"},
+                        "relatedResources":[{"id":"9223372036854775806","relationshipType":"MEASURES"}],
+                        "unitExternalId":"pressure:bar","dataSetId":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<Timeseries>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /timeseries/create (tutorial)", """
+                        {"items":[{"name":"corr2","externalId":"tut_corr2","unit":"unit","valueType":"float",
+                        "unitExternalId":"pressure:bar","dataSetId":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<Timeseries>>() {},
+                        "static/js/tutorials/datasets.js"),
+
+                new Payload("POST /timeseries/update", """
+                        {"items":[{"id":"9223372036854775806","externalId":null,"update":{
+                        "name":{"set":"Pump pressure"},"externalId":{"set":"pump_pressure"},
+                        "unit":{"set":"bar"},"unitExternalId":{"set":"pressure:bar"},
+                        "description":{"set":"d"},"dataSetId":{"set":"9223372036854775806"},
+                        "metadata":{"set":{"owner":"ops"}}}}]}""",
+                        new TypeReference<DataWrapper<UpdateTimeseries>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /timeseries/search", """
+                        {"search":{"query":"pump"}}""",
+                        new TypeReference<SearchBody<TimeseriesFilter>>() {},
+                        "templates/timeseries/insights.html"),
+
+                new Payload("DELETE /timeseries/delete", """
+                        {"items":[{"id":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /timeseries/data/list (chart zoom)", """
+                        {"items":[{"externalId":"21-PT-1234","start":"2026-08-01T00:00:00Z",
+                        "end":"2026-08-02T00:00:00Z","limit":100000,"aggregates":["avg","min","max"],
+                        "granularity":"1 min"}]}""",
+                        new TypeReference<DataWrapper<RetrieveFilter>>() {},
+                        "static/js/charts/insights.js"),
+
+                new Payload("POST /resources/fetch-related", """
+                        {"id":"9223372036854775806","depth":1}""",
+                        new TypeReference<RelatedResourcesForm>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
 
                 // Not datahub-api: the Analyze tab posts this straight to datahub-analysis.
                 new Payload("POST /analysis", """
