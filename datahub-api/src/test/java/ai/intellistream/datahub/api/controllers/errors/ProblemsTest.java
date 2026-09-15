@@ -121,4 +121,27 @@ class ProblemsTest {
         assertThat(problem.getProperties().get("duplicated"))
                 .isEqualTo(List.of(Map.of("externalId", "pump_7")));
     }
+
+    @Test
+    @DisplayName("a bare status gets its own type, and a 500 never carries the detail it was given")
+    void forStatusNamesTheStatusAndKeepsInternalsOut() {
+        assertThat(Problems.forStatus(405, null).getType()).isEqualTo(Problems.METHOD_NOT_ALLOWED);
+        assertThat(Problems.forStatus(415, "Content-Type 'text/plain' is not supported.").getDetail())
+                .isEqualTo("Content-Type 'text/plain' is not supported.");
+
+        ProblemDetail internal = Problems.forStatus(500, "Connection refused: db.internal:5432");
+        assertThat(internal.getType()).isEqualTo(Problems.INTERNAL);
+        assertThat(internal.getDetail()).isEqualTo(Problems.INTERNAL_DETAIL);
+    }
+
+    @Test
+    @DisplayName("a disabled feature is a 403 that names the feature")
+    void featureDisabledNamesTheFeature() {
+        ProblemDetail problem = Problems.featureDisabled("files", "Files feature is not enabled for this organization.");
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(problem.getType()).isEqualTo(Problems.FEATURE_DISABLED);
+        assertThat(problem.getProperties()).containsEntry("feature", "files");
+    }
+
 }

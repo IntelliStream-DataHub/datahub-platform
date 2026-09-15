@@ -312,16 +312,17 @@ public class FileSystemService {
 
     private void restoreOne(INode node) throws IOException {
         if (node.getNodeType() != INode.INodeType.FILE) {
-            throw new IllegalStateException("Only files can be restored: '" + node.getName() + "'.");
+            throw new RestoreRefusedException("not-a-file", "Only files can be restored, not folders.");
         }
         String original = recoverOriginalExternalId(node.getExternalId());
         if (original == null || original.isBlank()) {
-            throw new IllegalStateException("Could not recover the original external id for '" + node.getName() + "'.");
+            throw new RestoreRefusedException("external-id-unrecoverable",
+                    "The file's original external id could not be recovered from its trash entry.");
         }
         long originalHash = IdGenerator.xxHash(original);
         // Delete frees the original external id for reuse; refuse if a live file has since taken it.
         if (iNodeRepository.findByExternalIdHashAndIsDeletedIs(originalHash, false, INode.class).isPresent()) {
-            throw new IllegalStateException("A file with the original external id already exists.");
+            throw new RestoreRefusedException("external-id-taken", "A file with the original external id already exists.");
         }
         Path dest = Paths.get(filesConfig.getRoot().toString(), node.getPath()).toAbsolutePath().normalize();
         if (Files.exists(dest)) {
@@ -329,7 +330,7 @@ public class FileSystemService {
         }
         Path destParent = dest.getParent();
         if (destParent == null || !Files.isDirectory(destParent)) {
-            throw new IllegalStateException("The original folder no longer exists; cannot restore '" + node.getPath() + "'.");
+            throw new RestoreRefusedException("folder-missing", "The file's original folder no longer exists.");
         }
         Path trashFile = Paths.get(filesConfig.getTrash().toString(), node.getExternalId()).toAbsolutePath().normalize();
         Files.move(trashFile, dest); // throws FileAlreadyExistsException / IOException on failure
@@ -450,4 +451,19 @@ public class FileSystemService {
         String p = stripTrailingSlash(parent);
         return (p.isEmpty() || p.equals("/")) ? "/" + name : p + "/" + name;
     }
+
+    /** A restore refused by the state of the tree; {@code reason} is a stable token, the message names no file. */
+    public static class RestoreRefusedException extends IllegalStateException {
+        private final String reason;
+
+        public RestoreRefusedException(String reason, String message) {
+            super(message);
+            this.reason = reason;
+        }
+
+        public String reason() {
+            return reason;
+        }
+    }
+
 }

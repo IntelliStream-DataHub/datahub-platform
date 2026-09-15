@@ -166,8 +166,8 @@ public class AssetController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -175,7 +175,7 @@ public class AssetController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }

@@ -97,8 +97,8 @@ public class TimeseriesController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer ≤ 10000, or `dataSetId` is not a number.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "dataSetId must be a number")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = {""},
             method = RequestMethod.GET,
@@ -119,7 +119,10 @@ public class TimeseriesController {
                 if(lim < 0) throw new NumberFormatException("Limit cannot be negative");
                 if(lim > 10000) throw new NumberFormatException("Limit cannot be greater than 10000");
             } catch (NumberFormatException e) {
-                return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.withFields(
+                        Problems.badRequest("limit must be a whole number from 0 to 10000."),
+                        List.of(new Problems.FieldProblem("limit", "must be a whole number from 0 to 10000", null, null))),
+                        HttpStatus.BAD_REQUEST);
             }
         }
 

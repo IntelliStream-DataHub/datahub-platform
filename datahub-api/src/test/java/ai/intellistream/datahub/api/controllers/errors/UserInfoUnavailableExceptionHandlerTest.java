@@ -19,7 +19,7 @@ class UserInfoUnavailableExceptionHandlerTest {
     @Test
     void mapsToServiceUnavailableRatherThanForbidden() {
         ProblemDetail problem = handler.handleUserInfoUnavailable(
-                new UserInfoUnavailableException("connection refused"));
+                new UserInfoUnavailableException("connection refused")).getBody();
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
         assertThat(problem.getStatus()).isNotEqualTo(HttpStatus.FORBIDDEN.value());
@@ -29,11 +29,13 @@ class UserInfoUnavailableExceptionHandlerTest {
     /** The caller is told this is temporary, so a client does not treat it as "no access". */
     @Test
     void saysItIsTemporaryAndNotADenial() {
-        ProblemDetail problem = handler.handleUserInfoUnavailable(
+        var response = handler.handleUserInfoUnavailable(
                 new UserInfoUnavailableException("UserInfo returned HTTP 502"));
+        ProblemDetail problem = response.getBody();
 
         assertThat(problem.getDetail()).contains("temporary fault", "not a denial");
-        assertThat(problem.getProperties()).containsKey("retryAfter");
+        assertThat(problem.getProperties()).containsEntry("retryAfter", 10);
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("10");
     }
 
     /**
@@ -42,7 +44,7 @@ class UserInfoUnavailableExceptionHandlerTest {
     @Test
     void doesNotLeakTheUpstreamMessageToTheCaller() {
         ProblemDetail problem = handler.handleUserInfoUnavailable(
-                new UserInfoUnavailableException("UserInfo request failed: keycloak.internal:8443 refused"));
+                new UserInfoUnavailableException("UserInfo request failed: keycloak.internal:8443 refused")).getBody();
 
         assertThat(problem.getDetail()).doesNotContain("keycloak.internal");
     }
