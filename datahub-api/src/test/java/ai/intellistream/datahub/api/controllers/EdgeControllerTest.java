@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.BadRequestExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
@@ -67,6 +68,8 @@ class EdgeControllerTest {
         validator.afterPropertiesSet();
 
         mvc = MockMvcBuilders.standaloneSetup(controller)
+                // EdgeController no longer catches BadRequestException itself.
+                .setControllerAdvice(new BadRequestExceptionHandler())
                 .setValidator(validator)
                 .build();
     }
@@ -208,8 +211,9 @@ class EdgeControllerTest {
                                 {"items":[{"fromExternalId":"pipe_a","toExternalId":"valve_v9",
                                            "relationshipType":"FLOWS_TO"}]}"""))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.message").value("Could not find toNode"))
-                .andExpect(jsonPath("$.error.fields[0].externalId").value("valve_v9"));
+                .andExpect(jsonPath("$.detail").value("Could not find toNode"))
+                .andExpect(jsonPath("$.fields[0].field").value("externalId"))
+                .andExpect(jsonPath("$.fields[0].message").value("valve_v9"));
     }
 
     @Test

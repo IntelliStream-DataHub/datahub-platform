@@ -185,7 +185,7 @@ public class FileController {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
-        try{
+        try {
             // The file content is the raw request body; all metadata is in headers. Headers are
             // available before the body, so we fully validate and authorise the upload before
             // reading a single body byte. X-Datahub-Path is the full destination path (folder +
@@ -330,11 +330,6 @@ public class FileController {
             // metadata / relatedResources JSON.
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            // Mark transaction for rollback
-            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -449,27 +444,22 @@ public class FileController {
         // dataset are public (visible to everyone); dataset-bearing ones show only if readable.
         boolean readAll = dataSecurity.hasReadAccessToEverything();
         Set<Long> allowed = readAll ? null : dataSecurity.readableDataSetIds();
-        try{
-            if(fileSystemService.validateFolderPath(foundPath)){
-                List<INode> nodes;
-                if(foundPath.isEmpty() || foundPath.equals("/")){
-                    nodes = readAll
-                            ? iNodeRepository.findAllByParentAndIsDeletedEquals(null, false, INode.class)
-                            : iNodeRepository.findReadableInRoot(false, allowed, INode.class);
-                } else {
-                    var pathHash = IdGenerator.xxHash(foundPath);
-                    nodes = readAll
-                            ? iNodeRepository.findAllByParentPathHashAndIsDeletedEquals(pathHash, false, INode.class)
-                            : iNodeRepository.findReadableByParentPathHash(pathHash, false, allowed, INode.class);
-                }
-                data.setItems(fileTransformer.transformToIndexNode(nodes));
-                return new ResponseEntity<>(data, HttpStatus.OK);
+        if(fileSystemService.validateFolderPath(foundPath)){
+            List<INode> nodes;
+            if(foundPath.isEmpty() || foundPath.equals("/")){
+                nodes = readAll
+                        ? iNodeRepository.findAllByParentAndIsDeletedEquals(null, false, INode.class)
+                        : iNodeRepository.findReadableInRoot(false, allowed, INode.class);
+            } else {
+                var pathHash = IdGenerator.xxHash(foundPath);
+                nodes = readAll
+                        ? iNodeRepository.findAllByParentPathHashAndIsDeletedEquals(pathHash, false, INode.class)
+                        : iNodeRepository.findReadableByParentPathHash(pathHash, false, allowed, INode.class);
             }
-            return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+            data.setItems(fileTransformer.transformToIndexNode(nodes));
+            return new ResponseEntity<>(data, HttpStatus.OK);
         }
+        return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
     }
 
     @Tag(name = "Files")
@@ -564,23 +554,18 @@ public class FileController {
         // LIMIT 0 in SQL and returns nothing, which reads as "no matches" rather than as a bad
         // request. The cap was previously fixed at 100 with no way for a caller to say otherwise.
         int cap = (limit == null || limit <= 0) ? SEARCH_LIMIT : Math.min(limit, MAX_SEARCH_LIMIT);
-        try {
-            List<INode> nodes;
-            if (dataSecurity.hasReadAccessToEverything()) {
-                nodes = iNodeRepository.searchByName(q.trim(), false, cap);
-            } else {
-                Set<Long> allowed = dataSecurity.readableDataSetIds();
-                // Empty IN (...) is invalid SQL in a native query; a non-existent id keeps it valid and
-                // matches nothing, so only public (no-dataset) inodes come back.
-                Collection<Long> ids = allowed.isEmpty() ? List.of(-1L) : allowed;
-                nodes = iNodeRepository.searchReadableByName(q.trim(), false, ids, cap);
-            }
-            data.setItems(fileTransformer.transformToIndexNode(nodes));
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>("Internal programming error.", HttpStatus.INTERNAL_SERVER_ERROR);
+        List<INode> nodes;
+        if (dataSecurity.hasReadAccessToEverything()) {
+            nodes = iNodeRepository.searchByName(q.trim(), false, cap);
+        } else {
+            Set<Long> allowed = dataSecurity.readableDataSetIds();
+            // Empty IN (...) is invalid SQL in a native query; a non-existent id keeps it valid and
+            // matches nothing, so only public (no-dataset) inodes come back.
+            Collection<Long> ids = allowed.isEmpty() ? List.of(-1L) : allowed;
+            nodes = iNodeRepository.searchReadableByName(q.trim(), false, ids, cap);
         }
+        data.setItems(fileTransformer.transformToIndexNode(nodes));
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Files")
@@ -628,20 +613,17 @@ public class FileController {
             return new ResponseEntity<>(FILES_FEATURE_DISABLED, HttpStatus.FORBIDDEN);
         }
 
-        try{
-            Optional<INodeDownload> inode = Optional.empty();
-            if(id.isPresent()){
-                inode = findIndexNode(id.get(), inode);
-                if (inode.isPresent()) {
-                    String filesystemPath = filesConfig.getRoot().toString();
-                    return doFileDownload(res, filesystemPath, inode.get(), range, ifRange, ifNoneMatch);
-                } else {
-                    return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
-                }
+        Optional<INodeDownload> inode = Optional.empty();
+        if(id.isPresent()){
+            inode = findIndexNode(id.get(), inode);
+            if (inode.isPresent()) {
+                String filesystemPath = filesConfig.getRoot().toString();
+                return doFileDownload(res, filesystemPath, inode.get(), range, ifRange, ifNoneMatch);
+            } else {
+                return new ResponseEntity<>("", HttpStatus.NOT_FOUND);
             }
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
         }
+    
         return new ResponseEntity<>("", HttpStatus.INTERNAL_SERVER_ERROR);
     }
 

@@ -72,32 +72,13 @@ public class FunctionController {
     )
     public ResponseEntity<?> createFunction(
             @Schema(implementation = FunctionDataWrapper.class)
-            @RequestBody DataWrapper<Function> apiReqData) {
+            @RequestBody DataWrapper<Function> apiReqData) throws PulsarClientException {
         try {
             DataWrapper<Function> data = functionService.create(apiReqData);
             return new ResponseEntity<>(data, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve) {
-            log.warn("Function create validation failed: {}", cve.getMessage());
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
         } catch (DataIntegrityViolationException dve) {
             var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
             return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        } catch (DuplicateDataException e) {
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (BadRequestException e) {
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatusCode.valueOf(error.getError().getCode()));
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (LimitException e) {
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Function create failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 
@@ -134,12 +115,7 @@ public class FunctionController {
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
-        try {
-            return ResponseEntity.ok(functionService.list(ListingLimit.resolve(limit)));
-        } catch (RuntimeException e) {
-            log.error("Function list failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        return ResponseEntity.ok(functionService.list(ListingLimit.resolve(limit)));
     }
 
     @Tag(name = "Functions")
@@ -159,7 +135,6 @@ public class FunctionController {
         return new ResponseEntity<>(functionService.get(id), HttpStatus.OK);
     }
 
-
     @Tag(name = "Functions")
     @Operation(
             summary = "Update function",
@@ -177,27 +152,9 @@ public class FunctionController {
             produces = MediaType.APPLICATION_JSON_VALUE
     )
     public ResponseEntity<?> updateFunction(
-            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) {
-        try {
-            GraphDataWrapper<NodeModel, EdgeProxy> results = functionService.update(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (LimitException e) {
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Function update failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+        GraphDataWrapper<NodeModel, EdgeProxy> results = functionService.update(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.OK);
     }
 
     @Tag(name = "Functions")
@@ -221,22 +178,12 @@ public class FunctionController {
     )
     public ResponseEntity<?> deleteFunction(
             @Schema(implementation = IdCollectionDataWrapper.class)
-            @RequestBody DataWrapper<IdCollection> apiReqData) {
+            @RequestBody DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
         try {
             functionService.delete(apiReqData);
             return ResponseEntity.noContent().build();
         } catch (ResourceDeleteException e) {
             return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.warn("Function delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (org.springframework.security.access.AccessDeniedException e) {
-            throw e;
-        } catch (PulsarClientException | RuntimeException e) {
-            log.error("Function delete failed: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
         }
     }
 }
