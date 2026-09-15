@@ -30,8 +30,9 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ProblemDetail;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 /**
  * A Function is a plain datastore node distinguished by its {@code FUNCTION} type-label.
@@ -63,7 +64,7 @@ public class FunctionController {
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -141,7 +142,7 @@ public class FunctionController {
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @PostMapping(
             path = "/update",
@@ -164,7 +165,7 @@ public class FunctionController {
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             """
@@ -179,7 +180,7 @@ public class FunctionController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/would-strand",

@@ -3,7 +3,6 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.Problems;
-import org.springframework.http.ProblemDetail;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -34,6 +33,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
 
 @RestController
 @RequestMapping("/labels")
@@ -111,7 +111,7 @@ public class LabelController {
                     """
     )
     @ApiResponse(responseCode = "409", description = "A label with this name already exists.",
-            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+            content = @Content(schema = @Schema(implementation = DuplicateProblem.class)))
     @ApiResponse(responseCode = "200", description = "A collection with newly created label objects is returned.",
             content = @Content(
                     schema = @Schema(implementation = LabelDataWrapper.class)
