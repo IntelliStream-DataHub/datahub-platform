@@ -488,19 +488,6 @@ class TimeseriesEditForm extends TimeseriesForm{
 			.catch(() => console.error("Updating timeseries failed"));
 	}
 
-	delete(){
-		Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
-			.then( response => {
-				if(response.ok){
-					if(this.afterDeleteFn) this.afterDeleteFn(this);
-					this.cancelButtonElement.dispatchEvent(new Event('click'));
-					return;
-				}
-				// A subscription still reading the series, or resources the delete would strand.
-				this.flashProblem(response, 'error.problem.failed');
-			})
-			.catch(e => console.error(e));
-	}
 }
 
 class UpdateTimeseries {

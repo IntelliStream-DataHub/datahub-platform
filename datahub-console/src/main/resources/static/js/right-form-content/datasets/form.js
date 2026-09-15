@@ -303,25 +303,6 @@ class EditDataSetForm extends DataSetForm {
 				console.error("Updating Dataset failed");
 			});
 	}
-
-	delete(){
-		Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
-			.then( xhr => {
-				// If successful delete
-				if(xhr.status === 200 || xhr.status === 204){
-					if(this.afterDeleteFn){
-						this.afterDeleteFn(this);
-					}
-					this.cancelButtonElement.dispatchEvent(new Event('click'));
-					return;
-				}
-				// An access denial, or the resources the delete would strand.
-				this.flashProblem(xhr, 'error.problem.failed');
-			})
-			.catch((e) => {
-				console.error(e);
-			});
-	}
 }
 
 class DataSetList extends BaseList{

@@ -308,14 +308,12 @@
         // is created, shown in the graph, and highlighted — the build step's appear guard
         // advances on it.
         let buildoutDone = false;
-        const RESOURCE_API = "/api/resources/save";
-        const csrfHeaders = () => {
-            const h = document.querySelector('meta[name="_csrf_header"]')?.content;
-            const t = document.querySelector('meta[name="_csrf"]')?.content;
-            const base = { "Accept": "application/json", "Content-Type": "application/json" };
-            if (h) base[h] = t;
-            return base;
-        };
+        // Resolves to the created node, or null: the buildout is best effort.
+        const createResource = (node, relations) =>
+            Api.post("/resources/create", { nodes: [node], relations: relations || [] })
+                .then(r => (r.ok ? r.json() : null))
+                .then(j => (j && j.nodes && j.nodes[0]) || null)
+                .catch(() => null);
         // The cluster: a small asset network. Label names must exist in the tenant; we
         // resolve them from GET /labels and fall back to the first available label
         // (resources require >=1 label).
@@ -336,13 +334,6 @@
             { name: "Tank T-2", label: "TANK", parent: 5 },
         ];
         const autoBuildNetwork = () => {
-            const headers = csrfHeaders();
-            if (!headers["X-CSRF-TOKEN"] && !Object.keys(headers).some(k => k.toLowerCase().includes("csrf"))) {
-                // No CSRF meta (unexpected) — don't hang the tour.
-                buildoutDone = true; return;
-            }
-            const post = (url, body) => fetch(url, { method: "POST", headers, body: JSON.stringify(body) })
-                .then(r => (r.ok ? r.json() : null)).catch(() => null);
             const ts = Date.now();
             const createdIds = [];
 
@@ -369,11 +360,12 @@
                 const existingRootExt = ctx?.recall("lastResourceExternalId");
                 const resolveRoot = existingRootId
                     ? Promise.resolve({ rootId: existingRootId, rootExt: existingRootExt, created: false })
-                    : post("/api/resources/search", { query: "Tutorial resource" }).then(s => {
+                    : Api.post("/resources/search", ResourceList.searchBody("Tutorial resource"))
+                          .then(r => (r.ok ? r.json() : null)).catch(() => null).then(s => {
                           const n = ((s && s.items) ? s.items.length : 0) + 1;
                           const rootExt = `tutorial_resource_${ts}`;
-                          return post(RESOURCE_API, {
-                              name: `Tutorial resource ${n}`, externalId: rootExt, isRoot: "true",
+                          return createResource({
+                              name: `Tutorial resource ${n}`, externalId: rootExt, isRoot: true,
                               labels: [pick("STATION")], metadata: {},
                           }).then(root => (root && root.id != null) ? { rootId: root.id, rootExt, created: true } : null);
                       });
@@ -389,11 +381,10 @@
                     return BUILDOUT_PLAN.reduce((chain, p, i) => chain.then(() => {
                         const ext = `tour_${p.label.toLowerCase()}_${ts}_${i}`;
                         const parentId = (p.parent == null) ? root.rootId : (childIds[p.parent] || root.rootId);
-                        return post(RESOURCE_API, {
-                            name: p.name, externalId: ext, isRoot: "false",
-                            labels: [pick(p.label)], metadata: {},
-                            relationFrom: parentId, relationTypes: [relId],
-                        }).then(child => { if (child && child.id != null) { createdIds.push(child.id); highlightExt.push(ext); childIds[i] = child.id; } });
+                        return createResource(
+                            { name: p.name, externalId: ext, isRoot: false, labels: [pick(p.label)], metadata: {} },
+                            [{ fromId: parentId, toExternalId: ext, relationshipTypeId: relId }]
+                        ).then(child => { if (child && child.id != null) { createdIds.push(child.id); highlightExt.push(ext); childIds[i] = child.id; } });
                     }), Promise.resolve()).then(() => ({ rootId: root.rootId, rootExt: root.rootExt, ids: createdIds, ext: highlightExt }));
                 });
             }).then(result => {
@@ -488,13 +479,7 @@
             // (standalone chapter — EnsureResource has seeded one) so the chapter works either way.
             const known = ctx?.recall("lastResourceExternalId");
             if (known) { doSeed(known); return; }
-            const header = document.querySelector('meta[name="_csrf_header"]')?.content;
-            const csrf = document.querySelector('meta[name="_csrf"]')?.content;
-            fetch("/api/resources/search", {
-                method: "POST",
-                headers: { Accept: "application/json", "Content-Type": "application/json", ...(header ? { [header]: csrf } : {}) },
-                body: JSON.stringify({ query: "" })
-            })
+            Api.post("/resources/search", ResourceList.searchBody(""))
                 .then(r => (r.ok ? r.json() : null))
                 .then(j => { const items = j && (j.items || (Array.isArray(j) ? j : [])); doSeed(items && items[0] && items[0].externalId); })
                 .catch(() => { /* best effort */ });
@@ -1077,12 +1062,7 @@
                     const snap = resourceSnapshot || {};
                     setFieldValue('.right-form form input[name="name"]', snap.name);
                     setFieldValue('.right-form form input[name="externalId"]', snap.externalId);
-                    const header = document.querySelector('meta[name="_csrf_header"]')?.content;
-                    const token = document.querySelector('meta[name="_csrf"]')?.content;
-                    return fetch(`/api/resources/delete/${encodeURIComponent(id)}`, {
-                        method: "DELETE",
-                        headers: header ? { [header]: token } : {},
-                    }).catch(() => { /* best effort */ });
+                    return Api.del("/resources/delete", { items: [{ id: id }] }).catch(() => { /* best effort */ });
                 }
             },
             {
@@ -1803,11 +1783,6 @@
     // before a fresh start (never on resume).
     window.DataHubTutorialResetSandbox = function () {
         const ctx = window.DataHubTutorialContext;
-        const header = document.querySelector('meta[name="_csrf_header"]')?.content;
-        const token = document.querySelector('meta[name="_csrf"]')?.content;
-        const headers = header ? { [header]: token } : {};
-        // Issue a real HTTP DELETE to the entity's /delete/{id} endpoint (best-effort).
-        const del = (url) => fetch(url, { method: "DELETE", headers }).catch(() => { /* best effort */ });
 
         // Resources the buildout chapter created aren't in the sandbox dataset, so the dataset
         // wipe alone wouldn't remove them — delete them by id too. They form a TREE, and the
@@ -1821,7 +1796,7 @@
         const orderedIds = (Array.isArray(buildoutIds) ? buildoutIds.slice() : []).reverse();
         if (rootResourceId && !orderedIds.map(String).includes(String(rootResourceId))) orderedIds.push(rootResourceId);
         const resourceDeletes = orderedIds.reduce(
-            (chain, rid) => chain.then(() => del(`/api/resources/delete/${encodeURIComponent(rid)}`)),
+            (chain, rid) => chain.then(() => Api.del("/resources/delete", { items: [{ id: rid }] }).catch(() => { /* best effort */ })),
             Promise.resolve()
         );
 
@@ -1887,15 +1862,7 @@
     // none, so best-effort seed a throwaway one (resources require a label). Promise-
     // based (not async) to match the rest of the file; the chapter starts regardless.
     window.DataHubTutorialEnsureResource = function () {
-        const header = document.querySelector('meta[name="_csrf_header"]')?.content;
-        const token = document.querySelector('meta[name="_csrf"]')?.content;
-        if (!header) return Promise.resolve();
-        const csrf = { [header]: token };
-        return fetch("/api/resources/search", {
-            method: "POST",
-            headers: { Accept: "application/json", "Content-Type": "application/json", ...csrf },
-            body: JSON.stringify({ query: "" }),
-        })
+        return Api.post("/resources/search", ResourceList.searchBody(""))
             .then(r => (r.ok ? r.json() : null))
             .then(json => {
                 const items = json && (json.items || (Array.isArray(json) ? json : []));
@@ -1905,15 +1872,11 @@
                     .then(labels => {
                         const arr = Array.isArray(labels) ? labels : (labels.items || []);
                         const lv = arr[0] && (arr[0].name || arr[0].externalId || arr[0].id);
-                        return fetch("/api/resources/save", {
-                            method: "POST",
-                            headers: { Accept: "application/json", "Content-Type": "application/json", ...csrf },
-                            body: JSON.stringify({
-                                name: "Tutorial resource", externalId: "tutorial_resource_" + Date.now(),
-                                description: "", source: "", isRoot: true,
-                                labels: lv ? [String(lv)] : [], metadata: {},
-                            }),
-                        });
+                        return Api.post("/resources/create", { nodes: [{
+                            name: "Tutorial resource", externalId: "tutorial_resource_" + Date.now(),
+                            description: "", source: "", isRoot: true,
+                            labels: lv ? [String(lv)] : [], metadata: {},
+                        }] });
                     });
             })
             .catch(err => {
