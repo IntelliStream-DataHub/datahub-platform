@@ -706,11 +706,13 @@ public class TimeseriesController {
                     schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "422", description =
-            "A datapoint is well-formed but unusable: a value that failed to parse against the " +
-                    "target timeseries' `valueType` (e.g. text sent to a `BIGINT` series), or a " +
-                    "`timestamp` that is neither ISO-8601 nor epoch milliseconds. Fix the " +
-                    "offending entry and retry — resending it unchanged cannot succeed, which is " +
-                    "what `retry: change-request` says. The `docs` link points at the value types.",
+            "A datapoint is well-formed but unusable. Either `type` `.../invalid-datapoint` — a " +
+                    "`value` that failed to parse against the target timeseries' `valueType`, " +
+                    "e.g. text sent to a `BIGINT` series — or `.../invalid-timestamp`, a " +
+                    "`timestamp` in neither accepted form, which is the same answer a bad " +
+                    "timestamp gets anywhere else in the API. Fix the offending entry and retry; " +
+                    "resending it unchanged cannot succeed, which is what `retry: change-request` " +
+                    "says, and `docs` links to the rules for whichever it was.",
             content = @Content(
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ProblemDetail.class)
@@ -862,8 +864,14 @@ public class TimeseriesController {
     )
     @ApiResponse(responseCode = "204", description = "The data-points in the requested windows were removed. No response body.",
             content = @Content)
-    @ApiResponse(responseCode = "400", description =
-            "A named timeseries does not exist, or a window bound is neither ISO-8601 nor epoch milliseconds.",
+    @ApiResponse(responseCode = "400", description = "A named timeseries does not exist.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)))
+    @ApiResponse(responseCode = "422", description =
+            "A window bound is neither ISO-8601 nor epoch milliseconds. `fields` names the bound " +
+                    "and the series it was sent for. The same answer a bad timestamp gets " +
+                    "anywhere else in the API — see the `docs` link.",
             content = @Content(
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ValidationProblem.class)))

@@ -141,7 +141,10 @@ class UnreadableRequestBodyExceptionHandlerTest {
         ProblemDetail problem = handler.handleUnreadableBody(
                 bindFailure("{\"min\":1718627696}", TimeFilter.class));
 
-        assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        // 422, not this class's 400: the body parsed and bound, only the value is unusable — and
+        // the same mistake on a datapoint timestamp or a delete bound answers the same way.
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT.value());
+        assertThat(problem.getType()).isEqualTo(Problems.INVALID_TIMESTAMP);
         assertThat(problem.getDetail())
                 .contains("epoch seconds")
                 .contains("multiply it by 1000")
@@ -155,6 +158,15 @@ class UnreadableRequestBodyExceptionHandlerTest {
                 bindFailure("{\"eventTime\":1718627696}", EventModel.class));
 
         assertThat(problem.getProperties()).containsEntry("pointer", "#/eventTime");
+    }
+
+    /** The 422 is for the value, so a body that genuinely cannot be read keeps its 400. */
+    @Test
+    void aSyntaxErrorIsStillA400() {
+        ProblemDetail problem = handler.handleUnreadableBody(parseFailure("{\"items\": [ }"));
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
+        assertThat(problem.getType()).hasToString(Problems.BASE + "unreadable-request-body");
     }
 
     /** The other half of the contract: an ISO string without an offset says an offset is required. */

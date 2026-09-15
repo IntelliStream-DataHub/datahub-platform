@@ -208,6 +208,7 @@ class ProblemsTest {
         for (String slug : List.of("validation-failed", "constraint-violation", "naming-policy",
                 "unreadable-request-body", "malformed-cursor", "invalid-datapoint", "referenced",
                 "would-strand", "dataset-forbidden", "filter-expression", "unauthorized",
+                "invalid-timestamp",
                 "token-rejected", "permissions-unavailable", "rate-limit-exceeded",
                 "ingest-quota-exceeded", "tenant-limit-reached", "request-too-large",
                 "feature-disabled", "unknown-tenant")) {

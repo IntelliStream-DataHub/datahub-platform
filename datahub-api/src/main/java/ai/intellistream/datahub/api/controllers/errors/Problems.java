@@ -76,8 +76,11 @@ public final class Problems {
     public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
     public static final URI FEATURE_DISABLED = type("feature-disabled");
 
-    /** A 422: a datapoint value or timestamp the caller has to fix before it can be stored. */
+    /** A 422: a datapoint value that does not parse against its series' declared type. */
     public static final URI INVALID_DATAPOINT = type("invalid-datapoint");
+
+    /** A 422: a timestamp in neither accepted form, anywhere one is accepted. */
+    public static final URI INVALID_TIMESTAMP = type("invalid-timestamp");
 
     /** {@code retry}: the same request can succeed later; honour Retry-After when it is sent. */
     public static final String RETRY_SAME_REQUEST = "same-request";
@@ -120,6 +123,7 @@ public final class Problems {
             Map.entry("unreadable-request-body", SDK_DOCS + "client#unknown-fields"),
             Map.entry("malformed-cursor", SDK_DOCS + "timeseries#sorting-and-paging"),
             Map.entry("invalid-datapoint", SDK_DOCS + "timeseries#value-types"),
+            Map.entry("invalid-timestamp", SDK_DOCS + "client#timestamps"),
             Map.entry("referenced", SDK_DOCS + "timeseries#delete-a-series"),
             Map.entry("would-strand", SDK_DOCS + "resources#delete"),
             Map.entry("dataset-forbidden", SDK_DOCS + "datasets#access-control"),
@@ -277,6 +281,29 @@ public final class Problems {
                         + "token. Retrying will not help, the organization has to be onboarded.");
         problem.setProperty("organizationId", organizationId);
         return problem;
+    }
+
+    /**
+     * A 422 for a timestamp in neither accepted form.
+     *
+     * <p>422, not 400, and the same 422 wherever a timestamp is read: the body parsed, every field
+     * is one the endpoint knows, and only this value is unusable. A caller who sends epoch seconds
+     * to one endpoint and to another should not have to learn that one calls it malformed and the
+     * other unprocessable. The detail comes from {@code DateTimeHandler} — it names both accepted
+     * forms and the factor of 1000 — so it is forwarded rather than flattened.
+     *
+     * @param pointer RFC 6901 location, when the failure happened somewhere with a JSON path
+     * @param fields  named locators for the sites that have no pointer, e.g. the bound and the
+     *                external id of the series it was sent for
+     */
+    public static ProblemDetail invalidTimestamp(String detail, String pointer,
+                                                 Collection<FieldProblem> fields) {
+        ProblemDetail problem = of(HttpStatus.UNPROCESSABLE_CONTENT, INVALID_TIMESTAMP,
+                "Unprocessable Content", detail);
+        if (pointer != null) {
+            problem.setProperty("pointer", pointer);
+        }
+        return withFields(problem, fields);
     }
 
     /** A 403 for a feature switched off for this organization; an operator turns it on. */

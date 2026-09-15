@@ -13,6 +13,7 @@ import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampException;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -983,11 +984,11 @@ public class TimeseriesService {
         try {
             return DateTimeHandler.toEpochUTCTime(dp.getTimestamp());
         } catch (DateTimeParseException | NumberFormatException err) {
-            throw new InvalidDatapointException(
-                    "'%s' is not a valid timestamp for timeseries '%s'. Use ISO-8601 with an offset "
-                            .formatted(dp.getTimestamp(), ts.externalId())
-                            + "(2026-01-01T00:00:00Z) or epoch milliseconds (1767225600000). A "
-                            + "10-digit value is epoch seconds — multiply it by 1000.");
+            // The parser's own message names both accepted forms and the factor of 1000, so it is
+            // forwarded rather than reworded; the series is named because one request carries many.
+            throw new InvalidTimestampException(err.getMessage(), new FieldErrors()
+                    .addFieldError("timestamp", dp.getTimestamp())
+                    .addFieldError("externalId", ts.externalId()));
         }
     }
 
@@ -1234,10 +1235,13 @@ public class TimeseriesService {
             return DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(bound)
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         } catch (DateTimeParseException | NumberFormatException e) {
-            throw new BadRequestException(("'%s' is not a valid %s. Use ISO-8601 with an offset "
-                    + "(2026-01-01T00:00:00Z) or epoch milliseconds (1767225600000). A 10-digit "
-                    + "value is epoch seconds — multiply it by 1000. For a time before 1973-03-03, "
-                    + "use ISO-8601.").formatted(bound, fieldName),
+            // The same 422 an unparseable timestamp gets anywhere else, keeping both locators: this
+            // used to be a 400, so the identical mistake was named differently on a delete than on
+            // an insert or in a filter.
+            throw new InvalidTimestampException(("'%s' is not a valid %s. Use ISO-8601 with an "
+                    + "offset (2026-01-01T00:00:00Z) or epoch milliseconds (1767225600000). A "
+                    + "10-digit value is epoch seconds — multiply it by 1000. For a time before "
+                    + "1973-03-03, use ISO-8601.").formatted(bound, fieldName),
                     new FieldErrors()
                             .addFieldError(fieldName, bound)
                             .addFieldError("externalId", String.valueOf(ddp.getExternalId())));
