@@ -5,7 +5,6 @@ import ai.intellistream.datahub.api.responses.DataCollection;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
-import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.files.IndexNode;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
@@ -63,18 +62,6 @@ public interface DatahubApi {
 
     @RequestLine("POST /timeseries/data/list")
     DataWrapper<DataCollection<?>> retrieveDatapoints(DataRetriever<RetrieveFilter> apiReqData);
-
-    @RequestLine("GET /labels")
-    DataWrapper<LabelForm> getLabelList();
-
-    @RequestLine("GET /labels/{id}")
-    DataWrapper<LabelForm> getLabel(@Param("id") Long id);
-
-    @RequestLine("POST /labels/create")
-    DataWrapper<LabelForm> createLabel(DataWrapper<LabelForm> data);
-
-    @RequestLine("POST /labels/update")
-    DataWrapper<LabelForm> updateLabel(DataWrapper<LabelForm> data);
 
     @RequestLine("POST /edges/byids")
     GraphDataWrapper<Resource, EdgeProxy> getEdgesAndRelatedNodes(DataWrapper<IdCollection> apiReqData);

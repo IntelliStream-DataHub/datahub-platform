@@ -2,7 +2,7 @@
  * ResourceList — decorates the left-panel resource pickers (resources, datasets, timeseries) so
  * each row mirrors its graph node: a colour dot in the resource's label colour, the name, and its
  * labels as tinted chips. Colours come from the shared label-definition cache
- * (/api/label/list -> intellistream_datahub.labels), the same source GraphNetwork.getColor uses,
+ * (GET /labels on datahub-api -> intellistream_datahub.labels), the same source GraphNetwork.getColor uses,
  * so the lists and the graph stay visually consistent.
  *
  * Row markup (server-rendered, or built with ResourceList.decorate):
@@ -38,8 +38,8 @@ const ResourceList = {
 		if(typeof intellistream_datahub !== 'undefined' && intellistream_datahub.labels !== undefined){
 			return Promise.resolve();
 		}
-		return fetch('/api/label/list', { headers: { Accept: 'application/json' } })
-			.then(r => r.json())
+		return Api.get('/labels')
+			.then(r => r.ok ? r.json() : Promise.reject(r.status))
 			.then(j => { intellistream_datahub.labels = j.items; })
 			.catch(() => { /* leave dots/chips on their neutral fallback */ });
 	},
