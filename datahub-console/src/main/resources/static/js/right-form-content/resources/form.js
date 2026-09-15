@@ -51,7 +51,7 @@ class ResourceForm extends DatasetFormAbstract{
         this.network = obj.network || null;
         this.isRoot = obj.isRoot === undefined ? false : obj.isRoot;
         this.title = $L('create.resource');
-        this.apiURL = "/api/resources";
+        this.apiPath = "/resources";
         // A dataset the caller already knows about — what we are cloning, or the node we are
         // connecting from. Beats both the remembered one and an empty field; see prefillDataSet().
         this.dataSet = obj.dataSet || null;
@@ -131,7 +131,8 @@ class ResourceForm extends DatasetFormAbstract{
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/save";
+        this.savePath = this.apiPath + "/create";
+        this.formElement.action = Api.url(this.savePath);
         this.labelListBtn = this.formElement.querySelector('[data-type="label-list-btn"]');
         const openLabelListEvent = e => {
             const picker = new LabelList({
@@ -267,20 +268,37 @@ class ResourceForm extends DatasetFormAbstract{
                 obj.metadata[keyField.value] = valueField.value;
             }
         });
-        fetch(this.formElement.action, {
-            method: this.formElement.method,
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            //signal: AbortSignal.timeout(10000),
-            body: JSON.stringify(obj)
-        }).then( response => {
-            this.handleResponse(response);
-        }).catch( error => {
-            console.error("Update failed", error);
-        });
+        Api.post(this.savePath, this.requestBody(obj), { timeout: 30000 })
+            .then( response => this.handleResponse(response))
+            .catch( error => console.error("Saving resource failed", error));
+    }
+
+    /**
+     * The create body: the node, plus one relation per picked type when the form was opened from
+     * another node. Named field by field, since the api refuses fields it does not have.
+     */
+    requestBody(obj){
+        const node = {
+            name: obj.name,
+            externalId: obj.externalId,
+            description: obj.description,
+            source: obj.source,
+            isRoot: obj.isRoot === 'true',
+            labels: obj.labels,
+            metadata: obj.metadata
+        };
+        if(obj.dataSetId) node.dataSetId = obj.dataSetId;
+        const relations = (obj.relationFrom && obj.relationTypes ? obj.relationTypes : []).map(type => ({
+            fromId: obj.relationFrom,
+            toExternalId: obj.externalId,
+            relationshipType: type
+        }));
+        return { nodes: [node], relations: relations };
+    }
+
+    /** The saved node. Policy warnings stay on the envelope, where handleResponse already reads them. */
+    savedItem(json){
+        return (json && Array.isArray(json.nodes)) ? json.nodes[0] : json;
     }
 
     createLabel(data, idx, name){
@@ -370,7 +388,7 @@ class ResourceEditForm extends ResourceForm{
     constructor(obj) {
         super(obj);
         this.title = $L('edit.resource') + " : " + obj.entityId;
-        this.deleteUrl = this.apiURL + "/delete";
+        this.deleteUrl = this.apiPath + "/delete";
         // The node's type is fixed at create: no type-label is offered in the picker, and the
         // existing one is shown as a locked (non-removable) chip.
         this.selectableTypeLabels = [];
@@ -379,7 +397,8 @@ class ResourceEditForm extends ResourceForm{
 
     render(){
         super.render();
-        this.formElement.action = this.apiURL + "/update";
+        this.savePath = this.apiPath + "/update";
+        this.formElement.action = Api.url(this.savePath);
         if(!this.errors){
             this.loadData( json => {
                 this.addLabels(json);
@@ -392,6 +411,23 @@ class ResourceEditForm extends ResourceForm{
         }
         this.renderOpenFindings();
         this.submitButtonElement.firstElementChild.textContent = $L('update');
+    }
+
+    /**
+     * The update body. The form always shows the whole resource, so every field it has is set; an
+     * empty dataset picker is a decision too, and clears the dataset.
+     */
+    requestBody(obj){
+        const update = {
+            name: { set: obj.name },
+            externalId: { set: obj.externalId },
+            metadata: { set: obj.metadata },
+            labels: { set: obj.labels },
+            dataSetId: obj.dataSetId ? { set: obj.dataSetId } : { setNull: true }
+        };
+        if(obj.description != null) update.description = { set: obj.description };
+        if(obj.source != null) update.source = { set: obj.source };
+        return { nodes: [{ id: obj.id, update: update }] };
     }
 
     // Never the remembered dataset. This form posts whatever the field holds, so prefilling an
@@ -602,7 +638,6 @@ class ResourceCloneForm extends ResourceRelationForm{
 
     render(){
         super.render();
-        this.formElement.action = this.apiURL + "/save";
         this.submitButtonElement.textContent = $L('datahub.save');
         if(!this.errors){
             this.loadData( json => {
@@ -656,21 +691,6 @@ class LabelForm extends DatasetFormAbstract{
 
     savedItem(json){
         return (json && Array.isArray(json.items)) ? json.items[0] : json;
-    }
-
-    loadData(callback){
-        if(this.entityId === null) return;
-        Api.get(this.apiPath + "/" + encodeURIComponent(this.entityId))
-            .then(response => response.ok ? response.json() : DataHubProblem.read(response).then(problem => { throw problem; }))
-            .then(json => {
-                const label = json.items[0];
-                this.loadCompleteCallback(label);
-                if(callback instanceof Function) callback(label);
-            })
-            .catch(e => {
-                if(e instanceof DataHubProblem) this.flashError(e.message(), e.details());
-                else console.error(e);
-            });
     }
 
 }
@@ -928,7 +948,6 @@ class ResourceSearch extends BaseList{
     constructor(obj) {
         super(obj);
         this.network = obj.network || null;
-        this.apiURL = '/api/resources/search';
         this.title = obj.title || $L('search.for.resource')
     }
 
@@ -954,18 +973,8 @@ class ResourceSearch extends BaseList{
     }
 
     fetchAndRefreshSearchResults(query) {
-        fetch(this.apiURL, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify({"query": query})
-        })
-            .then(response => {
-                return response.json();
-            })
+        Api.post('/resources/search', ResourceList.searchBody(query))
+            .then(response => response.ok ? response.json() : { items: [] })
             .then( json => {
                 this.data = {
                     items: json.items.map( it => {
@@ -1060,7 +1069,7 @@ class ResourceEdgeForm extends DatasetFormAbstract{
     constructor(obj) {
         super(obj);
         this.title = obj.title || $L('create.edge');
-        this.apiURL = "/api/edges";
+        this.apiPath = "/edges";
         this.fromNode = obj.fromNode || null;
         this.network = obj.network || null;
     }
@@ -1127,7 +1136,8 @@ class ResourceEdgeForm extends DatasetFormAbstract{
     render() {
         super.render();
         this.createClickEvents();
-        this.formElement.action = this.apiURL + "/save";
+        this.savePath = "/resources/create";
+        this.formElement.action = Api.url(this.savePath);
         this.setFromNode(this.fromNode);
         this.renderMetadataContent();
     }
@@ -1333,8 +1343,11 @@ class ResourceEdgeForm extends DatasetFormAbstract{
 
     submit(){
         this.formData = new FormData(this.formElement);
-        const obj = Object.fromEntries(this.formData);
-        obj.metadata = {};
+        const form = Object.fromEntries(this.formData);
+        const obj = { description: form.description, metadata: {} };
+        ['fromId', 'toId', 'relationshipTypeId'].forEach(field => {
+            if(form[field]) obj[field] = form[field];
+        });
         const metadataFields = this.formElement.querySelectorAll(`table.metadata tbody tr`);
         metadataFields.forEach( it => {
             const keyField = it.querySelector('[name$="key"]');
@@ -1350,20 +1363,18 @@ class ResourceEdgeForm extends DatasetFormAbstract{
         if(animateToggle && animateToggle.checked && animateValue && animateValue.value.trim()){
             obj.metadata[ResourceEdgeForm.ANIMATE_KEY] = animateValue.value.trim();
         }
-        fetch(this.formElement.action, {
-            method: this.formElement.method,
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            signal: AbortSignal.timeout(10000),
-            body: JSON.stringify(obj)
-        }).then( response => {
-            this.handleResponse(response);
-        }).catch(() => {
-            console.error("Saving edge failed");
-        });
+        Api.post(this.savePath, this.requestBody(obj))
+            .then( response => this.handleResponse(response))
+            .catch(() => console.error("Saving edge failed"));
+    }
+
+    requestBody(relation){
+        return { relations: [relation] };
+    }
+
+    /** The saved edge, which the graph draws whole. */
+    savedItem(json){
+        return (json && Array.isArray(json.relations)) ? json.relations[0] : json;
     }
 
 }
@@ -1373,21 +1384,15 @@ class ResourceEditEdgeForm extends ResourceEdgeForm {
     constructor(obj) {
         super(obj);
         this.title = $L('edit.edge') + " : " + obj.entityId;
-        this.deleteUrl = this.apiURL + "/delete";
+        this.deleteUrl = this.apiPath + "/delete";
     }
 
     render() {
         super.render();
-        this.formElement.action = this.apiURL + "/update";
+        this.savePath = "/resources/update";
+        this.formElement.action = Api.url(this.savePath);
         if(!this.errors){
-            this.loadData( data => {
-                // GET /api/edges/{id} → DataWrapper { items: [EdgeProxy] }. (Tolerate a
-                // { relations } shape too, in case the endpoint returns a GraphDataWrapper.)
-                const edge = (data.items || data.relations || [])[0];
-                if(!edge){
-                    console.warn("edit edge: no edge returned for id", this.entityId);
-                    return;
-                }
+            this.loadData( edge => {
                 // The from/to resources come from the graph the user is already looking at, so
                 // the form doesn't depend on the edge endpoint also returning its endpoints.
                 this.setFromNode(this.nodeFromGraph(edge.start));
@@ -1404,6 +1409,21 @@ class ResourceEditEdgeForm extends ResourceEdgeForm {
             });
         }
         this.submitButtonElement.firstElementChild.textContent = $L('update');
+    }
+
+    /** Every field the form holds, as an update to the edge's relation. */
+    requestBody(relation){
+        const update = { metadata: { set: relation.metadata } };
+        if(relation.description != null) update.description = { set: relation.description };
+        if(relation.relationshipTypeId) update.relationshipId = { set: relation.relationshipTypeId };
+        if(relation.fromId) update.start = { set: relation.fromId };
+        if(relation.toId) update.end = { set: relation.toId };
+        return { relations: [{ id: this.entityId, update: update }] };
+    }
+
+    /** The whole envelope: the graph moves each returned relation to its new endpoints. */
+    savedItem(json){
+        return json;
     }
 
     // Build the from/to node data for a label from the live cytoscape graph (the edge being
