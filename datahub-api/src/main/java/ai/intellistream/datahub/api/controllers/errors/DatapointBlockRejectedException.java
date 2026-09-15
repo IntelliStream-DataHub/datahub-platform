@@ -63,11 +63,6 @@ public class DatapointBlockRejectedException extends RuntimeException {
                 "Content-Encoding " + encoding + " is not accepted: frames carry their own zstd compression.");
     }
 
-    public static DatapointBlockRejectedException bodyTooLarge(long limitBytes) {
-        return new DatapointBlockRejectedException(HttpStatus.PAYLOAD_TOO_LARGE, "request-too-large", null, null, null,
-                "The body is larger than " + limitBytes + " bytes; split it into more requests.");
-    }
-
     private static String kebab(String name) {
         return name.toLowerCase(Locale.ROOT).replace('_', '-');
     }

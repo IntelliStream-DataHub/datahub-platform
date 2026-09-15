@@ -15,6 +15,7 @@ import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Every way a frame can be wrong, and the reason the reader names for it. The API turns the reason
@@ -60,6 +61,39 @@ class DatapointFrameRejectionTest {
         assertEquals(Reason.MALFORMED_FRAME, reject(tampered(b -> b.putInt(20, 1 << 30))));
         assertEquals(Reason.FRAME_TOO_LARGE, reject(tampered(b -> b.putInt(24, FrameLimits.MAX_FRAME_RAW_BYTES + 1))));
         assertEquals(Reason.PAYLOAD_INVALID, reject(tampered(b -> b.putInt(24, b.getInt(24) + 1))));
+    }
+
+    @Test
+    void aFrameOverTheCapAsSentIsTooLarge() {
+        // The directory is what the payload cap does not bound, so declare one that takes the frame
+        // past the cap. The cap is inclusive: one byte less gets past it to the directory check.
+        byte[] good = goodFrame();
+        int payloadLength = ByteBuffer.wrap(good).order(ByteOrder.LITTLE_ENDIAN).getInt(20);
+        int directoryAtCap = FrameLimits.MAX_FRAME_BYTES - FrameLimits.HEADER_BYTES - payloadLength;
+        assertEquals(Reason.FRAME_TOO_LARGE, reject(withDirectoryLength(good, directoryAtCap + 1)));
+        assertEquals(Reason.DIRECTORY_INVALID, reject(withDirectoryLength(good, directoryAtCap)));
+    }
+
+    private static byte[] withDirectoryLength(byte[] frame, int directoryLength) {
+        int payloadLength = ByteBuffer.wrap(frame).order(ByteOrder.LITTLE_ENDIAN).getInt(20);
+        byte[] body = new byte[FrameLimits.HEADER_BYTES + directoryLength + payloadLength];
+        System.arraycopy(frame, 0, body, 0, FrameLimits.HEADER_BYTES);
+        ByteBuffer.wrap(body).order(ByteOrder.LITTLE_ENDIAN).putInt(16, directoryLength);
+        return body;
+    }
+
+    @Test
+    void theWriterRefusesAFrameOverTheCapAsSent() {
+        // 10,000 series and 256-character external ids are both allowed; with two UTF-8 bytes to a
+        // character the directory alone is past the cap, however small the payload.
+        DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.FLOAT32);
+        for (long id = 1; id <= 10_000; id++) {
+            w.series(id, (id + "-" + "ø".repeat(256)).substring(0, 256));
+            w.addFloat32(id, 1000, 1f);
+        }
+        assertTrue(w.estimatedFrameBytes() > FrameLimits.MAX_FRAME_BYTES, "the estimate sees the directory");
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> w.build(ZSTD));
+        assertTrue(e.getMessage().contains("split it"), e.getMessage());
     }
 
     @Test

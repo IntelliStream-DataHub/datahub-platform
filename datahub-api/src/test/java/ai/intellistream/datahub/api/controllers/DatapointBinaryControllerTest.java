@@ -5,7 +5,6 @@ import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
-import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
 import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
@@ -16,10 +15,14 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -31,20 +34,19 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * The web layer of the binary insert: the media type routes to it, a body-level
- * {@code Content-Encoding} is refused, the body cap holds, and a rejection comes back as a
- * problem response naming the reason.
+ * {@code Content-Encoding} is refused, the body reaches the service unread, and a rejection comes
+ * back as a problem response naming the reason. The body cap is the size filter's, so it is covered
+ * over real HTTP in {@link DatapointBinaryHttpTest}.
  */
 class DatapointBinaryControllerTest {
 
     private DatapointBinaryIngestService service;
-    private LimitsProperties limits;
     private MockMvc mvc;
 
     @BeforeEach
     void setUp() {
         service = mock(DatapointBinaryIngestService.class);
-        limits = new LimitsProperties();
-        mvc = MockMvcBuilders.standaloneSetup(new DatapointBinaryController(service, limits))
+        mvc = MockMvcBuilders.standaloneSetup(new DatapointBinaryController(service))
                 .setControllerAdvice(new DatapointBlockExceptionHandler())
                 .build();
     }
@@ -57,11 +59,17 @@ class DatapointBinaryControllerTest {
 
     @Test
     void aFrameIsAcceptedWithNoContent() throws Exception {
-        when(service.ingest(any(), anyLong())).thenReturn(new DatapointBinaryIngestService.Summary(1, 1, 1));
+        List<byte[]> read = new ArrayList<>();
+        when(service.ingest(any(), anyLong())).thenAnswer(inv -> {
+            read.add(inv.<InputStream>getArgument(0).readAllBytes());
+            return new DatapointBinaryIngestService.Summary(1, 1, 1);
+        });
         byte[] body = frame();
         mvc.perform(post("/timeseries/data/binary").contentType(FrameLimits.MEDIA_TYPE).content(body))
                 .andExpect(status().isNoContent());
-        verify(service).ingest(body, body.length);
+        verify(service).ingest(any(), eq((long) body.length));
+        assertThat(read).hasSize(1);
+        assertThat(read.get(0)).isEqualTo(body);
     }
 
     @Test
@@ -78,15 +86,6 @@ class DatapointBinaryControllerTest {
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.reason").value("unsupported-content-encoding"))
                 .andExpect(jsonPath("$.type").value(DatapointBlockExceptionHandler.TYPE));
-        verify(service, never()).ingest(any(), anyLong());
-    }
-
-    @Test
-    void aBodyOverTheCapIs413() throws Exception {
-        limits.setMaxBodyBytesDatapointsBinary(16);
-        mvc.perform(post("/timeseries/data/binary").contentType(FrameLimits.MEDIA_TYPE).content(frame()))
-                .andExpect(status().isPayloadTooLarge())
-                .andExpect(jsonPath("$.reason").value("request-too-large"));
         verify(service, never()).ingest(any(), anyLong());
     }
 

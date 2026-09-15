@@ -34,9 +34,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -143,6 +146,11 @@ public class BatchedDatapointBlocksListener {
                 groups.computeIfAbsent(new Group(p.tenantId(), f.valueType()), g -> new ArrayList<>());
             }
         }
+        // A message can carry frames of several types, so it is settled only once every group has
+        // run: acked if each group it contributed to succeeded, nacked if any failed. Acking it after
+        // its first group would lose the rest, since the broker ignores a nack of an acked message.
+        Set<Message<byte[]>> succeeded = Collections.newSetFromMap(new IdentityHashMap<>());
+        Set<Message<byte[]>> failed = Collections.newSetFromMap(new IdentityHashMap<>());
         for (Map.Entry<Group, List<Parsed>> entry : groups.entrySet()) {
             Group group = entry.getKey();
             List<DatapointFrame> frames = new ArrayList<>();
@@ -162,13 +170,15 @@ public class BatchedDatapointBlocksListener {
                 byte[] stream = FrameMerger.merge(group.type(), frames, MERGE_MAX_ROWS);
                 clickHouseDatapointService.insertArrowStream(group.tenantId(), group.type(), stream);
                 fanOut(group.tenantId(), group.type(), frames);
-                // A message can carry frames of several types; it is acked once every group it
-                // contributed to has succeeded, and a nack for one group wins over the acks.
-                for (Message<byte[]> m : contributing) acknowledge(m);
+                succeeded.addAll(contributing);
             } catch (Exception e) {
                 log.error("ClickHouse insert of {} frames failed for tenant {}: {}", group.type(), group.tenantId(), e.getMessage(), e);
-                contributing.forEach(consumer::negativeAcknowledge);
+                failed.addAll(contributing);
             }
+        }
+        failed.forEach(consumer::negativeAcknowledge);
+        for (Message<byte[]> m : succeeded) {
+            if (!failed.contains(m)) acknowledge(m);
         }
         receiveMessages();
     }

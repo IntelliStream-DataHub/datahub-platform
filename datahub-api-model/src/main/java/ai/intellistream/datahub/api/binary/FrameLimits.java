@@ -22,8 +22,16 @@ public final class FrameLimits {
     /** Bytes before the series directory. */
     public static final int HEADER_BYTES = 28;
 
-    /** A frame is one Pulsar message; this keeps it well under the broker's 5 MiB default. */
+    /** Decompressed payload per frame. The frame as sent is capped separately, by {@link #MAX_FRAME_BYTES}. */
     public static final int MAX_FRAME_RAW_BYTES = 4 * 1024 * 1024;
+
+    /**
+     * A whole frame as sent (envelope, directory and compressed payload), because a frame is one
+     * Pulsar message and the broker refuses one over its 5 MiB default. The headroom is for the
+     * message's own metadata. The payload cap alone does not bound this: the directory does not
+     * compress, and 10,000 series with 256-character external ids can be 5 MB of it.
+     */
+    public static final int MAX_FRAME_BYTES = 5 * 1024 * 1024 - 256 * 1024;
     public static final int MAX_FRAMES_PER_REQUEST = 32;
     public static final long MAX_REQUEST_RAW_BYTES = 64L * 1024 * 1024;
 

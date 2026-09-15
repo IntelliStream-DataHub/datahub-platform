@@ -39,6 +39,7 @@ public final class DatapointFrameWriter {
     private byte[][] texts;
     private int size;
     private long textBytes;
+    private long directoryBytes;
     private int clamped;
 
     private DatapointFrameWriter(DatapointValueType type) {
@@ -69,11 +70,20 @@ public final class DatapointFrameWriter {
         if (externalId == null || externalId.isEmpty()) {
             throw new IllegalArgumentException("external id for series " + id + " is empty");
         }
-        if (externalId.getBytes(StandardCharsets.UTF_8).length > FrameLimits.MAX_EXTERNAL_ID_BYTES) {
+        int length = externalId.getBytes(StandardCharsets.UTF_8).length;
+        if (length > FrameLimits.MAX_EXTERNAL_ID_BYTES) {
             throw new IllegalArgumentException("external id for series " + id + " exceeds " + FrameLimits.MAX_EXTERNAL_ID_BYTES + " bytes");
         }
-        series.put(id, externalId);
+        String previous = series.put(id, externalId);
+        if (previous != null) {
+            directoryBytes -= directoryEntryBytes(previous.getBytes(StandardCharsets.UTF_8).length);
+        }
+        directoryBytes += directoryEntryBytes(length);
         return this;
+    }
+
+    private static int directoryEntryBytes(int externalIdBytes) {
+        return 8 + Varint.size(externalIdBytes) + externalIdBytes;
     }
 
     public void addBigint(long id, long timestamp, long value) {
@@ -190,6 +200,14 @@ public final class DatapointFrameWriter {
     }
 
     /**
+     * Bytes the frame would take as sent, for chunking before {@link #build}: the envelope, a
+     * directory of every series named so far, and the payload as if it did not compress at all.
+     */
+    public long estimatedFrameBytes() {
+        return FrameLimits.HEADER_BYTES + directoryBytes + estimatedRawBytes();
+    }
+
+    /**
      * Sorts by (id, timestamp), keeps the last value for a repeated pair, checks the caps, writes the
      * Arrow stream, compresses it and returns the complete frame.
      */
@@ -223,6 +241,10 @@ public final class DatapointFrameWriter {
             throw new IllegalStateException("frame payload is " + raw.length + " bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES + "; split it");
         }
         byte[] compressed = codec.compress(raw);
+        long frameBytes = (long) FrameLimits.HEADER_BYTES + directoryLength + compressed.length;
+        if (frameBytes > FrameLimits.MAX_FRAME_BYTES) {
+            throw new IllegalStateException("frame is " + frameBytes + " bytes, the cap is " + FrameLimits.MAX_FRAME_BYTES + "; split it");
+        }
 
         ByteBuffer frame = ByteBuffer.allocate(FrameLimits.HEADER_BYTES + directoryLength + compressed.length)
                 .order(ByteOrder.LITTLE_ENDIAN);

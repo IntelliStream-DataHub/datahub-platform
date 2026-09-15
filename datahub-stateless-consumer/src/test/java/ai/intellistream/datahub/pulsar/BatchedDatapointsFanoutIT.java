@@ -309,6 +309,66 @@ class BatchedDatapointsFanoutIT {
                         org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    @DisplayName("A message whose frames feed two value types stays unacked when either insert fails")
+    void aMessageIsAckedOnlyOnceEveryGroupItFeedsHasSucceeded() throws Exception {
+        // Its own internal tenant, so the block subscription sees only this test's message and the
+        // backlog below counts nothing else.
+        String internalTenant = "it-internal-ack";
+        createTenant(internalTenant);
+        createNamespace(internalTenant + "/datapoint-blocks");
+        TopicNames names = topicNames(internalTenant);
+        String topic = names.getAllDatapointBlocksTopicName();
+        pulsarAdmin.topics().createNonPartitionedTopic(topic);
+
+        ClickHouseDatapointService clickHouse = mock(ClickHouseDatapointService.class);
+        org.mockito.Mockito.doThrow(new RuntimeException("insert refused")).when(clickHouse)
+                .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                        org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.FLOAT),
+                        org.mockito.ArgumentMatchers.any());
+        SubscriptionCache cache = new SubscriptionCache(
+                mock(SubscriptionRepository.class), mock(TenantConfigService.class));
+        blocksListener = new BatchedDatapointBlocksListener(
+                pulsarClient, clickHouse, names, cache,
+                new SubscriptionFanout(pulsarClient, names, cache,
+                        new ai.intellistream.datahub.config.AppInstanceId("ack-it")));
+        blocksListener.init();
+
+        // One message, two frames: TEXT first, so its group is handled (and succeeds) before FLOAT's.
+        ai.intellistream.datahub.api.binary.DatapointFrameWriter text = ai.intellistream.datahub.api.binary.DatapointFrameWriter
+                .forType(ai.intellistream.datahub.api.binary.DatapointValueType.TEXT).series(1, "state");
+        text.addText(1, TS_EPOCH_MILLIS, "open");
+        ai.intellistream.datahub.api.binary.DatapointFrameWriter floats = ai.intellistream.datahub.api.binary.DatapointFrameWriter
+                .forType(ai.intellistream.datahub.api.binary.DatapointValueType.FLOAT).series(2, "temp");
+        floats.addFloat(2, TS_EPOCH_MILLIS, 21.5);
+        java.io.ByteArrayOutputStream both = new java.io.ByteArrayOutputStream();
+        both.writeBytes(text.build(new ai.intellistream.datahub.api.binary.ZstdPayloadCodec(1)));
+        both.writeBytes(floats.build(new ai.intellistream.datahub.api.binary.ZstdPayloadCodec(1)));
+        try (Producer<byte[]> producer = pulsarClient.newProducer(Schema.BYTES)
+                .topic(topic)
+                .enableBatching(false)
+                .create()) {
+            producer.newMessage().property("tenantId", TENANT_ID).value(both.toByteArray()).send();
+        }
+
+        org.mockito.Mockito.verify(clickHouse, org.mockito.Mockito.timeout(20_000))
+                .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                        org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.TEXT),
+                        org.mockito.ArgumentMatchers.any());
+        org.mockito.Mockito.verify(clickHouse, org.mockito.Mockito.timeout(20_000))
+                .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
+                        org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.FLOAT),
+                        org.mockito.ArgumentMatchers.any());
+
+        // Acks reach the broker on a ~100 ms grouping timer. An ack after the TEXT group would empty
+        // the backlog within that; the message must instead stay pending for redelivery, since the
+        // broker ignores a nack of a message that was already acked and the FLOAT rows would be gone.
+        await().during(Duration.ofSeconds(3)).atMost(Duration.ofSeconds(10))
+                .pollInterval(Duration.ofMillis(200))
+                .until(() -> pulsarAdmin.topics().getStats(topic).getSubscriptions()
+                        .get(TopicNames.ALL_DATAPOINT_BLOCKS_SUBSCRIPTION_NAME).getMsgBacklog() == 1);
+    }
+
     /**
      * Subscription externalIds that all route to the same fanout partition, computed exactly as the
      * producer does: {@code JavaStringHash} ({@code hashCode() & Integer.MAX_VALUE}) mod the
@@ -328,8 +388,12 @@ class BatchedDatapointsFanoutIT {
         throw new IllegalStateException("No " + COLLIDING_SUBSCRIPTIONS + "-way partition collision in 512 candidates");
     }
 
-    /** Real {@link TopicNames} resolving every datahub tenant to the test's fanout Pulsar tenant. */
     private static TopicNames topicNames() {
+        return topicNames(INTERNAL_TENANT);
+    }
+
+    /** Real {@link TopicNames} resolving every datahub tenant to the test's fanout Pulsar tenant. */
+    private static TopicNames topicNames(String internalTenant) {
         Tenant tenant = new Tenant();
         PulsarTenant pulsarTenant = new PulsarTenant();
         pulsarTenant.setTenant(FANOUT_PULSAR_TENANT);
@@ -339,7 +403,7 @@ class BatchedDatapointsFanoutIT {
         when(configService.getConfig(anyString())).thenReturn(tenant);
 
         TopicNames topicNames = new TopicNames(configService);
-        ReflectionTestUtils.setField(topicNames, "internalTenant", INTERNAL_TENANT);
+        ReflectionTestUtils.setField(topicNames, "internalTenant", internalTenant);
         return topicNames;
     }
 

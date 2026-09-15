@@ -18,6 +18,8 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -37,11 +39,18 @@ import java.util.concurrent.Semaphore;
  * published, then each is forwarded to Pulsar as the client sent it. The frames stay compressed
  * end to end; this class decompresses copies only to check them.
  *
- * <p>Order of work, and why: the envelopes and directories first (cheap, no payload touched),
- * then the payloads in parallel, then one lookup of every distinct series, the dataset write
- * check once per distinct dataset, the value type and external id of every series against what
- * the frame claims, the quotas, and only then the publish. A failure anywhere means nothing was
- * sent, so the SDK can retry the whole request without double inserts.
+ * <p>Order of work, and why: an in-flight permit before the body is read, the envelopes and
+ * directories next (cheap, no payload touched), then the payloads in parallel, then one lookup of
+ * every distinct series, the dataset write check once per distinct dataset, the value type and
+ * external id of every series against what the frame claims, the quotas, and only then the
+ * publish. A request refused anywhere before the publish sent nothing.
+ *
+ * <p>The publish itself is not atomic. Frames go out one at a time and one message each, since
+ * the broker's message size rules out sending a request as one, so a send that fails partway
+ * leaves the frames before it published. That request is still safe to retry whole: a datapoint
+ * is stored once per series and timestamp however often it arrives. What must not be counted
+ * twice is counted per frame as it lands instead: the datapoint quotas, the latest-value cache
+ * and the ingest counter.
  */
 @Service
 @Slf4j
@@ -81,16 +90,18 @@ public class DatapointBinaryIngestService {
     }
 
     /**
-     * @param body the raw request body, one or more frames
+     * @param body the request body, one or more frames; read only once a permit is held, so the
+     *             in-flight cap also bounds how many bodies are buffered, and a refused request is
+     *             answered before its body arrives
      * @param declaredContentLength the request's Content-Length, or a negative number when chunked;
      *                              the size filter already charged that many bytes to the quota
      */
-    public Summary ingest(byte[] body, long declaredContentLength) {
+    public Summary ingest(InputStream body, long declaredContentLength) throws IOException {
         if (!inFlight.tryAcquire()) {
             throw DatapointBlockRejectedException.tooManyInFlight(inFlightLimit);
         }
         try {
-            return validateAndPublish(body, declaredContentLength);
+            return validateAndPublish(body.readAllBytes(), declaredContentLength);
         } finally {
             inFlight.release();
         }
@@ -153,12 +164,15 @@ public class DatapointBinaryIngestService {
             rawTotal += f.rawLength();
         }
 
-        // Quotas last, so a refused request charges nothing. The size filter charged the declared
-        // (compressed) bytes; top up to the decompressed size so compression does not shrink the
-        // allowance, and charge chunked bodies, which the filter never sees a length for, in full.
-        ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.DATAPOINTS, totalRows);
+        // Quotas last, so a refused request charges nothing. The rows are checked for the whole
+        // request here and charged below as each frame lands, so a publish that fails partway is
+        // not billed for the frames it never sent. Bytes are charged per attempt, as the size filter
+        // already charged the declared (compressed) ones: top up to the decompressed size so
+        // compression does not shrink the allowance, and charge chunked bodies, which the filter
+        // never sees a length for, in full.
+        ingestQuota.check(IngestQuotaService.QuotaMetric.DATAPOINTS, totalRows);
         if (textRows > 0) {
-            ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, textRows);
+            ingestQuota.check(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, textRows);
         }
         long topUp = rawTotal - Math.max(declaredContentLength, 0);
         if (topUp > 0) {
@@ -178,17 +192,19 @@ public class DatapointBinaryIngestService {
                         .value(f.frameBytes())
                         .send();
             } catch (PulsarClientException e) {
-                throw new IllegalStateException("Publishing frame " + f.index() + " failed", e);
+                throw new IllegalStateException("Publishing frame " + f.index() + " of " + frames.size()
+                        + " failed; the frames before it were published", e);
             }
-        }
-
-        for (DatapointFrame f : frames) {
+            ingestQuota.record(IngestQuotaService.QuotaMetric.DATAPOINTS, f.rowCount());
+            if (f.valueType().carriesText()) {
+                ingestQuota.record(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, f.rowCount());
+            }
             for (Run run : f.runs()) {
                 int last = run.to() - 1;
                 latestDatapointCache.update(run.externalId(), f.timestamp(last), f.valueAsString(last));
             }
+            datapointIngestCounter.recordIngested(tenantId, f.rowCount());
         }
-        datapointIngestCounter.recordIngested(tenantId, totalRows);
         return new Summary(frames.size(), totalRows, ids.size());
     }
 

@@ -25,11 +25,14 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -53,7 +56,9 @@ class TimeseriesBinaryIngestTest {
     final AtomicInteger byIdsCalls = new AtomicInteger();
     final AtomicInteger binaryCalls = new AtomicInteger();
     final List<Integer> scriptedStatuses = new CopyOnWriteArrayList<>();
-    String scriptedBody = "";
+    /** When set, decides a binary request's status from the frames it carries, whatever order requests arrive in. */
+    volatile Function<List<DatapointFrame>, Integer> statusByContent;
+    volatile String scriptedBody = "";
     String lastContentType;
     HttpServer server;
     DatahubClient client;
@@ -81,6 +86,9 @@ class TimeseriesBinaryIngestTest {
             lastContentType = exchange.getRequestHeaders().getFirst("Content-Type");
             byte[] body = exchange.getRequestBody().readAllBytes();
             int status = n <= scriptedStatuses.size() ? scriptedStatuses.get(n - 1) : 204;
+            if (statusByContent != null) {
+                status = statusByContent.apply(DatapointFrame.parseAll(body, new ZstdPayloadCodec()));
+            }
             if (status == 204) {
                 List<DatapointFrame> frames = DatapointFrame.parseAll(body, new ZstdPayloadCodec());
                 long rows = 0;
@@ -231,6 +239,133 @@ class TimeseriesBinaryIngestTest {
         assertEquals(10, result.succeeded());
         assertEquals(2, binaryCalls.get());
         assertEquals(2, byIdsCalls.get(), "the series was evicted and resolved again");
+    }
+
+    static final String EXTERNAL_ID_MISMATCH = "{\"type\":\"https://intellistream.ai/errors/datapoint-block-rejected\",\"reason\":\"external-id-mismatch\"}";
+    static final String UNKNOWN_TIMESERIES = "{\"type\":\"https://intellistream.ai/errors/datapoint-block-rejected\",\"reason\":\"unknown-timeseries\"}";
+
+    private static DatapointsCollection textCollection(String externalId, int n) {
+        DatapointsCollection collection = new DatapointsCollection();
+        collection.setExternalId(externalId);
+        List<DatapointString> datapoints = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            datapoints.add(new DatapointString(String.valueOf(1_700_000_000_000L + i * 1000L), "v" + i));
+        }
+        collection.setDatapoints(datapoints);
+        return collection;
+    }
+
+    private long rowsReceived() {
+        long rows = 0;
+        for (Received r : received) rows += r.rows();
+        return rows;
+    }
+
+    @Test
+    void aStaleRequestSendsAgainOnlyThePointsItCarried() {
+        // 400,000 text points are 40 frames of 10,000, packed as two requests of 32 frames and 8.
+        // The one collection spans both, so re-sending the collection would repeat the request
+        // that succeeded.
+        catalogue.put("state", new String[]{"5", "text"});
+        scriptedStatuses.add(204);
+        scriptedStatuses.add(422);
+        scriptedBody = EXTERNAL_ID_MISMATCH;
+
+        IngestResult result = client.timeseries().ingestBinary(List.of(textCollection("state", 400_000)),
+                BinaryIngestOptions.builder().zstdLevel(1).build());
+
+        assertTrue(result.isComplete(), result.toString());
+        assertEquals(3, binaryCalls.get());
+        assertEquals(400_000, rowsReceived(), "every point reaches the server once");
+        assertEquals(400_000, result.succeeded());
+    }
+
+    @Test
+    void aStaleErrorRetriesTheRequestThatFailedNotAnotherOfTheSameSize() {
+        // Two series of 320,000 text points fill two requests of exactly the same size, and only
+        // the second series' request is refused as stale.
+        catalogue.put("a", new String[]{"1", "text"});
+        catalogue.put("b", new String[]{"2", "text"});
+        AtomicBoolean refused = new AtomicBoolean();
+        statusByContent = frames -> frames.get(0).seriesIds()[0] == 2L && refused.compareAndSet(false, true) ? 422 : 204;
+        scriptedBody = EXTERNAL_ID_MISMATCH;
+
+        IngestResult result = client.timeseries().ingestBinary(
+                List.of(textCollection("a", 320_000), textCollection("b", 320_000)),
+                BinaryIngestOptions.builder().zstdLevel(1).build());
+
+        assertTrue(result.isComplete(), result.toString());
+        assertEquals(640_000, result.succeeded());
+        Map<Long, Long> rowsPerSeries = new HashMap<>();
+        for (Received r : received) {
+            for (DatapointFrame f : r.parsed()) {
+                rowsPerSeries.merge(f.seriesIds()[0], (long) f.rowCount(), Long::sum);
+            }
+        }
+        assertEquals(Map.of(1L, 320_000L, 2L, 320_000L), rowsPerSeries);
+    }
+
+    @Test
+    void aLocalErrorInAStaleRequestIsCountedOnce() {
+        catalogue.put("temp", new String[]{"3", "float32"});
+        DatapointsCollection c = collection("temp", 10);
+        c.getDatapoints().add(new DatapointString("1700000010000", "not-a-number"));
+        scriptedStatuses.add(404);
+        scriptedBody = UNKNOWN_TIMESERIES;
+
+        IngestResult result = client.timeseries().ingestBinary(List.of(c));
+
+        assertEquals(10, result.succeeded(), result.toString());
+        assertEquals(1, result.failed());
+        assertEquals(1, result.errors().size(), result.errors().toString());
+        assertEquals(422, result.errors().get(0).statusCode());
+    }
+
+    @Test
+    void aSeriesStillUnknownWhenResolvedAgainFailsOnce() {
+        // The server refuses the series and it is gone from the lookup too, so the retry never sends.
+        catalogue.put("temp", new String[]{"3", "float32"});
+        statusByContent = frames -> {
+            catalogue.remove("temp");
+            return 404;
+        };
+        scriptedBody = UNKNOWN_TIMESERIES;
+
+        IngestResult result = client.timeseries().ingestBinary(List.of(collection("temp", 10)));
+
+        assertEquals(0, result.succeeded(), result.toString());
+        assertEquals(10, result.failed());
+        assertEquals(1, result.errors().size(), result.errors().toString());
+        assertEquals(404, result.errors().get(0).statusCode());
+        assertEquals(1, binaryCalls.get());
+        assertEquals(2, byIdsCalls.get());
+    }
+
+    @Test
+    void framesAreCutOnTheirSizeAsSentWhenTheDirectoryIsLarge() {
+        // 10,000 series is the per-frame series cap, and 256 characters the external id cap; with
+        // two UTF-8 bytes to a character the directory alone would be past the frame cap, which
+        // neither the row count nor the payload size would notice.
+        List<DatapointsCollection> data = new ArrayList<>();
+        for (int i = 1; i <= 10_000; i++) {
+            String name = (i + "-" + "ø".repeat(256)).substring(0, 256);
+            catalogue.put(name, new String[]{String.valueOf(i), "float32"});
+            data.add(collection(name, 3));
+        }
+
+        IngestResult result = client.timeseries().ingestBinary(data, BinaryIngestOptions.builder().zstdLevel(1).build());
+
+        assertTrue(result.isComplete(), result.toString());
+        assertEquals(30_000, result.succeeded());
+        int frames = 0;
+        for (Received r : received) {
+            for (DatapointFrame f : r.parsed()) {
+                frames++;
+                assertTrue(f.frameBytes().length <= FrameLimits.MAX_FRAME_BYTES,
+                        "frame of " + f.frameBytes().length + " bytes");
+            }
+        }
+        assertTrue(frames > 1, "the series are split across frames");
     }
 
     @Test
