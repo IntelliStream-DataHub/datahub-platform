@@ -388,12 +388,6 @@ public class EventController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = DuplicateError.class)
             ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
-            ))
     @PostMapping(
             path = "/create",
             produces = MediaType.APPLICATION_JSON_VALUE

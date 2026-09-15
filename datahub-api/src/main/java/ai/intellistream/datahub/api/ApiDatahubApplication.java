@@ -112,9 +112,10 @@ import java.util.Map;
                               or use the corresponding `/update` endpoint. Or a `ConflictError`
                               ("the resource was modified or removed by another request") — re-read
                               the current state and retry.
-                            - **422 Unprocessable Entity** — input was parseable but a field failed
-                              validation (length, allowed characters, required-ness). Response lists
-                              the offending fields.
+                            - **422 Unprocessable Entity** — only `POST /timeseries/data`, where a
+                              value did not parse against the target series' `valueType`. Field
+                              validation is a **400** everywhere, including on that endpoint; this
+                              page used to say otherwise and no endpoint has ever behaved that way.
                             - **429 Too Many Requests** — you've hit a rate limit. Back off and retry.
                             - **5xx** — something went wrong on our side. Safe to retry after a short
                               backoff; if it persists, contact support.

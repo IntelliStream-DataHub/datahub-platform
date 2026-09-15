@@ -393,11 +393,6 @@ public class TimeseriesController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = DuplicateError.class)
             ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules. Response lists the offending fields.",
-            content = @Content(
-                    schema = @Schema(implementation = DataWrapper.class)
-            ))
     @PostMapping(
             path = "/create",
             produces = MediaType.APPLICATION_JSON_VALUE
@@ -800,9 +795,16 @@ public class TimeseriesController {
                     schema = @Schema(implementation = BadRequestError.class)
             ))
     @ApiResponse(responseCode = "422", description =
-            "A value failed to parse against the target timeseries' `valueType` — e.g. " +
-                    "text value sent to a `BIGINT` timeseries. Fix the offending entry and retry."
-    )
+            "The insert failed and nothing was written. Most often a value that will not parse " +
+                    "against the target timeseries' `valueType` — e.g. text sent to a `BIGINT` " +
+                    "series — in which case fixing the offending entry and retrying works. " +
+                    "This is also where any other unexpected failure lands, so a 422 here does " +
+                    "not by itself prove the request was at fault; check the message.",
+            content = @Content(
+                    mediaType = MediaType.TEXT_PLAIN_VALUE,
+                    schema = @Schema(type = "string",
+                            example = "Value 'warm' is not valid for a BIGINT timeseries.")
+            ))
     @PostMapping( path = "/data",
             produces = {"application/json"},
             consumes = {"application/json"}

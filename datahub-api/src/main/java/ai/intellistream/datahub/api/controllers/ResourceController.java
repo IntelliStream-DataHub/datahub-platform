@@ -574,12 +574,6 @@ public class ResourceController {
                             }
                             """)
             ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules (length limits, character set, " +
-                    "required-ness). Response lists the offending fields per entry.",
-            content = @Content(
-                    schema = @Schema(implementation = DataWrapper.class)
-            ))
     @PostMapping(
             path = "/create",
             produces = MediaType.APPLICATION_JSON_VALUE
