@@ -249,9 +249,20 @@ jobs:
         working-directory: sdk
         run: cargo test
 
-      - name: 'Rust SDK — the #[ignore]d live suite'
-        working-directory: sdk
-        run: cargo test -- --ignored --test-threads=1
+      # The #[ignore]d suite is deliberately NOT run. `cargo test -- --ignored` is
+      # 26 tests, and what they actually buy here does not justify the step:
+      #   - 15 are the multi-tenant ACL suites, which no-op. They need MT_* fixtures
+      #     the dev realm does not ship (see the coverage-gap step below), so they
+      #     report `ok` without asserting anything — a green step that tested nothing.
+      #   - 1 is timeseries::test::tests::test_datapoints, a 5,184,000-datapoint soak
+      #     in 100k batches. That is a load test, not a wire-contract test, and this
+      #     workflow exists for the contract. It also needs ~1.5 GB of api heap, four
+      #     times what the dev stack is sized for.
+      # The remaining ~10 (label lifecycle, functions roundtrip, the 400 on deleting
+      # a subscription-bound timeseries) are real coverage and are the thing being
+      # given up here. If they are wanted back, run them on their own rather than
+      # taking the soak along with them:
+      #   cargo test -- --ignored --test-threads=1 --skip test_datapoints
 
       # Builds the bindings (maturin develop) then runs pytest. Not hoisted above
       # the boot like the Rust compile: it needs the venv the script itself
@@ -280,9 +291,12 @@ jobs:
         run: |
           {
             echo "### Not covered by this run"
+            echo "- The Rust \`#[ignore]\`d suite does not run at all: label lifecycle,"
+            echo "  functions roundtrip and the subscription-bound timeseries delete are"
+            echo "  uncovered here, and so is datapoint ingest at volume."
             echo "- Multi-tenant ACL suites (\`src/multi_tenant_integration.rs\`,"
-            echo "  \`python_tests/test_multi_tenant_acl.py\`) **skip**: the dev realm ships"
-            echo "  only the foo/bar service clients, so no \`MT_*\` fixtures are configured."
+            echo "  \`python_tests/test_multi_tenant_acl.py\`) assert nothing: the dev realm"
+            echo "  ships only the foo/bar service clients, so no \`MT_*\` fixtures exist."
             echo "- \`datahub-console\` and \`datahub-analysis\` are not booted."
           } >> "$GITHUB_STEP_SUMMARY"
 
