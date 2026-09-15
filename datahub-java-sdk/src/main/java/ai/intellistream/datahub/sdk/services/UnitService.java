@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.sdk.services;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.unit.UnitModel;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
@@ -24,8 +25,16 @@ public final class UnitService {
         return http.get("/units", units);
     }
 
-    /** POST /units/byids — look up units by id (set the id on each {@link UnitModel}). */
-    public DataWrapper<UnitModel> byIds(List<UnitModel> ids) {
-        return http.post("/units/byids", new DataWrapper<UnitModel>().setItems(ids), units);
+    /**
+     * POST /units/byids — look up units by {@code id} or {@code externalId}.
+     *
+     * <p>Takes {@link IdCollection}, which is what the endpoint binds. It used to take
+     * {@code List<UnitModel>} and post the whole unit — name, symbol, quantity, conversion and the
+     * rest — into a body with no such fields. The api rejects unknown request fields, so every call
+     * was a 400; {@code aliasNames} initialises to a {@code TreeSet} and is emitted even on a
+     * default instance, so there was no input that worked.
+     */
+    public DataWrapper<UnitModel> byIds(List<IdCollection> ids) {
+        return http.post("/units/byids", new DataWrapper<IdCollection>().setItems(ids), units);
     }
 }
