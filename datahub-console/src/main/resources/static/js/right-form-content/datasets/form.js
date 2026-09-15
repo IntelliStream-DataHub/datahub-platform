@@ -105,17 +105,27 @@ class DataSetForm extends DatasetFormAbstract {
 
     submit() {
         this.formData = new FormData(this.formElement);
-        const obj = Object.fromEntries(this.formData);
+        const form = Object.fromEntries(this.formData);
 
-        // No deactivated/writeProtected here: #300 removed both from the dataset model, and this
-        // form never rendered a checkbox for either, so getBool() only ever returned false. Since
-        // #324 the api rejects a body naming fields it does not have, so sending them 400s the
-        // whole create. The write-protect policy push went with them — it was gated on the same
-        // always-false flag.
-        // The hidden inputs hold ids as text and List<Long> reads text, so there is nothing for
-        // .map(Number) to do here except lose precision on a big enough id.
-        obj.connectedDataSets = this.formData.getAll('connectedDataSets');
-        obj.policies = [];
+        // Named field by field: the metadata rows are form inputs too, and the api refuses a body
+        // with fields it does not have.
+        const obj = {
+            name: form.name,
+            externalId: form.externalId,
+            description: form.description,
+            metadata: {},
+            // The hidden inputs hold ids as text and List<Long> reads text, so there is nothing for
+            // .map(Number) to do here except lose precision on a big enough id.
+            connectedDataSets: this.formData.getAll('connectedDataSets'),
+            policies: []
+        };
+        this.formElement.querySelectorAll('table.metadata tbody tr').forEach( row => {
+            const keyField = row.querySelector('[name$="key"]');
+            const valueField = row.querySelector('[name$="value"]');
+            if(keyField && valueField && keyField.value !== ""){
+                obj.metadata[keyField.value] = valueField.value;
+            }
+        });
 
         Api.post(this.savePath, { items: [obj] })
             .then(response => this.handleResponse(response))
