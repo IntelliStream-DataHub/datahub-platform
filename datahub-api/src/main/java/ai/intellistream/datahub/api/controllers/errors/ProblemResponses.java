@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers.errors;
 
+import ai.intellistream.datahub.api.filters.RequestIdFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpStatusCode;
@@ -32,6 +33,7 @@ public final class ProblemResponses {
         if (problem.getInstance() == null && request.getRequestURI() != null) {
             problem.setInstance(URI.create(request.getRequestURI()));
         }
+        Problems.decorate(problem, RequestIdFilter.current(request));
         // resetBuffer, not reset: WWW-Authenticate and Retry-After are already set and must survive.
         response.resetBuffer();
         ServletServerHttpResponse out = new ServletServerHttpResponse(response);

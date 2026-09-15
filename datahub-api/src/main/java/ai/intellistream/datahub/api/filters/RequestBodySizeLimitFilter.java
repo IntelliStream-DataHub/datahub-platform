@@ -3,6 +3,9 @@ package ai.intellistream.datahub.api.filters;
 
 import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.controllers.errors.IngestQuotaExceededException;
+import ai.intellistream.datahub.api.controllers.errors.LimitExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.ProblemResponses;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.services.IngestQuotaService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
@@ -14,7 +17,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -74,7 +77,7 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
             try {
                 ingestQuota.checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, declared);
             } catch (IngestQuotaExceededException e) {
-                refuseOverQuota(response, e);
+                refuseOverQuota(request, response, e);
                 return;
             }
         }
@@ -97,26 +100,14 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
     }
 
     /** Same 429 the advice would produce, written here because a filter never reaches one. */
-    private static void refuseOverQuota(HttpServletResponse response, IngestQuotaExceededException e)
-            throws IOException {
+    private static void refuseOverQuota(HttpServletRequest request, HttpServletResponse response,
+                                        IngestQuotaExceededException e) throws IOException {
         if (response.isCommitted()) {
             return;
         }
         response.reset();
-        response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(e.getRetryAfterSeconds()));
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("""
-                {"type":"https://intellistream.ai/errors/ingest-quota-exceeded",\
-                "title":"Ingest quota exceeded",\
-                "status":429,\
-                "detail":"%s",\
-                "metric":"%s",\
-                "limit":%d,\
-                "retryAfter":%d}"""
-                .formatted(e.detail(), e.getMetric(), e.getLimit(), e.getRetryAfterSeconds()));
-        response.getWriter().flush();
+        ProblemResponses.write(request, response, LimitExceptionHandler.quotaProblem(e));
     }
 
     /** Datapoint inserts get their own, larger ceiling; everything else shares the general one. */
@@ -150,17 +141,10 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
             return;
         }
         response.reset();
-        response.setStatus(HttpStatus.PAYLOAD_TOO_LARGE.value());
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("""
-                {"type":"https://intellistream.ai/errors/request-too-large",\
-                "title":"Request body too large",\
-                "status":413,\
-                "detail":"The request body exceeds the %d byte limit for this endpoint.",\
-                "limitBytes":%d}"""
-                .formatted(limit, limit));
-        response.getWriter().flush();
+        ProblemDetail problem = Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.type("request-too-large"),
+                "Request body too large", "The request body exceeds the %d byte limit for this endpoint.".formatted(limit));
+        problem.setProperty("limitBytes", limit);
+        ProblemResponses.write(request, response, problem);
     }
 
     /** Fails the read as soon as more than {@code limit} bytes have been consumed. */
