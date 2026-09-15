@@ -1567,23 +1567,22 @@ class PolicyForm extends DatasetFormAbstract {
         // default: that row is technically a create, because no policy node exists yet, but it is
         // presented as the rule already in force, so "Create policy" would misdescribe it.
         obj.title = obj.title || (obj.entityId ? $L('edit.policy') : $L('create.policy'));
-        obj.apiUrl = "/api/policies";               // used by loadData()
         // Deliberately no deleteUrl: the base form draws its delete button from one, and a policy
         // is deactivated rather than deleted. See addDeactivateButton().
         super(obj);
 
         this.entityId = obj.entityId || null;
         // When a policy is created from a dataset node, attach it to that dataset: the id rides
-        // inside the existing /api/policies/create payload and the API adds a ENFORCED_ON edge.
+        // inside the POST /policies/create payload and the API adds a ENFORCED_ON edge.
         this.dataSetId = obj.dataSetId || null;
         // Optional starting values for a create; see the assignment to this.meta in render().
         this.seedMeta = obj.meta || null;
         // Mirrors the policy's `deactivated` metadata key; loaded in loadExistingPolicy().
         this.deactivated = false;
 
-        this.submitUrl = this.entityId
-            ? "/api/policies/update"
-            : "/api/policies/create";
+        this.submitPath = this.entityId
+            ? "/policies/update"
+            : "/policies/create";
     }
 
     // Policy kinds (the issue's families). Params are captured as node metadata.
@@ -1936,8 +1935,8 @@ class PolicyForm extends DatasetFormAbstract {
     }
 
     loadExistingPolicy() {
-        fetch(`/api/policies/${this.entityId}`)
-            .then(r => r.json())
+        Api.get('/policies/' + encodeURIComponent(this.entityId))
+            .then(r => r.ok ? r.json() : DataHubProblem.read(r).then(problem => { throw problem; }))
             .then(json => {
                 const p = json.items[0];
                 this.formElement.querySelector('input[name="name"]').value = p.name || '';
@@ -1946,13 +1945,18 @@ class PolicyForm extends DatasetFormAbstract {
                 // Rebuild working state from stored metadata (kind + params).
                 this.meta = Object.assign({ kind:'LIFECYCLE', enforced:'CONTINUOUS', onFailure:'WARN' }, p.metadata || {});
                 if (!this.meta.kind) this.meta.kind = 'LIFECYCLE';
-                this.deactivated = p.isDeactivated === true;
+                // The api names the flag `deactivated`; reading isDeactivated left an edit reactivating it.
+                this.deactivated = p.deactivated === true;
                 delete this.meta.deactivated;   // storage detail, not a kind param
                 this.syncDeactivateButton();
                 this.renderKindSelector();
                 this.renderKindParams();
                 this.syncCommonInputs();
                 this.updateSummary();
+            })
+            .catch(e => {
+                if (e instanceof DataHubProblem) this.flashError(e.message(), e.details());
+                else console.error(e);
             });
     }
 
@@ -2064,22 +2068,13 @@ class PolicyForm extends DatasetFormAbstract {
                 name,
                 externalId,
                 description,
-                isDeactivated: this.deactivated,
+                deactivated: this.deactivated,
                 // Set only when creating from a dataset node.
                 dataSetId: this.dataSetId,
                 metadata: this.buildMetadata()
             }]};
 
-        fetch(this.submitUrl, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                Accept: "application/json",
-                [document.querySelector('meta[name="_csrf_header"]').content]:
-                document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify(payload)
-        })
+        Api.post(this.submitPath, payload)
             .then(response => this.handleResponse(response))
             .catch(err => console.error("Policy save failed", err));
     }
@@ -2092,21 +2087,14 @@ class PolicyForm extends DatasetFormAbstract {
             ]
         };
 
-        fetch(`/api/policies/delete`, {
-            method: "DELETE",
-            headers: {
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-                [document.querySelector('meta[name="_csrf_header"]').content]:
-                document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify(body)
-        })
+        Api.del('/policies/delete', body)
             .then(r => {
                 if (r.status === 200 || r.status === 204) {
                     const cancelBtn = this.formElement.querySelector('.dh-btn.secondary');
                     cancelBtn?.click();
                     if (this.afterDeleteFn) this.afterDeleteFn(this);
+                } else {
+                    this.flashProblem(r, 'error.problem.failed');
                 }
             });
     }
