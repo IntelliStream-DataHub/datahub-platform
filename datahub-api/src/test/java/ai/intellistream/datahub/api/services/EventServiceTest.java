@@ -308,8 +308,8 @@ class EventServiceTest {
         when(nodeRepository.findAllByIdAsIdList(anySet())).thenReturn(List.of());
 
         BadRequestException ex = assertThrows(BadRequestException.class, () -> eventService.update(input));
-        assertTrue(ex.getError().getError().getFields().stream()
-                        .anyMatch(it -> "999".equals(it.get("dataSet"))),
+        assertTrue(ex.getFields().stream()
+                        .anyMatch(it -> "dataSet".equals(it.field()) && "999".equals(it.message())),
                 "the error must name the dataset that could not be found");
         verify(applicationEventPublisher, never()).publishEvent(any(EventCudPublishEvent.class));
     }

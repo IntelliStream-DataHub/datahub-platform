@@ -10,7 +10,6 @@ import ai.intellistream.datahub.api.responses.swaggerdto.EventDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.UUIDAndExternalIdCollectionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.UpdateEventDataWrapper;
 import ai.intellistream.datahub.api.services.EventService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
@@ -39,6 +38,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Set;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/events")
@@ -356,20 +356,14 @@ public class EventController {
                     "`relatedResources` entry points at a resource that doesn't exist, or its " +
                     "`id` and `externalId` name different resources.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "An event with one of the `externalId`s already exists. Pick a different one.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
-            ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -447,8 +441,8 @@ public class EventController {
                     "neither `id` nor `externalId` supplied, the event doesn't exist, or " +
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "429", description = "Too many requests — back off and retry.",
             content = @Content)
@@ -503,8 +497,8 @@ public class EventController {
             content = @Content)
     @ApiResponse(responseCode = "400", description = "Malformed request — e.g. neither `id` nor `externalId` supplied on an entry.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(
             path = "/delete",

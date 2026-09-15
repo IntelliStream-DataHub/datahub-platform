@@ -6,7 +6,6 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.List;
 
 /**
  * A taken external id, as a 409 naming what collided.
@@ -21,9 +20,8 @@ public class DuplicateDataExceptionHandler {
 
     @ExceptionHandler(DuplicateDataException.class)
     public ProblemDetail handle(DuplicateDataException ex) {
-        DuplicateError error = ex.getError() == null ? null : ex.getError().getError();
-        String detail = error == null ? "Already exists." : error.getMessage();
+        String detail = ex.getMessage() == null ? "Already exists." : ex.getMessage();
         log.debug("Rejecting duplicate: {}", detail);
-        return Problems.duplicate(detail, error == null ? List.of() : error.getDuplicated());
+        return Problems.duplicate(detail, ex.getDuplicated());
     }
 }

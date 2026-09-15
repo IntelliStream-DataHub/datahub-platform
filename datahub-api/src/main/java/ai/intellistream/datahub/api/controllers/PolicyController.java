@@ -2,8 +2,6 @@
 package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.policy.PolicyScopeValidator;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -18,8 +16,6 @@ import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.errors.ResponseError;
 import org.springframework.http.HttpStatusCode;
 import ai.intellistream.datahub.transformers.PolicyTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
@@ -302,15 +298,15 @@ public class PolicyController {
     )
     @ApiResponse(responseCode = "400", description = "The request carried no policies, or one failed validation.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "Concurrency conflict — another request modified or deleted the policy " +
                     "between read and write. Clients should re-fetch the current state and retry.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     public ResponseEntity<?> updatePolicy(
             @Schema(implementation = UpdatePolicyDataWrapper.class)
@@ -366,7 +362,7 @@ public class PolicyController {
     @ApiResponse(responseCode = "200", description = "What the policy would decide for each id.")
     @ApiResponse(responseCode = "403", description = "No read access to the requested data set.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    mediaType = "application/problem+json",
                     schema = @Schema(implementation = ProblemDetail.class)
             ))
     public ResponseEntity<Map<String, List<PolicyFinding>>> check(

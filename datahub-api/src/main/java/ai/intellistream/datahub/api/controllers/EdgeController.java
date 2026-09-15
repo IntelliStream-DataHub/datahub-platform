@@ -2,7 +2,6 @@
 package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.LimitException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -167,8 +166,8 @@ public class EdgeController {
                     "that doesn't exist, a missing relationship type, or a relation the graph " +
                     "rules forbid.",
             content = @Content(
-                    mediaType = "application/json",
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -260,8 +259,8 @@ public class EdgeController {
     @ApiResponse(responseCode = "400", description =
             "A type name was rejected — for example one that normalises down to nothing.",
             content = @Content(
-                    mediaType = "application/json",
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "A relationship type with the same (case-insensitive) name already exists.", content = @Content)
@@ -280,10 +279,9 @@ public class EdgeController {
         // by RelationshipType.setName. Surface it as a 400 warning rather than a 500.
         catch (IllegalArgumentException e) {
             log.warn("Rejected relationship type creation: {}", e.getMessage());
-            BadRequestError error = new BadRequestError()
-                    .setMessage(e.getMessage())
-                    .addFieldError("name", e.getMessage());
-            return new ResponseEntity<>(error, HttpStatus.BAD_REQUEST);
+            // Was the one place in the API that answered with a bare error object outside any
+            // envelope. BadRequestExceptionHandler renders it now, like every other 400.
+            throw new BadRequestException(e.getMessage(), "name", e.getMessage());
         }
     }
 

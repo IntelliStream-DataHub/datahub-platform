@@ -30,6 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 /**
  * MCP tool wrappers for timeseries CRUD and datapoint I/O.
@@ -228,7 +229,11 @@ public class TimeseriesMcpTools {
 
         var req = new DataWrapper<DatapointsCollection>();
         req.getItems().add(coll);
-        return timeseriesService.insertDatapoints(req);
+        // insertDatapoints answers with the targets it could not resolve; wrap them so the tool
+        // result still shows what was skipped rather than reporting a silent success.
+        var skipped = new DataWrapper<Map<String, String>>();
+        skipped.getItems().addAll(timeseriesService.insertDatapoints(req));
+        return skipped;
     }
 
     @Tool(

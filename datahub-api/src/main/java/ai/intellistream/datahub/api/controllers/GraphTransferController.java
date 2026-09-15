@@ -2,7 +2,6 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.Problems;
 import org.springframework.http.ProblemDetail;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.graphtransfer.GraphFileCodec;
 import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
@@ -10,7 +9,6 @@ import ai.intellistream.datahub.api.graphtransfer.GraphTransferLimitException;
 import ai.intellistream.datahub.api.graphtransfer.InvalidGraphFileException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
 import ai.intellistream.datahub.api.services.GraphTransferService;
-import ai.intellistream.datahub.errors.ResponseError;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -81,8 +79,8 @@ public class GraphTransferController {
             "The component is over the export limit (2,000,000 nodes / 2,000,000 relationships). "
                     + "Nothing is exported partially.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(value = "/export/{id}", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<?> export(
@@ -151,15 +149,15 @@ public class GraphTransferController {
     @ApiResponse(responseCode = "400", description =
             "The body is not a readable graph export file, or its content failed validation.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "413", description =
             "The file is over a transfer limit: larger than 512 MB, or more than 2,000,000 nodes "
                     + "or 2,000,000 relationships. Nothing is imported.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(value = "/import",
             consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE,
@@ -187,8 +185,9 @@ public class GraphTransferController {
             // per-item violations list, same as /resources/create.
             throw e;
         } catch (BadRequestException e) {
-            var error = e.getError();
-            return new ResponseEntity<>(error, HttpStatus.valueOf(error.getError().getCode()));
+            // Was the last place reading a status back out of an error body. The advice answers it
+            // now, with the 400 the status field always held.
+            throw e;
         }
         // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
         catch (org.springframework.security.access.AccessDeniedException e) {
