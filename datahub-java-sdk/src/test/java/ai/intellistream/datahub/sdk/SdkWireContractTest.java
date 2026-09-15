@@ -285,7 +285,7 @@ class SdkWireContractTest {
             new Contract("timeseries.list", "GET", "/timeseries", null,
                     c -> c.timeseries().list(10)),
             new Contract("timeseries.listByDataSet", "GET", "/timeseries", null,
-                    c -> c.timeseries().list(10, "plant_a")),
+                    c -> c.timeseries().list(10, 5677892L)),
             new Contract("timeseries.getById", "GET", "/timeseries/1", null,
                     c -> c.timeseries().getById(1)),
             new Contract("timeseries.recommendValueType", "GET",

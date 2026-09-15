@@ -60,11 +60,13 @@ public final class FileService {
     }
 
     /**
-     * GET /files/search — full-text search over file names, paths and metadata.
+     * GET /files/search — match text against file and folder <em>names</em>.
      *
-     * <p>Pass {@code null} for {@code limit} to take the server default. Unlike
-     * {@link #list(String)} this crosses folders, so it is the way to find a file whose location
-     * you do not know.
+     * <p>Names only: neither the path nor the metadata is searched, so a term that appears only in
+     * a folder further up the path will not find the file beneath it. It does cross folders
+     * though, which is what makes it the way to find a file whose location you do not know.
+     *
+     * <p>{@code limit} defaults to 100 and caps at 1000; pass {@code null} to take the default.
      */
     public DataWrapper<IndexNode> search(String q, Integer limit) {
         StringBuilder url = new StringBuilder("/files/search?q=")

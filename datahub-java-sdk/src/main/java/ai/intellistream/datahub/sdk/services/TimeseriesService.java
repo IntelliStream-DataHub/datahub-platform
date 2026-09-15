@@ -114,12 +114,15 @@ public final class TimeseriesService {
     }
 
     /**
-     * {@link #list(int)} restricted to one data set and everything beneath it in the
-     * {@code BELONGS_TO} hierarchy. The data set is named by id or external id.
+     * {@link #list(int)} restricted to one data set and every data set beneath it in the
+     * {@code BELONGS_TO} hierarchy.
+     *
+     * <p>Numeric id only: this endpoint rejects an external id with a {@code 400}, unlike
+     * {@link #filter(ai.intellistream.datahub.models.datafilters.TimeseriesFilter)}, whose
+     * {@code dataSetId} takes either.
      */
-    public DataWrapper<Timeseries> list(int limit, String dataSetId) {
-        return http.get("/timeseries?limit=" + limit
-                + "&dataSetId=" + URLEncoder.encode(dataSetId, StandardCharsets.UTF_8), timeseries);
+    public DataWrapper<Timeseries> list(int limit, long dataSetId) {
+        return http.get("/timeseries?limit=" + limit + "&dataSetId=" + dataSetId, timeseries);
     }
 
     /**
