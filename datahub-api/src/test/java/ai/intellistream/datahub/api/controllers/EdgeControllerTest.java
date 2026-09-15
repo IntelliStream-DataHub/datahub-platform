@@ -5,6 +5,8 @@ import ai.intellistream.datahub.api.controllers.errors.DataIntegrityViolationExc
 import ai.intellistream.datahub.api.controllers.errors.BadRequestExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
+import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.EdgeService;
@@ -72,7 +74,9 @@ class EdgeControllerTest {
                 // EdgeController no longer catches BadRequestException itself.
                 .setControllerAdvice(new BadRequestExceptionHandler(),
                         // The controller no longer catches DataIntegrityViolationException.
-                        new DataIntegrityViolationExceptionHandler())
+                        new DataIntegrityViolationExceptionHandler(),
+                        // …nor ResourceDeleteException.
+                        new ResourceDeleteExceptionHandler())
                 .setValidator(validator)
                 .build();
     }
@@ -233,27 +237,27 @@ class EdgeControllerTest {
     }
 
     @Test
-    void delete_wouldStrandNodes_returns400_withTheOffendingResources() throws Exception {
+    void delete_wouldStrandNodes_returns409_withTheOffendingResources() throws Exception {
         // Removing an edge can disconnect a surviving node from the graph root. The shared
         // resource-delete pipeline refuses that and throws ResourceDeleteException carrying the
-        // stranded resources. The controller must surface it as a 400 with that list — not swallow
-        // it into the broad "error"/500 catch, which would hide from the client exactly which
-        // resources block the delete.
-        ResponseError<BadRequestError> error = new ResponseError<>();
-        error.setError(new BadRequestError()
-                .setMessage("Deleting this selection would disconnect resource(s) [klp_valve_v9]"
-                        + " from the graph root. Include them in the deletion or keep a connecting path.")
-                .addFieldError("externalId", "klp_valve_v9"));
-        doThrow(new ResourceDeleteException(error)).when(edgeService).deleteRelationships(any());
+        // stranded resources. The controller no longer catches it — ResourceDeleteExceptionHandler
+        // renders it — but the client must still learn exactly which resources block the delete,
+        // which is what `blockedBy` carries.
+        doThrow(new ResourceDeleteException(Problems.WOULD_STRAND,
+                "Deleting this selection would disconnect resource(s) [klp_valve_v9]"
+                        + " from the graph root. Include them in the deletion or keep a connecting path.",
+                List.of(Map.of("externalId", "klp_valve_v9"))))
+                .when(edgeService).deleteRelationships(any());
 
         mvc.perform(post("/edges/delete")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"id\":341}]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.message")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/would-strand"))
+                .andExpect(jsonPath("$.detail")
                         .value(org.hamcrest.Matchers.containsString("klp_valve_v9")))
-                .andExpect(jsonPath("$.error.fields[0].externalId").value("klp_valve_v9"));
+                .andExpect(jsonPath("$.blockedBy[0].externalId").value("klp_valve_v9"));
     }
 
     @Test

@@ -209,6 +209,60 @@ class NodeFamilyParityTest {
         assertThat(problem.getType().toString()).isEqualTo("https://intellistream.ai/errors/duplicate");
     }
 
+    /**
+     * F10: a refused delete answers in one shape, from one place.
+     *
+     * <p>Seven controllers caught {@code ResourceDeleteException} and returned the {@code
+     * ResponseError} envelope it carried, which left it the last failure in the API answering in
+     * the old shape after everything else moved to RFC 9457 — a client had to special-case delete.
+     * An eighth, {@code POST /policies/delete}, reaches the same guards and had no catch at all, so
+     * it 500ed. Both are the same defect: the rendering lived in the controllers.
+     */
+    @ParameterizedTest(name = "{0} delete leaves the refusal to the advice")
+    @MethodSource("nodeFamilyControllers")
+    @DisplayName("F10: no controller renders a refused delete itself")
+    void deleteLeavesResourceDeleteToTheAdvice(Class<?> controller) throws Exception {
+        Method delete = methodForPath(controller, "/delete", RequestMethod.POST);
+        assertThat(delete).as("%s should have POST /delete", controller.getSimpleName()).isNotNull();
+
+        String body = methodBody(sourceOf(controller), delete.getName());
+        assertThat(body)
+                .as("%s.%s should let ResourceDeleteException reach ResourceDeleteExceptionHandler",
+                        controller.getSimpleName(), delete.getName())
+                .doesNotContain("catch (ResourceDeleteException")
+                .doesNotContain("catch(ResourceDeleteException");
+    }
+
+    /** The advice the assertion above now relies on. */
+    @Test
+    @DisplayName("F10b: the refused-delete advice answers 409 and names what is in the way")
+    void resourceDeleteAdviceAnswers400WithBlockers() throws Exception {
+        var handler = Class.forName(
+                "ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler");
+        assertThat(handler.getAnnotation(org.springframework.web.bind.annotation.RestControllerAdvice.class))
+                .as("must be an advice, or nothing routes to it")
+                .isNotNull();
+
+        var exception = new ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException(
+                ai.intellistream.datahub.api.controllers.errors.Problems.REFERENCED,
+                "Cannot delete resource(s) that are referenced by subscription(s). "
+                        + "Remove the subscriptions first.",
+                java.util.List.of(java.util.Map.of("subscriptionExternalId", "sub_a")));
+
+        Method handle = handler.getMethod("handle",
+                ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException.class);
+        var problem = (org.springframework.http.ProblemDetail) handle.invoke(
+                handler.getDeclaredConstructor().newInstance(), exception);
+
+        // 409, not 400: the request is well-formed and may be repeated verbatim once the
+        // subscription is gone. Nothing about the payload is the caller's to fix.
+        assertThat(problem.getStatus()).isEqualTo(409);
+        assertThat(problem.getType().toString()).isEqualTo("https://intellistream.ai/errors/referenced");
+        // The blockers are the actionable half of the message: without them the caller knows the
+        // delete failed but not which subscription to remove.
+        assertThat(problem.getProperties()).containsKey("blockedBy");
+    }
+
     /** The controller's own source file, read from the module rather than the classpath. */
     private static String sourceOf(Class<?> controller) throws Exception {
         java.nio.file.Path path = java.nio.file.Path.of("src/main/java",
