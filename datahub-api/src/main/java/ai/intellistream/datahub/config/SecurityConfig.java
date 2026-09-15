@@ -84,8 +84,9 @@ public class SecurityConfig {
         http
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/session/**").permitAll()
-                        // The live-datapoint WebSocket handshake carries its JWT in the `token`
-                        // query param (a browser WS can't send an Authorization header), so it is
+                        // The live-datapoint WebSocket handshake carries its JWT in the
+                        // `datahub.bearer.<jwt>` subprotocol (a browser WS can't send an
+                        // Authorization header), which this filter chain doesn't read, so it is
                         // permitted here and validated inside DatapointListenWebSocketHandler.
                         .requestMatchers("/timeseries/datapoints/listen").permitAll()
                         .requestMatchers("/swagger-ui/**").permitAll()

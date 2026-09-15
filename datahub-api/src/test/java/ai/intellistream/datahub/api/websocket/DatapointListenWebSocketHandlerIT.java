@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
 import tools.jackson.databind.JsonNode;
 
@@ -78,7 +79,7 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
         stubToken(token, "tenant-tail");
 
         List<TextMessage> outbox = synchronizedList();
-        WebSocketSession ws = mockSession("tail-1", tailUri(token, "ts-a"), null, outbox);
+        WebSocketSession ws = mockSession("tail-1", tailUri("ts-a"), null, outbox, bearerHandshake(token));
         handler.afterConnectionEstablished(ws);
 
         // Three rejects produced first, the single accept last: if any filter were broken the rejects
@@ -104,7 +105,7 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
         produceAllDatapoints("tenant-latest", EventAction.CREATE, "ts-l", "before");
 
         List<TextMessage> outbox = synchronizedList();
-        WebSocketSession ws = mockSession("latest-1", tailUri(token, "ts-l"), null, outbox);
+        WebSocketSession ws = mockSession("latest-1", tailUri("ts-l"), null, outbox, bearerHandshake(token));
         handler.afterConnectionEstablished(ws);
 
         produceAllDatapoints("tenant-latest", EventAction.CREATE, "ts-l", "after");
@@ -123,7 +124,7 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
 
         List<TextMessage> outbox = synchronizedList();
         // Connect with an empty interest set: nothing should ever be forwarded.
-        WebSocketSession ws = mockSession("interest-1", tailUri(token, null), null, outbox);
+        WebSocketSession ws = mockSession("interest-1", tailUri(null), null, outbox, bearerHandshake(token));
         handler.afterConnectionEstablished(ws);
 
         produceAllDatapoints("tenant-int", EventAction.CREATE, "ts-i", "ignored");
@@ -148,7 +149,7 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
         when(jwtDecoder.decode(token)).thenReturn(jwtWithRealmRoles("tenant-norole", List.of("SOME_OTHER_ROLE")));
 
         List<TextMessage> outbox = synchronizedList();
-        WebSocketSession ws = mockSession("norole-1", tailUri(token, "ts-a"), null, outbox);
+        WebSocketSession ws = mockSession("norole-1", tailUri("ts-a"), null, outbox, bearerHandshake(token));
         handler.afterConnectionEstablished(ws);
 
         // The connection is closed and nothing is ever streamed.
@@ -163,7 +164,7 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
         when(jwtDecoder.decode(token)).thenReturn(jwtWithRealmRoles("tenant-noread", List.of("DATAHUB_ACCESS")));
 
         List<TextMessage> outbox = synchronizedList();
-        WebSocketSession ws = mockSession("noread-1", tailUri(token, "ts-a"), null, outbox);
+        WebSocketSession ws = mockSession("noread-1", tailUri("ts-a"), null, outbox, bearerHandshake(token));
         handler.afterConnectionEstablished(ws);
 
         produceAllDatapoints("tenant-noread", EventAction.CREATE, "ts-a", "secret");
@@ -172,18 +173,76 @@ class DatapointListenWebSocketHandlerIT extends AbstractPulsarWebSocketIT {
         assertThat(appearsWithin(outbox, Duration.ofSeconds(2), "ts-a", "secret")).isFalse();
     }
 
+    @Test
+    @DisplayName("The removed ?token= query param no longer authenticates a handshake")
+    void tokenQueryParamNoLongerAuthenticates() throws Exception {
+        // Stubbed so the token is a *valid* one: the handshake is refused for where the
+        // credential is, not for what it says.
+        String token = "tok-legacy";
+        stubToken(token, "tenant-legacy");
+
+        List<TextMessage> outbox = synchronizedList();
+        // A client written against the old contract: credential in the request line, no headers.
+        WebSocketSession ws = mockSession("legacy-1", tailUriWithTokenQueryParam(token, "ts-q"), null, outbox);
+        handler.afterConnectionEstablished(ws);
+
+        verify(ws).close(any(CloseStatus.class));
+        assertThat(outbox).isEmpty();
+    }
+
+    @Test
+    @DisplayName("A handshake offering no subprotocol at all is closed")
+    void handshakeWithoutAnyCredentialIsClosed() throws Exception {
+        List<TextMessage> outbox = synchronizedList();
+        WebSocketSession ws = mockSession("anon-1", tailUri("ts-a"), null, outbox,
+                new WebSocketHttpHeaders());
+        handler.afterConnectionEstablished(ws);
+
+        verify(ws).close(any(CloseStatus.class));
+        assertThat(outbox).isEmpty();
+    }
+
+    @Test
+    @DisplayName("A subprotocol offer without the bearer element is not a credential")
+    void plainSubprotocolAloneIsNotACredential() throws Exception {
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.setSecWebSocketProtocol(List.of(DatapointListenWebSocketHandler.NEGOTIATED_SUBPROTOCOL));
+
+        List<TextMessage> outbox = synchronizedList();
+        WebSocketSession ws = mockSession("plain-1", tailUri("ts-a"), null, outbox, headers);
+        handler.afterConnectionEstablished(ws);
+
+        verify(ws).close(any(CloseStatus.class));
+        assertThat(outbox).isEmpty();
+    }
+
     // ---- helpers -------------------------------------------------------------------------------
 
     private void stubToken(String token, String tenantId) {
-        // Each test only ever hands the handler this exact token (via the handshake query string),
+        // Each test only ever hands the handler this exact token (via the handshake subprotocol),
         // so a single specific stub is all that is needed.
         when(jwtDecoder.decode(token)).thenReturn(jwt(tenantId));
     }
 
-    private static URI tailUri(String token, String externalIdsCsv) {
+    private static URI tailUri(String externalIdsCsv) {
+        return URI.create("/timeseries/datapoints/listen"
+                + (externalIdsCsv != null ? "?externalIds=" + externalIdsCsv : ""));
+    }
+
+    /** The removed handshake: the credential in the request line rather than a header. */
+    private static URI tailUriWithTokenQueryParam(String token, String externalIdsCsv) {
         String query = "token=" + token;
         if (externalIdsCsv != null) query += "&externalIds=" + externalIdsCsv;
         return URI.create("/timeseries/datapoints/listen?" + query);
+    }
+
+    /** What a browser sends: the bearer element plus a plain name for the server to echo back. */
+    private static WebSocketHttpHeaders bearerHandshake(String token) {
+        WebSocketHttpHeaders headers = new WebSocketHttpHeaders();
+        headers.setSecWebSocketProtocol(List.of(
+                DatapointListenWebSocketHandler.BEARER_SUBPROTOCOL_PREFIX + token,
+                DatapointListenWebSocketHandler.NEGOTIATED_SUBPROTOCOL));
+        return headers;
     }
 
     private static List<TextMessage> synchronizedList() {

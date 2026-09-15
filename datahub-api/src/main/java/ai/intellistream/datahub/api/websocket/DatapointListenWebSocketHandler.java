@@ -16,7 +16,9 @@ import org.springframework.security.oauth2.jwt.JwtException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.PingMessage;
+import org.springframework.web.socket.SubProtocolCapable;
 import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
@@ -41,10 +43,17 @@ import java.util.concurrent.*;
  * <p>
  * Protocol:
  * <ul>
- *     <li>Connect: {@code ws(s)://<host>/timeseries/datapoints/listen?token=<jwt>}. A browser
- *         {@code WebSocket} can't set an {@code Authorization} header, so the access token rides in
- *         the {@code token} query parameter; this handler validates it with the resource server's
- *         {@link JwtDecoder}. An optional {@code externalIds=a,b,c} param seeds the interest set.</li>
+ *     <li>Connect: {@code ws(s)://<host>/timeseries/datapoints/listen}, offering two WebSocket
+ *         subprotocols — {@code datahub.bearer.<jwt>} and {@code datahub.v1}. A browser
+ *         {@code WebSocket} can't set an {@code Authorization} header, but it can name
+ *         subprotocols, and a JWT is already a legal subprotocol token (unpadded base64url plus
+ *         {@code .}), so the access token travels in {@code Sec-WebSocket-Protocol} instead of the
+ *         URL. This handler validates it with the resource server's {@link JwtDecoder} and echoes
+ *         back {@code datahub.v1}. An optional {@code externalIds=a,b,c} query param seeds the
+ *         interest set.
+ *         <p>This replaced a {@code token=<jwt>} query parameter, which put a replayable
+ *         credential in the request line where every proxy on the path could log it. That
+ *         parameter is no longer read: a client that sends it is closed as unauthenticated.</li>
  *     <li>Client → server: {@code { "action": "set" | "subscribe" | "unsubscribe", "externalIds": ["..."] }}
  *         to change which timeseries are streamed. {@code set} (the default) replaces the set.</li>
  *     <li>Server → client: {@code { "datapoints": [{ "externalId", "valueType", "timestamp", "value" }, ...] }}
@@ -57,12 +66,25 @@ import java.util.concurrent.*;
  * Contrast {@link SubscriptionWebSocketHandler}, which uses durable per-subscription cursors on
  * per-tenant fan-out topics with broker-side key filtering.
  * <p>
- * The handshake path is {@code permitAll} in {@code SecurityConfig}; authentication is done here so
- * the token can come from the query string rather than a header.
+ * The handshake path is {@code permitAll} in {@code SecurityConfig}; authentication is done here
+ * because the token arrives as a WebSocket subprotocol, which the resource server filter does not
+ * read.
  */
 @Component
 @Slf4j
-public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
+public class DatapointListenWebSocketHandler extends TextWebSocketHandler implements SubProtocolCapable {
+
+    /**
+     * The subprotocol element carrying the caller's access token, as
+     * {@code datahub.bearer.<jwt>}. RFC 6455 subprotocol names are RFC 7230 tokens, and an
+     * unpadded base64url JWT with {@code .} separators is one already — no re-encoding needed.
+     */
+    static final String BEARER_SUBPROTOCOL_PREFIX = "datahub.bearer.";
+    /**
+     * The subprotocol echoed back on the handshake response. A client offers it alongside the
+     * bearer element so the server has a name to select that isn't the credential itself.
+     */
+    static final String NEGOTIATED_SUBPROTOCOL = "datahub.v1";
 
     private static final int BATCH_MAX_MESSAGES = 500;
     private static final int BATCH_MAX_BYTES = 5 * 1024 * 1024;
@@ -139,8 +161,8 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        String token = queryParam(uri, "token");
-        if (token == null || token.isBlank()) {
+        String token = bearerSubprotocolToken(rawSession);
+        if (token == null) {
             closeQuietly(rawSession, CloseStatus.POLICY_VIOLATION.withReason("Missing access token"));
             return;
         }
@@ -154,8 +176,9 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        // This handshake path is permitAll in SecurityConfig (the token rides in the query string, so
-        // no filter-chain role gate runs), so enforce the baseline DATAHUB_ACCESS role here. A token
+        // This handshake path is permitAll in SecurityConfig (the token rides in a handshake
+        // subprotocol the resource server filter doesn't read, so no filter-chain role gate runs),
+        // so enforce the baseline DATAHUB_ACCESS role here. A token
         // with a valid organization claim but without this role must not be able to stream datapoints.
         if (!StreamAccessAuthorizer.hasAccessRole(jwt)) {
             log.warn("Datapoint-listen handshake rejected: token lacks {} role",
@@ -356,6 +379,40 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .toList();
+    }
+
+    /**
+     * Offering {@link #NEGOTIATED_SUBPROTOCOL} here is what makes Spring echo a
+     * {@code Sec-WebSocket-Protocol} back on the 101. The bearer element is deliberately absent:
+     * a server must select a protocol the client offered, and selecting the credential would put
+     * it in the response headers too.
+     */
+    @Override
+    public List<String> getSubProtocols() {
+        return List.of(NEGOTIATED_SUBPROTOCOL);
+    }
+
+    /**
+     * The access token from the {@code datahub.bearer.<jwt>} handshake subprotocol, or null when
+     * the client offered none. A browser sends its offers as one comma-separated header value;
+     * other clients may send several header lines, so both shapes are split.
+     */
+    private static String bearerSubprotocolToken(WebSocketSession session) {
+        var headers = session.getHandshakeHeaders();
+        if (headers == null) return null;
+        List<String> offered = headers.get(WebSocketHttpHeaders.SEC_WEBSOCKET_PROTOCOL);
+        if (offered == null) return null;
+        for (String headerValue : offered) {
+            if (headerValue == null) continue;
+            for (String element : headerValue.split(",")) {
+                String offer = element.trim();
+                if (offer.startsWith(BEARER_SUBPROTOCOL_PREFIX)) {
+                    String token = offer.substring(BEARER_SUBPROTOCOL_PREFIX.length());
+                    if (!token.isBlank()) return token;
+                }
+            }
+        }
+        return null;
     }
 
     /** Read a single URL-decoded query-parameter value from the handshake URI. */

@@ -5,7 +5,10 @@
  * live datapoints for a set of timeseries. Mirrors the recommend-value-type pattern in the
  * create-timeseries form: the api host comes from the <meta name="datahub-api-url"> tag and the
  * access token from the console's /token endpoint. A browser WebSocket can't send an Authorization
- * header, so the token rides in the ?token= query param (the api validates it on the handshake).
+ * header, but it can name subprotocols, so the token is offered as the `datahub.bearer.<jwt>`
+ * subprotocol alongside `datahub.v1` (the api validates it on the handshake and echoes the latter
+ * back). That keeps the credential out of the request line, and so out of every access log on the
+ * way.
  *
  * Usage:
  *   const stream = new DatapointStream({
@@ -21,6 +24,11 @@
 class DatapointStream {
 
 	static RECONNECT_DELAY_MS = 2000;
+
+	// The subprotocols offered on the handshake: the bearer token, plus a plain name for the
+	// server to echo back (a server may only select a protocol the client offered).
+	static BEARER_SUBPROTOCOL_PREFIX = "datahub.bearer.";
+	static SUBPROTOCOL = "datahub.v1";
 
 	constructor(opts){
 		opts = opts || {};
@@ -39,7 +47,7 @@ class DatapointStream {
 	}
 
 	// Turn the http(s) api base URL into a ws(s) WebSocket URL for the listen endpoint.
-	_wsUrl(token){
+	_wsUrl(){
 		let base = this.apiUrl;
 		if(base.startsWith("https://"))      base = "wss://"  + base.slice("https://".length);
 		else if(base.startsWith("http://"))  base = "ws://"   + base.slice("http://".length);
@@ -48,8 +56,8 @@ class DatapointStream {
 			const proto = window.location.protocol === "https:" ? "wss://" : "ws://";
 			base = proto + window.location.host + base;
 		}
-		const ids = this.interest.length ? `&externalIds=${encodeURIComponent(this.interest.join(","))}` : "";
-		return `${base}/timeseries/datapoints/listen?token=${encodeURIComponent(token)}${ids}`;
+		const ids = this.interest.length ? `?externalIds=${encodeURIComponent(this.interest.join(","))}` : "";
+		return `${base}/timeseries/datapoints/listen${ids}`;
 	}
 
 	connect(){
@@ -65,7 +73,10 @@ class DatapointStream {
 			.then(r => r.ok ? r.text() : Promise.reject('could not get access token'))
 			.then(token => {
 				if(!this.active) return;
-				const ws = new WebSocket(this._wsUrl(token));
+				const ws = new WebSocket(this._wsUrl(), [
+					DatapointStream.BEARER_SUBPROTOCOL_PREFIX + token,
+					DatapointStream.SUBPROTOCOL
+				]);
 				this.ws = ws;
 				ws.onopen = () => {
 					this.onStatus('open');

@@ -126,11 +126,11 @@ Where the numbers come from, and what to check on the live box.
   instead of being written to `/var/lib/nginx` first. `/files` and the WebSockets have
   buffering off entirely.
 - **Header sizes.** `large_client_header_buffers 4 16k`, with Tomcat matched on the app
-  side (`server.max-http-request-header-size: 16KB`). Not for the token: dataset grants
-  are read from UserInfo rather than carried in it, so a Keycloak access token stays a
-  few KB and the 8k default would already fit it. The headroom is for the live-tail
-  WebSocket, whose request line carries the token as `?token=` alongside a
-  comma-separated `externalIds` list.
+  side (`server.max-http-request-header-size: 16KB`). Not for the token on its own:
+  dataset grants are read from UserInfo rather than carried in it, so a Keycloak access
+  token stays a few KB and the 8k default would already fit it. The headroom is for the
+  live-tail WebSocket handshake, which carries that token in `Sec-WebSocket-Protocol`
+  (as `datahub.bearer.<jwt>`) on top of the usual request headers.
 - **Kernel, link-independent** (`sysctl.d/90-datahub-lb.conf`): just `somaxconn`, to
   match nginx's `backlog=65535`, which the kernel would otherwise cap at its own
   (lower) default. Deliberately short: everything else is left at the kernel's own

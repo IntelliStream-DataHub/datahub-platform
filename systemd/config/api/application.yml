@@ -25,8 +25,9 @@ server:
 
   # Tomcat's default is 8 KB, and that covers the token: the dataset grants are read from
   # UserInfo rather than carried in it, so a Keycloak access token here is a few KB. This
-  # is headroom for the live-tail WebSocket's request line (?token= plus an externalIds
-  # list) and matches nginx's 4 x 16 KB, so neither side answers 400 before the other.
+  # is headroom for the live-tail WebSocket handshake, which carries that token in the
+  # Sec-WebSocket-Protocol header, and matches nginx's 4 x 16 KB, so neither side answers
+  # 400 before the other.
   max-http-request-header-size: 16KB
 
   # Compress here rather than at nginx: spreads the gzip CPU over the app hosts and lets
