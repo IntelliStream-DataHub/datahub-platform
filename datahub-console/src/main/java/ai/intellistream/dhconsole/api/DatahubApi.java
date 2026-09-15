@@ -11,7 +11,6 @@ import ai.intellistream.datahub.models.files.IndexNode;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.unit.UnitModel;
-import ai.intellistream.datahub.resource.RelTypeForm;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
@@ -76,12 +75,6 @@ public interface DatahubApi {
 
     @RequestLine("POST /labels/update")
     DataWrapper<LabelForm> updateLabel(DataWrapper<LabelForm> data);
-
-    @RequestLine("GET /edges/types")
-    DataWrapper<Object> getRelationshipTypeList();
-
-    @RequestLine("POST /edges/types/create")
-    DataWrapper<RelTypeForm> createRelationshipType(DataWrapper<RelTypeForm> data);
 
     @RequestLine("POST /edges/byids")
     GraphDataWrapper<Resource, EdgeProxy> getEdgesAndRelatedNodes(DataWrapper<IdCollection> apiReqData);

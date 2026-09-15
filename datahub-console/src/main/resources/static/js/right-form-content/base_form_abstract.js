@@ -71,12 +71,7 @@ class BaseList{
 	}
 
 	loadData(afterLoadFn){
-		fetch(this.apiURL + '/list', {
-			method: 'GET',
-			headers: {
-				'Accept': 'application/json'
-			}
-		})
+		Api.get(this.apiPath)
 			.then( resp => resp.json())
 			.then( json => {
 				this.data = {
@@ -84,12 +79,9 @@ class BaseList{
 						{
 							name: $L('name'),
 							prefix: "name"
-						},
-						{
-							icon: "fa-pen"
 						}
 					],
-					items: json.map( it => {
+					items: (json.items || []).map( it => {
 						return {
 							id: it.id,
 							name: it.name
