@@ -7,6 +7,7 @@ import ai.intellistream.datahub.api.filters.RequestBodySizeLimitFilter;
 import ai.intellistream.datahub.api.filters.RequestLogFilter;
 import ai.intellistream.datahub.api.filters.RequestStateCleanupFilter;
 import ai.intellistream.datahub.api.services.IngestQuotaService;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.Filter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -23,6 +24,8 @@ public class FilterConfig {
         // Must be outermost so its finally runs after the security filter chain, which is where
         // OrganizationValidator sets TenantContext and the dataset permissions get memoised.
         f.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        // The error dispatch re-runs bearer authentication, which sets TenantContext again.
+        f.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ERROR);
         return f;
     }
 

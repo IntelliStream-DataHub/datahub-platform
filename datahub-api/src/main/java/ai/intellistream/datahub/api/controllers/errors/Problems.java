@@ -67,6 +67,16 @@ public final class Problems {
     /** A 409: a deletion that would cut the surviving nodes off from the graph root. */
     public static final URI WOULD_STRAND = type("would-strand");
 
+    public static final URI UNAUTHORIZED = type("unauthorized");
+    public static final URI FORBIDDEN = type("forbidden");
+    public static final URI NOT_FOUND = type("not-found");
+    public static final URI METHOD_NOT_ALLOWED = type("method-not-allowed");
+    public static final URI NOT_ACCEPTABLE = type("not-acceptable");
+    public static final URI UNSUPPORTED_MEDIA_TYPE = type("unsupported-media-type");
+    public static final URI INTERNAL = type("internal");
+    public static final URI UNKNOWN_TENANT = type("unknown-tenant");
+    public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
+
     private Problems() {
     }
 
@@ -187,7 +197,63 @@ public final class Problems {
 
     /** A 404 for something the caller asked for by name and that is not there (or not theirs). */
     public static ProblemDetail notFound(String detail) {
-        return of(HttpStatus.NOT_FOUND, type("not-found"), "Not Found", detail);
+        return of(HttpStatus.NOT_FOUND, NOT_FOUND, "Not Found", detail);
+    }
+
+    /** A 401; the detail is written here or by a token validator, never taken from a decoder's exception. */
+    public static ProblemDetail unauthorized(String detail) {
+        return of(HttpStatus.UNAUTHORIZED, UNAUTHORIZED, "Unauthorized", detail);
+    }
+
+    public static ProblemDetail forbidden(String detail) {
+        return of(HttpStatus.FORBIDDEN, FORBIDDEN, "Forbidden", detail);
+    }
+
+    /** A 403 for an organization this deployment has no tenant for; only an operator can fix it. */
+    public static ProblemDetail unknownTenant(String organizationId) {
+        ProblemDetail problem = of(HttpStatus.FORBIDDEN, UNKNOWN_TENANT, "Forbidden",
+                "Unknown organization: this deployment has no tenant for the organization in your "
+                        + "token. Retrying will not help, the organization has to be onboarded.");
+        problem.setProperty("organizationId", organizationId);
+        return problem;
+    }
+
+    /** A 503 while the tenant's schema is still being migrated; the caller should honour Retry-After. */
+    public static ProblemDetail tenantProvisioning() {
+        return of(HttpStatus.SERVICE_UNAVAILABLE, TENANT_PROVISIONING, "Service Unavailable",
+                "This organization's database is still being prepared. Retry the same request shortly.");
+    }
+
+    /** The problem for a bare status, e.g. a 405 from Spring MVC or a sendError from a filter. */
+    public static ProblemDetail forStatus(int status, String detail) {
+        return switch (status) {
+            case 400 -> badRequest(orElse(detail, "The request could not be processed as sent."));
+            case 401 -> unauthorized(orElse(detail, "Authentication is required."));
+            case 403 -> forbidden(orElse(detail, "The request is not allowed."));
+            case 404 -> notFound(orElse(detail, "Nothing exists at this path."));
+            case 405 -> of(HttpStatus.METHOD_NOT_ALLOWED, METHOD_NOT_ALLOWED, "Method Not Allowed",
+                    orElse(detail, "This path does not accept this HTTP method."));
+            case 406 -> of(HttpStatus.NOT_ACCEPTABLE, NOT_ACCEPTABLE, "Not Acceptable",
+                    orElse(detail, "This endpoint cannot answer in a media type the Accept header allows."));
+            case 415 -> of(HttpStatus.UNSUPPORTED_MEDIA_TYPE, UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type",
+                    orElse(detail, "This endpoint does not accept this Content-Type."));
+            case 500 -> internal(INTERNAL_DETAIL);
+            default -> {
+                HttpStatus known = HttpStatus.resolve(status);
+                ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                        HttpStatusCode.valueOf(status), detail == null ? "" : detail);
+                problem.setTitle(known == null ? "Error" : known.getReasonPhrase());
+                yield problem;
+            }
+        };
+    }
+
+    /** What a caller is told about a failure inside the server. The cause stays in the log. */
+    public static final String INTERNAL_DETAIL =
+            "The server failed to complete the request. Nothing in the request was at fault.";
+
+    private static String orElse(String detail, String fallback) {
+        return detail == null || detail.isBlank() ? fallback : detail;
     }
 
     /** A 400 with no per-field breakdown — a malformed header, a path that will not parse. */
@@ -202,7 +268,7 @@ public final class Problems {
      * failure is not something to describe to a caller who cannot act on it.
      */
     public static ProblemDetail internal(String detail) {
-        return of(HttpStatus.INTERNAL_SERVER_ERROR, type("internal"), "Internal Server Error", detail);
+        return of(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL, "Internal Server Error", detail);
     }
 
     /**
