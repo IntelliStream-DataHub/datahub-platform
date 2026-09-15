@@ -8,7 +8,6 @@ import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FunctionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.services.FunctionService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
@@ -63,8 +62,8 @@ public class FunctionController {
             ))
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -141,8 +140,8 @@ public class FunctionController {
     @ApiResponse(responseCode = "200", description = "Function(s) updated.")
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/update",
@@ -164,8 +163,8 @@ public class FunctionController {
             content = @Content)
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             """

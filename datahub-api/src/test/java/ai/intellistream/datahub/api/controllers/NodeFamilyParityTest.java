@@ -193,17 +193,12 @@ class NodeFamilyParityTest {
                 .as("must be an advice, or nothing routes to it")
                 .isNotNull();
 
-        var error = new ai.intellistream.datahub.api.controllers.errors.DuplicateError();
-        error.setMessage("External id already exists.");
-        var wrapper = new ai.intellistream.datahub.errors.ResponseError<
-                ai.intellistream.datahub.api.controllers.errors.DuplicateError>();
-        wrapper.setError(error);
-
         Method handle = handler.getMethod("handle",
                 ai.intellistream.datahub.api.controllers.errors.DuplicateDataException.class);
         var problem = (org.springframework.http.ProblemDetail) handle.invoke(
                 handler.getDeclaredConstructor().newInstance(),
-                new ai.intellistream.datahub.api.controllers.errors.DuplicateDataException(wrapper));
+                ai.intellistream.datahub.api.controllers.errors.DuplicateDataException.of(
+                        "External id already exists.", "externalId", "sensor_temp_room_a"));
 
         assertThat(problem.getStatus()).isEqualTo(409);
         assertThat(problem.getType().toString()).isEqualTo("https://intellistream.ai/errors/duplicate");

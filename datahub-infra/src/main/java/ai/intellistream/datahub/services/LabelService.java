@@ -3,10 +3,8 @@ package ai.intellistream.datahub.services;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.errors.EntityInUseException;
-import ai.intellistream.datahub.errors.FieldError;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.errors.InvalidResourceException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.updates.UpdateListField;
 import ai.intellistream.datahub.helpers.utils.ColorHelper;
@@ -100,12 +98,8 @@ public class LabelService {
         for (String raw : labelnames) {
             String canonical = TextValidator.toSnakeUpperCased(raw);
             if (canonical == null || canonical.length() < 2 || canonical.length() > 512) {
-                var fieldError = new FieldError();
-                fieldError.setField("labels");
-                fieldError.setErrorMessage("Invalid label name '" + raw + "': labels must be 2-512 characters.");
-                var error = new ResponseError<FieldError>();
-                error.setError(fieldError);
-                throw new InvalidResourceException(error);
+                throw new InvalidResourceException("labels",
+                        "Invalid label name '" + raw + "': labels must be 2-512 characters.");
             }
         }
         List<String> normalizedNames = labelnames.stream().map(TextValidator::toSnakeUpperCased).toList();
@@ -319,13 +313,9 @@ public class LabelService {
             return Optional.empty();
         }
         if (hasSet && (hasAdd || hasRemove)) {
-            var fieldError = new FieldError();
-            fieldError.setField("labels");
-            fieldError.setErrorMessage("A label update must use either 'set' (replace) or "
-                    + "'add'/'remove' (delta), not both.");
-            var error = new ResponseError<FieldError>();
-            error.setError(fieldError);
-            throw new InvalidResourceException(error);
+            throw new InvalidResourceException("labels",
+                    "A label update must use either 'set' (replace) or "
+                            + "'add'/'remove' (delta), not both.");
         }
 
         Set<String> labels;

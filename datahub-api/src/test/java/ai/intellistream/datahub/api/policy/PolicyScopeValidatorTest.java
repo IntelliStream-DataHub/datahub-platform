@@ -118,8 +118,8 @@ class PolicyScopeValidatorTest {
         BadRequestException thrown = org.junit.jupiter.api.Assertions.assertThrows(
                 BadRequestException.class, () -> PolicyScopeValidator.validate(policy));
 
-        assertThat(thrown.getError().getError().getMessage()).contains("IS_WRITE_PROTECTED");
-        assertThat(thrown.getError().getError().getFields()).isNotEmpty();
+        assertThat(thrown.getMessage()).contains("IS_WRITE_PROTECTED");
+        assertThat(thrown.getFields()).isNotEmpty();
     }
 
     private static Policy namingPolicy(Map<String, String> extraMetadata) {
