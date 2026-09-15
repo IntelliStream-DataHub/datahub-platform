@@ -75,6 +75,9 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.RestoreRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @RestController
 @RequestMapping("/files")
@@ -172,12 +175,12 @@ public class FileController {
     @ApiResponse(responseCode = "400", description = "Invalid upload request.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "Upload failed, a file already exists at that path.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "", method = RequestMethod.PUT,
             produces = { "application/json", "application/xml" }
@@ -469,12 +472,12 @@ public class FileController {
     @ApiResponse(responseCode = "400", description = "Neither id nor externalId supplied.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "404", description = "Not found or not readable.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     // Read-only transaction so the transformer's lazy metadata/relatedResources/dataSet loads succeed
@@ -798,7 +801,7 @@ public class FileController {
     @ApiResponse(responseCode = "409", description = "The folder is not empty.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(
             value = { "/delete"},
@@ -890,17 +893,17 @@ public class FileController {
     @ApiResponse(responseCode = "403", description = "No write permission on a file's dataset.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "404", description = "None of the given ids/externalIds match a deleted file.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "Original name/path or externalId already taken, or the original folder is gone.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = RestoreRefusedProblem.class)
             ))
     @RequestMapping(value = "/restore", method = RequestMethod.POST,
             consumes = { MediaType.APPLICATION_JSON_VALUE },
@@ -968,22 +971,22 @@ public class FileController {
     @ApiResponse(responseCode = "400", description = "Invalid request (e.g. illegal name).",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "403", description = "No write permission.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "404", description = "File or folder not found.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "409", description = "A file or folder already exists at the target path.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/update", method = RequestMethod.POST,
             consumes = { "application/json" },

@@ -5,12 +5,15 @@ import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.PartialWriteProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.RestoreRefusedProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
+import ai.intellistream.datahub.api.filters.RequestIdFilter;
 import ai.intellistream.datahub.validation.FieldValidationError;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.test.web.servlet.MockMvc;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.lang.reflect.Field;
+import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -61,7 +65,11 @@ class ProblemSchemaParityTest {
         }
     }
 
-    private static final MockMvc MVC = MockMvcBuilders.standaloneSetup(new Problematic()).build();
+    // The advice and filter that add requestId and retry in the running API, so the body is the one a caller gets.
+    private static final MockMvc MVC = MockMvcBuilders.standaloneSetup(new Problematic())
+            .setControllerAdvice(new ProblemResponseAdvice())
+            .addFilters(new RequestIdFilter())
+            .build();
 
     /** Every problem {@link Problems} can build, paired with the class that documents it. */
     static Stream<Object[]> documentedProblems() {
@@ -80,12 +88,23 @@ class ProblemSchemaParityTest {
                 new Object[] {"duplicate", DuplicateProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.duplicate("Taken.",
                                 List.of(Map.of("externalId", "sensor_temp_room_a")))},
+                new Object[] {"constraint-duplicate", DuplicateProblem.class,
+                        (Supplier<ProblemDetail>) () -> new DataIntegrityViolationExceptionHandler().handle(
+                                new DataIntegrityViolationException("duplicate key",
+                                        new org.hibernate.exception.ConstraintViolationException("duplicate key",
+                                                new SQLException("duplicate key"), "label_hash_key")))},
                 new Object[] {"optimistic-lock", DuplicateProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.conflict(Problems.OPTIMISTIC_LOCK, "Retry.")},
                 new Object[] {"delete-refused", DeleteRefusedProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.deleteBlocked(Problems.REFERENCED,
                                 "Still referenced.",
                                 List.of(Map.of("subscriptionExternalId", "fleet_dashboard")))},
+                new Object[] {"restore-refused", RestoreRefusedProblem.class,
+                        (Supplier<ProblemDetail>) () -> {
+                            ProblemDetail problem = Problems.conflict(null, "Its original folder is gone.");
+                            problem.setProperty("reason", "folder-missing");
+                            return problem;
+                        }},
                 new Object[] {"not-found", ApiProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.notFound("Gone.")},
                 new Object[] {"internal", ApiProblem.class,
@@ -95,16 +114,9 @@ class ProblemSchemaParityTest {
     @ParameterizedTest(name = "{0} is fully described by {1}")
     @MethodSource("documentedProblems")
     @DisplayName("every member the API emits is declared on the schema that documents it")
-    @SuppressWarnings("unchecked")
     void emittedMembersAreDocumented(String name, Class<?> schema, Supplier<ProblemDetail> problem)
             throws Exception {
-        Problematic.CASES.put(name, problem);
-
-        String body = MVC.perform(get(name))
-                .andReturn().getResponse().getContentAsString();
-
-        Set<String> emitted = new HashSet<>(
-                new tools.jackson.databind.json.JsonMapper().readValue(body, Map.class).keySet());
+        Set<String> emitted = emitted(name, problem);
         // Never a member on the wire — if it appears, the mixin stopped being applied and every
         // extension has silently moved one level down.
         assertThat(emitted)
@@ -119,26 +131,31 @@ class ProblemSchemaParityTest {
 
     @Test
     @DisplayName("no schema declares a member the API never emits")
-    void declaredMembersAreReachable() {
-        Set<String> everyEmitted = new HashSet<>();
-        documentedProblems().forEach(row -> {
-            ProblemDetail p = ((Supplier<ProblemDetail>) row[2]).get();
-            everyEmitted.addAll(List.of("type", "title", "status", "detail", "instance"));
-            if (p.getProperties() != null) {
-                everyEmitted.addAll(p.getProperties().keySet());
-            }
-        });
+    @SuppressWarnings("unchecked")
+    void declaredMembersAreReachable() throws Exception {
+        Set<String> everyEmitted = new HashSet<>(List.of("type", "title", "status", "detail", "instance"));
+        for (Object[] row : documentedProblems().toList()) {
+            everyEmitted.addAll(emitted((String) row[0], (Supplier<ProblemDetail>) row[2]));
+        }
         // PartialWriteProblem's `missing` is set by the controller rather than by Problems, so it
         // has no factory above; naming it here keeps the check honest instead of loosening it.
         everyEmitted.add("missing");
 
-        for (Class<?> schema : List.of(ApiProblem.class, ValidationProblem.class,
-                DuplicateProblem.class, DeleteRefusedProblem.class, PartialWriteProblem.class)) {
+        for (Class<?> schema : List.of(ApiProblem.class, ValidationProblem.class, DuplicateProblem.class,
+                DeleteRefusedProblem.class, PartialWriteProblem.class, RestoreRefusedProblem.class)) {
             assertThat(everyEmitted)
                     .as("%s declares a member nothing produces — a promise the API cannot keep",
                             schema.getSimpleName())
                     .containsAll(declaredFields(schema));
         }
+    }
+
+    /** The top-level members of the body MVC renders for this problem. */
+    @SuppressWarnings("unchecked")
+    private static Set<String> emitted(String name, Supplier<ProblemDetail> problem) throws Exception {
+        Problematic.CASES.put(name, problem);
+        String body = MVC.perform(get(name)).andReturn().getResponse().getContentAsString();
+        return new HashSet<>(new tools.jackson.databind.json.JsonMapper().readValue(body, Map.class).keySet());
     }
 
     /** The schema's own fields plus everything it inherits — swagger-core inlines both. */

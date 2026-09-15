@@ -28,5 +28,13 @@ public class DuplicateProblem extends ApiProblem {
             schema = @Schema(example = "{\"externalId\": \"sensor_temp_room_a\"}"))
     private List<Map<String, String>> duplicated;
 
+    @ArraySchema(
+            arraySchema = @Schema(description =
+                    "The fields that collided, where the database named the field but not the value "
+                            + "and so `duplicated` is absent."),
+            schema = @Schema(implementation = FieldProblem.class))
+    private List<FieldProblem> fields;
+
     public List<Map<String, String>> getDuplicated() { return duplicated; }
+    public List<FieldProblem> getFields() { return fields; }
 }

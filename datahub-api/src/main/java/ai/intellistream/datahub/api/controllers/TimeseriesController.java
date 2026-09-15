@@ -102,7 +102,7 @@ public class TimeseriesController {
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer ≤ 10000, or `dataSetId` is not a number.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @RequestMapping(value = {""},
             method = RequestMethod.GET,
