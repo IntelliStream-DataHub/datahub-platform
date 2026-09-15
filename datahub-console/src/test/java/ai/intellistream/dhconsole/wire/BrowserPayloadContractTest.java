@@ -3,18 +3,22 @@ package ai.intellistream.dhconsole.wire;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
+import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.events.EventRetreiver;
 import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.forms.AnalysisForm;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
+import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
+import ai.intellistream.datahub.resource.RelTypeForm;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import tools.jackson.core.type.TypeReference;
@@ -176,6 +180,42 @@ class BrowserPayloadContractTest {
                         {"search":{"query":"pump"}}""",
                         new TypeReference<SearchBody<DataSetFilter>>() {},
                         "templates/datasets/index.html"),
+
+                new Payload("POST /edges/types/create", """
+                        {"items":[{"name":"FLOWS_TO","i18nCode":"flows.to","description":"d"}]}""",
+                        new TypeReference<DataWrapper<RelTypeForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /labels/create", """
+                        {"items":[{"name":"PUMP","description":"d","i18nCode":"pump","color":"#a3528a"}]}""",
+                        new TypeReference<DataWrapper<LabelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /labels/update", """
+                        {"items":[{"id":"9223372036854775806","name":"PUMP","description":"d",
+                        "i18nCode":"pump","color":"#a3528a"}]}""",
+                        new TypeReference<DataWrapper<LabelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /units/byids", """
+                        {"items":[{"externalId":"temperature:deg_c"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                // Sent isDeactivated until it went direct: the proxy's lenient reader dropped it.
+                new Payload("POST /policies/create", """
+                        {"items":[{"name":"Naming","externalId":"policy_x","description":"d",
+                        "deactivated":false,"dataSetId":"9223372036854775806",
+                        "metadata":{"kind":"naming"}}]}""",
+                        new TypeReference<DataWrapper<Policy>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /policies/update", """
+                        {"items":[{"id":"9223372036854775806","update":{"name":{"set":"Naming"},
+                        "externalId":{"set":"policy_x"},"description":{"set":"d"},
+                        "deactivated":{"set":true},"metadata":{"set":{"kind":"naming"}}}}]}""",
+                        new TypeReference<DataWrapper<UpdatePolicyForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
 
                 // Not datahub-api: the Analyze tab posts this straight to datahub-analysis.
                 new Payload("POST /analysis", """

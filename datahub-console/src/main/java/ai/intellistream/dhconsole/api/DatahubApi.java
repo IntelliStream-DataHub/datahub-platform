@@ -8,7 +8,6 @@ import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.files.IndexNode;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
-import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
@@ -86,24 +85,6 @@ public interface DatahubApi {
     // POLICIES
     @RequestLine("GET /policies")
     DataWrapper<Policy> getPolicies();
-
-    @RequestLine("GET /policies/types")
-    DataWrapper<Policy> getPolicyTypes();
-
-    @RequestLine("GET /policies/{policyNodeId}")
-    DataWrapper<Policy> getPolicyById(@Param("policyNodeId") Long policyNodeId);
-
-
-    @RequestLine("POST /policies/create")
-    DataWrapper<Policy> createPolicies(DataWrapper<Policy> wrapper);
-
-    @RequestLine("POST /policies/update")
-    DataWrapper<Policy> updatePolicy(DataWrapper<UpdatePolicyForm> wrapper);
-
-    @RequestLine("DELETE /policies/delete")
-    void deletePolicies(DataWrapper<IdCollection> wrapper);
-
-
 
     // TIMESERIES
     @RequestLine("GET /timeseries")
