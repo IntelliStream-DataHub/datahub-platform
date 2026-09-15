@@ -46,9 +46,14 @@ jobs:
       # Named explicitly rather than relying on the default: the default ALSO loads
       # docker-compose.override.yml, which pulls in the console, the analysis
       # service and the 3W demo. The demo alone budgets 600s for its own readiness.
-      COMPOSE_FILES: -f docker-compose.yml -f docker-compose.apps.yml
+      # docker-compose.ci.yml is last so it wins: it raises the api's heap, which
+      # docker-compose.apps.yml sizes for a laptop rather than for the SDK suites'
+      # datapoint load test. Every step below shares this, and ci-wait-ready.sh
+      # reads it from the environment, so the overlay applies everywhere.
+      COMPOSE_FILES: -f docker-compose.yml -f docker-compose.apps.yml -f docker-compose.ci.yml
 
-      # The service list IS the minimal stack — no CI-only compose file needed.
+      # The service list IS the minimal stack — naming services is all that takes, so
+      # the CI overlay above carries only the heap bump, not a trimmed copy of it.
       # Compose starts these plus their depends_on closure, which brings postgres,
       # pulsar, keycloak and clickhouse along, and vault + vault-init via
       # vault-seed. Four have to be named explicitly because nothing declares a
