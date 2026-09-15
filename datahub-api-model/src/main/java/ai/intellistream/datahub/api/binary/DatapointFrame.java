@@ -132,6 +132,9 @@ public final class DatapointFrame {
             if (total > body.length - pos) {
                 throw new FrameFormatException(Reason.MALFORMED_FRAME, i, "frame declares " + total + " bytes, " + (body.length - pos) + " remain");
             }
+            if (total > FrameLimits.MAX_FRAME_BYTES) {
+                throw new FrameFormatException(Reason.FRAME_TOO_LARGE, i, total + " bytes, the cap is " + FrameLimits.MAX_FRAME_BYTES);
+            }
             rawTotal += rawLength;
             if (rawTotal > FrameLimits.MAX_REQUEST_RAW_BYTES) {
                 throw new FrameFormatException(Reason.REQUEST_TOO_LARGE, i, "request exceeds " + FrameLimits.MAX_REQUEST_RAW_BYTES + " raw bytes");

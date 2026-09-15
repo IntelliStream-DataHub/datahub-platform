@@ -2,7 +2,6 @@
 package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.binary.FrameLimits;
-import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
 import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -35,11 +34,9 @@ import java.io.InputStream;
 public class DatapointBinaryController {
 
     private final DatapointBinaryIngestService service;
-    private final LimitsProperties limits;
 
-    public DatapointBinaryController(DatapointBinaryIngestService service, LimitsProperties limits) {
+    public DatapointBinaryController(DatapointBinaryIngestService service) {
         this.service = service;
-        this.limits = limits;
     }
 
     @Operation(
@@ -55,9 +52,15 @@ public class DatapointBinaryController {
                     inserts nothing and can be retried as a whole. Compression is mandatory: a frame that
                     declares none is refused, and no body-level `Content-Encoding` is accepted.
 
+                    Publishing is not atomic: frames reach the message broker one at a time, so a **5xx**
+                    can follow after some of them were published. Retrying the whole request is still
+                    safe, since a datapoint is stored once per series and timestamp however often it is
+                    sent, and the datapoint quotas count only the frames that were published.
+
                     ### Limits
                     - 100 000 points per numeric frame, 10 000 per text or mixed frame, 10 000 series per frame
                     - 4 MiB per frame and 64 MiB per request, decompressed; 32 frames per request
+                    - 4.75 MiB (4 980 736 bytes) per frame as sent: envelope, directory and compressed payload together
                     - the request body itself is capped by `datahub.limits.max-body-bytes-datapoints-binary`
                     - a per-instance number of requests validated at once; over it is a **429** with `Retry-After`
 
@@ -80,21 +83,19 @@ public class DatapointBinaryController {
             content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
     @ApiResponse(responseCode = "429", description = "Too many binary requests in flight on this instance, or a quota; retry after `Retry-After`.",
             content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+    @ApiResponse(responseCode = "500", description = "Publishing failed partway; some frames may be stored. Retrying the whole request is safe.")
     @PostMapping(path = "/binary", consumes = FrameLimits.MEDIA_TYPE)
     public ResponseEntity<Void> insertBinary(HttpServletRequest request) throws IOException {
         String encoding = request.getHeader(HttpHeaders.CONTENT_ENCODING);
         if (encoding != null && !encoding.isBlank() && !"identity".equalsIgnoreCase(encoding.trim())) {
             throw DatapointBlockRejectedException.unsupportedEncoding(encoding.trim());
         }
-        long cap = limits.getMaxBodyBytesDatapointsBinary();
-        byte[] body;
-        try (InputStream in = request.getInputStream()) {
-            body = in.readNBytes((int) Math.min(cap + 1, Integer.MAX_VALUE));
+        // The body cap is RequestBodySizeLimitFilter's: it counts the stream as it is read and answers
+        // a body that runs over with a 413.
+        DatapointBinaryIngestService.Summary summary;
+        try (InputStream body = request.getInputStream()) {
+            summary = service.ingest(body, request.getContentLengthLong());
         }
-        if (body.length > cap) {
-            throw DatapointBlockRejectedException.bodyTooLarge(cap);
-        }
-        DatapointBinaryIngestService.Summary summary = service.ingest(body, request.getContentLengthLong());
         log.debug("Binary datapoint request accepted: {} frames, {} rows, {} series", summary.frames(), summary.rows(), summary.series());
         return ResponseEntity.noContent().build();
     }

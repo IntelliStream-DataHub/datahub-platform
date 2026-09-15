@@ -141,6 +141,27 @@ class BatchedDatapointBlocksListenerTest {
     }
 
     @Test
+    void aMessageFeedingTwoGroupsIsNackedWhenEitherFails() throws Exception {
+        // TEXT's group runs first and succeeds; the message must not be acked on its account, or
+        // the nack FLOAT's failure sends afterwards is ignored and FLOAT's rows are never retried.
+        java.io.ByteArrayOutputStream both = new java.io.ByteArrayOutputStream();
+        both.writeBytes(frame(DatapointValueType.TEXT, 1, 3));
+        both.writeBytes(frame(DatapointValueType.FLOAT, 2, 3));
+        Message<byte[]> mixed = message("acme", both.toByteArray());
+        Message<byte[]> textOnly = message("acme", frame(DatapointValueType.TEXT, 3, 3));
+        doThrow(new RuntimeException("ClickHouse insert failed")).when(clickHouse)
+                .insertArrowStream(eq("acme"), eq(DatapointValueType.FLOAT), any());
+
+        listener.handleBlockMessages(batch(List.of(mixed, textOnly)));
+
+        verify(clickHouse).insertArrowStream(eq("acme"), eq(DatapointValueType.TEXT), any());
+        verify(consumer, never()).acknowledge(mixed);
+        verify(consumer).negativeAcknowledge(mixed);
+        verify(consumer).acknowledge(textOnly);
+        verify(consumer, never()).negativeAcknowledge(textOnly);
+    }
+
+    @Test
     void aMalformedMessageIsNackedAndTheRestProceed() throws Exception {
         Message<byte[]> good = message("acme", frame(DatapointValueType.BIGINT, 1, 3));
         Message<byte[]> garbage = message("acme", "not a frame at all, nowhere near one".getBytes());

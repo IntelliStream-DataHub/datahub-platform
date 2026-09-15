@@ -36,9 +36,10 @@ public class LimitsProperties {
     private long maxBodyBytesDatapointsBinary = 64L * 1024 * 1024;
 
     /**
-     * Binary bodies are decompressed and validated in memory before anything is published, so this
-     * bounds how many an instance holds at once. Beyond it a request is answered 429 with a
-     * one-second Retry-After, which the SDKs already honour.
+     * Binary bodies are read, decompressed and validated in memory before anything is published, and
+     * the permit is taken before the body is read, so this bounds how many an instance holds at once.
+     * Beyond it a request is answered 429 with a one-second Retry-After before its body is read,
+     * which the SDKs already honour.
      */
     private int maxInFlightDatapointsBinary = 16;
 

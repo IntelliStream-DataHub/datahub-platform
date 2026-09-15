@@ -14,6 +14,7 @@ import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository.IngestTarget;
 import ai.intellistream.datahub.tenant.TenantContext;
 import org.apache.pulsar.client.api.Producer;
+import org.apache.pulsar.client.api.PulsarClientException;
 import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +27,10 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -48,8 +52,9 @@ import static org.mockito.Mockito.when;
 
 /**
  * The binary ingest's contract with the rest of the API: everything is checked before anything is
- * published, the ACL runs once per dataset, quotas are charged after validation, the frames go to
- * Pulsar as they arrived, and the latest-value cache sees each series' last row.
+ * published, the ACL runs once per dataset, quotas are checked after validation and rows charged as
+ * each frame is published, the frames go to Pulsar as they arrived, and the latest-value cache sees
+ * each series' last row.
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -106,6 +111,11 @@ class DatapointBinaryIngestServiceTest {
         return w.build(ZSTD);
     }
 
+    private static DatapointBinaryIngestService.Summary ingest(DatapointBinaryIngestService service, byte[] body, long declared)
+            throws IOException {
+        return service.ingest(new ByteArrayInputStream(body), declared);
+    }
+
     private static byte[] body(byte[]... frames) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         for (byte[] f : frames) out.writeBytes(f);
@@ -120,7 +130,7 @@ class DatapointBinaryIngestServiceTest {
         byte[] numeric = frame(DatapointValueType.FLOAT32, 1, 2);
         byte[] text = frame(DatapointValueType.TEXT, 3);
 
-        DatapointBinaryIngestService.Summary summary = service.ingest(body(numeric, text), 500);
+        DatapointBinaryIngestService.Summary summary = ingest(service, body(numeric, text), 500);
 
         assertThat(summary.frames()).isEqualTo(2);
         assertThat(summary.rows()).isEqualTo(9);
@@ -137,8 +147,12 @@ class DatapointBinaryIngestServiceTest {
 
         verify(dataSecurity, times(1)).assertCanWriteDataSet(10L);
         verify(dataSecurity, times(1)).assertCanWriteDataSet(20L);
-        verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.DATAPOINTS, 9);
-        verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, 3);
+        verify(ingestQuota).check(IngestQuotaService.QuotaMetric.DATAPOINTS, 9);
+        verify(ingestQuota).check(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, 3);
+        // Rows are charged frame by frame as each is published.
+        verify(ingestQuota).record(IngestQuotaService.QuotaMetric.DATAPOINTS, 6);
+        verify(ingestQuota).record(IngestQuotaService.QuotaMetric.DATAPOINTS, 3);
+        verify(ingestQuota).record(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, 3);
         long raw = 0;
         for (DatapointFrame f : DatapointFrame.parseEnvelopes(body(numeric, text))) raw += f.rawLength();
         verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, raw - 500);
@@ -146,7 +160,33 @@ class DatapointBinaryIngestServiceTest {
         verify(latestDatapointCache).update("s1", 1_700_000_002_000L, "12.0");
         verify(latestDatapointCache).update("s2", 1_700_000_002_000L, "22.0");
         verify(latestDatapointCache).update("s3", 1_700_000_002_000L, "v2");
-        verify(counter).recordIngested(TENANT, 9);
+        verify(counter).recordIngested(TENANT, 6);
+        verify(counter).recordIngested(TENANT, 3);
+    }
+
+    @Test
+    void aPublishThatFailsPartwayCountsOnlyTheFramesThatLanded() throws Exception {
+        series(1, DatapointValueType.FLOAT32, 10);
+        series(2, DatapointValueType.FLOAT32, 10);
+        series(3, DatapointValueType.TEXT, 10);
+        when(message.send()).thenReturn(null).thenThrow(new PulsarClientException("broker went away"));
+        byte[] body = body(frame(DatapointValueType.FLOAT32, 1, 2), frame(DatapointValueType.TEXT, 3));
+
+        assertThatThrownBy(() -> ingest(service, body, body.length))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("frame 1 of 2");
+
+        // The whole request was allowed before the first send, and only the first frame is counted:
+        // the retry the caller makes sends both again.
+        verify(ingestQuota).check(IngestQuotaService.QuotaMetric.DATAPOINTS, 9);
+        verify(ingestQuota).record(IngestQuotaService.QuotaMetric.DATAPOINTS, 6);
+        verify(ingestQuota, never()).record(IngestQuotaService.QuotaMetric.DATAPOINTS, 3);
+        verify(ingestQuota, never()).record(eq(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS), anyLong());
+        verify(latestDatapointCache).update("s1", 1_700_000_002_000L, "12.0");
+        verify(latestDatapointCache).update("s2", 1_700_000_002_000L, "22.0");
+        verify(latestDatapointCache, never()).update(eq("s3"), anyLong(), anyString());
+        verify(counter).recordIngested(TENANT, 6);
+        verify(counter, times(1)).recordIngested(anyString(), anyLong());
     }
 
     @Test
@@ -154,14 +194,16 @@ class DatapointBinaryIngestServiceTest {
         series(1, DatapointValueType.FLOAT32, 10);
         byte[] body = frame(DatapointValueType.FLOAT32, 1, 2);
 
-        assertThatThrownBy(() -> service.ingest(body, body.length))
+        assertThatThrownBy(() -> ingest(service, body, body.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.NOT_FOUND);
                     assertThat(e.getReason()).isEqualTo("unknown-timeseries");
                     assertThat(e.getTimeseriesIds()).containsExactly(2L);
                 });
         verify(producer, never()).newMessage();
+        verify(ingestQuota, never()).check(any(), anyLong());
         verify(ingestQuota, never()).checkAndRecord(any(), anyLong());
+        verify(ingestQuota, never()).record(any(), anyLong());
         verify(latestDatapointCache, never()).update(anyString(), anyLong(), anyString());
     }
 
@@ -170,7 +212,7 @@ class DatapointBinaryIngestServiceTest {
         series(1, DatapointValueType.FLOAT, 10);
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
 
-        assertThatThrownBy(() -> service.ingest(body, body.length))
+        assertThatThrownBy(() -> ingest(service, body, body.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
                     assertThat(e.getReason()).isEqualTo("value-type-mismatch");
@@ -185,7 +227,7 @@ class DatapointBinaryIngestServiceTest {
         catalogue.put(1L, new IngestTarget(1, "renamed", DatapointValueType.FLOAT32.id(), 10L));
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
 
-        assertThatThrownBy(() -> service.ingest(body, body.length))
+        assertThatThrownBy(() -> ingest(service, body, body.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
                     assertThat(e.getReason()).isEqualTo("external-id-mismatch");
@@ -200,8 +242,9 @@ class DatapointBinaryIngestServiceTest {
         doThrow(new DatasetAccessDeniedException("write", 20L)).when(dataSecurity).assertCanWriteDataSet(20L);
         byte[] body = frame(DatapointValueType.FLOAT32, 1, 2);
 
-        assertThatThrownBy(() -> service.ingest(body, body.length)).isInstanceOf(DatasetAccessDeniedException.class);
+        assertThatThrownBy(() -> ingest(service, body, body.length)).isInstanceOf(DatasetAccessDeniedException.class);
         verify(producer, never()).newMessage();
+        verify(ingestQuota, never()).check(any(), anyLong());
         verify(ingestQuota, never()).checkAndRecord(any(), anyLong());
     }
 
@@ -209,17 +252,18 @@ class DatapointBinaryIngestServiceTest {
     void aQuotaRefusalPublishesNothing() {
         series(1, DatapointValueType.FLOAT32, 10);
         doThrow(new IllegalStateException("over quota")).when(ingestQuota)
-                .checkAndRecord(eq(IngestQuotaService.QuotaMetric.DATAPOINTS), anyLong());
+                .check(eq(IngestQuotaService.QuotaMetric.DATAPOINTS), anyLong());
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
 
-        assertThatThrownBy(() -> service.ingest(body, body.length)).hasMessage("over quota");
+        assertThatThrownBy(() -> ingest(service, body, body.length)).hasMessage("over quota");
         verify(producer, never()).newMessage();
+        verify(ingestQuota, never()).record(any(), anyLong());
     }
 
     @Test
     void malformedFramesAreRefusedBeforeAnyLookup() {
         byte[] garbage = "not a frame at all, nowhere near one".getBytes();
-        assertThatThrownBy(() -> service.ingest(garbage, garbage.length))
+        assertThatThrownBy(() -> ingest(service, garbage, garbage.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                     assertThat(e.getReason()).isEqualTo("malformed-frame");
@@ -228,7 +272,7 @@ class DatapointBinaryIngestServiceTest {
         series(1, DatapointValueType.FLOAT32, 10);
         byte[] uncompressed = frame(DatapointValueType.FLOAT32, 1);
         uncompressed[7] = 0;
-        assertThatThrownBy(() -> service.ingest(uncompressed, uncompressed.length))
+        assertThatThrownBy(() -> ingest(service, uncompressed, uncompressed.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
                     assertThat(e.getReason()).isEqualTo("uncompressed-frame");
@@ -239,7 +283,7 @@ class DatapointBinaryIngestServiceTest {
         tooLarge[25] = (byte) 0xFF;
         tooLarge[26] = (byte) 0xFF;
         tooLarge[27] = (byte) 0x7F;
-        assertThatThrownBy(() -> service.ingest(tooLarge, tooLarge.length))
+        assertThatThrownBy(() -> ingest(service, tooLarge, tooLarge.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
                     assertThat(e.getReason()).isEqualTo("frame-too-large");
@@ -251,7 +295,7 @@ class DatapointBinaryIngestServiceTest {
     void chunkedBodiesAreChargedInFull() throws Exception {
         series(1, DatapointValueType.FLOAT32, 10);
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
-        service.ingest(body, -1);
+        ingest(service, body, -1);
         long raw = DatapointFrame.parseEnvelopes(body).get(0).rawLength();
         verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, raw);
     }
@@ -261,9 +305,14 @@ class DatapointBinaryIngestServiceTest {
         limits.setMaxInFlightDatapointsBinary(0);
         DatapointBinaryIngestService saturated = new DatapointBinaryIngestService(
                 timeseriesRepository, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
-        byte[] body = frame(DatapointValueType.FLOAT32, 1);
+        InputStream unread = new InputStream() {
+            @Override
+            public int read() {
+                throw new AssertionError("a request refused for want of a permit must not be read");
+            }
+        };
 
-        assertThatThrownBy(() -> saturated.ingest(body, body.length))
+        assertThatThrownBy(() -> saturated.ingest(unread, -1))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getStatus()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
                     assertThat(e.getReason()).isEqualTo("too-many-in-flight");
@@ -272,15 +321,15 @@ class DatapointBinaryIngestServiceTest {
     }
 
     @Test
-    void thePermitIsReleasedAfterARefusal() {
+    void thePermitIsReleasedAfterARefusal() throws Exception {
         limits.setMaxInFlightDatapointsBinary(1);
         DatapointBinaryIngestService single = new DatapointBinaryIngestService(
                 timeseriesRepository, dataSecurity, ingestQuota, latestDatapointCache, producer, counter, limits);
         byte[] garbage = new byte[10];
-        assertThatThrownBy(() -> single.ingest(garbage, 10)).isInstanceOf(DatapointBlockRejectedException.class);
+        assertThatThrownBy(() -> ingest(single, garbage, 10)).isInstanceOf(DatapointBlockRejectedException.class);
         series(1, DatapointValueType.FLOAT32, 10);
         byte[] body = frame(DatapointValueType.FLOAT32, 1);
-        assertThat(single.ingest(body, body.length).rows()).isEqualTo(3);
+        assertThat(ingest(single, body, body.length).rows()).isEqualTo(3);
     }
 
     @Test
@@ -291,7 +340,7 @@ class DatapointBinaryIngestServiceTest {
         // Break the last frame's payload so the request as a whole must be refused.
         frames[5][frames[5].length - 2] ^= 0x55;
 
-        assertThatThrownBy(() -> service.ingest(body(frames), 0))
+        assertThatThrownBy(() -> ingest(service, body(frames), 0))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
                     assertThat(e.getReason()).isEqualTo("payload-invalid");
                     assertThat(e.getFrameIndex()).isEqualTo(5);
@@ -299,7 +348,7 @@ class DatapointBinaryIngestServiceTest {
         verify(producer, never()).newMessage();
 
         frames[5] = frame(DatapointValueType.BIGINT, 6);
-        assertThat(service.ingest(body(frames), 0).frames()).isEqualTo(6);
+        assertThat(ingest(service, body(frames), 0).frames()).isEqualTo(6);
         verify(message, times(6)).send();
         assertThat(List.of(1, 2, 3)).hasSize(3);
     }

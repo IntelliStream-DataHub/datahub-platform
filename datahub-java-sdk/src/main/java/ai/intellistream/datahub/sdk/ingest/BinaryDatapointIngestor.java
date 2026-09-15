@@ -17,7 +17,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.ArrayList;
 import java.util.EnumMap;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -26,19 +26,22 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Sends datapoints as binary frames: resolves each series to its id and value type, parses the
  * values with the server's rules, sorts and de-duplicates per frame, compresses each frame with
  * zstd, packs frames into requests under the endpoint's caps and runs the requests through
  * {@link BatchExecutor}. A request the server refuses because a series is unknown or renamed
- * evicts those series from the resolver and is rebuilt and sent once more.
+ * evicts those series from the resolver, and the points it carried are rebuilt and sent once more.
  */
 public final class BinaryDatapointIngestor {
 
     static final String PATH = "/timeseries/data/binary";
     /** Leave headroom under the 4 MiB raw cap so the estimate never lands on the wrong side of it. */
     static final long FRAME_RAW_TARGET = 3L * 1024 * 1024 + 512 * 1024;
+    /** The same headroom under the cap on a frame as sent, which a large directory reaches first. */
+    static final long FRAME_BYTES_TARGET = FrameLimits.MAX_FRAME_BYTES - 256L * 1024;
     static final long REQUEST_RAW_TARGET = FrameLimits.MAX_REQUEST_RAW_BYTES - FrameLimits.MAX_FRAME_RAW_BYTES;
 
     private final ApiHttp http;
@@ -50,40 +53,45 @@ public final class BinaryDatapointIngestor {
     }
 
     public IngestResult ingest(List<DatapointsCollection> data, BinaryIngestOptions options) {
-        Prepared prepared = prepare(data, options);
-        IngestResult live = send(prepared.requests(), options);
+        List<Slice> whole = new ArrayList<>(data.size());
+        for (DatapointsCollection c : data) {
+            whole.add(new Slice(c, 0, c.getDatapoints() == null ? 0 : c.getDatapoints().size()));
+        }
+        Prepared prepared = prepare(whole, options);
+        AtomicReferenceArray<DatahubApiException> failures = new AtomicReferenceArray<>(prepared.requests().size());
+        IngestResult live = send(prepared.requests(), options, failures);
 
-        // Evict and retry once for series the server no longer knows by that id or name.
-        List<Request> stale = new ArrayList<>();
-        for (IngestResult.BatchError error : live.errors()) {
-            if (isStaleSeries(error)) {
-                for (Request r : prepared.requests()) {
-                    if (r.count() == error.datapointCount() && !stale.contains(r)) {
-                        stale.add(r);
-                        break;
-                    }
-                }
+        // Evict and retry once for series the server no longer knows by that id or name. A refusal
+        // is matched to its request by position, since requests of one size are the rule once frames
+        // fill, and only the points that request carried go again.
+        Set<Long> ids = new LinkedHashSet<>();
+        List<Slice> again = new ArrayList<>();
+        for (int i = 0; i < failures.length(); i++) {
+            DatahubApiException e = failures.get(i);
+            if (e != null && isStaleSeries(e.statusCode(), e.body())) {
+                ids.addAll(prepared.requests().get(i).seriesIds());
+                again.addAll(prepared.requests().get(i).slices());
             }
         }
-        if (!stale.isEmpty()) {
-            Set<Long> ids = new LinkedHashSet<>();
-            List<DatapointsCollection> again = new ArrayList<>();
-            for (Request r : stale) {
-                ids.addAll(r.seriesIds());
-                again.addAll(r.collections());
-            }
+        if (!again.isEmpty()) {
             resolver.evict(ids);
             Prepared rebuilt = prepare(again, options);
-            IngestResult retry = send(rebuilt.requests(), options);
+            IngestResult retry = send(rebuilt.requests(), options, new AtomicReferenceArray<>(rebuilt.requests().size()));
+            // The rebuild parses the same points again, so its value errors repeat ones already
+            // counted. A series it cannot resolve any more is new, and those points fail here.
+            List<IngestResult.BatchError> unresolved = new ArrayList<>();
+            for (IngestResult.BatchError e : rebuilt.localErrors()) {
+                if (e.statusCode() == 404) unresolved.add(e);
+            }
             List<IngestResult.BatchError> errors = new ArrayList<>();
             for (IngestResult.BatchError e : live.errors()) {
-                if (!isStaleSeries(e)) errors.add(e);
+                if (!isStaleSeries(e.statusCode(), e.body())) errors.add(e);
             }
             errors.addAll(retry.errors());
             errors.addAll(prepared.localErrors());
-            errors.addAll(rebuilt.localErrors());
+            errors.addAll(unresolved);
             long succeeded = live.succeeded() + retry.succeeded();
-            long failed = live.failed() - staleCount(live) + retry.failed() + localFailed(prepared) + localFailed(rebuilt);
+            long failed = live.failed() - staleCount(live) + retry.failed() + count(prepared.localErrors()) + count(unresolved);
             return new IngestResult(succeeded, failed, errors);
         }
         if (prepared.localErrors().isEmpty()) {
@@ -91,40 +99,56 @@ public final class BinaryDatapointIngestor {
         }
         List<IngestResult.BatchError> errors = new ArrayList<>(live.errors());
         errors.addAll(prepared.localErrors());
-        return new IngestResult(live.succeeded(), live.failed() + localFailed(prepared), errors);
+        return new IngestResult(live.succeeded(), live.failed() + count(prepared.localErrors()), errors);
     }
 
-    private static boolean isStaleSeries(IngestResult.BatchError error) {
-        if (error.body() == null) return false;
-        return (error.statusCode() == 404 && error.body().contains("unknown-timeseries"))
-                || (error.statusCode() == 422 && error.body().contains("external-id-mismatch"));
+    private static boolean isStaleSeries(int statusCode, String body) {
+        if (body == null) return false;
+        return (statusCode == 404 && body.contains("unknown-timeseries"))
+                || (statusCode == 422 && body.contains("external-id-mismatch"));
     }
 
     private static long staleCount(IngestResult result) {
         long n = 0;
         for (IngestResult.BatchError e : result.errors()) {
-            if (isStaleSeries(e)) n += e.datapointCount();
+            if (isStaleSeries(e.statusCode(), e.body())) n += e.datapointCount();
         }
         return n;
     }
 
-    private static long localFailed(Prepared p) {
+    private static long count(List<IngestResult.BatchError> errors) {
         long n = 0;
-        for (IngestResult.BatchError e : p.localErrors()) n += e.datapointCount();
+        for (IngestResult.BatchError e : errors) n += e.datapointCount();
         return n;
     }
 
-    /** One request body: its frames, how many points it carries and which series. */
-    record Request(byte[] body, int count, Set<Long> seriesIds, List<DatapointsCollection> collections) {
+    /** The points of one collection from {@code from} inclusive to {@code to} exclusive, in its own order. */
+    record Slice(DatapointsCollection collection, int from, int to) {
+    }
+
+    /** One request body: its frames, how many points it carries, which series, and which points. */
+    record Request(byte[] body, int count, Set<Long> seriesIds, List<Slice> slices) {
     }
 
     record Prepared(List<Request> requests, List<IngestResult.BatchError> localErrors) {
     }
 
-    private IngestResult send(List<Request> requests, BinaryIngestOptions options) {
+    /** Sends every request, leaving in {@code failures}, at its position, the error each one ended with. */
+    private IngestResult send(List<Request> requests, BinaryIngestOptions options,
+                              AtomicReferenceArray<DatahubApiException> failures) {
         List<BatchExecutor.Task> tasks = new ArrayList<>(requests.size());
-        for (Request r : requests) {
-            tasks.add(new BatchExecutor.Task(r.count(), () -> http.postBytes(PATH, r.body(), FrameLimits.MEDIA_TYPE, Map.of())));
+        for (int i = 0; i < requests.size(); i++) {
+            Request r = requests.get(i);
+            int position = i;
+            tasks.add(new BatchExecutor.Task(r.count(), () -> {
+                try {
+                    http.postBytes(PATH, r.body(), FrameLimits.MEDIA_TYPE, Map.of());
+                    failures.set(position, null);
+                } catch (DatahubApiException e) {
+                    failures.set(position, e);
+                    throw e;
+                }
+            }));
         }
         return BatchExecutor.execute(tasks, options.executorOptions());
     }
@@ -134,47 +158,55 @@ public final class BinaryDatapointIngestor {
      * failures come back as local errors rather than exceptions so one bad point does not stop
      * the rest.
      */
-    Prepared prepare(List<DatapointsCollection> data, BinaryIngestOptions options) {
+    Prepared prepare(List<Slice> data, BinaryIngestOptions options) {
         List<IngestResult.BatchError> localErrors = new ArrayList<>();
         Map<DatapointsCollection, Resolved> series = resolve(data, localErrors);
 
-        // One open writer per value type; a writer becomes a frame when it reaches a cap.
+        // One open writer per value type; a writer becomes a frame when it reaches a cap, and knows
+        // which run of which collection's points it holds.
         Map<DatapointValueType, DatapointFrameWriter> open = new EnumMap<>(DatapointValueType.class);
         Map<DatapointValueType, Set<Long>> openSeries = new EnumMap<>(DatapointValueType.class);
-        Map<DatapointValueType, List<DatapointsCollection>> openCollections = new EnumMap<>(DatapointValueType.class);
+        Map<DatapointValueType, List<Slice>> openSlices = new EnumMap<>(DatapointValueType.class);
         List<PendingFrame> pending = new ArrayList<>();
 
-        for (DatapointsCollection collection : data) {
+        for (Slice slice : data) {
+            DatapointsCollection collection = slice.collection();
             Resolved r = series.get(collection);
-            if (r == null || collection.getDatapoints() == null) continue;
+            if (r == null || collection.getDatapoints() == null || slice.from() == slice.to()) continue;
             DatapointValueType type = r.type();
             int bad = 0;
             String firstProblem = null;
-            for (DatapointString dp : collection.getDatapoints()) {
+            int runStart = slice.from();
+            int i = slice.from();
+            for (DatapointString dp : collection.getDatapoints().subList(slice.from(), slice.to())) {
                 DatapointFrameWriter w = open.get(type);
                 Set<Long> ids = openSeries.get(type);
                 if (w == null || w.rowCount() >= FrameLimits.maxRows(type) || w.estimatedRawBytes() >= FRAME_RAW_TARGET
+                        || w.estimatedFrameBytes() >= FRAME_BYTES_TARGET
                         || (ids.size() >= FrameLimits.MAX_SERIES_PER_FRAME && !ids.contains(r.id()))) {
                     if (w != null) {
-                        pending.add(new PendingFrame(w, openCollections.get(type)));
+                        if (i > runStart) openSlices.get(type).add(new Slice(collection, runStart, i));
+                        pending.add(new PendingFrame(w, openSlices.get(type)));
                     }
+                    runStart = i;
                     w = DatapointFrameWriter.forType(type);
                     ids = new LinkedHashSet<>();
                     open.put(type, w);
                     openSeries.put(type, ids);
-                    openCollections.put(type, new ArrayList<>());
+                    openSlices.put(type, new ArrayList<>());
                 }
                 if (ids.add(r.id())) {
                     w.series(r.id(), r.externalId());
                 }
-                if (!openCollections.get(type).contains(collection)) openCollections.get(type).add(collection);
                 try {
                     w.add(r.id(), DateTimeHandler.toEpochUTCTime(dp.getTimestamp()), dp.getValue());
                 } catch (RuntimeException e) {
                     bad++;
                     if (firstProblem == null) firstProblem = e.getMessage();
                 }
+                i++;
             }
+            openSlices.get(type).add(new Slice(collection, runStart, slice.to()));
             if (bad > 0) {
                 localErrors.add(new IngestResult.BatchError(bad, 422,
                         "series " + r.externalId() + ": " + bad + " value(s) not valid for " + type + " (" + firstProblem + ")"));
@@ -182,7 +214,7 @@ public final class BinaryDatapointIngestor {
         }
         for (Map.Entry<DatapointValueType, DatapointFrameWriter> e : open.entrySet()) {
             if (e.getValue().rowCount() > 0) {
-                pending.add(new PendingFrame(e.getValue(), openCollections.get(e.getKey())));
+                pending.add(new PendingFrame(e.getValue(), openSlices.get(e.getKey())));
             }
         }
 
@@ -190,21 +222,24 @@ public final class BinaryDatapointIngestor {
         return new Prepared(pack(frames), localErrors);
     }
 
-    private Map<DatapointsCollection, Resolved> resolve(List<DatapointsCollection> data, List<IngestResult.BatchError> localErrors) {
+    private Map<DatapointsCollection, Resolved> resolve(List<Slice> data, List<IngestResult.BatchError> localErrors) {
         Set<String> externalIds = new LinkedHashSet<>();
         Set<Long> ids = new LinkedHashSet<>();
-        for (DatapointsCollection c : data) {
+        for (Slice s : data) {
+            DatapointsCollection c = s.collection();
             if (c.getExternalId() != null) externalIds.add(c.getExternalId());
             else if (c.getId() != null) ids.add(c.getId());
         }
         Map<String, Resolved> byExternalId = externalIds.isEmpty() ? Map.of() : resolver.resolveExternalIds(externalIds);
         Map<Long, Resolved> byId = ids.isEmpty() ? Map.of() : resolver.resolveIds(ids);
-        Map<DatapointsCollection, Resolved> out = new HashMap<>();
-        for (DatapointsCollection c : data) {
+        // By identity: a collection's equality is its content, every point of it.
+        Map<DatapointsCollection, Resolved> out = new IdentityHashMap<>();
+        for (Slice s : data) {
+            DatapointsCollection c = s.collection();
             Resolved r = c.getExternalId() != null ? byExternalId.get(c.getExternalId())
                     : c.getId() != null ? byId.get(c.getId()) : null;
             if (r == null) {
-                int n = c.getDatapoints() == null ? 0 : c.getDatapoints().size();
+                int n = c.getDatapoints() == null ? 0 : s.to() - s.from();
                 if (n > 0) {
                     localErrors.add(new IngestResult.BatchError(n, 404,
                             "series " + (c.getExternalId() != null ? c.getExternalId() : String.valueOf(c.getId()))
@@ -217,10 +252,10 @@ public final class BinaryDatapointIngestor {
         return out;
     }
 
-    private record PendingFrame(DatapointFrameWriter writer, List<DatapointsCollection> collections) {
+    private record PendingFrame(DatapointFrameWriter writer, List<Slice> slices) {
     }
 
-    private record BuiltFrame(byte[] bytes, int rows, int rawLength, Set<Long> seriesIds, List<DatapointsCollection> collections) {
+    private record BuiltFrame(byte[] bytes, int rows, int rawLength, Set<Long> seriesIds, List<Slice> slices) {
     }
 
     private static List<BuiltFrame> build(List<PendingFrame> pending, BinaryIngestOptions options) {
@@ -266,7 +301,7 @@ public final class BinaryDatapointIngestor {
             } while ((b & 0x80) != 0);
             pos += len;
         }
-        return new BuiltFrame(bytes, rows, rawLength, ids, p.collections());
+        return new BuiltFrame(bytes, rows, rawLength, ids, p.slices());
     }
 
     /** Greedy packing under the request caps: frame count and decompressed total. */
@@ -277,28 +312,26 @@ public final class BinaryDatapointIngestor {
         int inRequest = 0;
         long raw = 0;
         Set<Long> ids = new LinkedHashSet<>();
-        List<DatapointsCollection> collections = new ArrayList<>();
+        List<Slice> slices = new ArrayList<>();
         for (BuiltFrame f : frames) {
             if (inRequest > 0 && (inRequest >= FrameLimits.MAX_FRAMES_PER_REQUEST || raw + f.rawLength() > REQUEST_RAW_TARGET)) {
-                requests.add(new Request(body.toByteArray(), count, ids, collections));
+                requests.add(new Request(body.toByteArray(), count, ids, slices));
                 body = new ByteArrayOutputStream();
                 count = 0;
                 inRequest = 0;
                 raw = 0;
                 ids = new LinkedHashSet<>();
-                collections = new ArrayList<>();
+                slices = new ArrayList<>();
             }
             body.writeBytes(f.bytes());
             count += f.rows();
             inRequest++;
             raw += f.rawLength();
             ids.addAll(f.seriesIds());
-            for (DatapointsCollection c : f.collections()) {
-                if (!collections.contains(c)) collections.add(c);
-            }
+            slices.addAll(f.slices());
         }
         if (inRequest > 0) {
-            requests.add(new Request(body.toByteArray(), count, ids, collections));
+            requests.add(new Request(body.toByteArray(), count, ids, slices));
         }
         return requests;
     }
