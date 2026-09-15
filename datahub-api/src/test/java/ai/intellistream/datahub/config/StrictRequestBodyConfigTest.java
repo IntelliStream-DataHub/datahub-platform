@@ -5,6 +5,7 @@ import ai.intellistream.datahub.tenant.Tenant;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.converter.ByteArrayHttpMessageConverter;
 import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.HttpMessageConverters;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import tools.jackson.core.type.TypeReference;
@@ -55,9 +56,26 @@ class StrictRequestBodyConfigTest {
         JsonMapper shared = JsonMapper.builder().build();
         List<HttpMessageConverter<?>> converters = defaultishConverters();
 
-        new StrictRequestBodyConfig(shared).extendMessageConverters(converters);
+        new StrictRequestBodyConfig(shared).replaceJacksonConverter(converters);
 
         assertThat(converters).anyMatch(StrictJacksonJsonHttpMessageConverter.class::isInstance);
+    }
+
+    /**
+     * Through the real builder, with the JSON converter named after this config has run, as Spring
+     * Boot's own configurer may: the swap must still land, since it happens when the list is built.
+     */
+    @Test
+    void theBuiltServerConvertersCarryTheStrictOneWhoeverNamesTheJsonConverterLast() {
+        HttpMessageConverters.ServerBuilder builder = HttpMessageConverters.forServer().registerDefaults();
+
+        new StrictRequestBodyConfig(JsonMapper.builder().build()).configureMessageConverters(builder);
+        builder.withJsonConverter(new JacksonJsonHttpMessageConverter());
+
+        List<HttpMessageConverter<?>> built = new ArrayList<>();
+        builder.build().forEach(built::add);
+        assertThat(built).anyMatch(StrictJacksonJsonHttpMessageConverter.class::isInstance);
+        assertThat(built).noneMatch(c -> c.getClass() == JacksonJsonHttpMessageConverter.class);
     }
 
     /** Replacing the Jackson converter must not disturb the others or their order. */
@@ -65,7 +83,7 @@ class StrictRequestBodyConfigTest {
     void leavesTheOtherConvertersAlone() {
         List<HttpMessageConverter<?>> converters = defaultishConverters();
 
-        new StrictRequestBodyConfig(JsonMapper.builder().build()).extendMessageConverters(converters);
+        new StrictRequestBodyConfig(JsonMapper.builder().build()).replaceJacksonConverter(converters);
 
         assertThat(converters).hasSize(3);
         assertThat(converters.get(0)).isInstanceOf(ByteArrayHttpMessageConverter.class);
@@ -79,7 +97,7 @@ class StrictRequestBodyConfigTest {
         List<HttpMessageConverter<?>> converters = new ArrayList<>(List.of(new StringHttpMessageConverter()));
 
         assertThatCode(() -> new StrictRequestBodyConfig(JsonMapper.builder().build())
-                .extendMessageConverters(converters)).doesNotThrowAnyException();
+                .replaceJacksonConverter(converters)).doesNotThrowAnyException();
         assertThat(converters).hasSize(1);
     }
 }
