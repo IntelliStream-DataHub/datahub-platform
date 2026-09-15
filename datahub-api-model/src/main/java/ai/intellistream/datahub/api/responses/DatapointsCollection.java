@@ -6,6 +6,7 @@ import ai.intellistream.datahub.json.ToStringSerializer;
 import ai.intellistream.datahub.models.validation.FieldLimits;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 import lombok.Getter;
@@ -29,6 +30,12 @@ public class DatapointsCollection {
 
     // @Valid so the per-datapoint constraints actually cascade: without it neither @NotBlank nor the
     // value-length cap on DatapointString was ever evaluated on an insert.
+    //
+    // @NotNull for the list itself: on an insert it must be present, though it may be empty — an
+    // empty list is an accepted no-op. Omitting it bound cleanly and then NPE'd inside the insert,
+    // which is a 500 for what is plainly a malformed request. Inert when this class is serialized
+    // as a read response.
+    @NotNull
     @Valid
     @Size(max = FieldLimits.DATAPOINTS_PER_COLLECTION_MAX)
     private List<DatapointString> datapoints;

@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.validation.FieldLimits;
@@ -238,7 +239,10 @@ class TimeseriesServiceInsertDatapointsTest {
     void valueThatDoesNotMatchTheTypeIsRejected() throws Exception {
         known("counter-1", 1L, "BIGINT");
 
-        assertThrows(RuntimeException.class, () -> timeseriesService.insertDatapoints(request(
+        // InvalidDatapointException, not a bare RuntimeException: the distinction is the whole
+        // point of the type. A RuntimeException here is a 500, which tells the SDK to retry and
+        // spool a payload that can never succeed.
+        assertThrows(InvalidDatapointException.class, () -> timeseriesService.insertDatapoints(request(
                 collection("counter-1", point("2026-08-21T10:00:00Z", "not-a-number")))));
 
         verify(allDatapointProducer, never()).send(any(DataWrapperBin.class));
@@ -268,6 +272,33 @@ class TimeseriesServiceInsertDatapointsTest {
                 collection("text-1", point("2026-08-21T10:00:00Z", "FAULT"))));
 
         verify(allDatapointProducer).send(any(DataWrapperBin.class));
+    }
+
+    @Test
+    @DisplayName("NUMERIC rejects the values Double accepts but the decimal encoder does not")
+    void numericRejectsNonDecimalNumbers() throws Exception {
+        // Validated with Double.parseDouble, "NaN" sailed past this guard and blew up inside the
+        // Decimal64(6) encoder instead — by which point the failure is no longer recognisable as
+        // the caller's, so it was answered as a server fault.
+        known("flow-1", 1L, "NUMERIC");
+
+        assertThrows(InvalidDatapointException.class, () -> timeseriesService.insertDatapoints(request(
+                collection("flow-1", point("2026-08-21T10:00:00Z", "NaN")))));
+
+        verify(allDatapointProducer, never()).send(any(DataWrapperBin.class));
+    }
+
+    @Test
+    @DisplayName("A timestamp in neither accepted format is the caller's error, not a server fault")
+    void unparseableTimestampIsRejected() throws Exception {
+        // Timestamps are parsed during the binary conversion, long after the per-value switch. That
+        // NumberFormatException used to escape as a 500; it is the caller's payload, so it is a 422.
+        known("pump-1", 1L, "FLOAT");
+
+        assertThrows(InvalidDatapointException.class, () -> timeseriesService.insertDatapoints(request(
+                collection("pump-1", point("last tuesday", "1.0")))));
+
+        verify(allDatapointProducer, never()).send(any(DataWrapperBin.class));
     }
 
     @Test

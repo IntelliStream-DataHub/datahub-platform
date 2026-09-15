@@ -76,12 +76,66 @@ public final class Problems {
     public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
     public static final URI FEATURE_DISABLED = type("feature-disabled");
 
+    /** A 422: a datapoint value or timestamp the caller has to fix before it can be stored. */
+    public static final URI INVALID_DATAPOINT = type("invalid-datapoint");
+
     /** {@code retry}: the same request can succeed later; honour Retry-After when it is sent. */
     public static final String RETRY_SAME_REQUEST = "same-request";
     /** {@code retry}: only a different request can succeed. */
     public static final String RETRY_CHANGE_REQUEST = "change-request";
     /** {@code retry}: nothing the caller sends will succeed until an operator acts; quote the requestId. */
     public static final String RETRY_NEEDS_OPERATOR = "needs-operator";
+
+    /** The extension member naming the page that explains a problem. */
+    public static final String DOCS_MEMBER = "docs";
+
+    private static final String SDK_DOCS = "https://intellistream.ai/sdk-documentation/reference/";
+    private static final String OPERATOR_DOCS = "https://intellistream.ai/data-platform-documentation/";
+
+    /**
+     * Where a human goes to read more, per problem slug.
+     *
+     * <h2>Why this is not {@code type}</h2>
+     * RFC 9457 says {@code type} <em>should</em> dereference to documentation. Ours cannot: they
+     * live under {@code /errors/}, which neither documentation site serves, and they are published
+     * as identifiers — {@code limits.md} and {@code events.md} print the exact strings and tell
+     * clients to match them. Repointing {@code type} at a page would break that, so the identifier
+     * stays opaque and the link is a member of its own. {@code retry} beside it says what to do;
+     * this says where to read why.
+     *
+     * <h2>A missing entry is deliberate</h2>
+     * Only slugs with a section that actually explains them are listed. A link to a page that does
+     * not discuss the error costs a click to learn nothing, so {@code duplicate}, {@code conflict},
+     * {@code optimistic-lock}, {@code bad-request}, {@code not-found}, {@code internal},
+     * {@code messaging-unavailable}, {@code tenant-provisioning} and the bare-status slugs have no
+     * entry until something is written for them, and the member is simply absent there.
+     *
+     * <p>Keyed by slug, so a handler gains its link by having a type at all — no throw site has to
+     * remember, and the ones that still write their type as a literal are covered unchanged.
+     */
+    private static final Map<String, String> DOCS = Map.ofEntries(
+            Map.entry("validation-failed", SDK_DOCS + "client#batch-writes-are-all-or-nothing"),
+            Map.entry("constraint-violation", SDK_DOCS + "client#batch-writes-are-all-or-nothing"),
+            Map.entry("naming-policy", SDK_DOCS + "external-ids#rejections"),
+            Map.entry("unreadable-request-body", SDK_DOCS + "client#unknown-fields"),
+            Map.entry("malformed-cursor", SDK_DOCS + "timeseries#sorting-and-paging"),
+            Map.entry("invalid-datapoint", SDK_DOCS + "timeseries#value-types"),
+            Map.entry("referenced", SDK_DOCS + "timeseries#delete-a-series"),
+            Map.entry("would-strand", SDK_DOCS + "resources#delete"),
+            Map.entry("dataset-forbidden", SDK_DOCS + "datasets#access-control"),
+            Map.entry("filter-expression", SDK_DOCS + "events#when-an-expression-is-refused"),
+            Map.entry("unauthorized", SDK_DOCS + "client#when-a-call-returns-401"),
+            Map.entry("token-rejected", SDK_DOCS + "client#when-a-call-returns-401"),
+            Map.entry("permissions-unavailable", SDK_DOCS + "client#authentication"),
+            Map.entry("rate-limit-exceeded", SDK_DOCS + "limits#rate-limits"),
+            Map.entry("ingest-quota-exceeded", SDK_DOCS + "limits#daily-ingest-quotas"),
+            Map.entry("tenant-limit-reached", SDK_DOCS + "limits#lifetime-ceilings"),
+            Map.entry("request-too-large", SDK_DOCS + "limits#request-body-size"),
+            Map.entry("feature-disabled", SDK_DOCS + "tenant#features"),
+            // The one operator-site entry: onboarding an organization is not something the caller
+            // can act on, it is something they ask an administrator for — which is what this
+            // problem's `retry: needs-operator` already says.
+            Map.entry("unknown-tenant", OPERATOR_DOCS + "administration/organizations"));
 
     private Problems() {
     }
@@ -346,7 +400,10 @@ public final class Problems {
         return problem;
     }
 
-    /** Adds what every problem carries: the request's id and what the caller can do about it. */
+    /**
+     * Adds what every problem carries: the request's id, what the caller can do about it, and
+     * where to read more.
+     */
     public static ProblemDetail decorate(ProblemDetail problem, String requestId) {
         Map<String, Object> properties = problem.getProperties();
         if (requestId != null && (properties == null || !properties.containsKey("requestId"))) {
@@ -355,12 +412,30 @@ public final class Problems {
         if (properties == null || !properties.containsKey("retry")) {
             problem.setProperty("retry", retryFor(problem));
         }
+        String docs = docsFor(problem);
+        if (docs != null && (properties == null || !properties.containsKey(DOCS_MEMBER))) {
+            problem.setProperty(DOCS_MEMBER, docs);
+        }
         return problem;
     }
 
-    static String retryFor(ProblemDetail problem) {
+    /** The page explaining this problem, or null when nothing is written for it yet. */
+    public static String docsFor(ProblemDetail problem) {
+        return DOCS.get(slugOf(problem));
+    }
+
+    /**
+     * The kebab-case tail of a problem's type, or {@code ""} for a type this API did not mint.
+     * Keying on the slug rather than the full URI is what lets the five advices that still write
+     * their type as a string literal be covered without touching them.
+     */
+    private static String slugOf(ProblemDetail problem) {
         String type = problem.getType() == null ? "" : problem.getType().toString();
-        String slug = type.startsWith(BASE) ? type.substring(BASE.length()) : "";
+        return type.startsWith(BASE) ? type.substring(BASE.length()) : "";
+    }
+
+    static String retryFor(ProblemDetail problem) {
+        String slug = slugOf(problem);
         return switch (slug) {
             case "optimistic-lock", "rate-limit-exceeded", "ingest-quota-exceeded", "messaging-unavailable",
                  "permissions-unavailable", "tenant-provisioning" -> RETRY_SAME_REQUEST;

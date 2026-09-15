@@ -12,6 +12,7 @@ import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointException;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -895,14 +896,29 @@ public class TimeseriesService {
                         try {
                             Long.parseLong(dp.getValue());
                         } catch (NumberFormatException err) {
-                            throw new RuntimeException("Could not parse value: " + dp.getValue() + " to long");
+                            throw new InvalidDatapointException(
+                                    "Could not parse value: " + dp.getValue() + " to long");
                         }
                     }
-                    case FLOAT, FLOAT32, NUMERIC -> {
+                    case FLOAT, FLOAT32 -> {
                         try {
                             Double.parseDouble(dp.getValue());
                         } catch (NumberFormatException err) {
-                            throw new RuntimeException("Could not parse value: " + dp.getValue() + " to double");
+                            throw new InvalidDatapointException(
+                                    "Could not parse value: " + dp.getValue() + " to double");
+                        }
+                    }
+                    case NUMERIC -> {
+                        // BigDecimal, not Double: NUMERIC is encoded as a Decimal64(6).
+                        // Double.parseDouble accepts "NaN"/"Infinity"/hex literals that BigDecimal
+                        // rejects, so validating with Double let those past this guard to fail
+                        // inside the encoder — where the failure is no longer recognisable as the
+                        // caller's, and so became a 500 telling them to retry.
+                        try {
+                            new BigDecimal(dp.getValue());
+                        } catch (NumberFormatException err) {
+                            throw new InvalidDatapointException(
+                                    "Could not parse value: " + dp.getValue() + " to a decimal");
                         }
                     }
                     case DECIMAL32 -> {
@@ -912,7 +928,8 @@ public class TimeseriesService {
                         try {
                             new BigDecimal(dp.getValue());
                         } catch (NumberFormatException err) {
-                            throw new RuntimeException("Could not parse value: " + dp.getValue() + " to a decimal");
+                            throw new InvalidDatapointException(
+                                    "Could not parse value: " + dp.getValue() + " to a decimal");
                         }
                     }
                     case TEXT, MIXED -> {
@@ -921,13 +938,16 @@ public class TimeseriesService {
                         // DTO's length caps already reject empty and oversized values, and the
                         // per-collection TEXT limit is checked once per batch above.
                     }
-                    default -> throw new RuntimeException("Unsupported value type: " + ts.valueTypeName());
+                    // An id the switch does not know is a server-side problem — a value type row in
+                    // the tenant's database this build has no case for — not a bad request.
+                    default -> throw new IllegalStateException(
+                            "Unsupported value type: " + ts.valueTypeName());
                 }
                 addData(ts, insertData, dp);
 
                 // Keep the parsed value: comparing ZonedDateTime re-parsed the incumbent on every
                 // iteration it survived. Ties keep the earlier point, as isAfter did.
-                long epochMillis = DateTimeHandler.toEpochUTCTime(dp.getTimestamp());
+                long epochMillis = epochMillisOrReject(dp, ts);
                 if(latestDatapoint == null || epochMillis > latestEpochMillis){
                     latestDatapoint = dp;
                     latestEpochMillis = epochMillis;
@@ -945,6 +965,30 @@ public class TimeseriesService {
             }
         }
         return pending;
+    }
+
+    /**
+     * The datapoint's timestamp in epoch millis, treating a parse failure as the caller's rather
+     * than the server's.
+     *
+     * <p>A timestamp is a plain string on the wire, so it binds cleanly and is only parsed here —
+     * past {@code UnreadableRequestBodyExceptionHandler}, which catches the same failure but only
+     * when Jackson raises it during binding. Nothing else recognised it, so a mistyped timestamp
+     * reached the caller as a 500: an invitation to retry a payload that can never succeed.
+     *
+     * <p>Rejecting in this loop rather than around the binary conversion is deliberate — every
+     * datapoint's timestamp is parsed here first, so a bad one never reaches the encoder at all.
+     */
+    private static long epochMillisOrReject(DatapointString dp, ResolvedSeries ts) {
+        try {
+            return DateTimeHandler.toEpochUTCTime(dp.getTimestamp());
+        } catch (DateTimeParseException | NumberFormatException err) {
+            throw new InvalidDatapointException(
+                    "'%s' is not a valid timestamp for timeseries '%s'. Use ISO-8601 with an offset "
+                            .formatted(dp.getTimestamp(), ts.externalId())
+                            + "(2026-01-01T00:00:00Z) or epoch milliseconds (1767225600000). A "
+                            + "10-digit value is epoch seconds — multiply it by 1000.");
+        }
     }
 
     /**
