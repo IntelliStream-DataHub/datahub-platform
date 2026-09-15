@@ -17,7 +17,6 @@ import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.errors.ResponseError;
@@ -186,29 +185,22 @@ public class PolicyController {
             @Schema(implementation = PolicyDataWrapper.class)
             DataWrapper<Policy> form
     ) throws ConstraintViolationException, Exception {
-        try {
-            Collection<Policy> items = form.getItems();
+        Collection<Policy> items = form.getItems();
 
-            // Scope first, over the whole batch: a policy attached where its type does not allow
-            // would look configured and enforce nothing. Also validates a naming policy's regex
-            // here, where the error reaches the person who typed it rather than an integration
-            // that cannot fix it.
-            items.forEach(PolicyScopeValidator::validate);
+        // Scope first, over the whole batch: a policy attached where its type does not allow
+        // would look configured and enforce nothing. Also validates a naming policy's regex
+        // here, where the error reaches the person who typed it rather than an integration
+        // that cannot fix it.
+        items.forEach(PolicyScopeValidator::validate);
 
-            // One call for the whole batch, through the shared create pipeline — so a
-            // three-policy request is judged, authorized and published as one create, exactly like
-            // three resources are.
-            DataWrapper<Policy> data = policyService.create(items);
+        // One call for the whole batch, through the shared create pipeline — so a
+        // three-policy request is judged, authorized and published as one create, exactly like
+        // three resources are.
+        DataWrapper<Policy> data = policyService.create(items);
 
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
 
-        } catch (DataIntegrityViolationException dve) {
-            // A duplicate externalId is a conflict, not a server fault. This was unhandled, so
-            // creating a policy whose externalId already existed produced a bare 500 — the only
-            // node type where a duplicate create did not surface as 4xx.
-            var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
-            return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        }
+    
     }
 
     // 5. DELETE POLICY NODE(S)
