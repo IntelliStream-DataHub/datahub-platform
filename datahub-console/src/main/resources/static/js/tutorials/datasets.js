@@ -860,12 +860,7 @@
                     setFieldValue(".right-form form input[name='externalId']", snap.externalId);
                     setFieldValue(".right-form form textarea[name='description']", snap.description);
                     // Delete on the backend in the background (best-effort).
-                    const header = document.querySelector('meta[name="_csrf_header"]')?.content;
-                    const token = document.querySelector('meta[name="_csrf"]')?.content;
-                    return fetch(`/api/datasets/delete/${encodeURIComponent(id)}`, {
-                        method: "DELETE",
-                        headers: header ? { [header]: token } : {},
-                    }).catch(() => { /* best effort */ });
+                    return Api.del("/datasets/delete", { items: [{ id: id }] }).catch(() => { /* best effort */ });
                 }
             },
 
@@ -1849,7 +1844,7 @@
 
         const datasetId = ctx && ctx.getSelectedDatasetId && ctx.getSelectedDatasetId();
         const datasetDelete = datasetId
-            ? del(`/api/datasets/delete/${encodeURIComponent(datasetId)}`)
+            ? Api.del("/datasets/delete", { items: [{ id: datasetId }] }).catch(() => { /* best effort */ })
             : Promise.resolve();
 
         // Seeded events aren't nodes and don't cascade from the resource delete, so remove them by
