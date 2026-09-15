@@ -28,7 +28,7 @@ dependencies {
 	implementation project(':datahub-commons')
 	testImplementation project(':datahub-infra')
 
-	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.0'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
 	implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
 	// Decompresses the binary datapoint frames to validate them (api-model's ZstdPayloadCodec is
 	// compile-only there; each consumer of it supplies the native library).

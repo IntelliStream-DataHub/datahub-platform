@@ -58,11 +58,23 @@ class EventFieldLengthRulesTest {
         assertTrue(mentions(fields.getErrors(), "event.subType.max.length.error"));
     }
 
+    /**
+     * 128, like type, subType and status above — and like {@code EventModel.source}'s
+     * {@code @Size(min = 2, max = 128)} on create. Update capped it at 64, so a source of 65 to 128
+     * characters could be created and then never updated; source was also the only one of these
+     * four fields whose update ceiling did not match its create one.
+     */
     @Test
-    void source_over64_isRejected() {
-        EventFields fields = fields("{\"source\": {\"set\": \"" + OVERLONG_65 + "\"}}");
+    void source_over128_isRejected() {
+        EventFields fields = fields("{\"source\": {\"set\": \"" + OVERLONG_129 + "\"}}");
         assertFalse(fields.validateFields());
         assertTrue(mentions(fields.getErrors(), "event.source.max.length.error"));
+    }
+
+    @Test
+    void source_between65And128_isAccepted() {
+        EventFields fields = fields("{\"source\": {\"set\": \"" + OVERLONG_65 + "\"}}");
+        assertTrue(fields.validateFields(), "create allows this length, so update must too");
     }
 
     @Test
@@ -71,7 +83,7 @@ class EventFieldLengthRulesTest {
                 "{\"type\": {\"set\": \"" + "x".repeat(128) + "\"},"
                         + " \"subType\": {\"set\": \"" + "x".repeat(128) + "\"},"
                         + " \"status\": {\"set\": \"" + "x".repeat(128) + "\"},"
-                        + " \"source\": {\"set\": \"" + "x".repeat(64) + "\"}}");
+                        + " \"source\": {\"set\": \"" + "x".repeat(128) + "\"}}");
         assertTrue(fields.validateFields());
     }
 }

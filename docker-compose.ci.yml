@@ -1,0 +1,21 @@
+# CI-only overlay for the E2E workflow. Layered on top of docker-compose.yml and
+# docker-compose.apps.yml; never auto-loaded, unlike docker-compose.override.yml.
+#
+# Exists so the heap caps in docker-compose.apps.yml can stay sized for a laptop.
+# Those are deliberately small (384 MB for the api) and correct for a developer
+# poking at the stack by hand — but the SDK suites run a load test the dev stack
+# never sees, and a GitHub runner has 16 GB to spend rather than a share of
+# someone's workstation.
+services:
+  # timeseries::test::tests::test_datapoints in the Rust SDK pushes 5,184,000
+  # datapoints in 100k-per-request batches. Each of those bodies is held several
+  # times over — ContentCachingRequestWrapper caches up to 20 MB of it, Jackson
+  # materialises the whole DatapointsCollection, then it is serialised to Avro for
+  # Pulsar — and several are in flight at once. At 384 MB the api threw
+  # OutOfMemoryError on 43 of those requests.
+  #
+  # Direct memory is deliberately left where it is: every one of those 86 OOMs was
+  # "Java heap space", so Netty/Pulsar's buffers were not the constraint.
+  datahub-api:
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx1536m -XX:MaxDirectMemorySize=128m"

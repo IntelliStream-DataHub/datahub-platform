@@ -259,6 +259,69 @@ class ClickHouseEventRelatedResourcesIT {
         assertEquals("[" + ExternalIds.hash(SENSOR_EXT) + "]", columns.get(2));
     }
 
+    /**
+     * Moving an event between datasets has to reach storage, not just the response.
+     *
+     * <p>Here rather than in its own file because this class owns the mutation harness. The clause
+     * was missing entirely: {@code EventService} applied the move to its in-memory model and
+     * returned that in the 200, so the caller saw a successful move and the row kept its old
+     * dataset — on the column the read ACL filters by. Unlike {@code event_time}, which the
+     * partition key genuinely forbids updating, {@code data_set_id} is neither the sorting key
+     * ({@code ORDER BY id}) nor the partition key, so nothing was stopping it.
+     */
+    @Test
+    void mutationMovesTheEventBetweenDatasets() throws Exception {
+        UUID id = createEvent("ds_move", List.of());
+        assertEquals(12L, read(id).getDataSetId(), "seeded in dataset 12");
+
+        EventCudMessage message = new EventCudMessage();
+        message.setTenantId(TENANT);
+        message.setEvents(new ArrayList<>(List.of(read(id))));
+        UpdateEventForm form = new UpdateEventForm().setId(id);
+        form.getUpdate().getDataSetId().set(34L);
+        message.setUpdateEvents(new ArrayList<>(List.of(form)));
+
+        service.updateEvents(message);
+        waitForMutations();
+
+        assertEquals(34L, read(id).getDataSetId(), "the move must reach ClickHouse, not just the 200");
+    }
+
+    /** Clearing writes 0, the non-nullable column's "no dataset" sentinel, and reads back as null. */
+    @Test
+    void mutationClearsTheDatasetToTheSentinel() throws Exception {
+        UUID id = createEvent("ds_clear", List.of());
+
+        EventCudMessage message = new EventCudMessage();
+        message.setTenantId(TENANT);
+        message.setEvents(new ArrayList<>(List.of(read(id))));
+        UpdateEventForm form = new UpdateEventForm().setId(id);
+        form.getUpdate().getDataSetId().setNull(true);
+        message.setUpdateEvents(new ArrayList<>(List.of(form)));
+
+        service.updateEvents(message);
+        waitForMutations();
+
+        assertNull(read(id).getDataSetId(), "0 in the column reads back as no dataset");
+    }
+
+    @Test
+    void mutationLeavesTheDatasetAloneWhenNotMentioned() throws Exception {
+        UUID id = createEvent("ds_untouched", List.of());
+
+        EventCudMessage message = new EventCudMessage();
+        message.setTenantId(TENANT);
+        message.setEvents(new ArrayList<>(List.of(read(id))));
+        UpdateEventForm form = new UpdateEventForm().setId(id);
+        form.getUpdate().getDescription().set("only the description changes");
+        message.setUpdateEvents(new ArrayList<>(List.of(form)));
+
+        service.updateEvents(message);
+        waitForMutations();
+
+        assertEquals(12L, read(id).getDataSetId(), "an untouched dataset must not be reset");
+    }
+
     @Test
     void mutationLeavesRelatedResourcesAloneWhenNotMentioned() throws Exception {
         UUID id = createEvent("rr_untouched", List.of(related(PUMP_ID, PUMP_EXT)));

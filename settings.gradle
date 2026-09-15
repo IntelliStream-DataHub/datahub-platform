@@ -29,4 +29,5 @@ include(
         'datahub-pulsar-filter',
         'datahub-cleanup',
         'datahub-e2e',
+        'datahub-rvm-converter',
 )

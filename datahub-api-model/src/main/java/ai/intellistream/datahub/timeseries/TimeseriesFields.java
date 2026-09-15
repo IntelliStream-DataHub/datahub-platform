@@ -11,6 +11,8 @@ import lombok.Getter;
 import lombok.Setter;
 import ai.intellistream.datahub.validation.FieldValidationError;
 
+import ai.intellistream.datahub.models.validation.SizeRules;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -79,6 +81,20 @@ public class TimeseriesFields {
                 "Name", this.name.getSetNull(), errors);
         RequiredFieldRules.rejectSetNull("Time Series", "timeseries.external.id.null.error",
                 "ExternalId", this.externalId.getSetNull(), errors);
+
+        // As on data sets: create enforces these through NodeModel's annotations and update
+        // validates by hand, so a timeseries could be updated to hold what create refuses.
+        SizeRules.checkLength("Time Series", "timeseries.description.max.length.error", "Description",
+                this.description.getSet(), FieldLimits.DESCRIPTION_MAX, errors);
+
+        SizeRules.checkMetadata("Time Series", "timeseries", this.metadata, errors);
+
+        SizeRules.checkLength("Time Series", "timeseries.source.max.length.error", "Source",
+                this.source.getSet(), FieldLimits.SOURCE_MAX, errors);
+
+        // Timeseries.unitExternalId is @Size(min = 3, max = 256) on create.
+        SizeRules.checkLength("Time Series", "timeseries.unit.external.id.max.length.error",
+                "UnitExternalId", this.unitExternalId.getSet(), 256, errors);
 
         if(this.unit.getSet() != null){
             if(this.unit.getSet().length() > 64){
