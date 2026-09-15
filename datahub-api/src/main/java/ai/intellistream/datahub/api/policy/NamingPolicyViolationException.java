@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.policy;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 
 import java.util.List;
-import java.util.Map;
 
 /**
  * Thrown when a batch contains external ids a naming policy rejects. Nothing has been written.
@@ -29,7 +27,7 @@ public class NamingPolicyViolationException extends BadRequestException {
     private final int batchSize;
 
     public NamingPolicyViolationException(List<PolicyFinding> violations, int batchSize) {
-        super(buildError(violations, batchSize));
+        super(summary(violations, batchSize), fieldsOf(violations));
         this.violations = List.copyOf(violations);
         this.batchSize = batchSize;
     }
@@ -50,38 +48,33 @@ public class NamingPolicyViolationException extends BadRequestException {
      * the policy, so the answer to "why" does not require a second request.
      */
     public String detail() {
+        return summary(violations, batchSize);
+    }
+
+    private static String summary(List<PolicyFinding> violations, int batchSize) {
         String policy = violations.isEmpty() ? "the naming policy" : "'" + violations.getFirst().policyExternalId() + "'";
         return violations.size() + " of " + batchSize + " external ids violate naming policy "
                 + policy + ". Nothing was created.";
     }
 
-    private static ResponseError<BadRequestError> buildError(List<PolicyFinding> violations, int batchSize) {
-        var error = new BadRequestError();
-        error.setCode(400);
-        String policy = violations.isEmpty() ? "the naming policy" : "'" + violations.getFirst().policyExternalId() + "'";
-        error.setMessage(violations.size() + " of " + batchSize + " external ids violate naming policy "
-                + policy + ". Nothing was created.");
+    /**
+     * One entry per violation, keyed by the offending external id so the caller can pair a finding
+     * with the item they sent. The index, the policy and the reason travel in the message, because
+     * {@code fields} is a flat field-to-message list and splitting one finding across four entries
+     * would leave the caller reassembling them.
+     */
+    private static FieldErrors fieldsOf(List<PolicyFinding> violations) {
+        var fields = new FieldErrors();
         for (PolicyFinding violation : violations) {
-            error.getFields().add(fieldsOf(violation));
+            String reason = "item " + violation.index() + ": " + violation.message()
+                    + " (policy '" + violation.policyExternalId() + "')";
+            // A suggestion is legitimately absent for the pattern preset — there is no general way
+            // to derive a string satisfying an arbitrary regex.
+            if (violation.suggestion() != null) {
+                reason = reason + ". Try '" + violation.suggestion() + "'";
+            }
+            fields.addFieldError(String.valueOf(violation.externalId()), reason);
         }
-        return new ResponseError<BadRequestError>().setError(error);
-    }
-
-    private static Map<String, String> fieldsOf(PolicyFinding violation) {
-        // Map.of rejects null values, and a suggestion is legitimately absent for the pattern preset
-        // (there is no general way to derive a string satisfying an arbitrary regex).
-        if (violation.suggestion() == null) {
-            return Map.of(
-                    "index", String.valueOf(violation.index()),
-                    "externalId", String.valueOf(violation.externalId()),
-                    "policy", String.valueOf(violation.policyExternalId()),
-                    "reason", String.valueOf(violation.message()));
-        }
-        return Map.of(
-                "index", String.valueOf(violation.index()),
-                "externalId", String.valueOf(violation.externalId()),
-                "policy", String.valueOf(violation.policyExternalId()),
-                "reason", String.valueOf(violation.message()),
-                "suggestion", violation.suggestion());
+        return fields;
     }
 }

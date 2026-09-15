@@ -39,6 +39,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -144,7 +145,7 @@ class FileControllerRequestBodyBindingTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"externalId\":\"folder/file.csv\",\"description\":\"d\"}"))
                 .andExpect(status().isNotFound())
-                .andExpect(content().string("File or folder not found."));
+                .andExpect(jsonPath("$.detail").value("File or folder not found."));
     }
 
     @Test
@@ -153,7 +154,7 @@ class FileControllerRequestBodyBindingTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"description\":\"d\"}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(content().string("A file id or externalId is required."));
+                .andExpect(jsonPath("$.detail").value("A file id or externalId is required."));
     }
 
     @Test

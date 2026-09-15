@@ -431,7 +431,11 @@ window.Api = (function () {
 	function token() {
 		if (cachedToken && (Date.now() - cachedAt) < 60000) return Promise.resolve(cachedToken);
 		return fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
-			.then(r => r.ok ? r.text() : Promise.reject(r.status))
+			.then(r => {
+				// A lapsed session says so at once instead of waiting for the login poll.
+				if (r.status === 401 && window.renderSignedOutDialog) window.renderSignedOutDialog();
+				return r.ok ? r.text() : Promise.reject(r.status);
+			})
 			.then(t => { cachedToken = t; cachedAt = Date.now(); return t; });
 	}
 

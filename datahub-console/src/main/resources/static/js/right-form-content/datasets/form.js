@@ -105,17 +105,27 @@ class DataSetForm extends DatasetFormAbstract {
 
     submit() {
         this.formData = new FormData(this.formElement);
-        const obj = Object.fromEntries(this.formData);
+        const form = Object.fromEntries(this.formData);
 
-        // No deactivated/writeProtected here: #300 removed both from the dataset model, and this
-        // form never rendered a checkbox for either, so getBool() only ever returned false. Since
-        // #324 the api rejects a body naming fields it does not have, so sending them 400s the
-        // whole create. The write-protect policy push went with them — it was gated on the same
-        // always-false flag.
-        // The hidden inputs hold ids as text and List<Long> reads text, so there is nothing for
-        // .map(Number) to do here except lose precision on a big enough id.
-        obj.connectedDataSets = this.formData.getAll('connectedDataSets');
-        obj.policies = [];
+        // Named field by field: the metadata rows are form inputs too, and the api refuses a body
+        // with fields it does not have.
+        const obj = {
+            name: form.name,
+            externalId: form.externalId,
+            description: form.description,
+            metadata: {},
+            // The hidden inputs hold ids as text and List<Long> reads text, so there is nothing for
+            // .map(Number) to do here except lose precision on a big enough id.
+            connectedDataSets: this.formData.getAll('connectedDataSets'),
+            policies: []
+        };
+        this.formElement.querySelectorAll('table.metadata tbody tr').forEach( row => {
+            const keyField = row.querySelector('[name$="key"]');
+            const valueField = row.querySelector('[name$="value"]');
+            if(keyField && valueField && keyField.value !== ""){
+                obj.metadata[keyField.value] = valueField.value;
+            }
+        });
 
         Api.post(this.savePath, { items: [obj] })
             .then(response => this.handleResponse(response))
@@ -177,7 +187,7 @@ class EditDataSetForm extends DataSetForm {
 				this.preloadLabels(json.labels || []);
 			});
 		};
-		fetch('/api/label/list', { headers: { 'Accept': 'application/json' } })
+		Api.get('/labels')
 			.then(r => r.json())
 			.then(json => {
 				this.labelNetwork.labels = json.items || [];
@@ -303,28 +313,6 @@ class EditDataSetForm extends DataSetForm {
 				console.error("Updating Dataset failed");
 			});
 	}
-
-	delete(){
-		Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
-			.then( xhr => {
-				// If successful delete
-				if(xhr.status === 200 || xhr.status === 204){
-					if(this.afterDeleteFn){
-						this.afterDeleteFn(this);
-					}
-					this.cancelButtonElement.dispatchEvent(new Event('click'));
-					return;
-				}
-				// A refused delete is either an access denial (a problem document) or the api's
-				// error envelope naming what blocked it, e.g. resources the delete would strand.
-				xhr.json()
-					.then( errorJson => this.flashError(this.anyErrorMessage(errorJson)) )
-					.catch(() => { /* no body, or not JSON: nothing to say beyond the status */ });
-			})
-			.catch((e) => {
-				console.error(e);
-			});
-	}
 }
 
 class DataSetList extends BaseList{
@@ -340,7 +328,7 @@ class DataSetList extends BaseList{
 	loadData(afterLoadFn){
 		// Data sets are a small, slow-changing set per tenant, so the picker asks for the lot and
 		// filters client side (doSearch below) rather than round-tripping per keystroke.
-		Api.post(this.apiPath + "/list", { limit: 100 })
+		Api.get(this.apiPath + "?limit=100")
 			.then( resp => resp.json())
 			.then( json => {
 				this.data = {

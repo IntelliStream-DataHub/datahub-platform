@@ -10,12 +10,10 @@ import ai.intellistream.datahub.api.responses.swaggerdto.EventDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.UUIDAndExternalIdCollectionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.UpdateEventDataWrapper;
 import ai.intellistream.datahub.api.services.EventService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventRetreiver;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.events.EventFilter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +38,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Set;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/events")
@@ -73,8 +72,8 @@ public class EventController {
     @ApiResponse(responseCode = "404", description =
             "No event with this id exists, or it belongs to a tenant you can't read.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find event with id: 0195f3a2-...")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(@NotNull @Parameter(description = "UUID of the event to look up.", example = "0195f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90") @PathVariable("id") String id){
@@ -120,18 +119,11 @@ public class EventController {
             @RequestBody
             DataWrapper<UUIDAndExternalIdCollection> apiReqData
     ){
-        try{
-            if(apiReqData.getItems().size() > 10000){
-                throw new IllegalArgumentException("Maximum 10000 ids allowed");
-            }
-            DataWrapper<EventModel> events = eventService.findAllByIdAndExternalId(apiReqData.getItems());
-            return new ResponseEntity<>(events, HttpStatus.OK);
-        } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
+        if(apiReqData.getItems().size() > 10000){
+            throw new IllegalArgumentException("Maximum 10000 ids allowed");
         }
+        DataWrapper<EventModel> events = eventService.findAllByIdAndExternalId(apiReqData.getItems());
+        return new ResponseEntity<>(events, HttpStatus.OK);
     }
 
     @Tag(name = "Events")
@@ -159,8 +151,8 @@ public class EventController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -168,7 +160,7 @@ public class EventController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -273,15 +265,8 @@ public class EventController {
                     )
             )
             @Valid @RequestBody EventRetreiver apiReqData){
-        try{
-            DataWrapper<EventModel> items = eventService.filter(apiReqData);
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        } catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        DataWrapper<EventModel> items = eventService.filter(apiReqData);
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Events")
@@ -333,16 +318,8 @@ public class EventController {
         // No manual validator.validate here: @Valid on the body already rejected an invalid form
         // before this method ran, so the hand-rolled pass could only ever re-check what had
         // already passed — and its bare-string 400 disagreed with the shape @Valid produces.
-        try{
-            DataWrapper<EventModel> items = eventService.search(form);
-            return new ResponseEntity<>(items, HttpStatus.OK);
-        }
-        catch (ai.intellistream.datahub.errors.ObjectNotFoundException e){
-            // Rethrow so ObjectNotFoundExceptionHandler renders the shared RFC 9457
-            // problem+json body. Catching it here returned a bare JSON string, so the API
-            // had two different shapes for the same 404.
-            throw e;
-        }
+        DataWrapper<EventModel> items = eventService.search(form);
+        return new ResponseEntity<>(items, HttpStatus.OK);
     }
 
     @Tag(name = "Events")
@@ -379,20 +356,14 @@ public class EventController {
                     "`relatedResources` entry points at a resource that doesn't exist, or its " +
                     "`id` and `externalId` name different resources.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "An event with one of the `externalId`s already exists. Pick a different one.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
-            ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -429,33 +400,9 @@ public class EventController {
             @RequestBody
                                     @Schema(implementation = EventDataWrapper.class)
                                     DataWrapper<EventModel> apiReqData
-    ){
-        try{
-            DataWrapper<EventModel> results = eventService.create(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (BadRequestException e) {
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+    ) throws PulsarClientException {
+        DataWrapper<EventModel> results = eventService.create(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.CREATED);
     }
 
     @Tag(name = "Events")
@@ -494,8 +441,8 @@ public class EventController {
                     "neither `id` nor `externalId` supplied, the event doesn't exist, or " +
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "429", description = "Too many requests — back off and retry.",
             content = @Content)
@@ -527,30 +474,9 @@ public class EventController {
             @RequestBody
                                     @Schema(implementation = UpdateEventDataWrapper.class)
                                     DataWrapper<UpdateEventForm> apiReqData
-    ){
-        try{
-            DataWrapper<EventModel> results = eventService.update(apiReqData);
-            return new ResponseEntity<>(results, HttpStatus.OK);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+    ) throws PulsarClientException {
+        DataWrapper<EventModel> results = eventService.update(apiReqData);
+        return new ResponseEntity<>(results, HttpStatus.OK);
     }
 
     @Tag(name = "Events")
@@ -571,8 +497,8 @@ public class EventController {
             content = @Content)
     @ApiResponse(responseCode = "400", description = "Malformed request — e.g. neither `id` nor `externalId` supplied on an entry.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(
             path = "/delete",
@@ -597,30 +523,10 @@ public class EventController {
             @Schema(implementation = UUIDAndExternalIdCollectionDataWrapper.class)
             @RequestBody
             DataWrapper<UUIDAndExternalIdCollection> apiReqData
-    ){
-        try{
-            eventService.delete(apiReqData);
-            // 204, like every other delete on the API. This was the lone 200-with-empty-body.
-            return ResponseEntity.noContent().build();
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (ResourceDeleteException e){
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        }
-        // Let dataset-ACL denials surface as 403 instead of being masked as 500 below.
-        catch (org.springframework.security.access.AccessDeniedException e){
-            throw e;
-        }
-        catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+    ) throws PulsarClientException {
+        eventService.delete(apiReqData);
+        // 204, like every other delete on the API. This was the lone 200-with-empty-body.
+        return ResponseEntity.noContent().build();
     }
 
     @Tag(name = "Events")
@@ -644,14 +550,8 @@ public class EventController {
             method = {RequestMethod.GET}
     )
     public ResponseEntity<?> count(){
-        try{
-            long count = eventService.count();
-            return new ResponseEntity<>(Map.of("count", count), HttpStatus.OK);
-        }
-        catch (RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        long count = eventService.count();
+        return new ResponseEntity<>(Map.of("count", count), HttpStatus.OK);
     }
 
     /** Hard cap on how many distinct dimension values a single list/search call may return. */
@@ -828,12 +728,7 @@ public class EventController {
     }
 
     private ResponseEntity<?> listResponse(java.util.function.Supplier<DataWrapper<String>> supplier){
-        try{
-            return new ResponseEntity<>(supplier.get(), HttpStatus.OK);
-        } catch (RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        return new ResponseEntity<>(supplier.get(), HttpStatus.OK);
     }
 
     private static int clampLimit(int limit){

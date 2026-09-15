@@ -52,7 +52,7 @@
 		return getToken(false).then(send)
 			.then(function(r){ return (r.status === 401) ? getToken(true).then(send) : r; })
 			.then(function(r){
-				if(!r.ok) return r.text().then(function(b){ return Promise.reject("HTTP " + r.status + (b ? ": " + b.slice(0,200) : "")); });
+				if(!r.ok) return DataHubProblem.read(r).then(function(problem){ return Promise.reject(problem); });
 				return r.status === 204 ? null : r.json();
 			});
 	}

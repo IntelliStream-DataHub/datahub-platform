@@ -2,6 +2,8 @@
 package ai.intellistream.datahub.api.filters;
 
 import ai.intellistream.datahub.api.config.LimitsProperties;
+import ai.intellistream.datahub.api.controllers.errors.ProblemResponses;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.services.TenantLimits;
 import ai.intellistream.datahub.api.services.TenantLimitsService;
 import ai.intellistream.datahub.services.ValkeyService;
@@ -13,7 +15,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -168,17 +170,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.reset();
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfter));
-        response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
-        response.setCharacterEncoding("UTF-8");
-        response.getWriter().write("""
-                {"type":"https://intellistream.ai/errors/rate-limit-exceeded",\
-                "title":"Too many requests",\
-                "status":429,\
-                "detail":"This %s has used its %d requests per minute. Retry in %d seconds.",\
-                "scope":"%s",\
-                "limit":%d,\
-                "retryAfter":%d}"""
-                .formatted(scope, limit, retryAfter, scope, limit, retryAfter));
-        response.getWriter().flush();
+        ProblemDetail problem = Problems.of(HttpStatus.TOO_MANY_REQUESTS, Problems.type("rate-limit-exceeded"),
+                "Too many requests", "This %s has used its %d requests per minute. Retry in %d seconds."
+                        .formatted(scope, limit, retryAfter));
+        problem.setProperty("scope", scope);
+        problem.setProperty("limit", limit);
+        problem.setProperty("retryAfter", retryAfter);
+        ProblemResponses.write(request, response, problem);
     }
 }

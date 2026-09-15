@@ -311,7 +311,7 @@
 						node.row.remove();
 						Flash.info($L('deleted.name', null, [node.name]));
 					} else {
-						Flash.error($L('delete.failed'));
+						DataHubProblem.read(resp).then(problem => problem.flash('delete.failed'));
 					}
 				});
 			})
@@ -371,7 +371,7 @@
 			Flash.error($L('target.already.exists'));
 		} else {
 			reenable();
-			Flash.error(window.LimitErrors.fromStatus(resp.status) || $L('update.failed'));
+			DataHubProblem.read(resp).then(problem => problem.flash('update.failed'));
 		}
 	}
 
@@ -508,14 +508,15 @@
 					return;
 				}
 				btn.disabled = false;
-				// A limit refusal is a whole sentence of its own; anything else keeps the old
-				// "could not restore: <server text>" shape.
-				return r.text().then(msg => {
-					const limit = window.LimitErrors.fromStatus(r.status, msg);
-					flashErr(limit || (i18n.restoreFail + (msg ? ': ' + msg : '')));
-				});
+				return DataHubProblem.read(r).then(problem => flashErr(restoreRefusal(problem)));
 			});
 		}).catch(() => { btn.disabled = false; flashErr(i18n.restoreFail); });
+	}
+
+	// A 409 names why in `reason`; one without a reason means a file already sits at the original path.
+	function restoreRefusal(problem){
+		if (problem.status !== 409) return problem.message('files.restore.fail');
+		return $L('files.restore.refused.' + (problem.body.reason || 'path-taken'));
 	}
 
 	tabFiles.addEventListener('click', showFiles);

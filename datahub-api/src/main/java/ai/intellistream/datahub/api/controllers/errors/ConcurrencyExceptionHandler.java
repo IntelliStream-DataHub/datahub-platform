@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers.errors;
 
-import ai.intellistream.datahub.errors.ResponseError;
+import org.springframework.http.ProblemDetail;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -21,20 +19,20 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * more specific {@code ObjectOptimisticLockingFailureException}) so any future lock-flavor
  * Spring Data might throw is also covered.
  *
- * <p>The response shape is {@link ConflictError} so it shows up as a concrete schema in the
- * OpenAPI spec — clients can discriminate on {@code cause = "concurrency"} instead of
- * string-matching the message.
+ * <p>Clients discriminate on the problem {@code type} — {@code .../errors/optimistic-lock} —
+ * rather than string-matching the message. That was already the intent: the retired {@code ConflictError}
+ * carried {@code cause = "concurrency"} for it. A type URI is the RFC 9457 member meant for the
+ * job, so a lock conflict is distinguishable from a duplicate one without a bespoke field.
  */
 @RestControllerAdvice
 @Slf4j
 public class ConcurrencyExceptionHandler {
 
     @ExceptionHandler(OptimisticLockingFailureException.class)
-    public ResponseEntity<ResponseError<ConflictError>> handleOptimisticLock(OptimisticLockingFailureException ex) {
+    public ProblemDetail handleOptimisticLock(OptimisticLockingFailureException ex) {
         // Log at info — this is expected under contention and not an operator alert.
         log.info("Optimistic lock conflict: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                ConflictError.of("The resource was modified or removed by another request. Re-read and retry.")
-        );
+        return Problems.conflict(Problems.OPTIMISTIC_LOCK,
+                "The resource was modified or removed by another request. Re-read and retry.");
     }
 }

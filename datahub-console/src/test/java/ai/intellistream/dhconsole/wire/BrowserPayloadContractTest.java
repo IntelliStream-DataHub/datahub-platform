@@ -3,18 +3,33 @@ package ai.intellistream.dhconsole.wire;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
+import ai.intellistream.datahub.api.responses.GraphDataWrapper;
+import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.NodeModelSubtypes;
+import ai.intellistream.datahub.models.Policy;
+import ai.intellistream.datahub.models.RelForm;
+import ai.intellistream.datahub.models.RelatedResourcesForm;
 import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
+import ai.intellistream.datahub.models.UpdateRelForm;
+import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.events.EventRetreiver;
 import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.forms.AnalysisForm;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
+import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
+import ai.intellistream.datahub.models.datafilters.ResourceFilter;
+import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
+import ai.intellistream.datahub.resource.RelTypeForm;
+import ai.intellistream.datahub.timeseries.Timeseries;
+import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.TestFactory;
 import tools.jackson.core.type.TypeReference;
@@ -69,6 +84,7 @@ class BrowserPayloadContractTest {
 
     private final JsonMapper strict = JsonMapper.builder()
             .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .addModule(new NodeModelSubtypes())
             .build();
 
     /**
@@ -168,7 +184,7 @@ class BrowserPayloadContractTest {
                 // fields. Pinned here so the next removal breaks the build instead of the page.
                 new Payload("POST /datasets/create", """
                         {"items":[{"name":"Pump readings","externalId":"pump_readings",
-                        "description":"d","connectedDataSets":[],"policies":[]}]}""",
+                        "description":"d","metadata":{"owner":"ops"},"connectedDataSets":[],"policies":[]}]}""",
                         new TypeReference<DataWrapper<DataSetModel>>() {},
                         "static/js/right-form-content/datasets/form.js"),
 
@@ -176,6 +192,164 @@ class BrowserPayloadContractTest {
                         {"search":{"query":"pump"}}""",
                         new TypeReference<SearchBody<DataSetFilter>>() {},
                         "templates/datasets/index.html"),
+
+                new Payload("POST /datasets/search (timeseries page)", """
+                        {"search":{"query":"pump"}}""",
+                        new TypeReference<SearchBody<DataSetFilter>>() {},
+                        "templates/datasets/timeseries.html"),
+
+                new Payload("DELETE /datasets/delete", """
+                        {"items":[{"id":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/tutorials/datasets.js"),
+
+                new Payload("POST /edges/types/create", """
+                        {"items":[{"name":"FLOWS_TO","i18nCode":"flows.to","description":"d"}]}""",
+                        new TypeReference<DataWrapper<RelTypeForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /labels/create", """
+                        {"items":[{"name":"PUMP","description":"d","i18nCode":"pump","color":"#a3528a"}]}""",
+                        new TypeReference<DataWrapper<LabelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /labels/update", """
+                        {"items":[{"id":"9223372036854775806","name":"PUMP","description":"d",
+                        "i18nCode":"pump","color":"#a3528a"}]}""",
+                        new TypeReference<DataWrapper<LabelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /units/byids", """
+                        {"items":[{"externalId":"temperature:deg_c"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                // Sent isDeactivated until it went direct: the proxy's lenient reader dropped it.
+                new Payload("POST /policies/create", """
+                        {"items":[{"name":"Naming","externalId":"policy_x","description":"d",
+                        "deactivated":false,"dataSetId":"9223372036854775806",
+                        "metadata":{"kind":"naming"}}]}""",
+                        new TypeReference<DataWrapper<Policy>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /policies/update", """
+                        {"items":[{"id":"9223372036854775806","update":{"name":{"set":"Naming"},
+                        "externalId":{"set":"policy_x"},"description":{"set":"d"},
+                        "deactivated":{"set":true},"metadata":{"set":{"kind":"naming"}}}}]}""",
+                        new TypeReference<DataWrapper<UpdatePolicyForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /timeseries/create", """
+                        {"items":[{"name":"Pump pressure","externalId":"pump_pressure","description":"d",
+                        "unit":"bar","valueType":"float","metadata":{"owner":"ops"},
+                        "relatedResources":[{"id":"9223372036854775806","relationshipType":"MEASURES"}],
+                        "unitExternalId":"pressure:bar","dataSetId":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<Timeseries>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /timeseries/create (tutorial)", """
+                        {"items":[{"name":"corr2","externalId":"tut_corr2","unit":"unit","valueType":"float",
+                        "unitExternalId":"pressure:bar","dataSetId":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<Timeseries>>() {},
+                        "static/js/tutorials/datasets.js"),
+
+                new Payload("POST /timeseries/update", """
+                        {"items":[{"id":"9223372036854775806","externalId":null,"update":{
+                        "name":{"set":"Pump pressure"},"externalId":{"set":"pump_pressure"},
+                        "unit":{"set":"bar"},"unitExternalId":{"set":"pressure:bar"},
+                        "description":{"set":"d"},"dataSetId":{"set":"9223372036854775806"},
+                        "metadata":{"set":{"owner":"ops"}}}}]}""",
+                        new TypeReference<DataWrapper<UpdateTimeseries>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /timeseries/search", """
+                        {"search":{"query":"pump"}}""",
+                        new TypeReference<SearchBody<TimeseriesFilter>>() {},
+                        "templates/timeseries/insights.html"),
+
+                new Payload("DELETE /timeseries/delete", """
+                        {"items":[{"id":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /timeseries/data/list (chart zoom)", """
+                        {"items":[{"externalId":"21-PT-1234","start":"2026-08-01T00:00:00Z",
+                        "end":"2026-08-02T00:00:00Z","limit":100000,"aggregates":["avg","min","max"],
+                        "granularity":"1 min"}]}""",
+                        new TypeReference<DataWrapper<RetrieveFilter>>() {},
+                        "static/js/charts/insights.js"),
+
+                new Payload("POST /resources/fetch-related", """
+                        {"id":"9223372036854775806","depth":1}""",
+                        new TypeReference<RelatedResourcesForm>() {},
+                        "static/js/right-form-content/timeseries/form.js"),
+
+                new Payload("POST /resources/create", """
+                        {"nodes":[{"name":"Pump 1","externalId":"pump_1","description":"d","source":"SAP",
+                        "isRoot":false,"labels":["PUMP"],"metadata":{"owner":"ops"},
+                        "dataSetId":"9223372036854775806"}],
+                        "relations":[{"fromId":"9223372036854775806","toExternalId":"pump_1",
+                        "relationshipType":"CONTAINS"}]}""",
+                        new TypeReference<GraphDataWrapper<NodeModel, RelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /resources/create (an asset)", """
+                        {"nodes":[{"name":"Pump 1","externalId":"pump_1","description":"d","source":"SAP",
+                        "isRoot":true,"labels":["ASSET"],"metadata":{}}],"relations":[]}""",
+                        new TypeReference<GraphDataWrapper<NodeModel, RelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /resources/update", """
+                        {"nodes":[{"id":"9223372036854775806","update":{"name":{"set":"Pump 1"},
+                        "externalId":{"set":"pump_1"},"metadata":{"set":{"owner":"ops"}},
+                        "labels":{"set":["PUMP"]},"dataSetId":{"setNull":true},
+                        "description":{"set":"d"},"source":{"set":"SAP"}}}]}""",
+                        new TypeReference<GraphDataWrapper<UpdateResourceForm, UpdateRelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /resources/create (edge form)", """
+                        {"relations":[{"description":"d","metadata":{"animate::datatype":"water"},
+                        "fromId":"9223372036854775806","toId":"9223372036854775805",
+                        "relationshipTypeId":"9223372036854775804"}]}""",
+                        new TypeReference<GraphDataWrapper<NodeModel, RelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /resources/update (edge form)", """
+                        {"relations":[{"id":"9223372036854775806","update":{"metadata":{"set":{}},
+                        "description":{"set":"d"},"relationshipId":{"set":"9223372036854775804"},
+                        "start":{"set":"9223372036854775806"},"end":{"set":"9223372036854775805"}}}]}""",
+                        new TypeReference<GraphDataWrapper<UpdateResourceForm, UpdateRelForm>>() {},
+                        "static/js/right-form-content/resources/form.js"),
+
+                new Payload("POST /resources/create (drawn edge)", """
+                        {"relations":[{"fromId":"9223372036854775806","toId":"9223372036854775805",
+                        "relationshipTypeId":"9223372036854775804"}]}""",
+                        new TypeReference<GraphDataWrapper<NodeModel, RelForm>>() {},
+                        "static/js/graph-network/graph-network.js"),
+
+                new Payload("POST /resources/create (tutorial buildout)", """
+                        {"nodes":[{"name":"Pump P-1","externalId":"tour_pump_1","isRoot":false,
+                        "labels":["PUMP"],"metadata":{}}],
+                        "relations":[{"fromId":"9223372036854775806","toExternalId":"tour_pump_1",
+                        "relationshipTypeId":"9223372036854775804"}]}""",
+                        new TypeReference<GraphDataWrapper<NodeModel, RelForm>>() {},
+                        "static/js/tutorials/datasets.js"),
+
+                new Payload("POST /resources/search", """
+                        {"search":{"query":"pump"},
+                        "filter":{"nodeType":["asset","timeseries","function","resource","dataset"]}}""",
+                        new TypeReference<SearchBody<ResourceFilter>>() {},
+                        "static/js/resource-list.js"),
+
+                new Payload("POST /resources/fetch-related (graph)", """
+                        {"id":"9223372036854775806","depth":3}""",
+                        new TypeReference<RelatedResourcesForm>() {},
+                        "static/js/graph-network/graph-network.js"),
+
+                new Payload("DELETE /resources/delete, /edges/delete", """
+                        {"items":[{"id":"9223372036854775806"}]}""",
+                        new TypeReference<DataWrapper<IdCollection>>() {},
+                        "static/js/right-form-content/base_form_abstract.js"),
 
                 // Not datahub-api: the Analyze tab posts this straight to datahub-analysis.
                 new Payload("POST /analysis", """

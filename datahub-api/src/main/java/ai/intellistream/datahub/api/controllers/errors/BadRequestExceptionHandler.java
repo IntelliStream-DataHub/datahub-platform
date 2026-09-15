@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers.errors;
 
-import ai.intellistream.datahub.errors.ResponseError;
+import org.springframework.http.ProblemDetail;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -24,20 +22,23 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * rediscover it. An advice is the one place that cannot be forgotten by a new endpoint.
  *
  * <h2>Body shape</h2>
- * The exception's own {@link ResponseError} payload, so a 400 from {@code /filter} looks like a 400
- * from {@code /create} — the controllers that catch this locally return exactly that. Deliberately
- * not the RFC 9457 {@code ProblemDetail} that {@link ObjectNotFoundExceptionHandler} and friends
- * use: those cover exceptions with no body of their own, and switching this one would give the same
- * exception two shapes depending on which endpoint raised it.
+ * RFC 9457, like every other advice. This used to return the exception's own {@code ResponseError}
+ * payload, and the reasoning was sound at the time: controllers catch this locally and return
+ * exactly that, so converting the advice alone would have given one exception two shapes depending
+ * on which endpoint raised it. That argument was against changing it <em>in isolation</em>, not
+ * against the shape — so the local catches go in the same change, and the objection with them.
+ *
+ * <p>The exception's message becomes {@code detail} and its fields become the {@code fields}
+ * extension; {@code BadRequestError.code} is gone, because it duplicated the HTTP status it was
+ * sent alongside.
  */
 @RestControllerAdvice
 @Slf4j
 public class BadRequestExceptionHandler {
 
     @ExceptionHandler(BadRequestException.class)
-    public ResponseEntity<ResponseError<BadRequestError>> handle(BadRequestException ex) {
-        BadRequestError error = ex.getError() == null ? null : ex.getError().getError();
-        log.debug("Rejecting request: {}", error == null ? "no detail" : error.getMessage());
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ex.getError());
+    public ProblemDetail handle(BadRequestException ex) {
+        log.debug("Rejecting request: {}", ex.getMessage());
+        return Problems.badRequest(ex.getMessage(), ex.getFields());
     }
 }

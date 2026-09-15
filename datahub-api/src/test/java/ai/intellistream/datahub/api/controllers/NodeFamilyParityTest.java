@@ -170,11 +170,92 @@ class NodeFamilyParityTest {
 
         String source = sourceOf(controller);
         String body = methodBody(source, create.getName());
+        // Inverted. This used to require the catch, because without one the exception met the
+        // controller's catch-all RuntimeException block and came back as a bare 500. Those are
+        // gone and DuplicateDataExceptionHandler answers instead, so a local catch no longer
+        // protects anything — it re-implements the advice, and a re-implementation is free to
+        // drift from it. The invariant is unchanged: a taken external id is a 409.
         assertThat(body)
-                .as("%s.%s should catch DuplicateDataException; the shared create path throws it "
-                        + "for a taken external id, and an uncaught one is a 500", 
+                .as("%s.%s should let DuplicateDataException reach DuplicateDataExceptionHandler "
+                        + "rather than catching it — one 409, built in one place",
                         controller.getSimpleName(), create.getName())
-                .contains("DuplicateDataException");
+                .doesNotContain("catch (DuplicateDataException")
+                .doesNotContain("catch(DuplicateDataException");
+    }
+
+    /** The advice the assertion above now relies on. */
+    @Test
+    @DisplayName("F9b: the duplicate advice exists and answers 409")
+    void duplicateAdviceAnswers409() throws Exception {
+        var handler = Class.forName(
+                "ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler");
+        assertThat(handler.getAnnotation(org.springframework.web.bind.annotation.RestControllerAdvice.class))
+                .as("must be an advice, or nothing routes to it")
+                .isNotNull();
+
+        Method handle = handler.getMethod("handle",
+                ai.intellistream.datahub.api.controllers.errors.DuplicateDataException.class);
+        var problem = (org.springframework.http.ProblemDetail) handle.invoke(
+                handler.getDeclaredConstructor().newInstance(),
+                ai.intellistream.datahub.api.controllers.errors.DuplicateDataException.of(
+                        "External id already exists.", "externalId", "sensor_temp_room_a"));
+
+        assertThat(problem.getStatus()).isEqualTo(409);
+        assertThat(problem.getType().toString()).isEqualTo("https://intellistream.ai/errors/duplicate");
+    }
+
+    /**
+     * F10: a refused delete answers in one shape, from one place.
+     *
+     * <p>Seven controllers caught {@code ResourceDeleteException} and returned the {@code
+     * ResponseError} envelope it carried, which left it the last failure in the API answering in
+     * the old shape after everything else moved to RFC 9457 — a client had to special-case delete.
+     * An eighth, {@code POST /policies/delete}, reaches the same guards and had no catch at all, so
+     * it 500ed. Both are the same defect: the rendering lived in the controllers.
+     */
+    @ParameterizedTest(name = "{0} delete leaves the refusal to the advice")
+    @MethodSource("nodeFamilyControllers")
+    @DisplayName("F10: no controller renders a refused delete itself")
+    void deleteLeavesResourceDeleteToTheAdvice(Class<?> controller) throws Exception {
+        Method delete = methodForPath(controller, "/delete", RequestMethod.POST);
+        assertThat(delete).as("%s should have POST /delete", controller.getSimpleName()).isNotNull();
+
+        String body = methodBody(sourceOf(controller), delete.getName());
+        assertThat(body)
+                .as("%s.%s should let ResourceDeleteException reach ResourceDeleteExceptionHandler",
+                        controller.getSimpleName(), delete.getName())
+                .doesNotContain("catch (ResourceDeleteException")
+                .doesNotContain("catch(ResourceDeleteException");
+    }
+
+    /** The advice the assertion above now relies on. */
+    @Test
+    @DisplayName("F10b: the refused-delete advice answers 409 and names what is in the way")
+    void resourceDeleteAdviceAnswers400WithBlockers() throws Exception {
+        var handler = Class.forName(
+                "ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler");
+        assertThat(handler.getAnnotation(org.springframework.web.bind.annotation.RestControllerAdvice.class))
+                .as("must be an advice, or nothing routes to it")
+                .isNotNull();
+
+        var exception = new ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException(
+                ai.intellistream.datahub.api.controllers.errors.Problems.REFERENCED,
+                "Cannot delete resource(s) that are referenced by subscription(s). "
+                        + "Remove the subscriptions first.",
+                java.util.List.of(java.util.Map.of("subscriptionExternalId", "sub_a")));
+
+        Method handle = handler.getMethod("handle",
+                ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException.class);
+        var problem = (org.springframework.http.ProblemDetail) handle.invoke(
+                handler.getDeclaredConstructor().newInstance(), exception);
+
+        // 409, not 400: the request is well-formed and may be repeated verbatim once the
+        // subscription is gone. Nothing about the payload is the caller's to fix.
+        assertThat(problem.getStatus()).isEqualTo(409);
+        assertThat(problem.getType().toString()).isEqualTo("https://intellistream.ai/errors/referenced");
+        // The blockers are the actionable half of the message: without them the caller knows the
+        // delete failed but not which subscription to remove.
+        assertThat(problem.getProperties()).containsKey("blockedBy");
     }
 
     /** The controller's own source file, read from the module rather than the classpath. */
