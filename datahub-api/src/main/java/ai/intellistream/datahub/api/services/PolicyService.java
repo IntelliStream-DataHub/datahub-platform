@@ -217,7 +217,11 @@ public class PolicyService {
 
         boolean hasExternalId = form.getExternalId() != null && !form.getExternalId().isBlank();
         if (form.getId() == null && !hasExternalId) {
-            throw new IllegalArgumentException("Policy id or externalId is required for update");
+            // Typed, so the controller no longer has to infer this condition from a bare
+            // IllegalArgumentException — its catch relabelled every one of them as this, which
+            // meant an unrelated failure from anywhere below was reported as a missing id.
+            throw new BadRequestException("Each policy update must identify the policy by id or externalId.",
+                    "externalId", "an id or externalId is required");
         }
 
         // Resolved here, not by the pipeline: this lookup is scoped to policies, so an id naming

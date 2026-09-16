@@ -325,25 +325,21 @@ public class PolicyController {
                     HttpStatus.BAD_REQUEST);
         }
 
-        try {
-            DataWrapper<Policy> resp = new DataWrapper<>();
-            for (UpdatePolicyForm incoming : wrapper.getItems()) {
-                // No scope check here: an update cannot move a policy between tenant-wide and
-                // per-dataset (neither `type` nor `dataSetId` is updatable), so the only rule that
-                // can still be broken is the naming config — validated in the service against the
-                // metadata the policy ends up with rather than the fragment sent.
-                PolicyEntity updated = policyService.updatePolicyNode(incoming);
-                resp.getItems().add(PolicyTransformer.toPolicy(updated));
-            }
-
-            return ResponseEntity.ok(resp);
-
-        } catch (IllegalArgumentException e) {
-            // PolicyService's own wording, but an IllegalArgumentException can come from anywhere below it.
-            log.debug("Policy update rejected: {}", e.getMessage());
-            return new ResponseEntity<>(Problems.badRequest(
-                    "Each policy update must identify the policy by id or externalId."), HttpStatus.BAD_REQUEST);
+        DataWrapper<Policy> resp = new DataWrapper<>();
+        for (UpdatePolicyForm incoming : wrapper.getItems()) {
+            // No scope check here: an update cannot move a policy between tenant-wide and
+            // per-dataset (neither `type` nor `dataSetId` is updatable), so the only rule that
+            // can still be broken is the naming config — validated in the service against the
+            // metadata the policy ends up with rather than the fragment sent.
+            PolicyEntity updated = policyService.updatePolicyNode(incoming);
+            resp.getItems().add(PolicyTransformer.toPolicy(updated));
         }
+
+        // The catch that was here relabelled every IllegalArgumentException from anywhere below as
+        // "identify the policy by id or externalId", so an unrelated failure was reported as a
+        // missing id. The service now throws BadRequestException for the condition it actually
+        // means, and BadRequestExceptionHandler renders it with the offending field named.
+        return ResponseEntity.ok(resp);
     }
 
     @PostMapping(value = "/naming/check",
