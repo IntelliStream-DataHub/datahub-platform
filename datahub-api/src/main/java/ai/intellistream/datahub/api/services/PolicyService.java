@@ -5,10 +5,8 @@ import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.policy.NamingPolicyResolver;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.policy.PolicyScopeValidator;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.forms.PolicyFields;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -252,6 +250,10 @@ public class PolicyService {
         // discarded, but a policy identified by externalId alone must still publish a usable id.
         form.setId(node.getId());
         UpdateResourceForm command = asNodeCommand(form, fields);
+        // Driving the pipeline piecewise skips updateNode, which is where field validation lives —
+        // so this was the one node update that enforced no length or size caps at all. Judged on
+        // the translated command, before authorize, so a rejected update costs no writes.
+        nodeUpdateService.validateOrThrow(command);
         List<NodeUpdateService.Target> targets = List.of(nodeUpdateService.authorize(command, node));
         nodeUpdateService.guardRenames(targets);
         // A NOT_OK verdict throws; a WARN verdict comes back as findings, and dropping them would
@@ -348,10 +350,7 @@ public class PolicyService {
     /** Replacing a required field with blank is a caller mistake, not a way to clear it. */
     private static String requireNonBlank(String value, String field) {
         if (value.isBlank()) {
-            var error = new BadRequestError();
-            error.setMessage("Policy " + field + " cannot be blank.");
-            error.addFieldError(field, value);
-            throw new BadRequestException(new ResponseError<BadRequestError>().setError(error));
+            throw new BadRequestException("Policy " + field + " cannot be blank.", field, value);
         }
         return value;
     }

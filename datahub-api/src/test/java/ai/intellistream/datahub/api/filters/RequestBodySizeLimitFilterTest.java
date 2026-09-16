@@ -16,7 +16,6 @@ import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * The application's own body ceiling. nginx caps bodies too, but the api is reachable directly on
@@ -99,13 +98,16 @@ class RequestBodySizeLimitFilterTest {
     }
 
     @Test
-    void undeclaredLengthOverTheLimitFailsMidRead() {
-        // Nothing declared the size, so the cap can only be applied while the bytes are consumed.
+    void undeclaredLengthOverTheLimitIsRefusedMidRead() throws Exception {
+        // Nothing declared the size, so the cap can only be applied while the bytes are consumed. A
+        // handler reading the stream itself lets the failure back out, and it gets the pre-check's 413.
         limits.setMaxBodyBytes(64);
 
-        assertThatThrownBy(() -> filter.doFilter(chunkedPost("/events/create", 4096), response, readingChain()))
-                .isInstanceOf(RequestBodySizeLimitFilter.RequestBodyTooLargeException.class)
-                .hasMessageContaining("64");
+        filter.doFilter(chunkedPost("/events/create", 4096), response, readingChain());
+
+        assertThat(response.getStatus()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE.value());
+        assertThat(response.getContentType()).startsWith(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
+        assertThat(response.getContentAsString()).contains("request-too-large", "\"limitBytes\":64");
     }
 
     @Test

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.filters;
 
+import ai.intellistream.datahub.api.controllers.errors.ProblemResponses;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.config.TenantFlywayMigrator;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
@@ -11,7 +13,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -70,9 +71,7 @@ public class TenantProvisioningFilter extends OncePerRequestFilter {
         if (configService.getConfig(tenantId) == null) {
             log.warn("Refusing request for unknown tenant {} — no tenant record for that "
                     + "organization. Path: {}", tenantId, request.getRequestURI());
-            response.sendError(HttpStatus.FORBIDDEN.value(),
-                    "Unknown organization: this deployment has no tenant for the organization in "
-                            + "your token.");
+            ProblemResponses.write(request, response, Problems.unknownTenant(tenantId));
             return;
         }
 
@@ -80,8 +79,7 @@ public class TenantProvisioningFilter extends OncePerRequestFilter {
             log.warn("Refusing request for tenant {} — schema not yet provisioned (migration failing). "
                     + "Path: {}", tenantId, request.getRequestURI());
             response.setHeader(HttpHeaders.RETRY_AFTER, "30");
-            response.sendError(HttpStatus.SERVICE_UNAVAILABLE.value(),
-                    "Tenant provisioning in progress; retry shortly.");
+            ProblemResponses.write(request, response, Problems.tenantProvisioning());
             return;
         }
 

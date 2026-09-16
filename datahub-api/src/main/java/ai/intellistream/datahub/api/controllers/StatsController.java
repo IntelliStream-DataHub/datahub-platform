@@ -33,14 +33,9 @@ public class StatsController {
 
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> stats(@RequestParam(name = "keys", required = false) String keys) {
-        try {
-            List<String> requested = (keys == null || keys.isBlank())
-                    ? null
-                    : Arrays.stream(keys.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
-            return ResponseEntity.ok(statsService.getStats(requested));
-        } catch (RuntimeException e) {
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        List<String> requested = (keys == null || keys.isBlank())
+                ? null
+                : Arrays.stream(keys.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        return ResponseEntity.ok(statsService.getStats(requested));
     }
 }

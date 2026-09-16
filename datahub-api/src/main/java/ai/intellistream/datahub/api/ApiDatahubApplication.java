@@ -90,34 +90,59 @@ import java.util.Map;
 
                             # Error responses
 
-                            When something goes wrong the API always returns JSON in the same shape:
+                            Every failure answers with RFC 9457 `application/problem+json`, in one
+                            shape:
 
                             ```json
-                            { "error": { ...details... } }
+                            {
+                              "type": "https://intellistream.ai/errors/duplicate",
+                              "title": "Conflict",
+                              "status": 409,
+                              "detail": "External id already exists.",
+                              "instance": "/timeseries/create",
+                              "duplicated": [ { "externalId": "sensor_temp_room_a" } ]
+                            }
                             ```
 
-                            The HTTP status code tells you the category; the `error` object tells you
-                            the specifics. Each endpoint documents which statuses it can return and
-                            links to the response schema. The common ones are:
+                            **`type` is the contract.** Branch on it, not on `detail` — prose
+                            changes, a URI does not. `detail` is for a human reading a log. Members
+                            beyond the five standard ones are extensions (§3.2): a conforming client
+                            ignores ones it does not recognise, so new members can be added without
+                            breaking you.
+
+                            Two extensions are worth knowing:
+
+                            - `fields` — one entry per rejected input, with `field`, `message`, and
+                              where available a `code` (an i18n key, so you can phrase the message
+                              yourself) and the `rejected` value. Every validation failure carries
+                              it, whether the rule ran at the binding layer or inside a service.
+                            - `duplicated` / `blockedBy` / `missing` — what collided, what stands in
+                              the way of a delete, and which targets of a partial write did not
+                              exist.
+
+                            The statuses:
 
                             - **400 Bad Request** — your input was rejected before anything changed.
-                              Body is a `BadRequestError` with a human-readable `message` and a
-                              `fields` list saying which inputs were wrong. Fix the inputs and retry.
+                              Fix the inputs and retry; `fields` says which ones.
                             - **401 Unauthorized** — your API token is missing or invalid. Check the
                               `Authorization` header.
+                            - **403 Forbidden** — your token is valid but carries no grant on the
+                              dataset you named.
                             - **404 Not Found** — the thing you asked for doesn't exist (wrong `id`
                               or `externalId`, or it belongs to another tenant).
-                            - **409 Conflict** — two flavours. Either a `DuplicateError` ("an object
-                              with this `externalId` already exists") — pick a different `externalId`
-                              or use the corresponding `/update` endpoint. Or a `ConflictError`
-                              ("the resource was modified or removed by another request") — re-read
-                              the current state and retry.
-                            - **422 Unprocessable Entity** — input was parseable but a field failed
-                              validation (length, allowed characters, required-ness). Response lists
-                              the offending fields.
+                            - **409 Conflict** — the request is fine but the current state refuses
+                              it, and repeating it verbatim will succeed once that changes.
+                              `.../errors/duplicate` (pick a different `externalId`, or use
+                              `/update`), `.../errors/optimistic-lock` (re-read and retry),
+                              `.../errors/referenced` and `.../errors/would-strand` (a delete
+                              something still depends on — `blockedBy` names it).
                             - **429 Too Many Requests** — you've hit a rate limit. Back off and retry.
+                            - **503 Service Unavailable** — a dependency is down. Retry with backoff.
                             - **5xx** — something went wrong on our side. Safe to retry after a short
                               backoff; if it persists, contact support.
+
+                            Validation failures are **400**, never 422 — earlier versions of this
+                            page documented a 422 the API has never returned.
 
                             Every error body is safe to log and show to end users; it never contains
                             credentials or internal stack traces.

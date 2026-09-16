@@ -18,6 +18,7 @@ import org.springframework.security.web.FilterChainProxy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
@@ -136,6 +137,9 @@ class SecurityFilterChainTest {
     @MockitoBean(name = "allDatapointProducer")
     private Producer<?> allDatapointProducer;
 
+    @MockitoBean(name = "allDatapointBlockProducer")
+    private Producer<?> allDatapointBlockProducer;
+
     @MockitoBean(name = "httpMessageProducer")
     private Producer<?> httpMessageProducer;
 
@@ -215,8 +219,9 @@ class SecurityFilterChainTest {
     @Test
     @DisplayName("An unparseable bearer token is rejected as 401, not treated as anonymous")
     void malformedTokenIsUnauthorized() {
-        // No stub matches this value, so the mocked decoder returns null and the resource server
-        // treats the credentials as invalid.
+        // Stubbed to throw as a real decoder does. An unstubbed mock returns null, which fails with
+        // an NPE (a 500) that the denied /error dispatch used to report as this 401.
+        when(jwtDecoder.decode("not-a-real-token")).thenThrow(new BadJwtException("Malformed token"));
         assertThat(get("/resources", "not-a-real-token"))
                 .isEqualTo(HttpStatus.UNAUTHORIZED.value());
     }

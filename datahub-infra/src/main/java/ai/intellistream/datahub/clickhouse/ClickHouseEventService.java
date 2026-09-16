@@ -224,6 +224,22 @@ public class ClickHouseEventService extends ClickHouseService {
                     setClauses.add("source = {source:String}");
                     params.put("source", fields.getSource().getSet());
                 }
+                // The dataset does move, unlike the two immutable fields either side of it:
+                // data_set_id is neither the sorting key (ORDER BY id) nor the partition key
+                // (toYYYYMM(event_time)), so a mutation can change it. The clause was simply
+                // missing — EventService applied the move to its in-memory EventModel and returned
+                // that in the 200, while storage kept the old dataset. A silent wrong answer about
+                // which dataset an event belongs to, on the column the read ACL filters by.
+                if (fields.getDataSetId() != null) {
+                    if (fields.getDataSetId().getSet() != null) {
+                        setClauses.add("data_set_id = {data_set_id:Int64}");
+                        params.put("data_set_id", fields.getDataSetId().getSet());
+                    } else if (Boolean.TRUE.equals(fields.getDataSetId().getSetNull())) {
+                        // The column is non-nullable; 0 is the "no dataset" sentinel
+                        // BatchedEventsListener maps a null id onto on the way in.
+                        setClauses.add("data_set_id = 0");
+                    }
+                }
                 // No event_time clause: the table is PARTITION BY toYYYYMM(event_time) and a
                 // mutation cannot move a row between partitions, so ClickHouse refuses the update
                 // outright (CANNOT_UPDATE_COLUMN). The field is gone from EventFields for the same
@@ -686,7 +702,12 @@ public class ClickHouseEventService extends ClickHouseService {
 
             if(timeFilter.getMax() != null){
                 ZonedDateTime startTimeMax = timeFilter.getMax();
-                criterias.add( new SqlField("event_time", startTimeMax, "event_time < {startTimeMax:DateTime64(3)} ") );
+                // Inclusive, like createdTime and lastUpdatedTime above and like every node and
+                // subscription window (which use lessThanOrEqualTo). TimeFilter is one shared type
+                // and its schema says "an inclusive time window"; this was the only bound in the
+                // API that disagreed, so an event landing exactly on max — the common case for a
+                // day boundary such as ...T00:00:00Z — was dropped.
+                criterias.add( new SqlField("event_time", startTimeMax, "event_time <= {startTimeMax:DateTime64(3)} ") );
                 params.put("startTimeMax", toChDateTime(startTimeMax));
             }
         }
@@ -906,11 +927,21 @@ public class ClickHouseEventService extends ClickHouseService {
             return EventSortSpec.DEFAULT;
         }
         for (String property : sort.getProperty()) {
-            String column = SORTABLE_COLUMNS.get(property);
+            // Trimmed before the lookup, as NodeSort.resolve and SubscriptionSort.resolve already
+            // do. Surrounding whitespace is not a different request, but an untrimmed key misses
+            // SORTABLE_COLUMNS and falls through to the default below — so " eventTime " ordered a
+            // node or subscription query and silently defaulted an event one, a difference the
+            // caller cannot see in their own payload.
+            String normalised = property == null ? null : property.trim();
+            String column = SORTABLE_COLUMNS.get(normalised);
             if (column != null) {
+                // The normalised spelling, not the caller's: this value is what the cursor carries
+                // and what assertCursorIsUsable compares a returned cursor against, so a stray
+                // space would otherwise make a cursor unusable on the next page of its own walk.
+                //
                 // Anything that is not an explicit "desc" is ascending, so a malformed order
                 // degrades to the documented default instead of silently reversing the results.
-                return new EventSortSpec(property, column, "desc".equalsIgnoreCase(sort.getOrder()));
+                return new EventSortSpec(normalised, column, "desc".equalsIgnoreCase(sort.getOrder()));
             }
             log.debug("Ignoring unsortable event property '{}'", property);
         }
@@ -1127,7 +1158,8 @@ public class ClickHouseEventService extends ClickHouseService {
                 params.put("evStart", toChDateTime(tf.getMin()));
             }
             if (tf.getMax() != null) {
-                c.add("event_time < {evEnd:DateTime64(3)}");
+                // Inclusive, matching collectFilterCriteria and TimeFilter's contract.
+                c.add("event_time <= {evEnd:DateTime64(3)}");
                 params.put("evEnd", toChDateTime(tf.getMax()));
             }
         }

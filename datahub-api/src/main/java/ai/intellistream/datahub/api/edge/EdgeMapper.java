@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.edge;
 
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.NodeType;
@@ -119,14 +118,10 @@ public class EdgeMapper {
      * supplied neither identifier needs to see reported back.
      */
     private static BadRequestException endpointNotFound(String endpoint, String externalId, Long id) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        BadRequestError error = new BadRequestError();
-        error.setMessage("Could not find " + endpoint);
-        error.getFields().add(Map.of(
-                "externalId", String.valueOf(externalId),
-                "id", String.valueOf(id)));
-        errors.setError(error);
-        return new BadRequestException(errors);
+        return new BadRequestException("Could not find " + endpoint,
+                new FieldErrors()
+                        .addFieldError("externalId", String.valueOf(externalId))
+                        .addFieldError("id", String.valueOf(id)));
     }
 
     /**
@@ -174,10 +169,6 @@ public class EdgeMapper {
     }
 
     private static BadRequestException edgeRuleViolation(String message) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        BadRequestError error = new BadRequestError();
-        error.setMessage(message);
-        errors.setError(error);
-        return new BadRequestException(errors);
+        return new BadRequestException(message);
     }
 }

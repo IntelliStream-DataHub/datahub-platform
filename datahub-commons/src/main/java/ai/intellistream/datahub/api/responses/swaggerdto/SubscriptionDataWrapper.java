@@ -19,4 +19,24 @@ public class SubscriptionDataWrapper {
     public Collection<Subscription> getItems() {
         return items;
     }
+
+    /**
+     * Mirrors {@code DataWrapper.nextCursor}. These documentation envelopes exist because
+     * {@code DataWrapper} carries a fixed {@code @Schema(name)}, so every generic instantiation
+     * would otherwise document as one untyped schema — and each copy was written when {@code items}
+     * was the whole envelope. The real one grew a cursor; the copies did not, so the published spec
+     * described a response with no way to page and a generated client had no field to read, while
+     * the endpoint descriptions told callers to loop on exactly this value.
+     *
+     * <p>Read-only: the live envelope does accept it on a request body, but that is a defect to fix
+     * there, not a shape to publish here.
+     */
+    @Schema(accessMode = Schema.AccessMode.READ_ONLY,
+            description = "Opaque cursor for the next page. Send it back as `cursor`. "
+                    + "Absent when there are no further pages.")
+    private String nextCursor;
+
+    public String getNextCursor() {
+        return nextCursor;
+    }
 }

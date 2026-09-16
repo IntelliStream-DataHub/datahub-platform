@@ -4,9 +4,11 @@ package ai.intellistream.datahub.config;
 import ai.intellistream.datahub.api.config.LimitsProperties;
 import ai.intellistream.datahub.api.filters.CachingBodyFilter;
 import ai.intellistream.datahub.api.filters.RequestBodySizeLimitFilter;
+import ai.intellistream.datahub.api.filters.RequestIdFilter;
 import ai.intellistream.datahub.api.filters.RequestLogFilter;
 import ai.intellistream.datahub.api.filters.RequestStateCleanupFilter;
 import ai.intellistream.datahub.api.services.IngestQuotaService;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.Filter;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -17,12 +19,24 @@ import org.springframework.core.Ordered;
 public class FilterConfig {
 
     @Bean
+    public FilterRegistrationBean<Filter> requestIdFilter() {
+        final FilterRegistrationBean<Filter> f = new FilterRegistrationBean<>(new RequestIdFilter());
+        f.addUrlPatterns("/*");
+        // Outermost, so the security chain's refusals and the cleanup filter's log lines carry the id.
+        f.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        f.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ERROR);
+        return f;
+    }
+
+    @Bean
     public FilterRegistrationBean<Filter> requestStateCleanupFilter() {
         final FilterRegistrationBean<Filter> f = new FilterRegistrationBean<>(new RequestStateCleanupFilter());
         f.addUrlPatterns("/*");
         // Must be outermost so its finally runs after the security filter chain, which is where
         // OrganizationValidator sets TenantContext and the dataset permissions get memoised.
-        f.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        f.setOrder(Ordered.HIGHEST_PRECEDENCE + 1);
+        // The error dispatch re-runs bearer authentication, which sets TenantContext again.
+        f.setDispatcherTypes(DispatcherType.REQUEST, DispatcherType.ERROR);
         return f;
     }
 

@@ -84,6 +84,7 @@ class TimeseriesServiceTest {
     @Mock private EdgeRepository edgeRepository;
     @Mock private ResourceService resourceService;
     @Mock private ValkeyService valkeyService;
+    @Mock private LatestDatapointCache latestDatapointCache;
     @Mock private ApplicationEventPublisher applicationEventPublisher;
     @Mock private GraphOutbox graphOutbox;
     @Mock private Producer<DataWrapperBin> allDatapointProducer;
@@ -253,7 +254,7 @@ class TimeseriesServiceTest {
         BadRequestException thrown = assertThrows(BadRequestException.class,
                 () -> timeseriesService.deleteDatapoints(deleteWindow("last tuesday", null)));
 
-        assertTrue(thrown.getError().getError().getMessage().contains("inclusiveBegin"));
+        assertTrue(thrown.getMessage().contains("inclusiveBegin"));
         // Nothing may go out: a bad window that reached the consumer would just nack until it DLQ'd.
         verifyNoInteractions(allDatapointProducer);
     }
@@ -290,7 +291,7 @@ class TimeseriesServiceTest {
         BadRequestException thrown = assertThrows(BadRequestException.class,
                 () -> timeseriesService.deleteDatapoints(deleteWindow("1767225600000", null)));
 
-        assertTrue(thrown.getError().getError().getMessage().contains("sensor_a"));
+        assertTrue(thrown.getMessage().contains("sensor_a"));
         verifyNoInteractions(allDatapointProducer);
     }
 

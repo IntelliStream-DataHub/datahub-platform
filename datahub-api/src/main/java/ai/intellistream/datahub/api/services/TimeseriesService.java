@@ -9,10 +9,9 @@ import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
 import ai.intellistream.datahub.models.policy.PolicyWarning;
 import ai.intellistream.datahub.helpers.text.ExternalIds;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.validation.ResourceFields;
 import ai.intellistream.datahub.api.services.node.NodeUpdateService;
@@ -24,7 +23,6 @@ import ai.intellistream.datahub.api.responses.*;
 import ai.intellistream.datahub.clickhouse.ClickHouseDatapointService;
 import ai.intellistream.datahub.clickhouse.DatapointBinaryConverter;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
@@ -131,6 +129,8 @@ public class TimeseriesService {
     private final NodeUpdateService nodeUpdateService;
 
     private final ValkeyService valkeyService;
+
+    private final LatestDatapointCache latestDatapointCache;
 
     private final JsonMapper jsonMapper;
     private final TimeseriesRepository timeseriesRepository;
@@ -289,22 +289,21 @@ public class TimeseriesService {
 
         Set<ConstraintViolation<DataRetriever<RetrieveFilter>>> violations = validator.validate(apiReqData);
         if (!violations.isEmpty()) {
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-            // Handle violations
+            var errors = new FieldErrors();
+            String message = null;
             for (ConstraintViolation<DataRetriever<RetrieveFilter>> violation : violations) {
-                String message = violation.getMessage();
-                var de = new BadRequestError();
-                de.setMessage(message);
+                // Last one wins, as it always has — the detail is prose, and `fields` carries the
+                // per-field breakdown that a caller actually acts on.
+                message = violation.getMessage();
                 if(violation.getConstraintDescriptor().getAnnotation() instanceof AtLeastOneNotNull){
                     String[] fieldNames = (String[])violation.getConstraintDescriptor().getAttributes().get("fieldNames");
-                    de.getFields().add(Map.of(violation.getPropertyPath().toString(), String.join(",", fieldNames)));
+                    errors.addFieldError(violation.getPropertyPath().toString(), String.join(",", fieldNames));
                 } else {
                     Object invalidValue = violation.getInvalidValue();
-                    de.getFields().add(Map.of(violation.getPropertyPath().toString(), invalidValue.toString()));
+                    errors.addFieldError(violation.getPropertyPath().toString(), invalidValue.toString());
                 }
-                errors.setError(de);
             }
-            throw new BadRequestException(errors);
+            throw new BadRequestException(message, errors);
         }
 
         DataWrapper<DataCollection<?>> results = new DataWrapper<>();
@@ -502,14 +501,10 @@ public class TimeseriesService {
                     log.warn("Node not found for externalId: {}", f.getExternalId());
                     taskFuture.complete(new DatapointsResult());
 
-                    ResponseError<BadRequestError> error = new ResponseError<>();
-                    BadRequestError badRequestError = new BadRequestError();
-                    badRequestError.setMessage((
+                    throw new BadRequestException((
                             "Time series entity for resource with id: %s does not exist. " +
                             "To fix this error, please update the time series object."
                     ).formatted(f.getId()));
-                    error.setError(badRequestError);
-                    throw new BadRequestException(error);
                 }
             }
         }
@@ -588,7 +583,7 @@ public class TimeseriesService {
             apiReqData.setWarnings(policyWarnings.stream().map(PolicyWarning::from).toList());
 
         } catch (BadRequestException e){
-            throw new BadRequestException(e.getError());
+            throw e;
         } catch (RuntimeException e){
             throw new RuntimeException(e.getMessage(), e);
         }
@@ -696,13 +691,7 @@ public class TimeseriesService {
     }
 
     private DuplicateDataException duplicateExternalIdException(Collection<Map<String, String>> duplicated) {
-        var duplicateError = new DuplicateError();
-        duplicateError.setCode(409);
-        duplicateError.setMessage("Timeseries with externalId already exists.");
-        duplicateError.setDuplicated(duplicated);
-        ResponseError<DuplicateError> responseError = new ResponseError<>();
-        responseError.setError(duplicateError);
-        return new DuplicateDataException(responseError);
+        return new DuplicateDataException("Timeseries with externalId already exists.", duplicated);
     }
 
     private void validateDataSet(Collection<Long> dataSetIds) {
@@ -721,12 +710,8 @@ public class TimeseriesService {
             }
         });
         if(!dataSetNotFound.isEmpty()){
-            ResponseError<BadRequestError> responseError = new ResponseError<>();
-            var e = new BadRequestError();
-            e.setMessage("Timeseries with dataSetIds does not exist.");
-            e.setFields(List.of(Map.of("dataSetId", String.join(",", dataSetNotFound.stream().map(Object::toString).toList()) )));
-            responseError.setError(e);
-            throw new BadRequestException(responseError);
+            throw new BadRequestException("Timeseries with dataSetIds does not exist.",
+                    "dataSetId", String.join(",", dataSetNotFound.stream().map(Object::toString).toList()));
         }
     }
 
@@ -781,7 +766,7 @@ public class TimeseriesService {
      * @throws PulsarClientException If there is an issue with producing messages
      *                               to the Pulsar client.
      */
-    public DataWrapper<?> insertDatapoints(DataWrapper<DatapointsCollection> data)
+    public List<Map<String, String>> insertDatapoints(DataWrapper<DatapointsCollection> data)
             throws PulsarClientException {
 
         // Validate here too, not only at the controller: the timeseries_send_datapoint MCP tool calls
@@ -799,11 +784,11 @@ public class TimeseriesService {
 
         // Phase 3: the network I/O.
         for (PendingDatapointPublish pending : messages) {
-            addToLatestValuesCache(pending.externalId(), pending.latestDatapoint());
+            latestDatapointCache.update(pending.externalId(), pending.latestDatapoint());
             allDatapointProducer.send(pending.message());
             datapointIngestCounter.recordIngested(TenantContext.getTenantId(), pending.datapointCount());
         }
-        return resolved.response();
+        return resolved.missing();
     }
 
     /** A collection that passed validation, ready to publish once the transaction has ended. */
@@ -827,7 +812,7 @@ public class TimeseriesService {
 
     /** What could not be resolved, and what may be built. */
     private record ResolvedBatch(
-            DataWrapper<BadRequestError> response,
+            List<Map<String, String>> missing,
             List<ResolvedCollection> resolved) {
     }
 
@@ -836,7 +821,7 @@ public class TimeseriesService {
      * what the later phases need out of the attached entity. Performs no I/O of its own.
      */
     private ResolvedBatch resolveDatapointInsert(DataWrapper<DatapointsCollection> data) {
-        DataWrapper<BadRequestError> responseData = new DataWrapper<>();
+        List<Map<String, String>> missing = new ArrayList<>();
         List<ResolvedCollection> resolved = new ArrayList<>();
 
         for(DatapointsCollection entry : data.getItems()){
@@ -845,13 +830,9 @@ public class TimeseriesService {
             TimeseriesEntity ts = timeseriesRepository.findByIdOrExternalId(entry.getId(), entry.getExternalId()).orElse(null);
 
             if(ts == null) {
-                String externalId = entry.getExternalId();
-                String id = String.valueOf(entry.getId());
-                var de = new BadRequestError();
-                de.setCode(404);
-                de.setMessage("Could not find following timeseries.");
-                de.getFields().add(Map.of("externalId", externalId, "id", id));
-                responseData.getItems().add(de);
+                missing.add(Map.of(
+                        "externalId", String.valueOf(entry.getExternalId()),
+                        "id", String.valueOf(entry.getId())));
                 continue;
             }
 
@@ -866,7 +847,7 @@ public class TimeseriesService {
                             ts.getValueType().getName()),
                     entry));
         }
-        return new ResolvedBatch(responseData, resolved);
+        return new ResolvedBatch(missing, resolved);
     }
 
     /**
@@ -934,9 +915,11 @@ public class TimeseriesService {
                             throw new RuntimeException("Could not parse value: " + dp.getValue() + " to a decimal");
                         }
                     }
-                    case MIXED -> {
-                        // Accepts both numbers and text — the consumer routes each value to the
-                        // numeric or the text column. @NotBlank already rejects empty values.
+                    case TEXT, MIXED -> {
+                        // Nothing to parse: the value is stored as written. MIXED lets the consumer
+                        // route each value to the numeric or the text column. @NotBlank and the
+                        // DTO's length caps already reject empty and oversized values, and the
+                        // per-collection TEXT limit is checked once per batch above.
                     }
                     default -> throw new RuntimeException("Unsupported value type: " + ts.valueTypeName());
                 }
@@ -977,14 +960,10 @@ public class TimeseriesService {
         if (datapoints == null || datapoints.size() <= FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX) {
             return;
         }
-        ResponseError<BadRequestError> error = new ResponseError<>();
-        BadRequestError badRequestError = new BadRequestError();
-        badRequestError.setMessage((
+        throw new BadRequestException((
                 "A %s time series accepts at most %d data points per request, got %d. "
                         + "Split the batch into smaller requests."
         ).formatted(ts.valueTypeName(), FieldLimits.TEXT_DATAPOINTS_PER_COLLECTION_MAX, datapoints.size()));
-        error.setError(badRequestError);
-        throw new BadRequestException(error);
     }
 
     private static void addData(
@@ -1009,31 +988,6 @@ public class TimeseriesService {
         e.getDatapoints().add(dp);
     }
 
-    /**
-     * Adds or updates a datapoint in the latest values cache for a given external ID.
-     * If a datapoint for the external ID already exists in the cache, it compares the timestamps
-     * and updates only if the new datapoint has a more recent timestamp.
-     *
-     * @param externalId the unique identifier for the external data source.
-     * @param dp the datapoint object to be added or checked against the cache.
-     */
-    private void addToLatestValuesCache(String externalId, DatapointString dp) {
-        try {
-            DatapointString obj = valkeyService.fetchLatestDatapoint(externalId);
-
-            if(obj == null){
-                valkeyService.setLatestDatapoint(externalId, dp);
-            } else {
-                ZonedDateTime latestTime = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(dp.getTimestamp());
-                ZonedDateTime latestSavedTime = DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(obj.getTimestamp());
-                if(latestTime.isAfter(latestSavedTime)){
-                    valkeyService.setLatestDatapoint(externalId, dp);
-                }
-            }
-        } catch (JsonProcessingException e) {
-            log.error(e.getMessage(), e);
-        }
-    }
 
 
     /**
@@ -1154,7 +1108,7 @@ public class TimeseriesService {
     }
 
     private boolean validateSourceIds(Set<Long> idSet, Set<String> externalIdSet) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
+        var errors = new FieldErrors();
 
         List<NameAndEId> nodes = nodeRepository.findAllByIdOrExternalId(idSet,externalIdSet, NameAndEId.class);
 
@@ -1167,17 +1121,12 @@ public class TimeseriesService {
                 }
             }
             if(!nodeFound){
-                if(errors.getError() == null){
-                    var de = new BadRequestError();
-                    de.setMessage("Sources cannot be found!");
-                    errors.setError(de);
-                }
-                errors.getError().getFields().add(Map.of("id", String.valueOf(id)));
+                errors.addFieldError("id", String.valueOf(id));
             }
         });
 
-        if(errors.getError() != null){
-            throw new BadRequestException(errors);
+        if(!errors.isEmpty()){
+            throw new BadRequestException("Sources cannot be found!", errors);
         }
         return true;
     }
@@ -1194,14 +1143,10 @@ public class TimeseriesService {
                 // unknown id died on Map.of rejecting the null externalId.
                 String msg = "Time series entity for resource with id: %s, externalId: %s does not exist."
                         .formatted(ddp.getId(), ddp.getExternalId());
-                ResponseError<BadRequestError> errors = new ResponseError<>();
-                var badRequestError = new BadRequestError();
-                badRequestError.setMessage(msg);
-                badRequestError.setFields(List.of(Map.of(
-                        "id", String.valueOf(ddp.getId()),
-                        "externalId", String.valueOf(ddp.getExternalId()))));
-                errors.setError(badRequestError);
-                throw new BadRequestException(errors);
+                throw new BadRequestException(msg,
+                        new FieldErrors()
+                                .addFieldError("id", String.valueOf(ddp.getId()))
+                                .addFieldError("externalId", String.valueOf(ddp.getExternalId())));
             }
 
             // Deleting data-points is a write to the timeseries' dataset (also denies unknown ts).
@@ -1245,17 +1190,13 @@ public class TimeseriesService {
             return DateTimeHandler.fromEpochUTCTimeAsZonedDateTime(bound)
                     .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME);
         } catch (DateTimeParseException | NumberFormatException e) {
-            var badRequestError = new BadRequestError();
-            badRequestError.setMessage(("'%s' is not a valid %s. Use ISO-8601 with an offset "
+            throw new BadRequestException(("'%s' is not a valid %s. Use ISO-8601 with an offset "
                     + "(2026-01-01T00:00:00Z) or epoch milliseconds (1767225600000). A 10-digit "
                     + "value is epoch seconds — multiply it by 1000. For a time before 1973-03-03, "
-                    + "use ISO-8601.").formatted(bound, fieldName));
-            badRequestError.setFields(List.of(Map.of(
-                    fieldName, bound,
-                    "externalId", String.valueOf(ddp.getExternalId()))));
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-            errors.setError(badRequestError);
-            throw new BadRequestException(errors);
+                    + "use ISO-8601.").formatted(bound, fieldName),
+                    new FieldErrors()
+                            .addFieldError(fieldName, bound)
+                            .addFieldError("externalId", String.valueOf(ddp.getExternalId())));
         }
     }
 
@@ -1339,19 +1280,19 @@ public class TimeseriesService {
         // Validate Entities
         apiReqData.getItems().forEach( ts -> {
             if(ts.getExternalId() == null && !ts.hasId()){
-                ResponseError<BadRequestError> errors = new ResponseError<>();
-                var badRequestError = new BadRequestError();
-                badRequestError.setMessage("Timeseries id or externalId is required.");
-                badRequestError.setFields(List.of(Map.of("id", "null", "externalId", "null")));
-                errors.setError(badRequestError);
-                throw new BadRequestException(errors);
+                throw new BadRequestException("Timeseries id or externalId is required.",
+                        new FieldErrors()
+                                .addFieldError("id", "null")
+                                .addFieldError("externalId", "null"));
             }
             if(!ts.getUpdate().validateUpdateFields()){
-                ResponseError<BadRequestError> errors = new ResponseError<>();
-                ts.getUpdate().getErrors().forEach( error -> {
-                    errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-                });
-                throw new BadRequestException(errors);
+                // This used to NPE rather than answer: the ResponseError was created without a
+                // BadRequestError inside it, so the first addFieldError dereferenced null and an
+                // invalid update came back as a 500.
+                var errors = new FieldErrors();
+                ts.getUpdate().getErrors().forEach( error ->
+                        errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
+                throw new BadRequestException("One or more fields are invalid.", errors);
             }
         });
 

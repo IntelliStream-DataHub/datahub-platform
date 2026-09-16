@@ -25,6 +25,10 @@ dependencies {
     // Jackson 3 mapper — the SDK uses it directly to (de)serialize the wire types.
     implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
 
+    // zstd for the binary datapoint frames (compression is mandatory on that path and the JDK
+    // has no zstd). api-model's ZstdPayloadCodec compiles against it but does not carry it.
+    implementation 'com.github.luben:zstd-jni:1.5.7-16'
+
     // JUnit (version managed by the Spring Boot BOM) is supplied by java-common-conventions.
 }
 

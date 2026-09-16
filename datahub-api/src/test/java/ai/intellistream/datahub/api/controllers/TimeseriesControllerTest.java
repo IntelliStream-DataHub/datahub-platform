@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.ConstraintViolationExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConcurrencyExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
-import ai.intellistream.datahub.errors.ResponseError;
+import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.TimeseriesService;
 import ai.intellistream.datahub.models.IdCollection;
@@ -69,7 +70,11 @@ class TimeseriesControllerTest {
                 new TimeseriesController(timeseriesService, edgeRepository, timeseriesRepository);
 
         mvc = MockMvcBuilders.standaloneSetup(controller)
-                .setControllerAdvice(new ConcurrencyExceptionHandler())
+                .setControllerAdvice(new ConcurrencyExceptionHandler(),
+                        // The controller no longer catches these; the advices answer them.
+                        new DuplicateDataExceptionHandler(),
+                        new ConstraintViolationExceptionHandler(),
+                        new ResourceDeleteExceptionHandler())
                 .build();
     }
 
@@ -155,15 +160,18 @@ class TimeseriesControllerTest {
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"name\":\"Room A temperature\"}]}"))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.items[0].externalId").value("must not be blank"));
+                // Was $.items[0].externalId — a success-shaped envelope used as an error body.
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/constraint-violation"))
+                .andExpect(jsonPath("$.fields[0].field").value("externalId"))
+                .andExpect(jsonPath("$.fields[0].message").value("must not be blank"));
     }
 
     // --- 409: write conflicts ----------------------------------------------------------------
 
     @Test
     void create_duplicateExternalId_returns409_withDuplicateError() throws Exception {
-        when(timeseriesService.save(any())).thenThrow(new DuplicateDataException(
-                DuplicateError.createError("External id already exists.", "sensor_temp_room_a")));
+        when(timeseriesService.save(any())).thenThrow(DuplicateDataException.of(
+                "External id already exists.", "externalId", "sensor_temp_room_a"));
 
         mvc.perform(post("/timeseries/create")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -171,8 +179,9 @@ class TimeseriesControllerTest {
                         .content("""
                                 {"items":[{"externalId":"sensor_temp_room_a","name":"Room A temperature","valueType":"FLOAT"}]}"""))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value(409))
-                .andExpect(jsonPath("$.error.duplicated[0].externalId").value("sensor_temp_room_a"));
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/duplicate"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.duplicated[0].externalId").value("sensor_temp_room_a"));
     }
 
     @Test
@@ -185,37 +194,43 @@ class TimeseriesControllerTest {
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"externalId\":\"sensor_temp_room_a\"}]}"))
                 .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.error.code").value(409))
-                .andExpect(jsonPath("$.error.cause").value("concurrency"));
+                // RFC 9457: the type is the discriminator that ConflictError.cause = "concurrency"
+                // used to be, and the status lives on the response rather than inside the body.
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/optimistic-lock"))
+                .andExpect(jsonPath("$.title").value("Conflict"))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").doesNotExist());
     }
 
-    // --- 400: delete blocked by a subscription -----------------------------------------------
+    // --- 409: delete blocked by a subscription -----------------------------------------------
 
     @Test
-    void delete_timeseriesReferencedBySubscription_returns400_withBlockingSubscriptions() throws Exception {
+    void delete_timeseriesReferencedBySubscription_returns409_withBlockingSubscriptions() throws Exception {
         // The shared resource-delete pipeline refuses to delete a timeseries still referenced by a
         // subscription and throws ResourceDeleteException carrying the blocking subscription(s).
-        // The controller must map that to 400 with the error body — not let it fall through to 500.
-        var err = new BadRequestError();
-        err.setMessage("Cannot delete resource(s) that are referenced by subscription(s). "
-                + "Remove the subscriptions first.");
-        err.getFields().add(Map.of(
-                "type", "subscription",
-                "subscriptionExternalId", "sub_a",
-                "timeseriesId", "5"));
-        var resp = new ResponseError<BadRequestError>();
-        resp.setError(err);
-        Mockito.doThrow(new ResourceDeleteException(resp))
+        // The controller no longer catches it; ResourceDeleteExceptionHandler answers with a
+        // problem whose `blockedBy` names the subscription the caller has to remove first.
+        Mockito.doThrow(new ResourceDeleteException(Problems.REFERENCED,
+                        "Cannot delete resource(s) that are referenced by subscription(s). "
+                                + "Remove the subscriptions first.",
+                        List.of(Map.of(
+                                "subscriptionId", "9",
+                                "subscriptionExternalId", "sub_a",
+                                "timeseriesId", "5"))))
                 .when(timeseriesService).deleteTimeseries(any());
 
         mvc.perform(post("/timeseries/delete")
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON)
                         .content("{\"items\":[{\"externalId\":\"sensor_temp_room_a\"}]}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.message", containsString("subscription")))
-                .andExpect(jsonPath("$.error.fields[0].subscriptionExternalId").value("sub_a"))
-                .andExpect(jsonPath("$.error.fields[0].timeseriesId").value("5"));
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/referenced"))
+                .andExpect(jsonPath("$.title").value("Delete refused"))
+                .andExpect(jsonPath("$.detail", containsString("subscription")))
+                .andExpect(jsonPath("$.blockedBy[0].subscriptionExternalId").value("sub_a"))
+                .andExpect(jsonPath("$.blockedBy[0].timeseriesId").value("5"))
+                // The old ResponseError envelope is gone, not merely renamed.
+                .andExpect(jsonPath("$.error").doesNotExist());
     }
 
     // --- insert data-points ------------------------------------------------------------------
@@ -235,11 +250,8 @@ class TimeseriesControllerTest {
 
     @Test
     void insertDataPoints_allTargetsExist_returns204NoContent() throws Exception {
-        // The service reports no misses -> empty wrapper -> the endpoint returns 204 with no body.
-        DataWrapper<BadRequestError> noMisses = new DataWrapper<>();
-        // doReturn form: insertDatapoints returns DataWrapper<?>, whose captured wildcard a plain
-        // when(...).thenReturn(concrete) can't satisfy.
-        Mockito.doReturn(noMisses).when(timeseriesService).insertDatapoints(Mockito.any());
+        // The service reports no misses -> the endpoint returns 204 with no body.
+        Mockito.doReturn(List.of()).when(timeseriesService).insertDatapoints(Mockito.any());
 
         mvc.perform(post("/timeseries/data")
                         .content(INSERT_DATAPOINTS_BODY)
@@ -249,26 +261,22 @@ class TimeseriesControllerTest {
     }
 
     @Test
-    void insertDataPoints_someTargetsMissing_returns404WithErrorBody() throws Exception {
-        // The service returns not-found timeseries as per-entry errors -> 404 with that body.
-        var miss = new BadRequestError();
-        miss.setCode(404);
-        miss.setMessage("Could not find following timeseries.");
-        miss.getFields().add(Map.of("externalId", "does_not_exist", "id", "null"));
-        DataWrapper<BadRequestError> misses = new DataWrapper<>();
-        misses.getItems().add(miss);
-        Mockito.doReturn(misses).when(timeseriesService).insertDatapoints(Mockito.any());
+    void insertDataPoints_someTargetsMissing_returns404WithTheSkippedTargets() throws Exception {
+        // A partial success: the rest were inserted, and the misses are named so the caller can
+        // create them and retry. It used to answer with a DataWrapper whose `items` were error
+        // objects — a success-shaped envelope indistinguishable from a listing.
+        Mockito.doReturn(List.of(Map.of("externalId", "does_not_exist", "id", "null")))
+                .when(timeseriesService).insertDatapoints(Mockito.any());
 
         mvc.perform(post("/timeseries/data")
                         .content(INSERT_DATAPOINTS_BODY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.items[0].code").value(404))
-                .andExpect(jsonPath("$.items[0].message")
-                        .value("Could not find following timeseries."))
-                .andExpect(jsonPath("$.items[0].fields[0].externalId")
-                        .value("does_not_exist"));
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/not-found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.missing[0].externalId").value("does_not_exist"))
+                .andExpect(jsonPath("$.items").doesNotExist());
     }
 
     private static ConstraintViolationException constraintViolation(String field, String message) {

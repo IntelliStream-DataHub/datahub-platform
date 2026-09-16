@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -16,7 +14,6 @@ import ai.intellistream.datahub.api.responses.ValueTypeRecommendation;
 import ai.intellistream.datahub.api.responses.swaggerdto.*;
 import ai.intellistream.datahub.helpers.timeseries.ValueTypeRecommender;
 import ai.intellistream.datahub.api.services.TimeseriesService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.models.DeleteDatapoint;
@@ -25,13 +22,11 @@ import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.transformers.TimeseriesTransformer;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
-import io.swagger.v3.oas.annotations.Hidden;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.extensions.Extension;
@@ -55,7 +50,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
+import org.springframework.http.ProblemDetail;
 
 @RestController
 @RequestMapping("/timeseries")
@@ -80,7 +77,7 @@ public class TimeseriesController {
             description = """
                     List timeseries in your tenant, newest first.
 
-                    Use `limit` to cap the response (default 100, max 10000). For targeted
+                    Use `limit` to cap the response (default 1000, max 10000). For targeted
                     lookups, use `POST /timeseries/byids` or `POST /timeseries/search` instead
                     — this endpoint is mainly for browsing.
 
@@ -100,8 +97,8 @@ public class TimeseriesController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer ≤ 10000, or `dataSetId` is not a number.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "dataSetId must be a number")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = {""},
             method = RequestMethod.GET,
@@ -122,7 +119,10 @@ public class TimeseriesController {
                 if(lim < 0) throw new NumberFormatException("Limit cannot be negative");
                 if(lim > 10000) throw new NumberFormatException("Limit cannot be greater than 10000");
             } catch (NumberFormatException e) {
-                return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.withFields(
+                        Problems.badRequest("limit must be a whole number from 0 to 10000."),
+                        List.of(new Problems.FieldProblem("limit", "must be a whole number from 0 to 10000", null, null))),
+                        HttpStatus.BAD_REQUEST);
             }
         }
 
@@ -134,7 +134,7 @@ public class TimeseriesController {
             try {
                 dataSet = Long.parseLong(dataSetId);
             } catch (NumberFormatException e) {
-                return new ResponseEntity<>("dataSetId must be a number", HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.badRequest("dataSetId must be a number"), HttpStatus.BAD_REQUEST);
             }
             timeseries = timeseriesService.readListForDataSet(dataSet, lim);
         }
@@ -144,20 +144,6 @@ public class TimeseriesController {
         var data = new DataWrapper<Timeseries>();
         data.setItems(tsList);
         return new ResponseEntity<>(data, HttpStatus.OK);
-    }
-
-    /**
-     * {@code GET /timeseries/} — the same listing, for a caller that typed the trailing slash.
-     * Boot stopped matching it to the slashless route by default, so it is mapped explicitly.
-     *
-     * <p>Its default limit used to be 100 where the route it delegates to defaults to 1000, so the
-     * page size depended on whether the caller typed a slash. Same default now.
-     */
-    @Hidden
-    @RequestMapping(value = {"/"}, method = RequestMethod.GET, produces = { "application/json", "application/xml" })
-    public ResponseEntity<?> listWithSlash(@Parameter(description = "Maximum number of timeseries to return. Must be a positive integer up to 10000.", example = "1000") @RequestParam(name="limit", defaultValue = "1000") String limit,
-                                           @Parameter(description = "Restrict results to this dataset and every dataset beneath it.", example = "5677892") @RequestParam(name="dataSetId", required = false) String dataSetId){
-        return list(limit, dataSetId);
     }
 
     @Tag(name = "Time-series")
@@ -382,21 +368,16 @@ public class TimeseriesController {
                     "missing required field, invalid `valueType`, referenced `dataSetId` " +
                     "doesn't exist, unknown `unit`.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "A timeseries with one of the `externalId`s already exists. The `duplicated` " +
                     "list tells you which ones. Pick a different `externalId`, or use " +
                     "`POST /timeseries/update` to modify the existing timeseries.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
-            ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules. Response lists the offending fields.",
-            content = @Content(
-                    schema = @Schema(implementation = DataWrapper.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -434,33 +415,8 @@ public class TimeseriesController {
                                         @Schema(implementation = TimeseriesDataWrapper.class)
                                         DataWrapper<Timeseries> apiReqData
     ){
-        try{
-            apiReqData = timeseriesService.save(apiReqData);
-            return new ResponseEntity<>(apiReqData, HttpStatus.CREATED);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (NamingPolicyViolationException e){
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response; the
-            // BadRequestException catch below would flatten it and lose the per-item violations.
-            throw e;
-        } catch (BadRequestException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (AccessDeniedException e){
-            throw e;
-        }
-        catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        }
-        catch (RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+        apiReqData = timeseriesService.save(apiReqData);
+        return new ResponseEntity<>(apiReqData, HttpStatus.CREATED);
     }
 
     @Tag(name = "Time-series")
@@ -497,17 +453,17 @@ public class TimeseriesController {
                     "neither `id` nor `externalId` supplied, the timeseries doesn't exist, or " +
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
-            "Conflict. Either the new `externalId` already belongs to another timeseries " +
-                    "(`DuplicateError` — pick a different one), or someone else changed the " +
-                    "timeseries while your update was in flight (`ConflictError` — re-fetch " +
-                    "with `/byids` and retry).",
+            "Conflict — branch on `type`. Either the new `externalId` already belongs to another " +
+                    "timeseries (`.../errors/duplicate` — pick a different one), or someone else " +
+                    "changed the timeseries while your update was in flight " +
+                    "(`.../errors/optimistic-lock` — re-fetch with `/byids` and retry).",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(oneOf = {DuplicateError.class, ConflictError.class})
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/update",
@@ -541,37 +497,9 @@ public class TimeseriesController {
             )
             @Schema(implementation = UpdateTimeseriesWrapper.class)
             @RequestBody DataWrapper<UpdateTimeseries> apiReqData
-    ){
-        try{
-            DataWrapper<Timeseries> data = timeseriesService.updateTimeseries(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (ConstraintViolationException cve){
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e){
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (NamingPolicyViolationException e){
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response; the
-            // BadRequestException catch below would flatten it and lose the per-item violations.
-            throw e;
-        } catch (BadRequestException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (AccessDeniedException e){
-            throw e;
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // RuntimeException catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (LimitException e){
-            // A limit refusal is an answer, not a fault: without this the catch below
-            // flattens it into a 500 and the caller never learns which limit they hit.
-            throw e;
-        } catch (PulsarClientException | RuntimeException e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+    ) throws PulsarClientException, JsonProcessingException {
+        DataWrapper<Timeseries> data = timeseriesService.updateTimeseries(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Time-series")
@@ -633,14 +561,7 @@ public class TimeseriesController {
                     )
             )
             @Valid @RequestBody SearchBody<TimeseriesFilter> apiReqData){
-        try {
-            return ResponseEntity.ok(timeseriesService.search(apiReqData));
-        } catch (ConstraintViolationException cve) {
-            // Body validation is @Valid's job and never reaches this catch; it stays for a
-            // violation raised deeper in the service, which would otherwise surface as an
-            // unshaped Spring 500.
-            return new ResponseEntity<>(BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
-        }
+        return ResponseEntity.ok(timeseriesService.search(apiReqData));
     }
 
     @Tag(name = "Time-series")
@@ -673,37 +594,36 @@ public class TimeseriesController {
     )
     @ApiResponse(responseCode = "204", description = "The timeseries were deleted and their data-points scheduled for purge. No response body.",
             content = @Content)
-    @ApiResponse(responseCode = "400",
-            description =
-                    "A safety check failed. Either the timeseries is still linked to other " +
-                    "resources via a relationship, or it's still bound to a subscription. " +
-                    "Response lists the blocking items so you can clean them up first.",
+    @ApiResponse(responseCode = "409", description =
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/referenced` — the timeseries is still bound to a subscription. \
+              `blockedBy` names them so you can remove them first.
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded.
+            - `.../errors/optimistic-lock` — another request modified or deleted the timeseries \
+              between read and write. Re-fetch the current state and retry.
+            """,
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
-                              "error": {
-                                "code": 400,
-                                "message": "Cannot delete timeseries that are referenced by subscription(s). Remove the subscriptions first.",
-                                "fields": [
-                                  {
-                                    "type": "subscription",
-                                    "subscriptionId": "91",
-                                    "subscriptionExternalId": "fleet_dashboard",
-                                    "timeseriesId": "5677892"
-                                  }
-                                ]
-                              }
+                              "type": "https://intellistream.ai/errors/referenced",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Cannot delete resource(s) that are referenced by subscription(s). Remove the subscriptions first.",
+                              "blockedBy": [
+                                {
+                                  "subscriptionId": "91",
+                                  "subscriptionExternalId": "fleet_dashboard",
+                                  "timeseriesId": "5677892"
+                                }
+                              ]
                             }
                             """)
-            ))
-    @ApiResponse(responseCode = "409", description =
-            "Concurrency conflict — another request modified or deleted the timeseries " +
-                    "between read and write. Clients should re-fetch the current state and retry.",
-            content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
             ))
     @RequestMapping(
             path = "/delete",
@@ -729,34 +649,8 @@ public class TimeseriesController {
             )
             @Schema(implementation = IdCollectionDataWrapper.class)
             @Valid @RequestBody DataWrapper<IdCollection> apiReqData
-    ){
-        try{
-            timeseriesService.deleteTimeseries(apiReqData);
-        } catch (AccessDeniedException e){
-            throw e;
-        } catch (NamingPolicyViolationException e){
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response; the
-            // BadRequestException catch below would flatten it and lose the per-item violations.
-            throw e;
-        } catch (BadRequestException e){
-            log.warn("Timeseries delete bad request: {}", e.getError().getError().getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // A timeseries still referenced by a subscription can't be deleted; the shared resource
-        // delete pipeline throws ResourceDeleteException listing the blocking subscription(s).
-        // Map it to a 400 with that body (as ResourceController/EventController do) instead of
-        // letting it fall through to the bare 500 below.
-        catch (ResourceDeleteException e){
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler — the broad
-        // Exception catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
+    ) throws PulsarClientException, JsonProcessingException {
+        timeseriesService.deleteTimeseries(apiReqData);
         return ResponseEntity.noContent().build();
     }
 
@@ -796,13 +690,9 @@ public class TimeseriesController {
                     "that *do* exist are still inserted; the response body lists the missing ones " +
                     "as per-entry errors, each carrying the offending `externalId`/`id`.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
-    @ApiResponse(responseCode = "422", description =
-            "A value failed to parse against the target timeseries' `valueType` — e.g. " +
-                    "text value sent to a `BIGINT` timeseries. Fix the offending entry and retry."
-    )
     @PostMapping( path = "/data",
             produces = {"application/json"},
             consumes = {"application/json"}
@@ -835,22 +725,20 @@ public class TimeseriesController {
             @Schema(implementation = DatapointsCollectionDataWrapper.class)
             @RequestBody @Valid
             DataWrapper<DatapointsCollection> apiReqData
-    ){
-        try{
-            DataWrapper<?> data = timeseriesService.insertDatapoints(apiReqData);
-            if(data.getItems() != null && !data.getItems().isEmpty()){
-                // Some targeted timeseries didn't exist. Their data-points were skipped while the
-                // rest were inserted — report the misses with 404 and the per-entry error body.
-                return new ResponseEntity<>(data, HttpStatus.NOT_FOUND);
-            }
-        } catch (AccessDeniedException | LimitException e){
-            // A limit refusal is an answer, not a fault: let it reach its advice, which turns it
-            // into the 429 or 403 that says which limit and how it clears.
-            throw e;
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            return ResponseEntity.unprocessableContent().body(e.getMessage());
+    ) throws PulsarClientException, JsonProcessingException {
+        List<Map<String, String>> missing = timeseriesService.insertDatapoints(apiReqData);
+        if(!missing.isEmpty()){
+            // Some targeted timeseries didn't exist. Their data-points were skipped while the rest
+            // were inserted, so this is a partial success reported as a 404 — `missing` names the
+            // ones that were skipped. It used to answer with a DataWrapper whose `items` were
+            // error objects: a success-shaped envelope a client could not tell from a listing.
+            ProblemDetail problem = Problems.notFound(
+                    "Some of the targeted timeseries do not exist. Their data-points were skipped; "
+                            + "the rest were inserted.");
+            problem.setProperty("missing", missing);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
         }
+
         // Every targeted timeseries existed and its data-points were accepted — no content to return.
         return ResponseEntity.noContent().build();
     }
@@ -922,17 +810,8 @@ public class TimeseriesController {
             @Schema(implementation = DataRetrieverForDatapoints.class)
             DataRetriever<RetrieveFilter> apiReqData
     ){
-        try{
-            DataWrapper<?> data = timeseriesService.retrieveDatapointsFromCH(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (NamingPolicyViolationException e){
-            // Let it reach NamingPolicyExceptionHandler as an RFC 9457 problem response; the
-            // BadRequestException catch below would flatten it and lose the per-item violations.
-            throw e;
-        } catch (BadRequestException e){
-            log.error(e.getMessage());
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        }
+        DataWrapper<?> data = timeseriesService.retrieveDatapointsFromCH(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 
     @Tag(name = "Time-series")
@@ -964,8 +843,8 @@ public class TimeseriesController {
     @ApiResponse(responseCode = "400", description =
             "A named timeseries does not exist, or a window bound is neither ISO-8601 nor epoch milliseconds.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)))
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "500", description =
             "The delete couldn't be accepted right now. Safe to retry after a short backoff.",
             content = @Content)
@@ -1000,14 +879,9 @@ public class TimeseriesController {
             )
             @Schema(implementation = DeleteDatapointCollection.class)
             @RequestBody DataRetriever<DeleteDatapoint> apiReqData
-    ) {
-        try{
-            timeseriesService.deleteDatapoints(apiReqData);
-            return new ResponseEntity<>("", HttpStatus.NO_CONTENT);
-        } catch (PulsarClientException e){
-            log.error(e.getMessage(), e);
-        }
-        return new ResponseEntity<>("", HttpStatus.INTERNAL_SERVER_ERROR);
+    ) throws PulsarClientException, JsonProcessingException {
+        timeseriesService.deleteDatapoints(apiReqData);
+        return ResponseEntity.noContent().build();
     }
 
     @Tag(name = "Time-series")
@@ -1053,15 +927,8 @@ public class TimeseriesController {
             @Schema(implementation = IdCollectionDataWrapper.class)
             @RequestBody
             DataWrapper<IdCollection> apiReqData
-    ){
-        try{
-            var data = timeseriesService.fetchLatestDatapoint(apiReqData);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (AccessDeniedException e){
-            throw e;
-        } catch (Exception e){
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>(HttpStatus.INTERNAL_SERVER_ERROR);
-        }
+    ) throws PulsarClientException, JsonProcessingException {
+        var data = timeseriesService.fetchLatestDatapoint(apiReqData);
+        return new ResponseEntity<>(data, HttpStatus.OK);
     }
 }

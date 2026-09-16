@@ -71,12 +71,7 @@ class BaseList{
 	}
 
 	loadData(afterLoadFn){
-		fetch(this.apiURL + '/list', {
-			method: 'GET',
-			headers: {
-				'Accept': 'application/json'
-			}
-		})
+		Api.get(this.apiPath)
 			.then( resp => resp.json())
 			.then( json => {
 				this.data = {
@@ -84,12 +79,9 @@ class BaseList{
 						{
 							name: $L('name'),
 							prefix: "name"
-						},
-						{
-							icon: "fa-pen"
 						}
 					],
-					items: json.map( it => {
+					items: (json.items || []).map( it => {
 						return {
 							id: it.id,
 							name: it.name
@@ -377,74 +369,20 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		});
 	}
 
-	submit(){
-		this.formData = new FormData(this.formElement);
-		const obj = Object.fromEntries(this.formData);
-		fetch(this.formElement.action, {
-			method: this.formElement.method,
-			headers: {
-				'Accept': 'application/json',
-				'Content-Type': 'application/json',
-				[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-			},
-			signal: AbortSignal.timeout(10000),
-			body: JSON.stringify(obj)
-		}).then( response => {
-			this.handleResponse(response);
-		}).catch(() => {
-			console.error("Update failed");
-		});
-	}
-
 	handleResponse(response) {
 		if (response.status >= 400) {
-			response.json().then(json => {
-				/** Errors JSON format should be in
-				{
-					"errors": {"field": "fieldName", "message": "errorMessage"}
-				}
-				 Or {
-					"error": {"message": "errorMessage"}
-				 }
-				*/
-				this.errors = [];
-				// A naming-policy rejection is an RFC 9457 body, not the shape above: it names
-				// every offending external id in one response rather than only the first, and the
-				// batch is all-or-nothing so nothing was created. Flash it whole, and mark the
-				// field so the form itself shows where to look.
-				if (window.NamingPolicy && window.NamingPolicy.isViolation(json)) {
-					window.NamingPolicy.flashViolations(json);
-					this.errors.push({ field: 'externalId', message: json.detail || json.title });
+			DataHubProblem.read(response).then(problem => {
+				// A naming-policy rejection names every offending external id, and nothing in the batch was written.
+				if (window.NamingPolicy && window.NamingPolicy.isViolation(problem.body)) {
+					window.NamingPolicy.flashViolations(problem.body);
+					this.errors = [{ field: 'externalId', message: problem.detail || problem.title }];
 					this.render();
 					return;
 				}
-				if(json.errors){
-					this.errors = json.errors;
-				} else if(json.error){
-					this.errors.push( json.error );
-				}
-				if(json.error && json.error.duplicated){
-					json.error.duplicated.forEach( error => {
-						const field = Object.keys(error)[0];
-						const message = $L('external.id.exists', null, [error[field]]);
-						this.errors.push( {field: field, message: message} );
-					});
-				}
-				// Anything else the api answers with a problem document rather than the field-error
-				// shape above: an access denial, a permissions lookup that could not be reached, a
-				// concurrency conflict. Without this the form redrew with nothing on it and the save
-				// looked like it had simply been ignored.
-				if(this.errors.length === 0){
-					const problem = this.problemMessage(json);
-					if(problem) this.errors.push({ field: null, message: problem });
-				}
-				this.render();
-			},
-			() => {
-				// The body was not JSON (a few endpoints answer an error with an empty one), so
-				// there is nothing to read out of it. Say that the save did not happen anyway:
-				// a form that redraws unchanged reads as though the button did nothing.
-				this.errors = [{ field: null, message: $L('error.save.failed') }];
+				this.errors = problem.fieldErrors();
+				// Without a sentence of its own the form redraws unchanged, which reads as the button doing nothing.
+				this.errors.unshift({ field: null, message: problem.message('error.save.failed') });
+				problem.details(true).forEach(line => this.errors.push({ field: null, message: line }));
 				this.render();
 			});
 		} else {
@@ -464,61 +402,33 @@ class DatasetFormAbstract extends BaseFormAbstract{
 	}
 
 	/**
-	 * The entity handed to `afterSave`. Forms posting through the console's proxy get a bare object
-	 * back; forms calling datahub-api directly get its `{items:[…]}` envelope and override this to
-	 * unwrap, so an afterSave callback sees one saved entity either way.
+	 * What `afterSave` receives. The api answers a write with an envelope, and each form decides
+	 * whether its callers want that envelope or the one entity in it.
 	 */
 	savedItem(json){
 		return json;
 	}
 
-	/**
-	 * The message to show for an RFC 9457 problem body, or null when `json` is not one.
-	 *
-	 * The api's own `detail` is written for an operator (the dataset-ACL one names the Keycloak
-	 * group and the admin role by name) and is never translated, so the types the console knows
-	 * about get a localized message and anything else falls back to the server's own words, which
-	 * beats showing nothing.
-	 */
-	problemMessage(json){
-		if(!json || typeof json !== 'object') return null;
-		if(json.errors || json.error) return null;         // the field-error shape, handled above
-		if(!json.detail && !json.title) return null;       // not a problem document
-		if(json.type === 'https://intellistream.ai/errors/dataset-forbidden'){
-			if(json.permission === 'manage') return $L('error.dataset.manage.forbidden');
-			if(json.permission === 'read') return $L('error.dataset.read.forbidden');
-			return $L('error.dataset.write.forbidden');
-		}
-		if(json.type === 'https://intellistream.ai/errors/permissions-unavailable'){
-			return $L('error.permissions.unavailable');
-		}
-		const limit = window.LimitErrors && window.LimitErrors.message(json);
-		if(limit) return limit;
-		return json.detail || json.title;
-	}
-
-	/**
-	 * One message for a failed request, whatever shape the answer took: the `{error:{message}}` and
-	 * `{errors:[…]}` envelopes, or an RFC 9457 problem document. For the places that show a single
-	 * flash rather than marking up fields (a failed delete).
-	 */
-	anyErrorMessage(json){
-		if(!json || typeof json !== 'object') return null;
-		if(json.error && json.error.message) return json.error.message;
-		if(Array.isArray(json.errors) && json.errors.length && json.errors[0].message){
-			return json.errors[0].message;
-		}
-		return this.problemMessage(json);
+	/** Flashes why a request that is not a save (a delete, a load) was refused. */
+	flashProblem(response, fallbackKey){
+		return DataHubProblem.read(response).then(problem =>
+			this.flashError(problem.message(fallbackKey), problem.details()));
 	}
 
 	/**
 	 * Prepends a flash to the form body. For errors raised outside a redraw (a failed delete):
 	 * render() would rebuild the form from the submitted values, which is not what a delete wants.
 	 */
-	flashError(message){
+	flashError(message, details){
 		if(!message) return;
 		const flash = Object.assign(document.createElement('DIV'), { className: "flash error" });
-		flash.append(Object.assign(document.createElement('span'), { textContent: message }));
+		const text = Object.assign(document.createElement('span'), { textContent: message });
+		if(Array.isArray(details) && details.length){
+			const list = Object.assign(document.createElement('ul'), { className: "dh-flash-details" });
+			details.forEach(line => list.append(Object.assign(document.createElement('li'), { textContent: line })));
+			text.append(list);
+		}
+		flash.append(text);
 		this.formElement.querySelector('main').prepend(flash);
 	}
 
@@ -682,37 +592,27 @@ class DatasetFormAbstract extends BaseFormAbstract{
 		}
 	}
 
+	/** GET {apiPath}/{id}; the api answers a single lookup in its {items:[…]} envelope too. */
 	loadData(callback){
 		if(this.entityId === null) return;
-		fetch(this.apiURL + "/" + this.entityId, {
-			method: 'GET',
-			headers: {
-				'Accept': 'application/json'
-			}
-		})
-			.then(response => {
-				return response.json();
-			})
+		Api.get(this.apiPath + "/" + encodeURIComponent(this.entityId))
+			.then(response => response.ok ? response.json() : DataHubProblem.read(response).then(problem => { throw problem; }))
 			.then(json => {
-				this.loadCompleteCallback(json);
+				const entity = json.items[0];
+				this.loadCompleteCallback(entity);
 				if(callback instanceof Function){
-					callback(json);
+					callback(entity);
 				}
 			})
 			.catch( e => {
-				console.error(e);
+				if(e instanceof DataHubProblem) this.flashError(e.message(), e.details());
+				else console.error(e);
 			});
 	};
 
 	delete(){
-		fetch(this.apiURL + "/delete/" + this.entityId,
-			{
-				method: 'DELETE',
-				headers: {
-					'Accept': 'application/json',
-					[document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-				}
-			})
+		// The id stays the string it arrived as: the server reads it into a Long, and converting rounds above 2^53.
+		Api.del(this.deleteUrl, { items: [{ id: this.entityId }] })
 			.then( xhr => {
 				// If successful delete
 				if(xhr.status === 200 || xhr.status === 204){
@@ -722,12 +622,8 @@ class DatasetFormAbstract extends BaseFormAbstract{
 					this.cancelButtonElement.dispatchEvent(new Event('click'));
 					return;
 				}
-				// A delete is refused for the same reasons a save is (an access denial, a
-				// conflict), so say why rather than leaving the form as though the button had
-				// done nothing.
-				xhr.json()
-					.then( json => this.flashError(this.anyErrorMessage(json)) )
-					.catch(() => { /* no body, or not JSON: nothing to say beyond the status */ });
+				// A refused delete says why, or the form looks as though the button did nothing.
+				this.flashProblem(xhr, 'error.problem.failed');
 			})
 			.catch((e) => {
 				console.error(e);
@@ -820,11 +716,6 @@ class DatasetFormAbstract extends BaseFormAbstract{
 	}
 }
 
-class DataWrapper {
-	constructor() {
-		this.items = [];
-	}
-}
 class UpdateFields {
 	constructor() {}
 	set(field, value){

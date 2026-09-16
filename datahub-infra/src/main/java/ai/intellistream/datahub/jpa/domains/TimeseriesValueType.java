@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.jpa.domains;
 
+import ai.intellistream.datahub.api.binary.DatapointValueType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -8,6 +9,12 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
+/**
+ * A row of {@code timeseries_value_type}. The catalogue itself is {@link DatapointValueType}, which
+ * this delegates every name and table lookup to; the seven constants below are literals only
+ * because a {@code switch} case label has to be a compile-time constant, and
+ * {@code DatapointValueTypeParityTest} pins them to the enum.
+ */
 @Entity
 @Table(name = "timeseries_value_type")
 @Getter
@@ -49,35 +56,15 @@ public class TimeseriesValueType {
 
     public static int getValueTypeId(String text){
         // Defensive: never NPE on null and never return the invalid id 0 for an unrecognised
-        // type. Both fall back to FLOAT32 — the same default Timeseries uses for an unspecified
-        // value type — so a stray null/typo can't route datapoints to a non-existent type.
-        if (text == null) {
-            return FLOAT32;
+        // type. Both fall back to FLOAT32, the same default Timeseries uses for an unspecified
+        // value type, so a stray null/typo can't route datapoints to a non-existent type.
+        DatapointValueType type = DatapointValueType.fromNameOrNull(text);
+        if (type != null) {
+            return type.id();
         }
-        switch (text.toUpperCase()) {
-            case "BIGINT" -> {
-                return BIGINT;
-            }
-            case "FLOAT" -> {
-                return FLOAT;
-            }
-            case "FLOAT32" -> {
-                return FLOAT32;
-            }
-            case "NUMERIC" -> {
-                return NUMERIC;
-            }
-            case "DECIMAL32" -> {
-                return DECIMAL32;
-            }
-            case "MIXED" -> {
-                return MIXED;
-            }
-            case "TEXT" -> {
-                return TEXT;
-            }
+        if (text != null && !text.isBlank()) {
+            log.warn("Unknown timeseries value type '{}', defaulting to FLOAT32", text);
         }
-        log.warn("Unknown timeseries value type '{}', defaulting to FLOAT32", text);
         return FLOAT32;
     }
 
@@ -93,31 +80,14 @@ public class TimeseriesValueType {
         return getClass().hashCode();
     }
 
+    /** Unknown ids read as bigint, which is what the id-keyed switch this replaced fell through to. */
     public static String getTableType(ai.intellistream.datahub.jpa.domains.TimeseriesValueType valueType){
-        String type = "bigint";
-        switch (valueType.getId()){
-            case 2 -> type = "float";
-            case 3 -> type = "numeric";
-            case 4 -> type = "text";
-            case 5 -> type = "decimal32";
-            case 6 -> type = "mixed";
-            case 7 -> type = "float32";
-        }
-        return type;
+        DatapointValueType type = DatapointValueType.fromIdOrNull(valueType.getId());
+        return type == null ? DatapointValueType.BIGINT.tableSuffix() : type.tableSuffix();
     }
 
     public static String getTableType(String valueType){
-        String type = "bigint";
-        int valueTypeId = getValueTypeId(valueType);
-        switch (valueTypeId){
-            case 2 -> type = "float";
-            case 3 -> type = "numeric";
-            case 4 -> type = "text";
-            case 5 -> type = "decimal32";
-            case 6 -> type = "mixed";
-            case 7 -> type = "float32";
-        }
-        return type;
+        return DatapointValueType.fromId(getValueTypeId(valueType)).tableSuffix();
     }
 
     // --- Read-query value expressions. MIXED stores numbers and text in two columns

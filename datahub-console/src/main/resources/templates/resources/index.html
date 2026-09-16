@@ -57,8 +57,8 @@
 				attrs: item => ({ 'data-root-id': item.id }),
 				labels: item => item.labels || [],
 				search: {
-					url: '/api/resources/search',
-					body: q => ({ query: q }),
+					path: '/resources/search',
+					body: q => ResourceList.searchBody(q),
 					items: json => json.items
 				},
 				onSelect: (id, ctx) => {
@@ -71,7 +71,7 @@
 
 			// Chat hand-off: the assistant navigated here with a search to run. Reads the same
 			// sessionStorage key the events page uses, clears it (read-once), and drives the search
-			// box — the debounced listener then runs /api/resources/search exactly as a user would.
+			// box — the debounced listener then runs /resources/search exactly as a user would.
 			(function applyPendingView() {
 				let pending;
 				try { pending = JSON.parse(sessionStorage.getItem('dh-pending-view') || 'null'); } catch (e) { pending = null; }

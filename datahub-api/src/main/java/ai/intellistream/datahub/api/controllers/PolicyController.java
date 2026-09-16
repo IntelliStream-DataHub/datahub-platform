@@ -2,8 +2,6 @@
 package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.api.policy.PolicyScopeValidator;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -17,10 +15,7 @@ import ai.intellistream.datahub.jpa.domains.PolicyEntity;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.errors.ResponseError;
 import org.springframework.http.HttpStatusCode;
 import ai.intellistream.datahub.transformers.PolicyTransformer;
 import ai.intellistream.datahub.transformers.ResourceTransformer;
@@ -38,6 +33,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -46,6 +42,7 @@ import java.time.ZonedDateTime;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
 
 @Slf4j
 @RestController
@@ -82,8 +79,8 @@ public class PolicyController {
     )
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listPolicies(
@@ -91,7 +88,7 @@ public class PolicyController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -186,52 +183,22 @@ public class PolicyController {
             @Schema(implementation = PolicyDataWrapper.class)
             DataWrapper<Policy> form
     ) throws ConstraintViolationException, Exception {
-        try {
-            Collection<Policy> items = form.getItems();
+        Collection<Policy> items = form.getItems();
 
-            // Scope first, over the whole batch: a policy attached where its type does not allow
-            // would look configured and enforce nothing. Also validates a naming policy's regex
-            // here, where the error reaches the person who typed it rather than an integration
-            // that cannot fix it.
-            items.forEach(PolicyScopeValidator::validate);
+        // Scope first, over the whole batch: a policy attached where its type does not allow
+        // would look configured and enforce nothing. Also validates a naming policy's regex
+        // here, where the error reaches the person who typed it rather than an integration
+        // that cannot fix it.
+        items.forEach(PolicyScopeValidator::validate);
 
-            // One call for the whole batch, through the shared create pipeline — so a
-            // three-policy request is judged, authorized and published as one create, exactly like
-            // three resources are.
-            DataWrapper<Policy> data = policyService.create(items);
+        // One call for the whole batch, through the shared create pipeline — so a
+        // three-policy request is judged, authorized and published as one create, exactly like
+        // three resources are.
+        DataWrapper<Policy> data = policyService.create(items);
 
-            return new ResponseEntity<>(data, HttpStatus.CREATED);
+        return new ResponseEntity<>(data, HttpStatus.CREATED);
 
-        } catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            // A scope or naming-config rejection is the caller's mistake, not a server fault; the
-            // broad catch below would otherwise report it as a 500 with no usable detail.
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e) {
-            // The shared pipeline's pre-check, which policy create now goes through: it catches a
-            // taken external id before the insert, so this is the 409 the caller gets in practice.
-            // The DataIntegrityViolationException below stays as the net for a race that slips
-            // past the check and reaches the unique index.
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
-        } catch (DataIntegrityViolationException dve) {
-            // A duplicate externalId is a conflict, not a server fault. This was unhandled, so
-            // creating a policy whose externalId already existed produced a bare 500 — the only
-            // node type where a duplicate create did not surface as 4xx.
-            var e = BuildErrorResponse.createDataIntegrityViolationError(dve);
-            return new ResponseEntity<>(e, HttpStatus.CONFLICT);
-        }
-        // Let the ACL denial and the concurrency conflict reach their advices; the broad catch
-        // below would otherwise mask a 403 and a 409 as 500s.
-        catch (org.springframework.security.access.AccessDeniedException | OptimisticLockingFailureException e) {
-            throw e;
-        } catch (Exception e) {
-            // Log the detail, return none: the raw exception message was going out to the caller.
-            log.error("Failed to create policies", e);
-            return ResponseEntity.internalServerError().build();
-        }
+    
     }
 
     // 5. DELETE POLICY NODE(S)
@@ -243,11 +210,28 @@ public class PolicyController {
     @ApiResponse(responseCode = "204", description = "The policy nodes were deleted. No response body.",
             content = @Content)
     @ApiResponse(responseCode = "409", description =
-            "Concurrency conflict — another request modified or deleted the policy " +
-                    "between read and write. Clients should re-fetch the current state and retry.",
+            """
+            The delete conflicts with the current state. Nothing was removed, and the same request \
+            will succeed once the conflict is resolved — branch on `type`:
+
+            - `.../errors/would-strand` — the delete would disconnect part of the graph from its \
+              root. `blockedBy` names the resources that would be stranded, so you can include \
+              them in the deletion or keep a connecting path.
+            - `.../errors/optimistic-lock` — another request modified or deleted one of the \
+              targets between read and write. Re-fetch the current state and retry.
+            """,
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
+                    examples = @ExampleObject(value = """
+                            {
+                              "type": "https://intellistream.ai/errors/would-strand",
+                              "title": "Delete refused",
+                              "status": 409,
+                              "detail": "Deleting this selection would disconnect resource(s) [klp_valve_v9] from the graph root. Include them in the deletion or keep a connecting path.",
+                              "blockedBy": [ { "externalId": "klp_valve_v9" } ]
+                            }
+                            """)
             ))
     @RequestMapping(
             value = { "/delete" },
@@ -259,24 +243,10 @@ public class PolicyController {
             @RequestBody
             @Schema(implementation = IdCollectionDataWrapper.class)
             DataWrapper<IdCollection> form
-    ) {
-        try {
-            policyService.deletePolicies(form);
-            return ResponseEntity.noContent().build();
+    ) throws Exception {
+        policyService.deletePolicies(form);
+        return ResponseEntity.noContent().build();
 
-        }
-        catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        }
-        // Let the concurrency conflict reach ConcurrencyExceptionHandler as a 409 — the broad
-        // Exception catch below would otherwise mask it as a 500.
-        catch (OptimisticLockingFailureException olf) {
-            throw olf;
-        } catch (Exception e) {
-            log.error(e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
     }
 
     // 6. GET SINGLE POLICY NODE
@@ -329,15 +299,15 @@ public class PolicyController {
     )
     @ApiResponse(responseCode = "400", description = "The request carried no policies, or one failed validation.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "Concurrency conflict — another request modified or deleted the policy " +
                     "between read and write. Clients should re-fetch the current state and retry.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     public ResponseEntity<?> updatePolicy(
             @Schema(implementation = UpdatePolicyDataWrapper.class)
@@ -347,7 +317,8 @@ public class PolicyController {
         // items.iterator().next(), silently discarding the rest, and threw NoSuchElementException
         // on an empty wrapper — which the broad catch below turned into a bodyless 500.
         if (wrapper == null || wrapper.getItems() == null || wrapper.getItems().isEmpty()) {
-            return ResponseEntity.badRequest().body(new DataWrapper<>());
+            return new ResponseEntity<>(Problems.badRequest("items must hold at least one policy update."),
+                    HttpStatus.BAD_REQUEST);
         }
 
         try {
@@ -363,28 +334,11 @@ public class PolicyController {
 
             return ResponseEntity.ok(resp);
 
-        } catch (ConstraintViolationException cve) {
-            // Return the validation detail, not an empty envelope — clients need to know which
-            // field failed.
-            var err = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(err, HttpStatus.BAD_REQUEST);
-        } catch (BadRequestException e) {
-            // PolicyScopeValidator (wrong scope / malformed naming regex) and a missing policy id
-            // both surface here — they are the caller's mistake, so 400 with the error body rather
-            // than the broad 500 below.
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
         } catch (IllegalArgumentException e) {
-            return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
-        }
-        // Let concurrency conflicts (409) and not-found (404) reach their dedicated handlers — the
-        // broad Exception catch below would otherwise mask them as a 500.
-        catch (OptimisticLockingFailureException | org.springframework.security.access.AccessDeniedException
-               | ObjectNotFoundException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to update policies", e);
-            DataWrapper<Policy> resp = new DataWrapper<>();
-            return new ResponseEntity<>(resp, HttpStatus.INTERNAL_SERVER_ERROR);
+            // PolicyService's own wording, but an IllegalArgumentException can come from anywhere below it.
+            log.debug("Policy update rejected: {}", e.getMessage());
+            return new ResponseEntity<>(Problems.badRequest(
+                    "Each policy update must identify the policy by id or externalId."), HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -413,7 +367,7 @@ public class PolicyController {
     @ApiResponse(responseCode = "200", description = "What the policy would decide for each id.")
     @ApiResponse(responseCode = "403", description = "No read access to the requested data set.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    mediaType = "application/problem+json",
                     schema = @Schema(implementation = ProblemDetail.class)
             ))
     public ResponseEntity<Map<String, List<PolicyFinding>>> check(

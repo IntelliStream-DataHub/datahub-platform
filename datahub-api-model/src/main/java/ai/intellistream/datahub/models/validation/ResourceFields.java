@@ -75,17 +75,8 @@ public class ResourceFields {
         RequiredFieldRules.rejectSetNull("Resource", "resource.external.id.null.error",
                 "ExternalId", this.externalId.getSetNull(), errors);
 
-        if(this.source.getSet() != null){
-            if(this.source.getSet().length() > 64){
-                errors.add(
-                        new FieldValidationError(
-                                "Resource",
-                                new String[] {"resource.source.max.length.error"},
-                                new Object[] {this.source.getSet().length()},
-                                "Source max length is 64 characters.")
-                );
-            }
-        }
+        SizeRules.checkLength("Resource", "resource.source.max.length.error", "Source",
+                this.source.getSet(), FieldLimits.SOURCE_MAX, errors);
 
         SizeRules.checkLength("Resource", "resource.description.max.length.error", "Description",
                 this.description.getSet(), FieldLimits.DESCRIPTION_MAX, errors);
