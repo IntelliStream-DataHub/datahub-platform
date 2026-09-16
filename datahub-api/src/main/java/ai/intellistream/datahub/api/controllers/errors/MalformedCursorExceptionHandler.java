@@ -27,15 +27,13 @@ import java.net.URI;
 @Slf4j
 public class MalformedCursorExceptionHandler {
 
-    public static final String PROBLEM_TYPE = "https://intellistream.ai/errors/malformed-cursor";
-
     @ExceptionHandler(MalformedCursorException.class)
     public ProblemDetail handleMalformedCursor(MalformedCursorException ex) {
         log.debug("Rejecting page cursor: {}", ex.getMessage());
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
         problem.setTitle("Malformed cursor");
-        problem.setType(URI.create(PROBLEM_TYPE));
+        problem.setType(Problems.MALFORMED_CURSOR);
         return problem;
     }
 }

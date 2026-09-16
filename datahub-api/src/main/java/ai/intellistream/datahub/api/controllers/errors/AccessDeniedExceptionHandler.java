@@ -39,7 +39,7 @@ public class AccessDeniedExceptionHandler {
         problem.setTitle("Forbidden");
 
         if (ex instanceof DatasetAccessDeniedException denied) {
-            problem.setType(URI.create("https://intellistream.ai/errors/dataset-forbidden"));
+            problem.setType(Problems.DATASET_FORBIDDEN);
             problem.setProperty("dataSetId", denied.getDataSetId());
             problem.setProperty("permission", denied.getPermission());
         }

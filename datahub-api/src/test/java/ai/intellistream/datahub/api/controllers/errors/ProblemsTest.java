@@ -13,6 +13,8 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
@@ -220,6 +222,35 @@ class ProblemsTest {
                     .isNotNull()
                     .matches("https://intellistream\\.ai/"
                             + "(sdk-documentation|data-platform-documentation)/.+");
+        }
+    }
+
+    /**
+     * Types nothing is written about yet. Listing them here is the point: adding a type now forces
+     * a choice between giving it a page and saying out loud that it has none, instead of it
+     * silently arriving with no link because nobody looked.
+     */
+    private static final Set<String> DELIBERATELY_UNDOCUMENTED = Set.of(
+            "bad-request", "conflict", "duplicate", "forbidden", "internal", "messaging-unavailable",
+            "method-not-allowed", "not-acceptable", "not-found", "optimistic-lock",
+            "tenant-provisioning", "unsupported-media-type");
+
+    @Test
+    @DisplayName("every declared type either has a documentation page or is listed as having none")
+    void noTypeQuietlyMissesItsDocumentation() throws Exception {
+        for (Field field : Problems.class.getDeclaredFields()) {
+            if (!URI.class.equals(field.getType()) || !Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            URI type = (URI) field.get(null);
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "x");
+            problem.setType(type);
+            String slug = type.toString().substring(Problems.BASE.length());
+
+            assertThat(Problems.docsFor(problem) != null || DELIBERATELY_UNDOCUMENTED.contains(slug))
+                    .as("%s (%s) has neither a docs entry nor a place on the undocumented list",
+                            field.getName(), slug)
+                    .isTrue();
         }
     }
 

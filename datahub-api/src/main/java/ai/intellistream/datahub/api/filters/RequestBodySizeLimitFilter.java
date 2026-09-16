@@ -141,7 +141,7 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
             return;
         }
         response.reset();
-        ProblemDetail problem = Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.type("request-too-large"),
+        ProblemDetail problem = Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.REQUEST_TOO_LARGE,
                 "Request body too large", "The request body exceeds the %d byte limit for this endpoint.".formatted(limit));
         problem.setProperty("limitBytes", limit);
         ProblemResponses.write(request, response, problem);

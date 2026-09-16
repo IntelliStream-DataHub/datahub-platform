@@ -55,7 +55,7 @@ public class UnreadableRequestBodyExceptionHandler {
     public ProblemDetail handleUnknownFields(UnknownRequestFieldsException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
         problem.setTitle("Bad Request");
-        problem.setType(URI.create("https://intellistream.ai/errors/unreadable-request-body"));
+        problem.setType(Problems.UNREADABLE_REQUEST_BODY);
         problem.setProperty("errors", ex.getUnknownFields().stream().map(field -> {
             Map<String, Object> entry = new LinkedHashMap<>();
             entry.put("detail", "Unknown field");
@@ -109,7 +109,7 @@ public class UnreadableRequestBodyExceptionHandler {
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
         problem.setTitle("Bad Request");
-        problem.setType(URI.create("https://intellistream.ai/errors/unreadable-request-body"));
+        problem.setType(Problems.UNREADABLE_REQUEST_BODY);
 
         TokenStreamLocation location = jackson == null ? null : jackson.getLocation();
         if (location != null && location.getLineNr() > 0) {
