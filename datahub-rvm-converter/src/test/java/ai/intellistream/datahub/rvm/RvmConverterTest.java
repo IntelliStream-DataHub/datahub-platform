@@ -4,15 +4,16 @@ package ai.intellistream.datahub.rvm;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -29,27 +30,21 @@ class RvmConverterTest {
     private static final Path REAL_BINARY =
             Path.of("..", "tools", "rvm-converter", "build", "rvm-converter");
 
+    private static final boolean WINDOWS = System.getProperty("os.name").startsWith("Windows");
+
     @Test
     void readsTheModelFromStdoutAndTheLogFromStderr() throws Exception {
-        Path stub = stub("""
-                echo "[I] Tessellated 3 items" >&2
-                printf 'glTF\\x02\\x00\\x00\\x00modeldata'
-                """);
-
-        RvmConversion result = new RvmConverter(stub, Duration.ofSeconds(30))
+        RvmConversion result = new RvmConverter(stub("model"), Duration.ofSeconds(30))
                 .convert(dir.resolve("model.rvm"), null);
 
-        assertEquals("glTF", new String(result.glb(), 0, 4, StandardCharsets.UTF_8));
+        assertArrayEquals(StubConverter.MODEL, result.glb());
         assertTrue(result.log().contains("Tessellated 3 items"), result.log());
     }
 
     @Test
     void passesTheAttributeFileWhenThereIsOne() throws Exception {
         // The stub echoes its own arguments, so the test can see what the converter was told.
-        Path stub = stub("""
-                echo "$@" >&2
-                printf 'glTF\\x02\\x00\\x00\\x00modeldata'
-                """);
+        Path stub = stub("echo-args");
 
         RvmConversion with = new RvmConverter(stub, Duration.ofSeconds(30))
                 .convert(dir.resolve("m.rvm"), dir.resolve("m.txt"));
@@ -68,25 +63,16 @@ class RvmConverterTest {
      */
     @Test
     void doesNotDeadlockWhenTheConverterIsChattyBeforeItWrites() throws Exception {
-        Path stub = stub("""
-                yes "[I] a log line long enough to fill a pipe buffer reasonably quickly" \
-                    | head -40000 >&2
-                printf 'glTF\\x02\\x00\\x00\\x00modeldata'
-                """);
-
-        RvmConversion result = new RvmConverter(stub, Duration.ofSeconds(60))
+        RvmConversion result = new RvmConverter(stub("chatty"), Duration.ofSeconds(60))
                 .convert(dir.resolve("model.rvm"), null);
 
-        assertEquals("glTF", new String(result.glb(), 0, 4, StandardCharsets.UTF_8));
-        assertEquals(40000, result.log().lines().count());
+        assertArrayEquals(StubConverter.MODEL, result.glb());
+        assertEquals(StubConverter.CHATTY_LINES, result.log().lines().count());
     }
 
     @Test
     void failsWhenTheConverterExitsNonZero() throws Exception {
-        Path stub = stub("""
-                echo "[E] Failed to parse model.rvm: bad chunk" >&2
-                exit 3
-                """);
+        Path stub = stub("fail");
 
         RvmConversionException e = assertThrows(RvmConversionException.class,
                 () -> new RvmConverter(stub, Duration.ofSeconds(30))
@@ -101,10 +87,7 @@ class RvmConverterTest {
     void failsWhenTheOutputIsNotAModel() throws Exception {
         // Exit 0 but a diagnostic where the model should be. Storing that would produce a file
         // that only fails when somebody opens it.
-        Path stub = stub("""
-                echo "usage: rvm-converter [options] files" >&2
-                echo "not a model at all"
-                """);
+        Path stub = stub("not-a-model");
 
         RvmConversionException e = assertThrows(RvmConversionException.class,
                 () -> new RvmConverter(stub, Duration.ofSeconds(30))
@@ -113,13 +96,19 @@ class RvmConverterTest {
         assertTrue(e.getMessage().contains("not a GLB"), e.getMessage());
     }
 
+    /**
+     * The stub sleeps for 30 seconds, so returning well inside that shows the timeout bounds the
+     * call. On Windows the stub runs under cmd.exe, and a child that outlived it would hold the
+     * pipes open until it finished.
+     */
     @Test
     void failsWhenTheConverterHangs() throws Exception {
-        Path stub = stub("sleep 30\n");
+        Path stub = stub("hang");
 
-        RvmConversionException e = assertThrows(RvmConversionException.class,
+        RvmConversionException e = assertTimeout(Duration.ofSeconds(15), () -> assertThrows(
+                RvmConversionException.class,
                 () -> new RvmConverter(stub, Duration.ofMillis(400))
-                        .convert(dir.resolve("model.rvm"), null));
+                        .convert(dir.resolve("model.rvm"), null)));
 
         assertTrue(e.getMessage().contains("longer than"), e.getMessage());
     }
@@ -153,10 +142,38 @@ class RvmConverterTest {
         assertTrue(result.log().contains("Successfully parsed"), result.log());
     }
 
-    private Path stub(String body) throws IOException {
-        Path script = dir.resolve("stub-converter-" + body.hashCode() + ".sh");
-        Files.writeString(script, "#!/bin/sh\n" + body);
+    /**
+     * A launcher that runs {@link StubConverter} in {@code mode}. The converter runs a single
+     * executable, and the JVM's own arguments have to come before the converter's, hence a script.
+     * It clears the JVM option variables because the JVM reports them on stderr, which is the log.
+     */
+    private Path stub(String mode) throws Exception {
+        Path java = Path.of(System.getProperty("java.home"), "bin", WINDOWS ? "java.exe" : "java");
+        Path classes = Path.of(StubConverter.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        String main = StubConverter.class.getName();
+
+        if (WINDOWS) {
+            Path script = dir.resolve("stub-" + mode + ".cmd");
+            Files.writeString(script, String.join("\r\n",
+                    "@echo off",
+                    "set \"JAVA_TOOL_OPTIONS=\"",
+                    "set \"JDK_JAVA_OPTIONS=\"",
+                    "set \"_JAVA_OPTIONS=\"",
+                    "\"" + java + "\" -cp \"" + classes + "\" " + main + " " + mode + " %*",
+                    ""));
+            return script;
+        }
+        Path script = dir.resolve("stub-" + mode + ".sh");
+        Files.writeString(script, String.join("\n",
+                "#!/bin/sh",
+                "unset JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS",
+                "exec " + shQuote(java) + " -cp " + shQuote(classes) + " " + main + " " + mode + " \"$@\"",
+                ""));
         assertTrue(script.toFile().setExecutable(true));
         return script;
+    }
+
+    private static String shQuote(Path path) {
+        return "'" + path.toString().replace("'", "'\\''") + "'";
     }
 }

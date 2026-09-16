@@ -60,13 +60,13 @@ public final class RvmConverter {
         try {
             finished = process.waitFor(timeout.toMillis(), TimeUnit.MILLISECONDS);
             if (!finished) {
-                process.destroyForcibly();
+                kill(process);
             }
             // Either way the streams end, so the readers finish and nothing is left running.
             out.join();
             err.join();
         } catch (InterruptedException e) {
-            process.destroyForcibly();
+            kill(process);
             Thread.currentThread().interrupt();
             throw new RvmConversionException("Interrupted while converting " + rvm, e);
         }
@@ -100,6 +100,16 @@ public final class RvmConverter {
         } catch (IOException e) {
             throw new RvmConversionException("Could not run " + executable, e);
         }
+    }
+
+    /**
+     * The whole tree, not just the child. A converter started through a wrapper script is the
+     * wrapper's child, and killing only the wrapper leaves it running. On Windows it also keeps the
+     * pipes open, so the readers would wait for it to finish, however long that takes.
+     */
+    private static void kill(Process process) {
+        process.descendants().forEach(ProcessHandle::destroyForcibly);
+        process.destroyForcibly();
     }
 
     private static void copy(InputStream stream, ByteArrayOutputStream sink) {
