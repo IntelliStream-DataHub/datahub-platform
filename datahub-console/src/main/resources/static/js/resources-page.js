@@ -61,9 +61,7 @@
 				if (r === null) return;
 				if (!r.ok) {
 					// Surface the server's reason (e.g. the component is over the export limit).
-					return r.json().catch(() => ({})).then(j => {
-						throw new Error((j.error && j.error.message) || j.detail || ('export ' + r.status));
-					});
+					return DataHubProblem.read(r).then(problem => { throw problem; });
 				}
 				const disposition = r.headers.get('Content-Disposition') || '';
 				const match = disposition.match(/filename="([^"]+)"/);
@@ -79,11 +77,7 @@
 					URL.revokeObjectURL(url);
 				});
 			})
-			.catch(e => {
-				console.log(e);
-				const detail = (e && e.message && !/^export \d+$/.test(e.message)) ? ': ' + e.message : '';
-				Flash.error($L('graph.export.failed') + detail);
-			});
+			.catch(e => flashTransferFailure('graph.export.failed', e));
 	}
 
 	function importGraph(){
@@ -114,19 +108,21 @@
 			.then(r => {
 				if (r === null) return;
 				if (!r.ok) {
-					// Both error shapes the api produces carry a human message: the create-style
-					// envelope ({error:{message}}) and RFC 9457 problem+json ({detail}).
-					return r.json().catch(() => ({})).then(j => {
-						throw new Error((j.error && j.error.message) || j.detail || ('import ' + r.status));
-					});
+					return DataHubProblem.read(r).then(problem => { throw problem; });
 				}
 				return r.json().then(showImportResult);
 			})
-			.catch(e => {
-				console.log(e);
-				const detail = (e && e.message && !/^import \d+$/.test(e.message)) ? ': ' + e.message : '';
-				Flash.error($L('graph.import.failed') + detail);
-			});
+			.catch(e => flashTransferFailure('graph.import.failed', e));
+	}
+
+	// A refusal says why; a network failure has nothing more to say than the key.
+	function flashTransferFailure(key, e){
+		console.log(e);
+		if (e instanceof DataHubProblem) {
+			Flash.error($L(key) + ': ' + e.message(), { details: e.details() });
+		} else {
+			Flash.error($L(key));
+		}
 	}
 
 	function showImportResult(result){

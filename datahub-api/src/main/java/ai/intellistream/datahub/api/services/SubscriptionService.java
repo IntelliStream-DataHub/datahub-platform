@@ -2,12 +2,11 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.helpers.text.ExternalIds;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.messaging.events.SubscriptionNotifyPublishEvent;
 import ai.intellistream.datahub.api.responses.DataWrapper;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.SubscriptionEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.models.IdCollection;
@@ -409,11 +408,8 @@ public class SubscriptionService {
     }
 
     private BadRequestException badRequest(String message, Map<String, String> fields) {
-        var err = new BadRequestError();
-        err.setMessage(message);
-        err.getFields().add(fields);
-        var resp = new ResponseError<BadRequestError>();
-        resp.setError(err);
-        return new BadRequestException(resp);
+        var collected = new FieldErrors();
+        fields.forEach(collected::addFieldError);
+        return new BadRequestException(message, collected);
     }
 }

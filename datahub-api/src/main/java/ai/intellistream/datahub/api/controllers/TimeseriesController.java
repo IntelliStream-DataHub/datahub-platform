@@ -5,11 +5,8 @@ import ai.intellistream.datahub.api.controllers.errors.Problems;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import ai.intellistream.datahub.api.controllers.errors.LimitException;
 import ai.intellistream.datahub.api.policy.NamingPolicyViolationException;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
-import ai.intellistream.datahub.api.controllers.errors.ConflictError;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -17,7 +14,6 @@ import ai.intellistream.datahub.api.responses.ValueTypeRecommendation;
 import ai.intellistream.datahub.api.responses.swaggerdto.*;
 import ai.intellistream.datahub.helpers.timeseries.ValueTypeRecommender;
 import ai.intellistream.datahub.api.services.TimeseriesService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.models.DeleteDatapoint;
@@ -54,6 +50,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.ProblemDetail;
 
@@ -100,8 +97,8 @@ public class TimeseriesController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer ≤ 10000, or `dataSetId` is not a number.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "dataSetId must be a number")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = {""},
             method = RequestMethod.GET,
@@ -122,7 +119,10 @@ public class TimeseriesController {
                 if(lim < 0) throw new NumberFormatException("Limit cannot be negative");
                 if(lim > 10000) throw new NumberFormatException("Limit cannot be greater than 10000");
             } catch (NumberFormatException e) {
-                return new ResponseEntity<>(e.getMessage(), HttpStatus.BAD_REQUEST);
+                return new ResponseEntity<>(Problems.withFields(
+                        Problems.badRequest("limit must be a whole number from 0 to 10000."),
+                        List.of(new Problems.FieldProblem("limit", "must be a whole number from 0 to 10000", null, null))),
+                        HttpStatus.BAD_REQUEST);
             }
         }
 
@@ -368,21 +368,16 @@ public class TimeseriesController {
                     "missing required field, invalid `valueType`, referenced `dataSetId` " +
                     "doesn't exist, unknown `unit`.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "A timeseries with one of the `externalId`s already exists. The `duplicated` " +
                     "list tells you which ones. Pick a different `externalId`, or use " +
                     "`POST /timeseries/update` to modify the existing timeseries.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class)
-            ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules. Response lists the offending fields.",
-            content = @Content(
-                    schema = @Schema(implementation = DataWrapper.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -458,17 +453,17 @@ public class TimeseriesController {
                     "neither `id` nor `externalId` supplied, the timeseries doesn't exist, or " +
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
-            "Conflict. Either the new `externalId` already belongs to another timeseries " +
-                    "(`DuplicateError` — pick a different one), or someone else changed the " +
-                    "timeseries while your update was in flight (`ConflictError` — re-fetch " +
-                    "with `/byids` and retry).",
+            "Conflict — branch on `type`. Either the new `externalId` already belongs to another " +
+                    "timeseries (`.../errors/duplicate` — pick a different one), or someone else " +
+                    "changed the timeseries while your update was in flight " +
+                    "(`.../errors/optimistic-lock` — re-fetch with `/byids` and retry).",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(oneOf = {DuplicateError.class, ConflictError.class})
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/update",
@@ -695,13 +690,9 @@ public class TimeseriesController {
                     "that *do* exist are still inserted; the response body lists the missing ones " +
                     "as per-entry errors, each carrying the offending `externalId`/`id`.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
-    @ApiResponse(responseCode = "422", description =
-            "A value failed to parse against the target timeseries' `valueType` — e.g. " +
-                    "text value sent to a `BIGINT` timeseries. Fix the offending entry and retry."
-    )
     @PostMapping( path = "/data",
             produces = {"application/json"},
             consumes = {"application/json"}
@@ -735,13 +726,19 @@ public class TimeseriesController {
             @RequestBody @Valid
             DataWrapper<DatapointsCollection> apiReqData
     ) throws PulsarClientException, JsonProcessingException {
-        DataWrapper<?> data = timeseriesService.insertDatapoints(apiReqData);
-        if(data.getItems() != null && !data.getItems().isEmpty()){
-            // Some targeted timeseries didn't exist. Their data-points were skipped while the
-            // rest were inserted — report the misses with 404 and the per-entry error body.
-            return new ResponseEntity<>(data, HttpStatus.NOT_FOUND);
+        List<Map<String, String>> missing = timeseriesService.insertDatapoints(apiReqData);
+        if(!missing.isEmpty()){
+            // Some targeted timeseries didn't exist. Their data-points were skipped while the rest
+            // were inserted, so this is a partial success reported as a 404 — `missing` names the
+            // ones that were skipped. It used to answer with a DataWrapper whose `items` were
+            // error objects: a success-shaped envelope a client could not tell from a listing.
+            ProblemDetail problem = Problems.notFound(
+                    "Some of the targeted timeseries do not exist. Their data-points were skipped; "
+                            + "the rest were inserted.");
+            problem.setProperty("missing", missing);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(problem);
         }
-    
+
         // Every targeted timeseries existed and its data-points were accepted — no content to return.
         return ResponseEntity.noContent().build();
     }
@@ -846,8 +843,8 @@ public class TimeseriesController {
     @ApiResponse(responseCode = "400", description =
             "A named timeseries does not exist, or a window bound is neither ISO-8601 nor epoch milliseconds.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)))
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "500", description =
             "The delete couldn't be accepted right now. Safe to retry after a short backoff.",
             content = @Content)

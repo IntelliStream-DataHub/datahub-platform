@@ -2,7 +2,7 @@
  * ResourceList — decorates the left-panel resource pickers (resources, datasets, timeseries) so
  * each row mirrors its graph node: a colour dot in the resource's label colour, the name, and its
  * labels as tinted chips. Colours come from the shared label-definition cache
- * (/api/label/list -> intellistream_datahub.labels), the same source GraphNetwork.getColor uses,
+ * (GET /labels on datahub-api -> intellistream_datahub.labels), the same source GraphNetwork.getColor uses,
  * so the lists and the graph stay visually consistent.
  *
  * Row markup (server-rendered, or built with ResourceList.decorate):
@@ -38,8 +38,8 @@ const ResourceList = {
 		if(typeof intellistream_datahub !== 'undefined' && intellistream_datahub.labels !== undefined){
 			return Promise.resolve();
 		}
-		return fetch('/api/label/list', { headers: { Accept: 'application/json' } })
-			.then(r => r.json())
+		return Api.get('/labels')
+			.then(r => r.ok ? r.json() : Promise.reject(r.status))
 			.then(j => { intellistream_datahub.labels = j.items; })
 			.catch(() => { /* leave dots/chips on their neutral fallback */ });
 	},
@@ -57,6 +57,14 @@ const ResourceList = {
 		return this.ensureLabels().then(() => {
 			(root || document).querySelectorAll('li.dl-row').forEach(li => this.colorizeItem(li));
 		});
+	},
+
+	// POST /resources/search spans every node type, policies included; a picker offers these.
+	searchBody(query){
+		return {
+			search: { query: query },
+			filter: { nodeType: ['asset', 'timeseries', 'function', 'resource', 'dataset'] }
+		};
 	},
 
 	// Build the name + chips structure inside an existing (empty) <li>, then colour it. The
@@ -96,7 +104,7 @@ window.ResourceList = ResourceList;
  *   id / name:    item => ...,                         // extract id / display name (default .id/.name)
  *   select:       'single' | 'none',                   // row highlight mode (default 'single')
  *   event:        'click' | 'pointerdown',             // row activation event (default 'click')
- *   search:       { url, method, body: q => (...), items: json => [...] },
+ *   search:       { path, method, body: q => (...), items: json => [...] },   // path on datahub-api
  *   onSelect:     (id, ctx) => {...}                   // ctx = { el, item, fromSearch }
  * })  ->  { buildRow(item), list }
  */
@@ -171,33 +179,9 @@ const ResourcePicker = {
 				: render([]);
 
 			const doSearch = query => {
-				const payload = JSON.stringify(cfg.search.body(query));
-				if(cfg.search.direct){
-					// Go straight to datahub-api with a bearer token from the console /token endpoint —
-					// no console proxy. Same pattern as the file upload / datapoint stream.
-					const apiBase = document.querySelector('meta[name="datahub-api-url"]').content.replace(/\/+$/, '');
-					fetch('/token', { headers: { Accept: 'text/plain' }, credentials: 'same-origin' })
-						.then(r => {
-							if(r.status === 401){ if(window.renderSignedOutDialog) window.renderSignedOutDialog(); return null; }
-							if(!r.ok) throw new Error('token');
-							return r.text();
-						})
-						.then(token => token === null ? null : fetch(apiBase + cfg.search.path, {
-							method: cfg.search.method || 'POST',
-							headers: { Accept: 'application/json', 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-							body: payload
-						}))
-						.then(r => r === null ? undefined : handleResponse(r))
-						.catch(e => console.log(e));
-				} else {
-					const csrfHeader = document.querySelector('meta[name="_csrf_header"]').content;
-					const csrfToken = document.querySelector('meta[name="_csrf"]').content;
-					const headers = { Accept: 'application/json', 'Content-Type': 'application/json' };
-					headers[csrfHeader] = csrfToken;
-					fetch(cfg.search.url, { method: cfg.search.method || 'POST', headers: headers, body: payload })
-						.then(handleResponse)
-						.catch(e => console.log(e));
-				}
+				Api.request(cfg.search.path, { method: cfg.search.method || 'POST', body: cfg.search.body(query) })
+					.then(handleResponse)
+					.catch(e => console.log(e));
 			};
 
 			let timer;

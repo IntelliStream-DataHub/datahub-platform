@@ -8,7 +8,6 @@ import ai.intellistream.datahub.repositories.node.NodeSort;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.DatasetEntity;
@@ -53,8 +52,6 @@ public class DataSetService {
     @Transactional
     public DataWrapper<DataSetModel> update(DataWrapper<DataSetForm> apiReqData) throws PulsarClientException {
         Collection<DataSetForm> items = apiReqData.getItems();
-        // Create error list that can return missing datasets to user
-        ResponseError<BadRequestError> errors = new ResponseError<>();
         List<DataSetModel> dataSets = new ArrayList<>();
         List<PolicyWarning> warnings = new ArrayList<>();
 
@@ -66,13 +63,11 @@ public class DataSetService {
 
             Long id = updateData.getId();
             String externalId = updateData.getExternalId();
-            DatasetEntity dataSet  = dataSetRepository.findByIdOrExternalId(id,externalId).orElseThrow(()-> {
-                var de = new BadRequestError();
-                de.setMessage("DataSet cannot be found.");
-                de.getFields().add(Map.of("externalId", String.valueOf(externalId), "id", String.valueOf(id)));
-                errors.setError(de);
-                return new BadRequestException(errors);
-            });
+            DatasetEntity dataSet  = dataSetRepository.findByIdOrExternalId(id,externalId).orElseThrow(()->
+                    new BadRequestException("DataSet cannot be found.",
+                            new FieldErrors()
+                                    .addFieldError("externalId", String.valueOf(externalId))
+                                    .addFieldError("id", String.valueOf(id))));
 
 
             // Map resource form into NodeEntity object. The pipeline mutates `dataSet` in place,
@@ -94,13 +89,11 @@ public class DataSetService {
 
     @Transactional
     public GraphDataWrapper<NodeModel, EdgeProxy> validateAndUpdate(DatasetEntity dataSet, DataSetForm form) throws PulsarClientException {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
         if(form.getUpdate() != null && !form.getUpdate().validateUpdateFields()){
-            errors.setError(new BadRequestError());
-            form.getUpdate().getErrors().forEach( error -> {
-                errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-            });
-            throw new BadRequestException(errors);
+            var errors = new FieldErrors();
+            form.getUpdate().getErrors().forEach( error ->
+                    errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
+            throw new BadRequestException("One or more fields are invalid.", errors);
         }
         GraphDataWrapper<UpdateResourceForm, UpdateRelForm> updateGraphData = new GraphDataWrapper<>();
         var urf = new UpdateResourceForm(form.getId());
@@ -166,12 +159,7 @@ public class DataSetService {
             List<Map<String, String>> existingExternalIds = existingEntries.stream()
                     .map( it -> Map.of("externalId", it.getExternalId()))
                     .toList();
-            ResponseError<DuplicateError> responseError = new ResponseError<>();
-            var duplicateError = new DuplicateError();
-            duplicateError.setMessage("DataSet with external id already exists.");
-            duplicateError.setDuplicated(existingExternalIds);
-            responseError.setError(duplicateError);
-            throw new DuplicateDataException(responseError);
+            throw new DuplicateDataException("DataSet with external id already exists.", existingExternalIds);
         }
     }
 

@@ -2,10 +2,7 @@
 package ai.intellistream.datahub.api.controllers.errors;
 
 import org.springframework.http.ProblemDetail;
-import ai.intellistream.datahub.errors.ResponseError;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -31,8 +28,9 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * on which endpoint raised it. That argument was against changing it <em>in isolation</em>, not
  * against the shape — so the local catches go in the same change, and the objection with them.
  *
- * <p>{@code message} becomes {@code detail} and {@code fields} becomes the {@code fields}
- * extension; {@code code} is dropped because it duplicated the HTTP status it was sent alongside.
+ * <p>The exception's message becomes {@code detail} and its fields become the {@code fields}
+ * extension; {@code BadRequestError.code} is gone, because it duplicated the HTTP status it was
+ * sent alongside.
  */
 @RestControllerAdvice
 @Slf4j
@@ -40,10 +38,7 @@ public class BadRequestExceptionHandler {
 
     @ExceptionHandler(BadRequestException.class)
     public ProblemDetail handle(BadRequestException ex) {
-        BadRequestError error = ex.getError() == null ? null : ex.getError().getError();
-        log.debug("Rejecting request: {}", error == null ? "no detail" : error.getMessage());
-        return Problems.badRequest(
-                error == null ? null : error.getMessage(),
-                error == null ? null : error.getFields());
+        log.debug("Rejecting request: {}", ex.getMessage());
+        return Problems.badRequest(ex.getMessage(), ex.getFields());
     }
 }

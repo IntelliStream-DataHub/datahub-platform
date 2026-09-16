@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.models.datafilters.FilterDefaults;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+
+import java.util.List;
 
 /**
  * The {@code ?limit=} contract shared by every {@code GET /<collection>} listing.
@@ -23,15 +28,13 @@ final class ListingLimit {
     private ListingLimit() {
     }
 
-    /**
-     * The 400 response body for an out-of-range limit, or null when it is acceptable.
-     *
-     * <p>Returned rather than thrown: the listings answer a bad limit with a plain-text 400, which
-     * is what {@code GET /timeseries} has always done and what their {@code @ApiResponse} promises.
-     */
-    static String rejection(Integer limit) {
+    /** The 400 for an out-of-range limit, or null when it is acceptable. Same fields entry a {@code @Max} failure gives. */
+    static ProblemDetail rejection(Integer limit) {
         if (limit != null && limit > FilterDefaults.MAX_LIMIT) {
-            return "limit: must be less than or equal to " + FilterDefaults.MAX_LIMIT;
+            String message = "must be less than or equal to " + FilterDefaults.MAX_LIMIT;
+            return Problems.withFields(Problems.of(HttpStatus.BAD_REQUEST, Problems.VALIDATION_FAILED,
+                            "Validation failed", "limit " + message + "."),
+                    List.of(new Problems.FieldProblem("limit", message, "Max", null)));
         }
         return null;
     }

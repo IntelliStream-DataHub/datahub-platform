@@ -48,8 +48,8 @@ class ProblemsTest {
     }
 
     @Test
-    @DisplayName("a constraint violation keeps its key and its rejected value")
-    void constraintViolationKeepsKeyAndValue() {
+    @DisplayName("a constraint violation keeps its key but not the value that was sent")
+    void constraintViolationKeepsKeyButNotValue() {
         ProblemDetail problem = Problems.constraintViolation(violate());
 
         assertThat(problem.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
@@ -61,7 +61,8 @@ class ProblemsTest {
         assertThat(fields.getFirst())
                 .containsEntry("field", "name")
                 .containsEntry("message", "too long")
-                .containsEntry("rejected", "far too long");
+                // The value can be a credential or a whole object; the caller already has it.
+                .doesNotContainKey("rejected");
         // The template is the key before interpolation — what a caller localises on.
         assertThat(fields.getFirst().get("code")).isEqualTo("too long");
     }
@@ -89,7 +90,7 @@ class ProblemsTest {
     @Test
     @DisplayName("a binding failure reads the same as a service-side one")
     void bindingFailureMatchesTheServiceShape() {
-        ObjectError error = new FieldError("form", "externalId", "", false,
+        ObjectError error = new FieldError("form", "apiKey", "sk-live-secret", false,
                 new String[] {"Size"}, null, "must be at least 3 characters");
 
         ProblemDetail problem = Problems.bindingFailure(List.of(error));
@@ -98,8 +99,9 @@ class ProblemsTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> fields = (List<Map<String, Object>>) problem.getProperties().get("fields");
         assertThat(fields.getFirst())
-                .containsEntry("field", "externalId")
-                .containsEntry("message", "must be at least 3 characters");
+                .containsEntry("field", "apiKey")
+                .containsEntry("message", "must be at least 3 characters")
+                .doesNotContainKey("rejected");
     }
 
     @Test
@@ -121,4 +123,59 @@ class ProblemsTest {
         assertThat(problem.getProperties().get("duplicated"))
                 .isEqualTo(List.of(Map.of("externalId", "pump_7")));
     }
+
+    @Test
+    @DisplayName("a bare status gets its own type, and a 500 never carries the detail it was given")
+    void forStatusNamesTheStatusAndKeepsInternalsOut() {
+        assertThat(Problems.forStatus(405, null).getType()).isEqualTo(Problems.METHOD_NOT_ALLOWED);
+        assertThat(Problems.forStatus(415, "Content-Type 'text/plain' is not supported.").getDetail())
+                .isEqualTo("Content-Type 'text/plain' is not supported.");
+
+        ProblemDetail internal = Problems.forStatus(500, "Connection refused: db.internal:5432");
+        assertThat(internal.getType()).isEqualTo(Problems.INTERNAL);
+        assertThat(internal.getDetail()).isEqualTo(Problems.INTERNAL_DETAIL);
+    }
+
+    @Test
+    @DisplayName("a disabled feature is a 403 that names the feature")
+    void featureDisabledNamesTheFeature() {
+        ProblemDetail problem = Problems.featureDisabled("files", "Files feature is not enabled for this organization.");
+
+        assertThat(problem.getStatus()).isEqualTo(HttpStatus.FORBIDDEN.value());
+        assertThat(problem.getType()).isEqualTo(Problems.FEATURE_DISABLED);
+        assertThat(problem.getProperties()).containsEntry("feature", "files");
+    }
+
+
+    @Test
+    @DisplayName("decorate adds the request id and a retry verdict, without overriding either")
+    void decorateAddsRequestIdAndRetry() {
+        ProblemDetail problem = Problems.decorate(Problems.notFound("gone"), "01J-request");
+
+        assertThat(problem.getProperties())
+                .containsEntry("requestId", "01J-request")
+                .containsEntry("retry", Problems.RETRY_CHANGE_REQUEST);
+
+        ProblemDetail preset = Problems.notFound("gone");
+        preset.setProperty("retry", Problems.RETRY_SAME_REQUEST);
+        assertThat(Problems.decorate(preset, null).getProperties())
+                .containsEntry("retry", Problems.RETRY_SAME_REQUEST)
+                .doesNotContainKey("requestId");
+    }
+
+    @Test
+    @DisplayName("retry tells waiting apart from changing the request and from needing an operator")
+    void retryVerdicts() {
+        assertThat(Problems.retryFor(Problems.conflict(Problems.OPTIMISTIC_LOCK, "lost a race")))
+                .isEqualTo(Problems.RETRY_SAME_REQUEST);
+        assertThat(Problems.retryFor(Problems.duplicate("taken", List.of())))
+                .isEqualTo(Problems.RETRY_CHANGE_REQUEST);
+        assertThat(Problems.retryFor(Problems.featureDisabled("files", "off")))
+                .isEqualTo(Problems.RETRY_NEEDS_OPERATOR);
+        assertThat(Problems.retryFor(Problems.forStatus(429, null))).isEqualTo(Problems.RETRY_SAME_REQUEST);
+        assertThat(Problems.retryFor(Problems.forStatus(401, null))).isEqualTo(Problems.RETRY_CHANGE_REQUEST);
+        assertThat(Problems.retryFor(Problems.forStatus(403, null))).isEqualTo(Problems.RETRY_NEEDS_OPERATOR);
+        assertThat(Problems.retryFor(Problems.forStatus(500, null))).isEqualTo(Problems.RETRY_NEEDS_OPERATOR);
+    }
+
 }

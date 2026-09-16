@@ -5,12 +5,9 @@ import ai.intellistream.datahub.api.controllers.errors.ConstraintViolationExcept
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConcurrencyExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.Problems;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.TimeseriesService;
 import ai.intellistream.datahub.models.IdCollection;
@@ -173,8 +170,8 @@ class TimeseriesControllerTest {
 
     @Test
     void create_duplicateExternalId_returns409_withDuplicateError() throws Exception {
-        when(timeseriesService.save(any())).thenThrow(new DuplicateDataException(
-                DuplicateError.createError("External id already exists.", "sensor_temp_room_a")));
+        when(timeseriesService.save(any())).thenThrow(DuplicateDataException.of(
+                "External id already exists.", "externalId", "sensor_temp_room_a"));
 
         mvc.perform(post("/timeseries/create")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -253,11 +250,8 @@ class TimeseriesControllerTest {
 
     @Test
     void insertDataPoints_allTargetsExist_returns204NoContent() throws Exception {
-        // The service reports no misses -> empty wrapper -> the endpoint returns 204 with no body.
-        DataWrapper<BadRequestError> noMisses = new DataWrapper<>();
-        // doReturn form: insertDatapoints returns DataWrapper<?>, whose captured wildcard a plain
-        // when(...).thenReturn(concrete) can't satisfy.
-        Mockito.doReturn(noMisses).when(timeseriesService).insertDatapoints(Mockito.any());
+        // The service reports no misses -> the endpoint returns 204 with no body.
+        Mockito.doReturn(List.of()).when(timeseriesService).insertDatapoints(Mockito.any());
 
         mvc.perform(post("/timeseries/data")
                         .content(INSERT_DATAPOINTS_BODY)
@@ -267,26 +261,22 @@ class TimeseriesControllerTest {
     }
 
     @Test
-    void insertDataPoints_someTargetsMissing_returns404WithErrorBody() throws Exception {
-        // The service returns not-found timeseries as per-entry errors -> 404 with that body.
-        var miss = new BadRequestError();
-        miss.setCode(404);
-        miss.setMessage("Could not find following timeseries.");
-        miss.getFields().add(Map.of("externalId", "does_not_exist", "id", "null"));
-        DataWrapper<BadRequestError> misses = new DataWrapper<>();
-        misses.getItems().add(miss);
-        Mockito.doReturn(misses).when(timeseriesService).insertDatapoints(Mockito.any());
+    void insertDataPoints_someTargetsMissing_returns404WithTheSkippedTargets() throws Exception {
+        // A partial success: the rest were inserted, and the misses are named so the caller can
+        // create them and retry. It used to answer with a DataWrapper whose `items` were error
+        // objects — a success-shaped envelope indistinguishable from a listing.
+        Mockito.doReturn(List.of(Map.of("externalId", "does_not_exist", "id", "null")))
+                .when(timeseriesService).insertDatapoints(Mockito.any());
 
         mvc.perform(post("/timeseries/data")
                         .content(INSERT_DATAPOINTS_BODY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.items[0].code").value(404))
-                .andExpect(jsonPath("$.items[0].message")
-                        .value("Could not find following timeseries."))
-                .andExpect(jsonPath("$.items[0].fields[0].externalId")
-                        .value("does_not_exist"));
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/not-found"))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.missing[0].externalId").value("does_not_exist"))
+                .andExpect(jsonPath("$.items").doesNotExist());
     }
 
     private static ConstraintViolationException constraintViolation(String field, String message) {

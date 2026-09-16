@@ -8,7 +8,6 @@ import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FunctionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.services.FunctionService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
@@ -63,8 +62,8 @@ public class FunctionController {
             ))
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/create",
@@ -99,8 +98,8 @@ public class FunctionController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listFunctions(
@@ -108,7 +107,7 @@ public class FunctionController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -141,8 +140,8 @@ public class FunctionController {
     @ApiResponse(responseCode = "200", description = "Function(s) updated.")
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @PostMapping(
             path = "/update",
@@ -164,8 +163,8 @@ public class FunctionController {
             content = @Content)
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @ApiResponse(responseCode = "409", description =
             """

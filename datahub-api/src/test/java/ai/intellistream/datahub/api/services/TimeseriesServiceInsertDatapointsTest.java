@@ -199,11 +199,12 @@ class TimeseriesServiceInsertDatapointsTest {
         when(timeseriesRepository.findByIdOrExternalId(null, "missing")).thenReturn(Optional.empty());
         known("pump-1", 1L, "FLOAT");
 
-        DataWrapper<?> response = timeseriesService.insertDatapoints(request(
+        var missing = timeseriesService.insertDatapoints(request(
                 collection("missing", point("2026-08-21T10:00:00Z", "1.0")),
                 collection("pump-1", point("2026-08-21T10:00:00Z", "1.0"))));
 
-        assertEquals(1, response.getItems().size(), "the miss should be reported");
+        assertEquals(1, missing.size(), "the miss should be reported");
+        assertEquals("missing", missing.getFirst().get("externalId"));
         // The surviving collection is still published: one bad id does not fail the batch.
         verify(allDatapointProducer, times(1)).send(any(DataWrapperBin.class));
     }

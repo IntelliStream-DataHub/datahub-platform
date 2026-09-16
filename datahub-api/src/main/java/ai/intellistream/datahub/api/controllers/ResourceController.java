@@ -13,7 +13,6 @@ import ai.intellistream.datahub.api.responses.swaggerdto.ResourceDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.ResourceGraphDataWrapper;
 import ai.intellistream.datahub.api.services.ResourceService;
 import ai.intellistream.datahub.asset.ResourceNetwork;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
@@ -91,8 +90,8 @@ public class ResourceController {
             "No resource with this `id` exists, or it belongs to a tenant you can't read. " +
                     "Double-check the id and your API token's tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(@Parameter(description = "Numeric id of the resource.", example = "5677892") @PathVariable("id") Long id){
@@ -131,8 +130,8 @@ public class ResourceController {
     @ApiResponse(responseCode = "404", description =
             "The starting resource was not found. Check `id` / `externalId` and your tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/fetch-related", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchRelatedResources(@RequestBody RelatedResourcesForm form) {
@@ -168,8 +167,8 @@ public class ResourceController {
             description = "The starting resource was not found. Check `id` / `externalId` "
                     + "and your tenant.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "Could not find resource with id: 42")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @RequestMapping(value = "/fetch-nearest", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchNearestResources(@RequestBody FetchNearestResourcesForm form) {
@@ -244,8 +243,8 @@ public class ResourceController {
             ))
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(type = "string", example = "limit: must be less than or equal to 10000")
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -253,7 +252,7 @@ public class ResourceController {
                     example = "1000")
             @RequestParam(name = "limit", required = false) Integer limit
     ) {
-        String rejection = ListingLimit.rejection(limit);
+        ProblemDetail rejection = ListingLimit.rejection(limit);
         if (rejection != null) {
             return new ResponseEntity<>(rejection, HttpStatus.BAD_REQUEST);
         }
@@ -403,8 +402,8 @@ public class ResourceController {
             "The request failed validation — usually a missing or too-short `query`. Response " +
                     "lists the offending fields.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class)
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class)
             )
     )
     @RequestMapping(value = "/search", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
@@ -503,8 +502,8 @@ public class ResourceController {
                     "points at a resource that isn't in the request and doesn't exist. The " +
                     "`fields` list tells you which input was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -522,8 +521,8 @@ public class ResourceController {
                     "The `duplicated` list tells you which ones. Either pick a different " +
                     "`externalId`, or use `POST /resources/update` to modify the existing resource.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = DuplicateError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -535,12 +534,6 @@ public class ResourceController {
                               }
                             }
                             """)
-            ))
-    @ApiResponse(responseCode = "422", description =
-            "One or more fields failed validation rules (length limits, character set, " +
-                    "required-ness). Response lists the offending fields per entry.",
-            content = @Content(
-                    schema = @Schema(implementation = DataWrapper.class)
             ))
     @PostMapping(
             path = "/create",
@@ -647,8 +640,8 @@ public class ResourceController {
                     "both present on the same field). The `fields` list tells you which input " +
                     "was wrong.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = BadRequestError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -666,8 +659,8 @@ public class ResourceController {
                     "Your write was not applied. Re-fetch the resource with `POST /resources/byids` " +
                     "and retry the update with fresh state.",
             content = @Content(
-                    mediaType = MediaType.APPLICATION_JSON_VALUE,
-                    schema = @Schema(implementation = ConflictError.class),
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ProblemDetail.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {

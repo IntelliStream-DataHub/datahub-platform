@@ -542,7 +542,7 @@ class GraphNetwork {
 
         // Add (or re-open) the dataset's policy node. One policy per dataset: if a POLICY child is
         // already in view, open it; otherwise create one (PolicyForm create mode, dataSetId pre-set
-        // → /api/policies/create builds the node + ENFORCED_ON edge and publishes it to the graph).
+        // → POST /policies/create builds the node + ENFORCED_ON edge and publishes it to the graph).
         const openPolicyFlow = () => {
             const existingPolicy = node.outgoers('node').filter(n =>
                 (n.data('labels') || []).map(l => String(l).toUpperCase()).includes('POLICY'));
@@ -958,19 +958,7 @@ class GraphNetwork {
         }
         // Returns the load promise so callers can act once the graph is rendered
         // (e.g. select/highlight the root node).
-        return fetch("/api/resources/fetch-related-nodes", {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify({
-                id: id,
-                depth: this.queryDepth
-            }),
-            signal: AbortSignal.timeout(10000)
-        }).then( response => {
+        return Api.post("/resources/fetch-related", { id: id, depth: this.queryDepth }).then( response => {
             if(response.status === 200){
                 return response.json();
             } else {
@@ -1221,19 +1209,7 @@ class GraphNetwork {
     }
 
     fetchAndAddRelatedNodes(nodeId){
-        fetch("/api/resources/fetch-related-nodes", {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-                [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-            },
-            body: JSON.stringify({
-                id: nodeId,
-                depth: 1
-            }),
-            signal: AbortSignal.timeout(10000)
-        }).then( response => {
+        Api.post("/resources/fetch-related", { id: nodeId, depth: 1 }).then( response => {
             if(response.status === 200){
                 return response.json();
             } else {
@@ -1278,7 +1254,7 @@ class GraphNetwork {
     getColor(n) {
         const match = this.labels.find(it => n.labels && n.labels.includes(it.name));
         // Falling through to a neutral grey keeps the node renderable even when its
-        // label row is missing from /api/labels — better than throwing and silently
+        // label row is missing from GET /labels — better than throwing and silently
         // dropping the node out of the graph.
         return match ? match.color : "#999999";
     }
@@ -1358,29 +1334,20 @@ class GraphNetwork {
             });
             picker.render(); // Render so "picker.cancelButton" gets initialized
             picker.setConfirmCallback( selectedData => {
-                fetch("/api/edges/save", {
-                    method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                        [document.querySelector('meta[name="_csrf_header"]').content]: document.querySelector('meta[name="_csrf"]').content
-                    },
-                    body: JSON.stringify({
-                        fromId: sourceNode.id().replace("node-", ""),
-                        toId: targetNode.id().replace("node-", ""),
-                        relationshipTypeId: selectedData[0].id
-                    }),
-                    signal: AbortSignal.timeout(10000)
-                }).then( response => {
-                    if(response.status === 200 || response.status === 201){
+                Api.post("/resources/create", { relations: [{
+                    fromId: sourceNode.id().replace("node-", ""),
+                    toId: targetNode.id().replace("node-", ""),
+                    relationshipTypeId: selectedData[0].id
+                }] }).then( response => {
+                    if(response.ok){
                         return response.json();
-                    } else {
-                        addedEdge.remove();
-                        throw Error();
                     }
+                    addedEdge.remove();
+                    // A refused relation says why, e.g. a second BELONGS_TO into a dataset.
+                    return DataHubProblem.read(response).then(problem => { problem.flash('error.problem.failed'); throw problem; });
                 }).then( json => {
                     addedEdge.remove();
-                    this.addRelation(json);
+                    this.addRelation(json.relations[0]);
                 })
                     .catch(e => {
                         console.error(e);

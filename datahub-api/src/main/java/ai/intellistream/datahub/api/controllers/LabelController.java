@@ -1,18 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.Problems;
 import org.springframework.http.ProblemDetail;
-import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
-import ai.intellistream.datahub.api.controllers.errors.DuplicateError;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.LabelDataWrapper;
 import ai.intellistream.datahub.errors.EntityInUseException;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.Label;
 import ai.intellistream.datahub.label.LabelForm;
@@ -113,7 +111,7 @@ public class LabelController {
                     """
     )
     @ApiResponse(responseCode = "409", description = "A label with this name already exists.",
-            content = @Content(schema = @Schema(implementation = DuplicateError.class)))
+            content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     @ApiResponse(responseCode = "200", description = "A collection with newly created label objects is returned.",
             content = @Content(
                     schema = @Schema(implementation = LabelDataWrapper.class)
@@ -216,16 +214,15 @@ public class LabelController {
             return new ResponseEntity<>(Problems.badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
         } catch (EntityInUseException e) {
             // Each blocker becomes a field entry: which label, and the node still carrying it.
-            List<Map<String, String>> fields = new ArrayList<>();
+            var fields = new FieldErrors();
             for (EntityInUseException.Blocked b : e.getBlocked()) {
                 for (Map<String, String> usage : b.getUsages()) {
-                    var entry = new LinkedHashMap<String, String>();
-                    entry.put(b.getEntityType().toLowerCase(), b.getEntityName());
-                    entry.putAll(usage);
-                    fields.add(entry);
+                    fields.addFieldError(b.getEntityType().toLowerCase(), b.getEntityName());
+                    usage.forEach(fields::addFieldError);
                 }
             }
-            return new ResponseEntity<>(Problems.badRequest(e.getMessage(), fields), HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest(e.getMessage(), fields.asList()),
+                    HttpStatus.BAD_REQUEST);
         }
         // Bodyless 204. An empty-string body with produces=application/json gets written by Spring
         // and surfaces as 200, which is why this endpoint previously returned 200 instead of 204.

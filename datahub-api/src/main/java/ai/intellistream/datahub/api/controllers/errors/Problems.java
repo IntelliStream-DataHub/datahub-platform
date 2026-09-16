@@ -37,10 +37,8 @@ import java.util.Map;
  *
  * <h2>{@code type} is the contract</h2>
  * The one member a client should branch on. Prose changes; a URI does not. All of them live under
- * {@link #BASE} — note that {@code UserInfoRejectedExceptionHandler} currently mints
- * {@code datahub.intellistream.ai}, a second host for the same scheme, which is a bug this class
- * exists to stop repeating. Adding a type here is a wire-contract decision, so they are declared
- * as constants rather than written inline at each throw site.
+ * {@link #BASE}. Adding a type here is a wire-contract decision, so they are declared as constants
+ * rather than written inline at each throw site.
  *
  * <h2>{@code fields} keeps what the old shape threw away</h2>
  * {@link FieldValidationError} carries an i18n key and its arguments — {@code
@@ -66,6 +64,24 @@ public final class Problems {
     public static final URI REFERENCED = type("referenced");
     /** A 409: a deletion that would cut the surviving nodes off from the graph root. */
     public static final URI WOULD_STRAND = type("would-strand");
+
+    public static final URI UNAUTHORIZED = type("unauthorized");
+    public static final URI FORBIDDEN = type("forbidden");
+    public static final URI NOT_FOUND = type("not-found");
+    public static final URI METHOD_NOT_ALLOWED = type("method-not-allowed");
+    public static final URI NOT_ACCEPTABLE = type("not-acceptable");
+    public static final URI UNSUPPORTED_MEDIA_TYPE = type("unsupported-media-type");
+    public static final URI INTERNAL = type("internal");
+    public static final URI UNKNOWN_TENANT = type("unknown-tenant");
+    public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
+    public static final URI FEATURE_DISABLED = type("feature-disabled");
+
+    /** {@code retry}: the same request can succeed later; honour Retry-After when it is sent. */
+    public static final String RETRY_SAME_REQUEST = "same-request";
+    /** {@code retry}: only a different request can succeed. */
+    public static final String RETRY_CHANGE_REQUEST = "change-request";
+    /** {@code retry}: nothing the caller sends will succeed until an operator acts; quote the requestId. */
+    public static final String RETRY_NEEDS_OPERATOR = "needs-operator";
 
     private Problems() {
     }
@@ -94,7 +110,7 @@ public final class Problems {
      * @param field    the property path, e.g. {@code externalId} or {@code items[0].name}
      * @param message  the resolved, human-readable reason
      * @param code     the i18n key, so a caller can localise rather than parse prose
-     * @param rejected the offending value or bound, where the source carried one
+     * @param rejected an i18n argument such as a length; never the submitted value itself
      */
     public record FieldProblem(String field, String message, String code, Object rejected) {
 
@@ -133,7 +149,8 @@ public final class Problems {
                     // The template is the key before interpolation, e.g. {jakarta.validation…Size.message}
                     // or a project key like resource.source.max.length.error.
                     violation.getMessageTemplate(),
-                    violation.getInvalidValue()));
+                    // Not the invalid value: it can be a credential or a whole object, and the caller has it.
+                    null));
         }
         return withFields(of(HttpStatus.BAD_REQUEST, CONSTRAINT_VIOLATION,
                 "Validation failed", "One or more fields are invalid."), fields);
@@ -150,8 +167,8 @@ public final class Problems {
         List<FieldProblem> fields = new ArrayList<>();
         for (ObjectError error : errors) {
             String path = error instanceof FieldError fieldError ? fieldError.getField() : error.getObjectName();
-            Object rejected = error instanceof FieldError fieldError ? fieldError.getRejectedValue() : null;
-            fields.add(new FieldProblem(path, error.getDefaultMessage(), error.getCode(), rejected));
+            // Not the rejected value: it can be a credential or a whole object, and the caller has it.
+            fields.add(new FieldProblem(path, error.getDefaultMessage(), error.getCode(), null));
         }
         return withFields(of(HttpStatus.BAD_REQUEST, VALIDATION_FAILED,
                 "Validation failed", "One or more fields are invalid."), fields);
@@ -187,7 +204,70 @@ public final class Problems {
 
     /** A 404 for something the caller asked for by name and that is not there (or not theirs). */
     public static ProblemDetail notFound(String detail) {
-        return of(HttpStatus.NOT_FOUND, type("not-found"), "Not Found", detail);
+        return of(HttpStatus.NOT_FOUND, NOT_FOUND, "Not Found", detail);
+    }
+
+    /** A 401; the detail is written here or by a token validator, never taken from a decoder's exception. */
+    public static ProblemDetail unauthorized(String detail) {
+        return of(HttpStatus.UNAUTHORIZED, UNAUTHORIZED, "Unauthorized", detail);
+    }
+
+    public static ProblemDetail forbidden(String detail) {
+        return of(HttpStatus.FORBIDDEN, FORBIDDEN, "Forbidden", detail);
+    }
+
+    /** A 403 for an organization this deployment has no tenant for; only an operator can fix it. */
+    public static ProblemDetail unknownTenant(String organizationId) {
+        ProblemDetail problem = of(HttpStatus.FORBIDDEN, UNKNOWN_TENANT, "Forbidden",
+                "Unknown organization: this deployment has no tenant for the organization in your "
+                        + "token. Retrying will not help, the organization has to be onboarded.");
+        problem.setProperty("organizationId", organizationId);
+        return problem;
+    }
+
+    /** A 403 for a feature switched off for this organization; an operator turns it on. */
+    public static ProblemDetail featureDisabled(String feature, String detail) {
+        ProblemDetail problem = of(HttpStatus.FORBIDDEN, FEATURE_DISABLED, "Forbidden", detail);
+        problem.setProperty("feature", feature);
+        return problem;
+    }
+
+    /** A 503 while the tenant's schema is still being migrated; the caller should honour Retry-After. */
+    public static ProblemDetail tenantProvisioning() {
+        return of(HttpStatus.SERVICE_UNAVAILABLE, TENANT_PROVISIONING, "Service Unavailable",
+                "This organization's database is still being prepared. Retry the same request shortly.");
+    }
+
+    /** The problem for a bare status, e.g. a 405 from Spring MVC or a sendError from a filter. */
+    public static ProblemDetail forStatus(int status, String detail) {
+        return switch (status) {
+            case 400 -> badRequest(orElse(detail, "The request could not be processed as sent."));
+            case 401 -> unauthorized(orElse(detail, "Authentication is required."));
+            case 403 -> forbidden(orElse(detail, "The request is not allowed."));
+            case 404 -> notFound(orElse(detail, "Nothing exists at this path."));
+            case 405 -> of(HttpStatus.METHOD_NOT_ALLOWED, METHOD_NOT_ALLOWED, "Method Not Allowed",
+                    orElse(detail, "This path does not accept this HTTP method."));
+            case 406 -> of(HttpStatus.NOT_ACCEPTABLE, NOT_ACCEPTABLE, "Not Acceptable",
+                    orElse(detail, "This endpoint cannot answer in a media type the Accept header allows."));
+            case 415 -> of(HttpStatus.UNSUPPORTED_MEDIA_TYPE, UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type",
+                    orElse(detail, "This endpoint does not accept this Content-Type."));
+            case 500 -> internal(INTERNAL_DETAIL);
+            default -> {
+                HttpStatus known = HttpStatus.resolve(status);
+                ProblemDetail problem = ProblemDetail.forStatusAndDetail(
+                        HttpStatusCode.valueOf(status), detail == null ? "" : detail);
+                problem.setTitle(known == null ? "Error" : known.getReasonPhrase());
+                yield problem;
+            }
+        };
+    }
+
+    /** What a caller is told about a failure inside the server. The cause stays in the log. */
+    public static final String INTERNAL_DETAIL =
+            "The server failed to complete the request. Nothing in the request was at fault.";
+
+    private static String orElse(String detail, String fallback) {
+        return detail == null || detail.isBlank() ? fallback : detail;
     }
 
     /** A 400 with no per-field breakdown — a malformed header, a path that will not parse. */
@@ -202,24 +282,17 @@ public final class Problems {
      * failure is not something to describe to a caller who cannot act on it.
      */
     public static ProblemDetail internal(String detail) {
-        return of(HttpStatus.INTERNAL_SERVER_ERROR, type("internal"), "Internal Server Error", detail);
+        return of(HttpStatus.INTERNAL_SERVER_ERROR, INTERNAL, "Internal Server Error", detail);
     }
 
     /**
-     * A 400 carrying the loose {@code field -> message} pairs the old {@code BadRequestError} used.
+     * A 400 naming the fields that made the API refuse the request.
      *
-     * <p>Those entries are not uniform — some are {@code externalId -> "must not be blank"}, others
-     * {@code "DataSet.Id" -> "5"} — so they become a field and a message and nothing is invented.
-     * New throw sites should build {@link FieldProblem}s directly and get a code and a rejected
-     * value with them; this is the bridge for the ones that already exist.
+     * <p>Same {@code fields} shape as {@link #constraintViolation} and {@link #bindingFailure}: a
+     * caller correcting their request should not have to care whether the rule that rejected it
+     * ran in a bean validator or in a hand-written check.
      */
-    public static ProblemDetail badRequest(String detail, Collection<Map<String, String>> legacyFields) {
-        List<FieldProblem> fields = new ArrayList<>();
-        if (legacyFields != null) {
-            for (Map<String, String> entry : legacyFields) {
-                entry.forEach((field, message) -> fields.add(new FieldProblem(field, message, null, null)));
-            }
-        }
+    public static ProblemDetail badRequest(String detail, Collection<FieldProblem> fields) {
         return withFields(of(HttpStatus.BAD_REQUEST, BAD_REQUEST, "Bad Request", detail), fields);
     }
 
@@ -272,4 +345,35 @@ public final class Problems {
         }
         return problem;
     }
+
+    /** Adds what every problem carries: the request's id and what the caller can do about it. */
+    public static ProblemDetail decorate(ProblemDetail problem, String requestId) {
+        Map<String, Object> properties = problem.getProperties();
+        if (requestId != null && (properties == null || !properties.containsKey("requestId"))) {
+            problem.setProperty("requestId", requestId);
+        }
+        if (properties == null || !properties.containsKey("retry")) {
+            problem.setProperty("retry", retryFor(problem));
+        }
+        return problem;
+    }
+
+    static String retryFor(ProblemDetail problem) {
+        String type = problem.getType() == null ? "" : problem.getType().toString();
+        String slug = type.startsWith(BASE) ? type.substring(BASE.length()) : "";
+        return switch (slug) {
+            case "optimistic-lock", "rate-limit-exceeded", "ingest-quota-exceeded", "messaging-unavailable",
+                 "permissions-unavailable", "tenant-provisioning" -> RETRY_SAME_REQUEST;
+            case "unknown-tenant", "tenant-limit-reached", "feature-disabled", "dataset-forbidden", "internal" ->
+                    RETRY_NEEDS_OPERATOR;
+            default -> {
+                int status = problem.getStatus();
+                if (status == 429 || status == 502 || status == 503 || status == 504) {
+                    yield RETRY_SAME_REQUEST;
+                }
+                yield status == 403 || status >= 500 ? RETRY_NEEDS_OPERATOR : RETRY_CHANGE_REQUEST;
+            }
+        };
+    }
+
 }

@@ -9,7 +9,6 @@ import ai.intellistream.datahub.api.messaging.events.EventCudPublishEvent;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.clickhouse.ClickHouseEventService;
 import ai.intellistream.datahub.clickhouse.ClickHouseService;
-import ai.intellistream.datahub.errors.ResponseError;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.dto.NameAndExternalId;
 import ai.intellistream.datahub.models.*;
@@ -527,15 +526,10 @@ public class EventService {
     }
 
     private BadRequestException relatedResourceError(String message, IdCollection entry) {
-        ResponseError<BadRequestError> errors = new ResponseError<>();
-        var error = new BadRequestError();
-        error.setMessage(message);
-        Map<String, String> field = new LinkedHashMap<>();
-        if (entry != null && entry.getId() != null) { field.put("resourceId", String.valueOf(entry.getId())); }
-        if (entry != null && entry.getExternalId() != null) { field.put("resourceExternalId", entry.getExternalId()); }
-        error.getFields().add(field);
-        errors.setError(error);
-        return new BadRequestException(errors);
+        var fields = new FieldErrors();
+        if (entry != null && entry.getId() != null) { fields.addFieldError("resourceId", String.valueOf(entry.getId())); }
+        if (entry != null && entry.getExternalId() != null) { fields.addFieldError("resourceExternalId", entry.getExternalId()); }
+        return new BadRequestException(message, fields);
     }
 
     @Transactional(readOnly = true)
@@ -545,35 +539,25 @@ public class EventService {
 
         List<NameAndExternalId> instancesFound = nodeRepository.findAllByIdIn(resourceIds, NameAndExternalId.class);
         if(instancesFound.size() != resourceIds.size()){
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-            var de = new BadRequestError();
-            de.setMessage("No resource with following id exists!");
-
+            var errors = new FieldErrors();
             for (Long id : resourceIds) {
                 if (instancesFound.stream().noneMatch(instance -> instance.getId().equals(id))) {
-                    de.getFields().add(Map.of("resourceId", String.valueOf(id)));
+                    errors.addFieldError("resourceId", String.valueOf(id));
                 }
             }
-
-            errors.setError(de);
-            throw new BadRequestException(errors);
+            throw new BadRequestException("No resource with following id exists!", errors);
         }
 
         List<Long> externalIdHashes = resourceExternalIds.stream().map(ExternalIds::hash).toList();
         List<NameAndExternalId> results = nodeRepository.findAllByExternalIdHashIn(externalIdHashes, NameAndExternalId.class);
         if(results.size() != resourceExternalIds.size()){
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-            var de = new BadRequestError();
-            de.setMessage("No resource with following external id exists!");
-
+            var errors = new FieldErrors();
             for (Long id : externalIdHashes) {
                 if (results.stream().noneMatch(instance -> instance.getExternalIdHash().equals(id))) {
-                    de.getFields().add(Map.of("resourceExternalId", String.valueOf(id)));
+                    errors.addFieldError("resourceExternalId", String.valueOf(id));
                 }
             }
-
-            errors.setError(de);
-            throw new BadRequestException(errors);
+            throw new BadRequestException("No resource with following external id exists!", errors);
         }
 
         resources.addAll(instancesFound);
@@ -586,18 +570,13 @@ public class EventService {
     protected boolean validateDataSets(Set<Long> dataSets) {
         List<Long> instancesFound = nodeRepository.findAllByIdAsIdList(dataSets);
         if(instancesFound.size() != dataSets.size()){
-            ResponseError<BadRequestError> errors = new ResponseError<>();
-            var de = new BadRequestError();
-            de.setMessage("No dataset with following id exists!");
-
+            var errors = new FieldErrors();
             for(Long dataSetId : dataSets){
                 if(!instancesFound.contains(dataSetId)){
-                    de.getFields().add(Map.of("dataSet", String.valueOf(dataSetId)));
+                    errors.addFieldError("dataSet", String.valueOf(dataSetId));
                 }
             }
-
-            errors.setError(de);
-            throw new BadRequestException(errors);
+            throw new BadRequestException("No dataset with following id exists!", errors);
         }
         return true;
     }
@@ -723,13 +702,11 @@ public class EventService {
     public EventModel validateAndUpdate(UpdateEventForm form, EventModel em,
                                         Map<Long, NameAndExternalId> resourcesById,
                                         Map<Long, NameAndExternalId> resourcesByExternalIdHash){
-        ResponseError<BadRequestError> errors = new ResponseError<>();
         if(form.getUpdate() != null && !form.getUpdate().validateFields()){
-            errors.setError(new BadRequestError());
-            form.getUpdate().getErrors().forEach( error -> {
-                errors.getError().addFieldError(error.getObjectName(), error.getDefaultMessage());
-            });
-            throw new BadRequestException(errors);
+            var errors = new FieldErrors();
+            form.getUpdate().getErrors().forEach( error ->
+                    errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
+            throw new BadRequestException("One or more fields are invalid.", errors);
         }
 
         EventFields fields = form.getUpdate();

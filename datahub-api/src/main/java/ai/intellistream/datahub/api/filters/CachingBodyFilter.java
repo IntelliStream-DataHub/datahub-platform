@@ -4,17 +4,16 @@ package ai.intellistream.datahub.api.filters;
 import jakarta.servlet.*;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.util.ContentCachingRequestWrapper;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 import java.io.IOException;
 
-@Slf4j
 public class CachingBodyFilter implements Filter {
 
     // https://stackoverflow.com/questions/39935190/contentcachingresponsewrapper-produces-empty-response
 
+    // Exceptions propagate: swallowing one here left the status at 200 and the body empty.
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
@@ -35,22 +34,14 @@ public class CachingBodyFilter implements Filter {
         // wrappers are present, so passing the raw request/response through simply skips body
         // logging here.
         if (StreamingEndpoints.matches(httpRequest)) {
-            try {
-                chain.doFilter(request, response);
-            } catch (IOException | ServletException e) {
-                log.error("Error in streaming request", e);
-            }
+            chain.doFilter(request, response);
             return;
         }
 
         ContentCachingRequestWrapper reqWrapper = new ContentCachingRequestWrapper(httpRequest, 1024 * 1024 * 20);
         ContentCachingResponseWrapper resWrapper = new ContentCachingResponseWrapper((HttpServletResponse) response);
-        try {
-            chain.doFilter(reqWrapper, resWrapper);
-            resWrapper.copyBodyToResponse();
-        } catch (IOException | ServletException e) {
-            log.error("Error extracting body", e);
-        }
+        chain.doFilter(reqWrapper, resWrapper);
+        resWrapper.copyBodyToResponse();
     }
 
 }
