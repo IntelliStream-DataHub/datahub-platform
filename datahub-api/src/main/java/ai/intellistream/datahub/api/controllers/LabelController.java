@@ -146,19 +146,9 @@ public class LabelController {
             DataWrapper<Label> data = new DataWrapper<>();
             data.setItems(labels);
             return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (ConstraintViolationException cve) {
-            var e = BuildErrorResponse.createConstraintViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
         } catch (DataIntegrityViolationException cve) {
             var e = BuildErrorResponse.createDataIntegrityViolationError(cve);
             return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
-        }
-        catch (BadRequestException e) {
-            log.error(e.getMessage(), e);
-            return new ResponseEntity<>(e.getError(), HttpStatus.BAD_REQUEST);
-        } catch (DuplicateDataException e) {
-            ResponseError<DuplicateError> dupError = e.getError();
-            return new ResponseEntity<>(dupError, HttpStatusCode.valueOf(dupError.getError().getCode()));
         }
     }
 
@@ -196,12 +186,6 @@ public class LabelController {
             DataWrapper<Label> data = new DataWrapper<>();
             data.setItems(labels);
             return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (ConstraintViolationException cve) {
-            // Deliberately not @Valid on the parameter: that cascades to LabelForm, whose name is
-            // @NotBlank, and an update is a PATCH — identify by id and send only what changes. The
-            // service validates the properties actually sent instead, which also covers the MCP
-            // label_update tool that reaches it directly.
-            return new ResponseEntity<>(BuildErrorResponse.createConstraintViolationError(cve), HttpStatus.BAD_REQUEST);
         } catch (IllegalArgumentException e) {
             // Renaming a type-label, or renaming an ordinary label onto one.
             log.warn("Rejected label update: {}", e.getMessage());
