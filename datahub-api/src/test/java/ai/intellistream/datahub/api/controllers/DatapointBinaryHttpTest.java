@@ -216,7 +216,9 @@ class DatapointBinaryHttpTest {
 
         // The first frame is on the topic and the second is not. Anything but a status the SDK
         // retries would leave the second frame's rows lost while the caller counts them as stored.
-        assertThat(response.statusCode()).as(response.body()).isEqualTo(500);
+        // A dropped publish is messaging-unavailable, so this is a 503 rather than the 500 written
+        // here when the binary path was branched: the SDK retries anything >= 500, so both hold.
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(503);
         // The retry sends both frames again, so only the one that landed may be counted now.
         verify(ingestQuota).check(IngestQuotaService.QuotaMetric.DATAPOINTS, 5);
         verify(ingestQuota).record(IngestQuotaService.QuotaMetric.DATAPOINTS, 3);

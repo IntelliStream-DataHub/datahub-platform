@@ -74,6 +74,9 @@ class ErrorResponseContractTest {
     @MockitoBean(name = "subscriptionNotifyProducer") private Producer<?> subscriptionNotifyProducer;
     @MockitoBean(name = "allDatapointProducer") private Producer<?> allDatapointProducer;
     @MockitoBean(name = "httpMessageProducer") private Producer<?> httpMessageProducer;
+    // Not mocking this one lets its @Bean method run, and it provisions its topic through a
+    // mocked PulsarAdmin whose topics() is null — an NPE that fails the whole context.
+    @MockitoBean(name = "allDatapointBlockProducer") private Producer<?> allDatapointBlockProducer;
 
     @BeforeEach
     void stubTokens() {

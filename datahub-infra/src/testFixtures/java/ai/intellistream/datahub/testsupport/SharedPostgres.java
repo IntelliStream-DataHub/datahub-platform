@@ -59,7 +59,17 @@ public final class SharedPostgres {
     /** Migrated once; every per-class database is a copy of it. */
     private static final String TEMPLATE = "datahub_migrated";
 
-    private static final PostgreSQLContainer<?> CONTAINER = new PostgreSQLContainer<>(IMAGE);
+    /**
+     * Postgres defaults to 100 connections, which was ample when each test class started its own
+     * container and spent its own budget. Sharing one container makes the classes share the budget:
+     * every {@code @DataJpaTest} context is cached for the life of the JVM, so its Hikari pool —
+     * ten connections by default, and none of these classes asks for fewer — stays open after the
+     * class finishes. Fifteen classes want 150 connections against a ceiling of 100, and whichever
+     * one runs after the ceiling is reached fails every test with "too many clients already"
+     * instead of a connection.
+     */
+    private static final PostgreSQLContainer<?> CONTAINER = new PostgreSQLContainer<>(IMAGE)
+            .withCommand("postgres", "-c", "max_connections=300");
 
     static {
         CONTAINER.start();
