@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.helpers.timeseries;
 
+import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.responses.ValueTypeRecommendation;
 
 import java.util.HashMap;
@@ -33,10 +34,9 @@ public final class ValueTypeRecommender {
 
     private ValueTypeRecommender() {}
 
-    // Canonical value type names — must match TimeseriesValueType (datahub-infra) and the strings
-    // accepted by TimeseriesValueType.getValueTypeId.
-    private static final String FLOAT32 = "FLOAT32";
-    private static final String DECIMAL32 = "DECIMAL32";
+    // Names come from the catalogue itself, so a renamed type cannot leave a stale string here.
+    private static final String FLOAT32 = DatapointValueType.FLOAT32.name();
+    private static final String DECIMAL32 = DatapointValueType.DECIMAL32.name();
 
     private record Reco(String valueType, String reason) {}
 

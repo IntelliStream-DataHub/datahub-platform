@@ -16,8 +16,17 @@ public class CachingBodyFilter implements Filter {
     // https://stackoverflow.com/questions/39935190/contentcachingresponsewrapper-produces-empty-response
 
     @Override
-    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) {
+    public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws IOException, ServletException {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
+
+        // Neither cached nor logged, and a failure has to propagate. Caught here, it reaches the
+        // caller as a 200 with an empty body however much of the request was lost, and a body that
+        // turned out too large never reaches the size filter outside this one to be answered 413.
+        if (StreamingEndpoints.isBinaryDatapointInsert(httpRequest)) {
+            chain.doFilter(request, response);
+            return;
+        }
 
         // Streaming endpoints must NOT be wrapped: a file download or graph export response can be
         // many GB and ContentCachingResponseWrapper buffers the whole body in memory and rejects a

@@ -34,6 +34,7 @@ import java.io.IOException;
 public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
 
     private static final String DATAPOINT_INSERT_PATH = "/timeseries/data";
+    private static final String DATAPOINT_BINARY_PATH = "/timeseries/data/binary";
 
     private final LimitsProperties limits;
     private final IngestQuotaService ingestQuota;
@@ -78,7 +79,14 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
             }
         }
 
-        chain.doFilter(new CountingRequestWrapper(request, limit), response);
+        try {
+            chain.doFilter(new CountingRequestWrapper(request, limit), response);
+        } catch (RequestBodyTooLargeException e) {
+            // A body with no usable Content-Length is only found to be too large while it is read.
+            // Where the handler read the stream itself, nothing on the way out answers that, so it is
+            // answered here with the same 413 the pre-check gives.
+            reject(request, response, limit, -1);
+        }
     }
 
     private static boolean isWrite(String method) {
@@ -120,6 +128,9 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
         String contextPath = request.getContextPath();
         if (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath)) {
             uri = uri.substring(contextPath.length());
+        }
+        if (uri.equals(DATAPOINT_BINARY_PATH) || uri.equals(DATAPOINT_BINARY_PATH + "/")) {
+            return limits.getMaxBodyBytesDatapointsBinary();
         }
         if (uri.equals(DATAPOINT_INSERT_PATH) || uri.equals(DATAPOINT_INSERT_PATH + "/")) {
             return limits.getMaxBodyBytesDatapoints();
@@ -231,9 +242,10 @@ public class RequestBodySizeLimitFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Thrown mid-read for a body with no usable {@code Content-Length}. It surfaces as an unreadable
-     * request body, which the api already answers with a 400 — the right class of answer, and the
-     * only one still available once the response has started.
+     * Thrown mid-read for a body with no usable {@code Content-Length}. Where the body is bound with
+     * {@code @RequestBody} it surfaces as an unreadable request body, which the api answers with a
+     * 400. Where a handler reads the stream itself, it propagates back out to this filter, which
+     * answers it with a 413 while the response is still uncommitted.
      */
     public static class RequestBodyTooLargeException extends IOException {
         public RequestBodyTooLargeException(long limit) {

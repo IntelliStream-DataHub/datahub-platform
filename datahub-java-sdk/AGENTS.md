@@ -6,9 +6,16 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 ## Hard constraints
 
 - **No server stack.** Built on the JDK `java.net.http.HttpClient`; depends only on
-  `datahub-api-model` (the wire contract) plus Jackson 3. No Spring, no Feign, no Vault client —
-  the Spring Boot plugins in `build.gradle` exist only for BOM version management. Keep the
-  dependency surface at zero-/tiny-transitive jars; this artifact ships to external users.
+  `datahub-api-model` (the wire contract) plus Jackson 3 and zstd-jni. No Spring, no Feign, no
+  Vault client — the Spring Boot plugins in `build.gradle` exist only for BOM version management.
+  Keep the dependency surface at zero-/tiny-transitive jars; this artifact ships to external users.
+  zstd-jni is the one native library, and it is there because the binary datapoint path requires
+  zstd and the JDK has none. The Arrow frames come from api-model's own codec on the FlatBuffers
+  classes, not from arrow-java: no allocator, no `--add-opens`.
+- **Binary ingest is its own method.** `ingestBinary(...)` and `binaryBuffer()` on
+  `TimeseriesService` go to `POST /timeseries/data/binary`; the JSON `ingest(...)` is untouched
+  and the durable spool applies to it only. The binary path resolves series through
+  `/timeseries/byids` (`ingest/SeriesResolver`), so it needs read access to the dataset too.
 - **Wire types come from `datahub-api-model`** — never redefine request/response DTOs here.
   In-tree it is a project dependency (`api project(':datahub-api-model')`); the published POM
   pins resolved versions so non-Spring consumers work.
@@ -40,7 +47,8 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 - `services/` — one class per API area: resources, timeseries, datasets, events, units, files,
   subscriptions.
 - `ingest/` — batched ingestion plus the durable disk spool (`DatapointIngestor`,
-  `EventIngestor`, `DurableSpool`, `BatchExecutor`).
+  `EventIngestor`, `DurableSpool`, `BatchExecutor`), and the binary path
+  (`BinaryDatapointIngestor`, `BinaryIngestOptions`, `BinaryIngestBuffer`, `SeriesResolver`).
 - `subscriptions/` — `SubscriptionListener`: durable subscription listening over the api's
   WebSocket endpoint with per-subscription ack/nack.
 - `timeseries/`, `util/` — `Datapoint` model, UUID v7 generator.
