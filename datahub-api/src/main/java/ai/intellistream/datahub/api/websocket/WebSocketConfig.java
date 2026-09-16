@@ -11,7 +11,8 @@ import org.springframework.web.socket.server.standard.ServletServerContainerFact
 /**
  * Registers the live-datapoint WebSocket endpoints. Both handshakes go through the normal Spring
  * Security filter chain. The subscription endpoint authenticates with a Bearer JWT header; the
- * per-timeseries tail endpoint validates a {@code token} query param itself (see its handler).
+ * per-timeseries tail endpoint validates a {@code datahub.bearer.<jwt>} handshake subprotocol
+ * itself (see its handler), because a browser cannot set a header on a WebSocket handshake.
  */
 @Configuration
 @EnableWebSocket
@@ -44,9 +45,11 @@ public class WebSocketConfig implements WebSocketConfigurer {
         // Path segments seed the subscriptions; more can be added/removed over the socket.
         registry.addHandler(subscriptionWebSocketHandler, "/timeseries/datapoints/subscription/listen/**")
                 .setAllowedOriginPatterns("*");
-        // Client connects to: ws(s)://<host>/timeseries/datapoints/listen?token=<jwt> — a live
-        // datapoint tail filtered per connection to the requested timeseries. Auth is the token
-        // query param (browsers can't set headers on a WS handshake); see the handler.
+        // Client connects to: ws(s)://<host>/timeseries/datapoints/listen — a live datapoint tail
+        // filtered per connection to the requested timeseries. Auth is the datahub.bearer.<jwt>
+        // handshake subprotocol (browsers can't set headers on a WS handshake, but they can name
+        // subprotocols, and unlike a query param those stay out of request lines and access logs).
+        // The handler is SubProtocolCapable, so Spring echoes datahub.v1 back on the 101.
         registry.addHandler(datapointListenWebSocketHandler, "/timeseries/datapoints/listen")
                 .setAllowedOriginPatterns("*");
     }
