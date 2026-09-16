@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.repositories.files;
 
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.jpa.dto.INodeProxy;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.hashing.LongHashFunction;
 import org.hibernate.Session;
 import org.hibernate.query.NativeQuery;
 
@@ -67,7 +67,7 @@ public class IINodeRepoImpl implements IINodeRepo {
             nq.setParameter("ids", idList);
         }
         if(!externalIdList.isEmpty()){
-            List<Long> externalIdHashList = externalIdList.stream().map( it -> LongHashFunction.xx3().hashChars(it)).toList();
+            List<Long> externalIdHashList = externalIdList.stream().map(ExternalIds::hash).toList();
             nq.setParameter("exIds", externalIdHashList);
         }
         var results = nq.getResultList();

@@ -53,13 +53,6 @@ class ExternalIdHashingConventionTest {
      * if any of them is ever brought under the same rule.
      */
     private static final Set<String> EXEMPT = Set.of(
-            // Files and folders: their own inode table and index, still snake_cased on both sides.
-            "INode.java",
-            "FileController.java",
-            "IINodeRepoImpl.java",
-            // Same inode family: soft-delete rewrites the external id to a "DELETED_<checksum>_…"
-            // tombstone and stores its hash. Not a user-supplied identifier at all by that point.
-            "FileSystemService.java",
             // Change-data-capture integrations: the external id also seeds a replication publication
             // name and a topic prefix, which have charset rules of their own.
             "CDCIntegration.java",

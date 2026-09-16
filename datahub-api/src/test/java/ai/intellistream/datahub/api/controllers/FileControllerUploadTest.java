@@ -299,30 +299,22 @@ class FileControllerUploadTest {
     }
 
     /**
-     * A client-supplied {@code X-Datahub-External-Id} is percent-decoded and then ALWAYS run through
-     * the slug sanitizer before it is set on the node. This is a server-side protection: a hostile
-     * value (path traversal, spaces, control/special characters) can never reach storage verbatim.
-     * The external id is set before the dataset-ACL check, so we drive the (denied) 403 path and
-     * capture what was handed to the transformer.
+     * Builds a controller whose upload stops at a 403 on dataset 77, so a test can drive the flow
+     * far enough to see what was set on the node and no further.
      */
-    @Test
-    void upload_alwaysSanitizesClientSuppliedExternalId() {
-        FileTransformer fileTransformer = mock(FileTransformer.class);
+    private FileController controllerStoppingAtDatasetDenial(FileTransformer fileTransformer) {
         INodeRepository iNodeRepository = mock(INodeRepository.class);
         FilesConfig filesConfig = mock(FilesConfig.class);
         Validator validator = mock(Validator.class);
         FileSystemService fileSystemService = mock(FileSystemService.class);
-        HttpHelper httpHelper = mock(HttpHelper.class);
         TenantConfigService tenantConfigService = mock(TenantConfigService.class);
         DataSecurity dataSecurity = mock(DataSecurity.class);
-        DirectoryService directoryService = mock(DirectoryService.class);
-        ChecksumFactory checksumFactory = new ChecksumFactory(ChecksumAlgorithm.SHA_256);
-        UploadProperties uploadProperties = new UploadProperties();
 
         FileController controller = new FileController(
                 fileTransformer, iNodeRepository, filesConfig, validator, fileSystemService,
-                httpHelper, tenantConfigService, dataSecurity,
-                checksumFactory, directoryService, uploadProperties);
+                mock(HttpHelper.class), tenantConfigService, dataSecurity,
+                new ChecksumFactory(ChecksumAlgorithm.SHA_256), mock(DirectoryService.class),
+                new UploadProperties());
 
         TenantContext.setTenantId("tenant-1");
         Tenant tenant = mock(Tenant.class);
@@ -335,12 +327,9 @@ class FileControllerUploadTest {
         when(validator.validate(any())).thenReturn(Collections.emptySet());
         when(filesConfig.getRoot()).thenReturn(Path.of("/tmp/datahub-test"));
 
-        // Resolve a dataset the caller cannot write, so the upload stops at the 403 right after the
-        // external id has been set on the node.
         doAnswer(inv -> {
             INode file = inv.getArgument(0);
-            String field = inv.getArgument(1);
-            if ("dataSet".equals(field)) {
+            if ("dataSet".equals((String) inv.getArgument(1))) {
                 DatasetEntity ds = new DatasetEntity();
                 ds.setId(77L);
                 file.setDataSet(ds);
@@ -348,32 +337,62 @@ class FileControllerUploadTest {
             return null;
         }).when(fileTransformer).setProperty(any(INode.class), anyString(), anyString());
         when(dataSecurity.hasWritePermissionToDataSet(77L)).thenReturn(false);
+        return controller;
+    }
 
+    private static MockHttpServletRequest uploadWithExternalId(String encodedExternalId) {
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setMethod("PUT");
         request.addHeader("X-Datahub-Path", "/secret/strategy.txt");
         request.addHeader("X-Datahub-Dataset-Id", "77");
-        // Percent-encoded "../etc/passwd" - a path-traversal attempt smuggled through the header.
-        request.addHeader("X-Datahub-External-Id", "..%2Fetc%2Fpasswd");
+        request.addHeader("X-Datahub-External-Id", encodedExternalId);
         request.setContent("hello world".getBytes(StandardCharsets.UTF_8));
+        return request;
+    }
+
+    /**
+     * A client-supplied {@code X-Datahub-External-Id} outside the charset is REFUSED, not rewritten.
+     *
+     * <p>This replaces the slug sanitizer as the upload's server-side protection. It is not
+     * cosmetic: {@code moveNodeToTrash} builds the trash <em>filename</em> out of the external id,
+     * so a slash here would write outside the trash directory. Refusing is the stronger guarantee —
+     * the old rewrite silently turned {@code ../etc/passwd} into {@code _etc_passwd} and stored a
+     * file under an id the caller never asked for.
+     */
+    @Test
+    void upload_refusesAnExternalIdOutsideTheCharset() {
+        FileTransformer fileTransformer = mock(FileTransformer.class);
+        FileController controller = controllerStoppingAtDatasetDenial(fileTransformer);
+
+        // Percent-encoded "../etc/passwd" - a path-traversal attempt smuggled through the header.
+        ResponseEntity<?> response = (ResponseEntity<?>) controller.upload(uploadWithExternalId("..%2Fetc%2Fpasswd"));
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        // Refused outright: the value never reached the node, so it can never reach disk either.
+        org.mockito.Mockito.verify(fileTransformer, org.mockito.Mockito.never())
+                .setProperty(any(INode.class), eq("externalId"), anyString());
+    }
+
+    /**
+     * A legitimate external id keeps its case and separators. This is the point of the verbatim
+     * migration: an ISA-5.1 tag or IEC 81346 designation must read back byte for byte, where the
+     * old slug rewrite would have stored {@code com_99_pt_1034} and lost the original for good.
+     */
+    @Test
+    void upload_storesAClientSuppliedExternalIdVerbatim() {
+        FileTransformer fileTransformer = mock(FileTransformer.class);
+        FileController controller = controllerStoppingAtDatasetDenial(fileTransformer);
 
         try (MockedStatic<TransactionAspectSupport> tx = mockStatic(TransactionAspectSupport.class)) {
             tx.when(TransactionAspectSupport::currentTransactionStatus)
                     .thenReturn(mock(TransactionStatus.class));
-
-            controller.upload(request);
+            controller.upload(uploadWithExternalId("COM-99-PT-1034"));
         }
 
         org.mockito.ArgumentCaptor<String> externalId = org.mockito.ArgumentCaptor.forClass(String.class);
         org.mockito.Mockito.verify(fileTransformer)
                 .setProperty(any(INode.class), eq("externalId"), externalId.capture());
-
-        String sanitized = externalId.getValue();
-        assertEquals("_etc_passwd", sanitized,
-                "decoded path-traversal id must collapse to a safe slug");
-        assertTrue(sanitized.matches("[a-z0-9_]+"),
-                "external id must be a lowercase [a-z0-9_] slug, was: " + sanitized);
-        assertTrue(!sanitized.contains("/") && !sanitized.contains(".."),
-                "external id must never contain path separators or traversal, was: " + sanitized);
+        assertEquals("COM-99-PT-1034", externalId.getValue(),
+                "a client-supplied external id must be stored exactly as sent");
     }
 }
