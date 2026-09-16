@@ -1,13 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.repositories.node;
 
-import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.PolicyEntity;
-import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import org.springframework.data.jpa.repository.EntityGraph;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -24,4 +19,13 @@ public interface PolicyRepository extends GenericNodeRepository<PolicyEntity> {
     @EntityGraph(attributePaths = { "dataSet", "metadata" })
     @Override
     Optional<PolicyEntity> findById(Long id);
+
+    // Same reason, for the whole-table read. GET /datasets/policies hands these entities straight
+    // to ResourceTransformer after the transaction has closed, and the transformer copies
+    // node.getMetadata() — a LAZY @ElementCollection. Without the graph that copy throws
+    // LazyInitializationException and the endpoint answers 500, which stays invisible for exactly
+    // as long as the policy table is empty.
+    @EntityGraph(attributePaths = { "dataSet", "metadata" })
+    @Override
+    List<PolicyEntity> findAll();
 }
