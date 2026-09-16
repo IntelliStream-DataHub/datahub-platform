@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.Problems;
+import org.springframework.http.ProblemDetail;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
@@ -16,7 +18,6 @@ import ai.intellistream.datahub.jpa.domains.Label;
 import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.repositories.label.LabelRepository;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import ai.intellistream.datahub.services.LabelService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -124,32 +125,23 @@ public class LabelController {
             produces = MediaType.APPLICATION_JSON_VALUE
     )
     public ResponseEntity<?> create(@RequestBody @Valid @Schema(implementation = LabelDataWrapper.class) DataWrapper<LabelForm> form) {
-        try {
-            // Validate if label name already exists.
-            Set<Long> hashSet = new HashSet<>();
-            form.getItems().forEach(label -> hashSet.add(IdGenerator.xxHash(label.getName())));
-            List<Label> existingEntries = labelRepository.findAllByHashList(hashSet);
-            if(!existingEntries.isEmpty()){
-                List<Map<String, String>> existingExternalIds = existingEntries.stream()
-                        .map( it -> Map.of("name", it.getName()))
-                        .toList();
-                ResponseError<DuplicateError> responseError = new ResponseError<>();
-                var duplicateError = new DuplicateError();
-                duplicateError.setMessage("Label with name already exists.");
-                duplicateError.setDuplicated(existingExternalIds);
-                responseError.setError(duplicateError);
-                throw new DuplicateDataException(responseError);
-            }
-
-            // If labels doesn't exist, create them
-            Collection<Label> labels = labelService.createLabels(form);
-            DataWrapper<Label> data = new DataWrapper<>();
-            data.setItems(labels);
-            return new ResponseEntity<>(data, HttpStatus.OK);
-        } catch (DataIntegrityViolationException cve) {
-            var e = BuildErrorResponse.createDataIntegrityViolationError(cve);
-            return new ResponseEntity<>(e, HttpStatus.BAD_REQUEST);
+        // Validate if label name already exists.
+        Set<Long> hashSet = new HashSet<>();
+        form.getItems().forEach(label -> hashSet.add(IdGenerator.xxHash(label.getName())));
+        List<Label> existingEntries = labelRepository.findAllByHashList(hashSet);
+        if(!existingEntries.isEmpty()){
+            List<Map<String, String>> existingExternalIds = existingEntries.stream()
+                    .map( it -> Map.of("name", it.getName()))
+                    .toList();
+            throw new DuplicateDataException("Label with name already exists.", existingExternalIds);
         }
+
+        // If labels doesn't exist, create them
+        Collection<Label> labels = labelService.createLabels(form);
+        DataWrapper<Label> data = new DataWrapper<>();
+        data.setItems(labels);
+        return new ResponseEntity<>(data, HttpStatus.OK);
+    
     }
 
     @Tag(name = "Labels")
@@ -175,11 +167,9 @@ public class LabelController {
         // thrown from the service.
         if (form.getItems() == null || form.getItems().stream()
                 .anyMatch(lf -> lf.getId() == null && (lf.getName() == null || lf.getName().isBlank()))) {
-            var responseError = new ResponseError<BadRequestError>();
-            var badRequest = new BadRequestError();
-            badRequest.setMessage("Each label update must identify the label by id or name.");
-            responseError.setError(badRequest);
-            return new ResponseEntity<>(responseError, HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(
+                    Problems.badRequest("Each label update must identify the label by id or name."),
+                    HttpStatus.BAD_REQUEST);
         }
         try {
             Collection<Label> labels = labelService.updateLabels(form);
@@ -189,12 +179,10 @@ public class LabelController {
         } catch (IllegalArgumentException e) {
             // Renaming a type-label, or renaming an ordinary label onto one.
             log.warn("Rejected label update: {}", e.getMessage());
-            var responseError = new ResponseError<BadRequestError>();
-            var badRequest = new BadRequestError();
-            badRequest.setMessage(e.getMessage());
-            badRequest.addFieldError("name", e.getMessage());
-            responseError.setError(badRequest);
-            return new ResponseEntity<>(responseError, HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.withFields(
+                            Problems.badRequest(e.getMessage()),
+                            java.util.List.of(new Problems.FieldProblem("name", e.getMessage(), null, null))),
+                    HttpStatus.BAD_REQUEST);
         }
     }
 
@@ -225,14 +213,9 @@ public class LabelController {
         } catch (IllegalArgumentException e) {
             // A type-label was targeted. Not "in use" — reserved, whether attached or not.
             log.warn("Rejected label delete: {}", e.getMessage());
-            var responseError = new ResponseError<BadRequestError>();
-            var badRequest = new BadRequestError();
-            badRequest.setMessage(e.getMessage());
-            responseError.setError(badRequest);
-            return new ResponseEntity<>(responseError, HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest(e.getMessage()), HttpStatus.BAD_REQUEST);
         } catch (EntityInUseException e) {
-            var error = new BadRequestError();
-            error.setMessage(e.getMessage());
+            // Each blocker becomes a field entry: which label, and the node still carrying it.
             List<Map<String, String>> fields = new ArrayList<>();
             for (EntityInUseException.Blocked b : e.getBlocked()) {
                 for (Map<String, String> usage : b.getUsages()) {
@@ -242,10 +225,7 @@ public class LabelController {
                     fields.add(entry);
                 }
             }
-            error.setFields(fields);
-            ResponseError<BadRequestError> body = new ResponseError<>();
-            body.setError(error);
-            return new ResponseEntity<>(body, HttpStatus.BAD_REQUEST);
+            return new ResponseEntity<>(Problems.badRequest(e.getMessage(), fields), HttpStatus.BAD_REQUEST);
         }
         // Bodyless 204. An empty-string body with produces=application/json gets written by Spring
         // and surfaces as 200, which is why this endpoint previously returned 200 instead of 204.

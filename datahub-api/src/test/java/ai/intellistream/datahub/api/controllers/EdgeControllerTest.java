@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.DataIntegrityViolationExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestError;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
@@ -69,7 +70,9 @@ class EdgeControllerTest {
 
         mvc = MockMvcBuilders.standaloneSetup(controller)
                 // EdgeController no longer catches BadRequestException itself.
-                .setControllerAdvice(new BadRequestExceptionHandler())
+                .setControllerAdvice(new BadRequestExceptionHandler(),
+                        // The controller no longer catches DataIntegrityViolationException.
+                        new DataIntegrityViolationExceptionHandler())
                 .setValidator(validator)
                 .build();
     }

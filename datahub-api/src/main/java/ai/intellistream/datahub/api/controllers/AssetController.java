@@ -21,7 +21,6 @@ import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.responses.BuildErrorResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -91,12 +90,8 @@ public class AssetController {
     public ResponseEntity<?> createAsset(
             @Schema(implementation = AssetDataWrapper.class)
             @RequestBody DataWrapper<Asset> apiReqData) throws PulsarClientException {
-        try {
-            return new ResponseEntity<>(assetService.create(apiReqData), HttpStatus.CREATED);
-        } catch (DataIntegrityViolationException dve) {
-            return new ResponseEntity<>(
-                    BuildErrorResponse.createDataIntegrityViolationError(dve), HttpStatus.CONFLICT);
-        }
+        return new ResponseEntity<>(assetService.create(apiReqData), HttpStatus.CREATED);
+    
     }
 
     @Tag(name = "Assets")
