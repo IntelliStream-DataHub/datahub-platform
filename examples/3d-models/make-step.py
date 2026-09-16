@@ -17,8 +17,11 @@ def e(text):
     return f"#{len(E)}"
 
 
-# Corners of the unit cube, indexed by (x, y, z) bits.
-C = [(x, y, z) for z in (0, 1) for y in (0, 1) for x in (0, 1)]
+# Edge length in millimetres, the length unit the file declares.
+EDGE = 1000
+
+# Corners of the cube, indexed by (x, y, z) bits.
+C = [(x * EDGE, y * EDGE, z * EDGE) for z in (0, 1) for y in (0, 1) for x in (0, 1)]
 
 
 def idx(x, y, z):
@@ -69,7 +72,8 @@ def face(loop_corners, normal, origin):
     ref = (1.0, 0.0, 0.0) if normal[0] == 0 else (0.0, 0.0, 1.0)
     if ref not in DIRS:
         DIRS[ref] = e(f"DIRECTION('',({ref[0]},{ref[1]},{ref[2]}));")
-    loc = e(f"CARTESIAN_POINT('',({float(origin[0])},{float(origin[1])},{float(origin[2])}));")
+    loc = e(f"CARTESIAN_POINT('',({float(origin[0] * EDGE)},{float(origin[1] * EDGE)},"
+            f"{float(origin[2] * EDGE)}));")
     ax = e(f"AXIS2_PLACEMENT_3D('',{loc},{DIRS[normal]},{DIRS[ref]});")
     plane = e(f"PLANE('',{ax});")
     return e(f"ADVANCED_FACE('',({bound}),{plane},.T.);")

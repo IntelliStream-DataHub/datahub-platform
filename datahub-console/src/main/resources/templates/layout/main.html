@@ -23,6 +23,9 @@
     <!-- datahub-analysis base URL: the Analyze tab posts the relationship analysis to this service
          directly (Bearer token from /token), which then gathers its data from the api. -->
     <meta name="datahub-analysis-url" th:content="${@environment.getProperty('datahub.analysis.url') ?: 'http://localhost:8082'}"/>
+    <!-- datahub-rvm-converter base URL: the file dialog converts AVEVA RVM models to glTF through this
+         service directly (Bearer token from /token). Set it blank to hide the Convert button. -->
+    <meta name="datahub-rvm-converter-url" th:content="${@environment.getProperty('datahub.rvm-converter.url', 'http://localhost:8083')}"/>
 </th:block>
 
 <body th:fragment="htmlbody (content, pageSelected)" th:classappend="${pageSelected == null ? 'page-home' : ''}">

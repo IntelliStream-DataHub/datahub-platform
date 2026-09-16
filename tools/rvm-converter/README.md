@@ -93,8 +93,8 @@ join between geometry and the resource graph, and it survives the conversion int
 Two things this exposed, both about presentation rather than data:
 
 - The converter emits **one material for the whole model**, so everything is one colour.
-- The viewer lights without an environment map, so the result renders very dark. Real plant models
-  make this much more obvious than a test cube does.
+- The viewer lit the scene without an environment map, so the result rendered very dark. It now
+  loads one.
 
 ## Calling it from Java
 
@@ -113,8 +113,8 @@ rather than stored as a file that fails when somebody opens it.
 
 ## No queue, decided
 
-Conversion runs **synchronously**. There is no Pulsar topic, no worker fleet and no stored
-derived file, and that is a decision rather than an omission.
+Conversion runs **synchronously**. There is no Pulsar topic, no worker fleet, and the service
+stores nothing. That is a decision rather than an omission.
 
 The measurement above is why: 35 ms, wall clock including process startup, for a real E3D model.
 A queue exists to stop a request waiting on work that is too slow to wait for, and at that cost the
@@ -130,9 +130,12 @@ The shape that fits is [datahub-analysis](../../datahub-analysis): a small state
 validates the caller's JWT, fetches what it needs from the api through the SDK with that same
 token, works in-process and returns the result, called from the browser with CORS.
 
-Two things would reopen it, on their own merits rather than by analogy: wanting the GLB **stored**
-rather than recomputed per view, once models are large enough that 35 ms becomes 30 seconds, or
-**bulk conversion** of a whole model library, which is a batch tool and not the interactive path.
+The GLB is kept, but not by the service: the console saves it beside the RVM, as an ordinary
+upload made with the viewer's own token (see below). No state lives on the conversion path.
+
+Two things would reopen it, on their own merits rather than by analogy: models large enough that
+35 ms becomes 30 seconds, so the person who clicked can no longer wait, or **bulk conversion** of a
+whole model library, which is a batch tool and not the interactive path.
 
 ## The service around it
 
@@ -151,3 +154,22 @@ model's folder to find its companions.
 
 Point `rvm.converter.binary` at the binary built here. It is statically linked, so the image needs
 nothing else to run it.
+
+## From the console
+
+The file information dialog shows **Convert and view in 3D** on any `.rvm` file. It looks in the
+same folder for a `.att` or `.txt` with the same base name, calls the service with both, and opens
+the returned GLB in the 3D viewer, with **Download RVM** and **Download GLB** side by side.
+
+It also saves the GLB beside the RVM as `<name>.glb`, in the same dataset, so from then on the model
+opens with plain **View in 3D** and no converter. The upload carries `source`
+`datahub-rvm-converter`, `metadata.convertedFrom` with the RVM's external id, and the external id
+`<rvm external id>_glb`. It never overwrites: when `<name>.glb` already exists the model is still
+converted and shown, and nothing is saved. Delete the GLB to have the next conversion replace it.
+A deleted file keeps its external id, so that next save meets a conflict on the id and retries once
+under `<rvm external id>_glb_<suffix>`.
+Without write access to the folder the model is still shown, with a notice that it was not saved.
+
+The console finds the service through `datahub.rvm-converter.url` (default
+`http://localhost:8083`). Set it blank to hide the button in a deployment without the service. The
+service in turn must list the console origin in `cors.allowed-origins`.

@@ -3,32 +3,9 @@
 Small models for exercising the console's 3D viewer: upload one, open its file information and
 choose **View in 3D**.
 
-There are two, for two different jobs. `cut-cube` checks that a format parses at all. `gear-pump`
-checks that a model with real structure survives the trip.
-
-## gear-pump: a small industrial assembly
-
-A flanged pipe run bending through 90 degrees over a base plate, driving a pair of meshing spur
-gears. 10 named parts, 4092 triangles, 4 materials, smooth normals on every curved surface.
-
-```bash
-python3 make-assembly.py .        # gear-pump.glb, .obj + .mtl, .stl
-```
-
-| File | Carries |
-|---|---|
-| `gear-pump.glb` | Everything: per-part names, materials, normals |
-| `gear-pump.obj` + `.mtl` | Named groups and materials, no scene graph |
-| `gear-pump.stl` | One merged mesh, no names or colour, as STL always is |
-
-The three are deliberately unequal, because that is the point: opening the same assembly in each
-shows what a format drops. The GLB names all ten parts (`pipe-inlet`, `pipe-elbow`, `pipe-riser`,
-`flange-inlet`, `flange-outlet`, `gear-drive`, `gear-driven`, `shaft-drive`, `shaft-driven`,
-`base-plate`); the STL knows only that there are 4092 triangles.
-
-Materials use a near-zero `metallicFactor` on purpose. The viewer lights the scene without an
-environment map, and a metallic surface with nothing to reflect renders black. Expect a flat,
-dimly lit look: that is the viewer's default rig rather than anything wrong with the model.
+Each set has one job. `cut-cube` checks that a format parses at all, `cube.step` that the CAD
+decoder path works, `uv-cube` that textures reach the screen by every route, and `pipe-valves` that
+a textured, metallic model with named parts renders the way it should.
 
 ## cut-cube: one shape in ten formats
 
@@ -45,7 +22,7 @@ python3 make-examples.py .        # rewrites every file in this directory
 | File | Notes |
 |---|---|
 | `cut-cube.stl` | Binary STL, the most common mesh interchange format |
-| `cut-cube.obj` + `.mtl` | The OBJ opens, but grey: see "Multi-file models" below |
+| `cut-cube.obj` + `.mtl` | OBJ with a material library, see "Multi-file models" below |
 | `cut-cube.ply` | ASCII PLY |
 | `cut-cube.off` | ASCII OFF |
 | `cut-cube.wrl` | VRML97 |
@@ -60,10 +37,10 @@ formats do not share vertices between faces, which is correct, not a fault.
 
 ## cube.step: the CAD decoder path
 
-A 1 m cube as a STEP AP214 manifold solid B-rep, written by `make-step.py`. Unlike everything else
-here it does not go through the viewer's own parsers at all: STEP is handed to `occt-import-js`,
-the 7.7 MB WASM decoder the console vendors, so this is the fixture that proves that whole path
-works.
+A 1 m cube as a STEP AP214 manifold solid B-rep, written by `make-step.py` with 1000 mm edges in a
+millimetre length unit. Unlike everything else here it does not go through the viewer's own parsers
+at all: STEP is handed to `occt-import-js`, the 7.7 MB WASM decoder the console vendors, so this is
+the fixture that proves that whole path works, and that its millimetres reach the size readout.
 
 ```bash
 python3 make-step.py cube.step
@@ -73,26 +50,88 @@ A plain cube rather than the cut-corner shape: the generator emits planar quad f
 corner needs a triangular one. It loads as 1 mesh and 12 triangles. OCCT reports two entities it
 cannot parse and reads the file anyway, which is cosmetic and left alone.
 
-## Multi-file models, and textures
+## uv-cube and pipe-valves: textures
 
-The viewer opens whichever file you click, and only that file. A model that references siblings
-therefore loads its geometry and loses everything else, which is measurable rather than a guess:
-
-```
-cut-cube.obj alone   materials=1 -> (unnamed)      the fallback grey
-cut-cube.obj + .mtl  materials=1 -> steel          the real material
+```bash
+python3 make-textured.py .        # uv-cube.*, uv-grid.png, pipe-valves.glb
 ```
 
-Uploading the `.mtl` alongside does not change that, because the modal never sends it. The same
-applies to a `.gltf` with an external `.bin` or texture images.
+**uv-cube** is a 1 m cube with the whole of `uv-grid.png` on every face: an 8x8 checker with a red
+cell top-left, green top-right and blue bottom-left, so a mirrored or upside-down texture is
+obvious. The same cube comes three ways, one per route a texture takes into the viewer:
 
-**Textures work in a self-contained file.** A GLB with its images embedded in the binary chunk
-renders them correctly, as does a `.gltf` with `data:` URIs, and a `.3mf`, which is a zip. So the
-practical rule for anything with materials or textures worth seeing is: export it as **GLB**.
+| File | Texture |
+|---|---|
+| `uv-cube.glb` | Embedded in the binary chunk |
+| `uv-cube.gltf` | Named by uri, with `uv-cube.bin`, and fetched from the same folder |
+| `uv-cube.obj` | Named by `map_Kd` in `uv-cube.mtl`, fetched one level further |
 
-Fixing this means fetching a model's companions from the same folder and passing them along, which
-is possible (the folder listing and the file's path are both available to the browser) but is not
-built.
+All three render identically, 12 triangles, the red cell top-left on every side face. OBJ counts
+texture rows from the bottom where glTF counts from the top, so the generator flips v for the OBJ;
+a red cell at the bottom means that flip went wrong.
+
+**pipe-valves** is a 4 m horizontal pipe in brushed steel with a yellow gate valve 0.8 m in from
+each end: flanges, eight studs, bonnet, stem and handwheel. 17 named parts, 8736 triangles, 3
+materials, 330 KB. The steel is a tileable 256 px PNG embedded in the GLB with a `metallicFactor`
+of 0.85, so it exercises the environment-map lighting as well as the texture.
+
+Both are Y-up, as glTF specifies and the viewer assumes. Both pass the Khronos glTF validator with
+no errors, warnings or infos.
+
+## Sizes
+
+The viewer shows the model's length, width and height in its top-left corner and draws them beside
+the model as dimension lines, CAD style, and does the same for a part when you click it,
+highlighted; click empty space to go back. The lines run along the bottom edges facing the camera
+and up one end, and move as you orbit. Sizes are metric: millimetres while everything is under a
+metre, metres from there.
+
+- **Height is Y**, the axis the viewer always shows as up. Length and width are the two horizontal
+  sides, longer first. A Z-up model, which the viewer shows lying on its side, reports its depth as
+  height.
+- **The model's box follows the viewer's axes; a part's turns with the part.** A clicked part is
+  measured in the tightest box found among its own frame, its principal axes, and minimal
+  cross-sections about the vertical, its long axis and its main face directions. A pipe laid at an
+  angle reads its length and diameter. Within 1% the viewer's axes win, so a faceted pipe along an
+  axis reads its nominal diameter rather than the width across its flats.
+- **The unit** comes from the file: metres for glTF, VRML and COLLADA, millimetres for STEP, IGES,
+  BREP, FCStd and AMF, and whatever a 3MF's root model declares, millimetres if it declares none.
+  STL, OBJ, PLY and OFF carry no unit, so those are read as metres and say so under the size.
+
+Expected readouts:
+
+| File | Reads |
+|---|---|
+| `uv-cube.glb`, `.gltf` | L 1.00 × W 1.00 × H 1.00 m |
+| `uv-cube.obj`, `cut-cube.stl` | 1.00 m each way, noted as assumed metres |
+| `cube.step` | L 1.00 × W 1.00 × H 1.00 m, from 1000 mm |
+| `pipe-valves.glb` | L 4.00 × W 0.40 × H 0.67 m; a handwheel L 292 × W 292 × H 40 mm |
+| `cut-cube.3mf` | L 1.00 × W 1.00 × H 1.00 m, from its `unit="meter"` |
+
+## Multi-file models
+
+The viewer reads the file you open for the names of the files it references, and fetches those
+from the same folder: an OBJ's material library and the textures that library names, and a
+`.gltf`'s buffers and images. Measured against the fixtures here:
+
+```
+cut-cube.obj   fetches cut-cube.mtl                   -> steel
+uv-cube.obj    fetches uv-cube.mtl, then uv-grid.png  -> textured
+uv-cube.gltf   fetches uv-cube.bin and uv-grid.png    -> textured
+```
+
+So upload a model and its companions into one folder. The limits:
+
+- **Same folder, by filename.** A reference like `textures/steel.png` is not found even if that
+  subfolder exists. Keep the files flat and the references bare.
+- **At most 24 companions** per model.
+- **Only OBJ and `.gltf` are read for references.** An FBX or DAE pointing at external textures
+  opens without them.
+- **A missing material library or texture is skipped**, and the model opens grey or untextured. A
+  `.gltf` whose `.bin` is missing does not open at all, since the buffer is the geometry.
+
+A self-contained file needs none of this: a GLB with embedded images, a `.gltf` with `data:` URIs,
+or a `.3mf`. For a model exported to share, GLB is still the simplest choice.
 
 ## Not covered
 

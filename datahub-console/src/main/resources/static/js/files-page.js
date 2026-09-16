@@ -123,6 +123,7 @@
 			+ '<div class="btns flex-end mtop20">'
 			+ '<button type="button" class="dh-btn secondary" data-act="close"><span></span></button>'
 			+ '<button type="button" class="dh-btn primary" data-act="view3d" hidden><i class="fa fa-fw fa-cube"></i> <span></span></button>'
+			+ '<button type="button" class="dh-btn primary" data-act="convert3d" hidden><i class="fa fa-fw fa-cube"></i> <span></span></button>'
 			+ '<a class="dh-btn primary" data-act="download"><i class="fa fa-fw fa-download"></i> <span></span></a>'
 			+ '</div></div>';
 		document.body.appendChild(overlay);
@@ -137,6 +138,16 @@
 			view3d.addEventListener('click', () => window.ModelViewer.open(n));
 		} else {
 			view3d.remove();
+		}
+
+		// AVEVA models are not something the viewer reads, so they go through the converter first.
+		const convert3d = overlay.querySelector('[data-act="convert3d"]');
+		if (n.type === 'FILE' && window.ModelViewer.isConvertible(n.name)) {
+			convert3d.querySelector('span').textContent = $L('model.convert.3d');
+			convert3d.hidden = false;
+			convert3d.addEventListener('click', () => window.ModelViewer.openConverted(n, () => document.location.reload()));
+		} else {
+			convert3d.remove();
 		}
 
 		// Image files get an inline preview at the top. mimeType is sometimes null in the index, so
