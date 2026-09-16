@@ -101,6 +101,13 @@ public class EventController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = EventDataWrapper.class)
             ))
+    @ApiResponse(responseCode = "400", description =
+            "More than 10 000 ids in one request. `fields` names the count that was sent; split " +
+                    "the batch and retry.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
     @RequestMapping(value = "/byids", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> findByIdList(
             @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -123,7 +130,11 @@ public class EventController {
             DataWrapper<UUIDAndExternalIdCollection> apiReqData
     ){
         if(apiReqData.getItems().size() > 10000){
-            throw new IllegalArgumentException("Maximum 10000 ids allowed");
+            // BadRequestException, not IllegalArgumentException: nothing maps the latter, so a
+            // caller who sent one id too many was told the server had failed and to retry — which
+            // it never will, and the fix is to split the batch.
+            throw new BadRequestException("A lookup takes at most 10000 ids; split the batch.",
+                    "items", "must hold at most 10000 ids, but held " + apiReqData.getItems().size());
         }
         DataWrapper<EventModel> events = eventService.findAllByIdAndExternalId(apiReqData.getItems());
         return new ResponseEntity<>(events, HttpStatus.OK);
