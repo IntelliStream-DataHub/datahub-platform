@@ -75,6 +75,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.RestoreRefusedProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
@@ -176,10 +177,10 @@ public class FileController {
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ValidationProblem.class)
             ))
-    @ApiResponse(responseCode = "409", description = "Upload failed, a file already exists at that path.",
+    @ApiResponse(responseCode = "409", description = "Upload failed, a file already exists at that path or with that externalId.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ApiProblem.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(value = "", method = RequestMethod.PUT,
             produces = { "application/json", "application/xml" }
@@ -984,7 +985,7 @@ public class FileController {
     @ApiResponse(responseCode = "409", description = "A file or folder already exists at the target path.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ApiProblem.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @RequestMapping(value = "/update", method = RequestMethod.POST,
             consumes = { "application/json" },
@@ -1068,7 +1069,10 @@ public class FileController {
             }
         } catch (FileAlreadyExistsException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(Problems.conflict(null, "A file or folder already exists at the target path."), HttpStatus.CONFLICT);
+            // The same answer, fields and all, as the upload that hits the path's unique index.
+            String taken = "A file or folder already exists at the target path.";
+            return new ResponseEntity<>(Problems.withFields(Problems.duplicate(taken, List.of()),
+                    List.of(new Problems.FieldProblem("path", taken, null, null))), HttpStatus.CONFLICT);
         } catch (IllegalArgumentException e) {
             // A rejected name or destination path; the text quotes what was sent, so it stays in the log.
             log.debug("File update rejected: {}", e.getMessage());
