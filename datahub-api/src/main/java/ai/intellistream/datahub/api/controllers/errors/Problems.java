@@ -53,6 +53,33 @@ public final class Problems {
     /** Every problem type this API mints. One host, one scheme. */
     public static final String BASE = "https://intellistream.ai/errors/";
 
+    /** A 400: the request body could not be read, or named a field the endpoint does not accept. */
+    public static final URI UNREADABLE_REQUEST_BODY = type("unreadable-request-body");
+    /** A 400: a page cursor that no longer decodes, typically held across a deploy. */
+    public static final URI MALFORMED_CURSOR = type("malformed-cursor");
+    /** A 400: one or more external ids broke the tenant's configured naming policy. */
+    public static final URI NAMING_POLICY = type("naming-policy");
+    /** A 400: a filter expression the parser refused, with the offset it gave up at. */
+    public static final URI FILTER_EXPRESSION = type("filter-expression");
+
+    /** A 403: a dataset ACL refused this read or write. */
+    public static final URI DATASET_FORBIDDEN = type("dataset-forbidden");
+    /** A 401: the identity provider answered, and refused the token. */
+    public static final URI TOKEN_REJECTED = type("token-rejected");
+    /** A 503: the identity provider is unreachable, so the caller's grants cannot be resolved. */
+    public static final URI PERMISSIONS_UNAVAILABLE = type("permissions-unavailable");
+    /** A 503: the broker refused or dropped a publish. */
+    public static final URI MESSAGING_UNAVAILABLE = type("messaging-unavailable");
+
+    /** A 413: the request body is over the cap for its endpoint. */
+    public static final URI REQUEST_TOO_LARGE = type("request-too-large");
+    /** A 429: too many requests this minute, for the tenant or the user. */
+    public static final URI RATE_LIMIT_EXCEEDED = type("rate-limit-exceeded");
+    /** A 429: the tenant's daily ingest allowance is spent. */
+    public static final URI INGEST_QUOTA_EXCEEDED = type("ingest-quota-exceeded");
+    /** A 403: a lifetime ceiling only an operator can raise. */
+    public static final URI TENANT_LIMIT_REACHED = type("tenant-limit-reached");
+
     public static final URI VALIDATION_FAILED = type("validation-failed");
     public static final URI DUPLICATE = type("duplicate");
     public static final URI CONFLICT = type("conflict");

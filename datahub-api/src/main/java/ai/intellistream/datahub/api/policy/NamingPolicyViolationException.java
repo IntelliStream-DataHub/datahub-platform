@@ -21,8 +21,6 @@ import java.util.List;
 public class NamingPolicyViolationException extends BadRequestException {
 
     /** The {@code type} URI on the RFC 9457 problem response. */
-    public static final String PROBLEM_TYPE = "https://intellistream.ai/errors/naming-policy";
-
     private final transient List<PolicyFinding> violations;
     private final int batchSize;
 

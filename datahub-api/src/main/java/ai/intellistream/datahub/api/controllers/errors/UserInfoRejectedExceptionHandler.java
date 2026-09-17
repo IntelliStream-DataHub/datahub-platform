@@ -48,7 +48,7 @@ public class UserInfoRejectedExceptionHandler {
                 HttpStatus.UNAUTHORIZED,
                 "Your session is no longer valid. Sign in again.");
         problem.setTitle("Unauthorized");
-        problem.setType(Problems.type("token-rejected"));
+        problem.setType(Problems.TOKEN_REJECTED);
 
         // The upstream detail (which check failed, which host answered) stays in the log above.
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)

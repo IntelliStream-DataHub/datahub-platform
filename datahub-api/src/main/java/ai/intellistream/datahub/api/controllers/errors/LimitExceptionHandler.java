@@ -38,7 +38,7 @@ public class LimitExceptionHandler {
     public static ProblemDetail quotaProblem(IngestQuotaExceededException ex) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.TOO_MANY_REQUESTS, ex.detail());
         problem.setTitle("Ingest quota exceeded");
-        problem.setType(Problems.type("ingest-quota-exceeded"));
+        problem.setType(Problems.INGEST_QUOTA_EXCEEDED);
         problem.setProperty("metric", ex.getMetric());
         problem.setProperty("limit", ex.getLimit());
         problem.setProperty("retryAfter", ex.getRetryAfterSeconds());
@@ -56,7 +56,7 @@ public class LimitExceptionHandler {
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, ex.detail());
         problem.setTitle("Tenant limit reached");
-        problem.setType(Problems.type("tenant-limit-reached"));
+        problem.setType(Problems.TENANT_LIMIT_REACHED);
         problem.setProperty("metric", ex.getMetric());
         problem.setProperty("limit", ex.getLimit());
         return problem;
