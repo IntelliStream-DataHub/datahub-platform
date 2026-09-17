@@ -172,6 +172,8 @@ class ProblemsTest {
                 .isEqualTo(Problems.RETRY_CHANGE_REQUEST);
         assertThat(Problems.retryFor(Problems.featureDisabled("files", "off")))
                 .isEqualTo(Problems.RETRY_NEEDS_OPERATOR);
+        assertThat(Problems.retryFor(Problems.of(HttpStatus.TOO_MANY_REQUESTS, Problems.TOO_MANY_IN_FLIGHT,
+                "Too many requests in flight", "busy"))).isEqualTo(Problems.RETRY_SAME_REQUEST);
         assertThat(Problems.retryFor(Problems.forStatus(429, null))).isEqualTo(Problems.RETRY_SAME_REQUEST);
         assertThat(Problems.retryFor(Problems.forStatus(401, null))).isEqualTo(Problems.RETRY_CHANGE_REQUEST);
         assertThat(Problems.retryFor(Problems.forStatus(403, null))).isEqualTo(Problems.RETRY_NEEDS_OPERATOR);

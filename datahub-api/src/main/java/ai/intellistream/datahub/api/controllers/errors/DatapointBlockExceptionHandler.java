@@ -10,23 +10,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.net.URI;
-
 /** Renders a refused binary datapoint request as an RFC 9457 problem, reason and frame included. */
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
 @Slf4j
 public class DatapointBlockExceptionHandler {
 
-    public static final String TYPE = "https://intellistream.ai/errors/datapoint-block-rejected";
-
     @ExceptionHandler(DatapointBlockRejectedException.class)
     public ResponseEntity<ProblemDetail> handle(DatapointBlockRejectedException ex) {
         log.info("Binary datapoint request rejected: {} ({})", ex.getReason(), ex.getMessage());
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(ex.getStatus(), ex.getMessage());
-        problem.setTitle("Datapoint block rejected");
-        problem.setType(URI.create(TYPE));
+        ProblemDetail problem = Problems.of(ex.getStatus(), ex.getType(), ex.getTitle(), ex.getMessage());
         problem.setProperty("reason", ex.getReason());
         if (ex.getFrameIndex() != null) {
             problem.setProperty("frameIndex", ex.getFrameIndex());

@@ -7,6 +7,7 @@ import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -85,7 +86,8 @@ class DatapointBinaryControllerTest {
                         .header(HttpHeaders.CONTENT_ENCODING, "gzip").content(frame()))
                 .andExpect(status().isUnsupportedMediaType())
                 .andExpect(jsonPath("$.reason").value("unsupported-content-encoding"))
-                .andExpect(jsonPath("$.type").value(DatapointBlockExceptionHandler.TYPE));
+                // The same type as a wrong Content-Type, which the framework answers without a reason.
+                .andExpect(jsonPath("$.type").value(Problems.UNSUPPORTED_MEDIA_TYPE.toString()));
         verify(service, never()).ingest(any(), anyLong());
     }
 
@@ -95,6 +97,8 @@ class DatapointBinaryControllerTest {
                 .thenThrow(DatapointBlockRejectedException.valueTypeMismatch(2, List.of(7L, 9L)));
         mvc.perform(post("/timeseries/data/binary").contentType(FrameLimits.MEDIA_TYPE).content(frame()))
                 .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.type").value(Problems.VALUE_TYPE_MISMATCH.toString()))
+                .andExpect(jsonPath("$.title").value("Value type mismatch"))
                 .andExpect(jsonPath("$.reason").value("value-type-mismatch"))
                 .andExpect(jsonPath("$.frameIndex").value(2))
                 .andExpect(jsonPath("$.timeseriesIds[0]").value(7))
@@ -107,6 +111,7 @@ class DatapointBinaryControllerTest {
         mvc.perform(post("/timeseries/data/binary").contentType(FrameLimits.MEDIA_TYPE).content(frame()))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string(HttpHeaders.RETRY_AFTER, "1"))
+                .andExpect(jsonPath("$.type").value(Problems.TOO_MANY_IN_FLIGHT.toString()))
                 .andExpect(jsonPath("$.reason").value("too-many-in-flight"));
     }
 }

@@ -214,7 +214,7 @@ class DatapointBinaryIngestServiceTest {
 
         assertThatThrownBy(() -> ingest(service, body, body.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
-                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
                     assertThat(e.getReason()).isEqualTo("value-type-mismatch");
                     assertThat(e.getFrameIndex()).isZero();
                     assertThat(e.getTimeseriesIds()).containsExactly(1L);
@@ -229,7 +229,7 @@ class DatapointBinaryIngestServiceTest {
 
         assertThatThrownBy(() -> ingest(service, body, body.length))
                 .isInstanceOfSatisfying(DatapointBlockRejectedException.class, e -> {
-                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+                    assertThat(e.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
                     assertThat(e.getReason()).isEqualTo("external-id-mismatch");
                 });
         verify(producer, never()).newMessage();

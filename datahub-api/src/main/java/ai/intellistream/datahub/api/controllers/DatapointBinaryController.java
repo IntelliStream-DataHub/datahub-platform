@@ -3,9 +3,12 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DatapointBlockProblem;
 import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
@@ -70,19 +73,26 @@ public class DatapointBinaryController {
                     """)
     @ApiResponse(responseCode = "204", description = "Every frame was accepted and published.")
     @ApiResponse(responseCode = "400", description = "A frame is malformed, unsorted, uncompressed or fails the schema; the `reason` says which.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = DatapointBlockProblem.class)))
     @ApiResponse(responseCode = "403", description = "The caller may not write one of the series' datasets.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = ApiProblem.class)))
     @ApiResponse(responseCode = "404", description = "A series id does not exist; `timeseriesIds` lists them.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = DatapointBlockProblem.class)))
     @ApiResponse(responseCode = "413", description = "Over a size cap: the body, a frame, the request's decompressed total or the frame count.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = DatapointBlockProblem.class)))
     @ApiResponse(responseCode = "415", description = "Wrong media type, or a `Content-Encoding` header.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = DatapointBlockProblem.class)))
     @ApiResponse(responseCode = "422", description = "A series has another value type or external id than the frame claims; `timeseriesIds` lists them.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = DatapointBlockProblem.class)))
     @ApiResponse(responseCode = "429", description = "Too many binary requests in flight on this instance, or a quota; retry after `Retry-After`.",
-            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE))
+            content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
+                    schema = @Schema(implementation = DatapointBlockProblem.class)))
     @ApiResponse(responseCode = "500", description = "Publishing failed partway; some frames may be stored. Retrying the whole request is safe.")
     @PostMapping(path = "/binary", consumes = FrameLimits.MEDIA_TYPE)
     public ResponseEntity<Void> insertBinary(HttpServletRequest request) throws IOException {

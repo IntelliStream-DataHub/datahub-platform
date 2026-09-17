@@ -78,6 +78,17 @@ public final class Problems {
     public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
     public static final URI FEATURE_DISABLED = type("feature-disabled");
 
+    /** A 400: a binary datapoint frame breaks the frame format; {@code reason} says how. */
+    public static final URI INVALID_FRAME = type("invalid-frame");
+    /** A 404: a binary datapoint frame names series this tenant does not have. */
+    public static final URI UNKNOWN_TIMESERIES = type("unknown-timeseries");
+    /** A 422: series in a binary frame have another value type than the frame declares. */
+    public static final URI VALUE_TYPE_MISMATCH = type("value-type-mismatch");
+    /** A 422: series in a binary frame have another external id than its directory says; a stale client cache. */
+    public static final URI EXTERNAL_ID_MISMATCH = type("external-id-mismatch");
+    /** A 429: this instance is already validating as many binary datapoint requests as it allows. */
+    public static final URI TOO_MANY_IN_FLIGHT = type("too-many-in-flight");
+
     /** {@code retry}: the same request can succeed later; honour Retry-After when it is sent. */
     public static final String RETRY_SAME_REQUEST = "same-request";
     /** {@code retry}: only a different request can succeed. */
@@ -381,7 +392,7 @@ public final class Problems {
         String slug = type.startsWith(BASE) ? type.substring(BASE.length()) : "";
         return switch (slug) {
             case "optimistic-lock", "rate-limit-exceeded", "ingest-quota-exceeded", "messaging-unavailable",
-                 "permissions-unavailable", "tenant-provisioning" -> RETRY_SAME_REQUEST;
+                 "permissions-unavailable", "tenant-provisioning", "too-many-in-flight" -> RETRY_SAME_REQUEST;
             case "unknown-tenant", "tenant-limit-reached", "feature-disabled", "dataset-forbidden", "internal" ->
                     RETRY_NEEDS_OPERATOR;
             default -> {
