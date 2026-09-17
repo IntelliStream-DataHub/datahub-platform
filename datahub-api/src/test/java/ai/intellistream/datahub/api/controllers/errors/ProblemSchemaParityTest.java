@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.api.controllers.errors;
 
 import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DatapointBlockProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.PartialWriteProblem;
@@ -9,6 +10,7 @@ import ai.intellistream.datahub.api.controllers.errors.schema.RestoreRefusedProb
 import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 import ai.intellistream.datahub.api.filters.RequestIdFilter;
 import ai.intellistream.datahub.validation.FieldValidationError;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,6 +25,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.net.URI;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -95,6 +99,10 @@ class ProblemSchemaParityTest {
                                                 new SQLException("duplicate key"), "label_hash_key")))},
                 new Object[] {"optimistic-lock", DuplicateProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.conflict(Problems.OPTIMISTIC_LOCK, "Retry.")},
+                new Object[] {"datapoint-block", DatapointBlockProblem.class,
+                        (Supplier<ProblemDetail>) () -> new DatapointBlockExceptionHandler().handle(
+                                DatapointBlockRejectedException.externalIdMismatch(3, List.of(1041L, 1042L)))
+                                .getBody()},
                 new Object[] {"delete-refused", DeleteRefusedProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.deleteBlocked(Problems.REFERENCED,
                                 "Still referenced.",
@@ -142,11 +150,31 @@ class ProblemSchemaParityTest {
         everyEmitted.add("missing");
 
         for (Class<?> schema : List.of(ApiProblem.class, ValidationProblem.class, DuplicateProblem.class,
-                DeleteRefusedProblem.class, PartialWriteProblem.class, RestoreRefusedProblem.class)) {
+                DeleteRefusedProblem.class, PartialWriteProblem.class, RestoreRefusedProblem.class,
+                DatapointBlockProblem.class)) {
             assertThat(everyEmitted)
                     .as("%s declares a member nothing produces — a promise the API cannot keep",
                             schema.getSimpleName())
                     .containsAll(declaredFields(schema));
+        }
+    }
+
+    /**
+     * The published list of types is what a client writes its branches against, and nothing
+     * stopped a new constant from missing it, so every one on {@link Problems} must appear.
+     */
+    @Test
+    @DisplayName("the schema lists every problem type Problems declares")
+    void everyDeclaredTypeIsListed() throws Exception {
+        String listed = ApiProblem.class.getDeclaredField("type").getAnnotation(Schema.class).description();
+        for (Field field : Problems.class.getDeclaredFields()) {
+            if (!URI.class.equals(field.getType()) || !Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            String slug = field.get(null).toString().substring(Problems.BASE.length());
+            assertThat(listed)
+                    .as("ApiProblem.type does not list %s (%s)", field.getName(), slug)
+                    .contains("`.../errors/" + slug + "`");
         }
     }
 

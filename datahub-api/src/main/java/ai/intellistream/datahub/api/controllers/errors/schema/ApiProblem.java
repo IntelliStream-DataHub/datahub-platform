@@ -35,13 +35,17 @@ public class ApiProblem {
             `.../errors/bad-request`, `.../errors/validation-failed`, \
             `.../errors/constraint-violation`, `.../errors/unreadable-request-body`, \
             `.../errors/filter-expression`, `.../errors/malformed-cursor`, \
-            `.../errors/naming-policy`, `.../errors/unauthorized`, `.../errors/token-rejected`, \
+            `.../errors/naming-policy`, `.../errors/invalid-frame`, \
+            `.../errors/unauthorized`, `.../errors/token-rejected`, \
             `.../errors/forbidden`, `.../errors/dataset-forbidden`, `.../errors/feature-disabled`, \
-            `.../errors/unknown-tenant`, `.../errors/not-found`, `.../errors/method-not-allowed`, \
+            `.../errors/unknown-tenant`, `.../errors/not-found`, `.../errors/unknown-timeseries`, \
+            `.../errors/method-not-allowed`, \
             `.../errors/not-acceptable`, `.../errors/unsupported-media-type`, \
             `.../errors/duplicate`, `.../errors/conflict`, `.../errors/optimistic-lock`, \
             `.../errors/referenced`, `.../errors/would-strand`, `.../errors/request-too-large`, \
-            `.../errors/rate-limit-exceeded`, `.../errors/ingest-quota-exceeded`, \
+            `.../errors/value-type-mismatch`, `.../errors/external-id-mismatch`, \
+            `.../errors/rate-limit-exceeded`, `.../errors/too-many-in-flight`, \
+            `.../errors/ingest-quota-exceeded`, \
             `.../errors/tenant-limit-reached`, `.../errors/tenant-provisioning`, \
             `.../errors/permissions-unavailable`, `.../errors/messaging-unavailable`, \
             `.../errors/internal`. \
