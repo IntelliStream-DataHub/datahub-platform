@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.converter.ByteArrayHttpMessageConverter;
 import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.HttpMessageConverters;
 import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.http.converter.json.JacksonJsonHttpMessageConverter;
 import org.jspecify.annotations.NonNull;
@@ -51,11 +52,19 @@ public class StrictRequestBodyConfig implements WebMvcConfigurer {
     }
 
     /**
-     * Extend rather than configure: the default converter list is already built, so replacing the
-     * Jackson one in place leaves ordering and every other converter untouched.
+     * Swaps the converter in the finished list rather than naming a JSON converter on the builder.
+     *
+     * <p>{@code withJsonConverter} would race Spring Boot, whose own configurer sets the JSON converter
+     * on the same builder, and whichever of the two runs last would win. A list configurer runs inside
+     * {@code build()}, after every configurer has had its turn, so it sees the converter Boot settled
+     * on and replaces it in place, leaving ordering and every other converter untouched.
      */
     @Override
-    public void extendMessageConverters(@NonNull List<HttpMessageConverter<?>> converters) {
+    public void configureMessageConverters(HttpMessageConverters.@NonNull ServerBuilder builder) {
+        builder.configureMessageConvertersList(this::replaceJacksonConverter);
+    }
+
+    void replaceJacksonConverter(List<HttpMessageConverter<?>> converters) {
         int replaced = 0;
         for (int i = 0; i < converters.size(); i++) {
             if (converters.get(i) instanceof JacksonJsonHttpMessageConverter) {
