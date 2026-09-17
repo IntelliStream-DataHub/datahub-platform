@@ -8,7 +8,13 @@ import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.sdk.ingest.DatapointSpool;
 import ai.intellistream.datahub.sdk.ingest.DurableSpool;
 import ai.intellistream.datahub.sdk.services.DatasetService;
+import ai.intellistream.datahub.sdk.services.AssetService;
 import ai.intellistream.datahub.sdk.services.EdgeService;
+import ai.intellistream.datahub.sdk.services.FunctionService;
+import ai.intellistream.datahub.sdk.services.GovernanceService;
+import ai.intellistream.datahub.sdk.services.LabelService;
+import ai.intellistream.datahub.sdk.services.PolicyService;
+import ai.intellistream.datahub.sdk.services.TenantService;
 import ai.intellistream.datahub.sdk.services.EventService;
 import ai.intellistream.datahub.sdk.services.FileService;
 import ai.intellistream.datahub.sdk.services.ResourceService;
@@ -40,6 +46,12 @@ public final class DatahubClient {
     private final UnitService units;
     private final FileService files;
     private final SubscriptionService subscriptions;
+    private final AssetService assets;
+    private final FunctionService functions;
+    private final LabelService labels;
+    private final PolicyService policies;
+    private final GovernanceService governance;
+    private final TenantService tenant;
 
     public DatahubClient(DatahubConfig config) {
         this(config, HttpClient.newHttpClient());
@@ -63,6 +75,12 @@ public final class DatahubClient {
         this.units = new UnitService(api);
         this.files = new FileService(api);
         this.subscriptions = new SubscriptionService(api);
+        this.assets = new AssetService(api);
+        this.functions = new FunctionService(api);
+        this.labels = new LabelService(api);
+        this.policies = new PolicyService(api);
+        this.governance = new GovernanceService(api);
+        this.tenant = new TenantService(api);
 
         // Durable ingest buffering (off unless the config opts in). Datapoints and events each get
         // their own spool file under the buffer directory, sharing the same retention bounds.
@@ -127,5 +145,35 @@ public final class DatahubClient {
 
     public SubscriptionService subscriptions() {
         return subscriptions;
+    }
+
+    /** Assets — the {@code ASSET}-labelled resources, typed. */
+    public AssetService assets() {
+        return assets;
+    }
+
+    /** Functions — the {@code FUNCTION}-labelled resources, typed. */
+    public FunctionService functions() {
+        return functions;
+    }
+
+    /** Labels — the tenant-wide vocabulary resources and timeseries are categorised by. */
+    public LabelService labels() {
+        return labels;
+    }
+
+    /** Policies — the rules a data set is held to. */
+    public PolicyService policies() {
+        return policies;
+    }
+
+    /** Governance templates — the compliance rules a data set can be held to. */
+    public GovernanceService governance() {
+        return governance;
+    }
+
+    /** Your own tenant: enabled features and self-administered settings. */
+    public TenantService tenant() {
+        return tenant;
     }
 }

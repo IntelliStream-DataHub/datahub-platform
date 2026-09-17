@@ -5,6 +5,8 @@ import ai.intellistream.datahub.api.responses.DataCollection;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
+import ai.intellistream.datahub.api.responses.ValueTypeRecommendation;
+import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.jpa.dto.DatapointAggsDTO;
 import ai.intellistream.datahub.models.DeleteDatapoint;
 import ai.intellistream.datahub.models.IdCollection;
@@ -28,6 +30,8 @@ import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -49,8 +53,9 @@ public final class TimeseriesService {
     private final BinaryDatapointIngestor binaryIngestor;
     private final DatapointSpool spool;      // nullable: durable buffering disabled
     private final JavaType timeseries;       // DataWrapper<Timeseries>
-    private final JavaType strings;          // DataWrapper<String>
     private final JavaType datapoints;       // DataWrapper<DatapointsCollection>
+    private final JavaType latestPoints;     // DataWrapper<DataCollection<DatapointString>>
+    private final JavaType valueTypeHint;    // ValueTypeRecommendation
     private final JavaType aggregatedData;   // DataWrapper<DataCollection<DatapointAggsDTO>>
 
     public TimeseriesService(ApiHttp http) {
@@ -65,8 +70,10 @@ public final class TimeseriesService {
         this.binaryIngestor = new BinaryDatapointIngestor(http, seriesResolver);
         TypeFactory tf = http.typeFactory();
         this.timeseries = tf.constructParametricType(DataWrapper.class, Timeseries.class);
-        this.strings = tf.constructParametricType(DataWrapper.class, String.class);
         this.datapoints = tf.constructParametricType(DataWrapper.class, DatapointsCollection.class);
+        this.latestPoints = tf.constructParametricType(DataWrapper.class,
+                tf.constructParametricType(DataCollection.class, DatapointString.class));
+        this.valueTypeHint = tf.constructType(ValueTypeRecommendation.class);
         this.aggregatedData = tf.constructParametricType(DataWrapper.class,
                 tf.constructParametricType(DataCollection.class, DatapointAggsDTO.class));
     }
@@ -99,9 +106,56 @@ public final class TimeseriesService {
     /**
      * POST /timeseries/delete — delete timeseries (and their datapoints) by id or external id.
      * Any referencing subscriptions or edges must be removed first, or the backend responds 409.
+     *
+     * <p>The endpoint answers {@code 204} with no body, so there is nothing to return.
      */
-    public DataWrapper<Timeseries> delete(List<IdCollection> ids) {
-        return http.post("/timeseries/delete", new DataWrapper<IdCollection>().setItems(ids), timeseries);
+    public void delete(List<IdCollection> ids) {
+        http.send("POST", "/timeseries/delete", new DataWrapper<IdCollection>().setItems(ids));
+    }
+
+    /**
+     * GET /timeseries — the first {@code limit} series, newest created first, with no criteria.
+     *
+     * <p>The cheap "what have I got" read. Anything narrower is
+     * {@link #filter(ai.intellistream.datahub.models.datafilters.TimeseriesFilter)}.
+     */
+    public DataWrapper<Timeseries> list(int limit) {
+        return http.get("/timeseries?limit=" + limit, timeseries);
+    }
+
+    /**
+     * {@link #list(int)} restricted to one data set and every data set beneath it in the
+     * {@code BELONGS_TO} hierarchy.
+     *
+     * <p>Numeric id only: this endpoint rejects an external id with a {@code 400}, unlike
+     * {@link #filter(ai.intellistream.datahub.models.datafilters.TimeseriesFilter)}, whose
+     * {@code dataSetId} takes either.
+     */
+    public DataWrapper<Timeseries> list(int limit, long dataSetId) {
+        return http.get("/timeseries?limit=" + limit + "&dataSetId=" + dataSetId, timeseries);
+    }
+
+    /**
+     * POST /timeseries/update — change fields on series that already exist. Only the fields named
+     * in each entry's {@code update} block change; identify the series by {@code id} or
+     * {@code externalId}.
+     */
+    public DataWrapper<Timeseries> update(List<UpdateTimeseries> updates) {
+        return http.post("/timeseries/update",
+                new DataWrapper<UpdateTimeseries>().setItems(updates), timeseries);
+    }
+
+    /**
+     * GET /timeseries/recommend-value-type/{unitExternalId} — which {@code valueType} suits a unit.
+     *
+     * <p>A hint for a create form, not a constraint: {@link #create(List)} takes whatever you set.
+     * Always answers {@code 200}, so read {@code recognized} rather than catching a 404 — a unit
+     * the recommender does not know gets the generic analog default ({@code FLOAT32}) with
+     * {@code recognized} false, which is the case worth surfacing to whoever is filling the form.
+     */
+    public ValueTypeRecommendation recommendValueType(String unitExternalId) {
+        return http.get("/timeseries/recommend-value-type/"
+                + URLEncoder.encode(unitExternalId, StandardCharsets.UTF_8), valueTypeHint);
     }
 
     /** POST /timeseries/byids */
@@ -195,6 +249,27 @@ public final class TimeseriesService {
     }
 
     /**
+     * POST /timeseries/data/latest — the most recent point of each named series, by id or external
+     * id.
+     *
+     * <p>A series that holds no datapoints is <em>omitted</em>, not answered with an empty
+     * collection, so compare what came back against what you asked for rather than indexing into
+     * the result positionally.
+     *
+     * <p>Cheaper than {@link #retrieve(DataRetriever)} with a limit of one: the point is served
+     * from the cache the ingest path writes, falling back to a single-row ClickHouse lookup when
+     * that is cold rather than scanning a range.
+     *
+     * <p>The point comes back as a {@link DatapointString}, the same timestamp-and-value-as-text
+     * pair the datapoint reads use, because a series' value type decides how to read {@code value}
+     * and only the caller knows which series it asked about.
+     */
+    public DataWrapper<DataCollection<DatapointString>> latest(List<IdCollection> ids) {
+        return http.post("/timeseries/data/latest",
+                new DataWrapper<IdCollection>().setItems(ids), latestPoints);
+    }
+
+    /**
      * POST /timeseries/data/delete — clear a window of datapoints from each named series, leaving
      * the series themselves alone. To remove those as well, use {@link #delete(List)}.
      *
@@ -243,9 +318,13 @@ public final class TimeseriesService {
     /**
      * Insert datapoints in a single request (no chunking). Fine for small volumes; for large or
      * unbounded amounts prefer {@link #ingest(List)} / {@link #ingest(List, IngestOptions)}.
+     *
+     * <p>Returns once the api has accepted every point: the endpoint answers {@code 204} with no
+     * body, and a series that does not exist is a {@link
+     * ai.intellistream.datahub.sdk.http.DatahubApiException} rather than a partial success.
      */
-    public DataWrapper<String> insertDatapoints(List<DatapointsCollection> data) {
-        return http.post(DATA_PATH, new DataWrapper<DatapointsCollection>().setItems(data), strings);
+    public void insertDatapoints(List<DatapointsCollection> data) {
+        http.send("POST", DATA_PATH, new DataWrapper<DatapointsCollection>().setItems(data));
     }
 
     /** Ingest datapoints concurrently with the default {@link IngestOptions}. */

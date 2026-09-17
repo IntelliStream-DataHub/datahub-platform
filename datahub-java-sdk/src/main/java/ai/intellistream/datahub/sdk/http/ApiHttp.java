@@ -66,13 +66,28 @@ public final class ApiHttp {
         return exchange("POST", path, body, responseType);
     }
 
-    public <T> T delete(String path, Object body, JavaType responseType) {
-        return exchange("DELETE", path, body, responseType);
-    }
-
     /** A request whose response body is ignored (e.g. delete/void endpoints). */
     public void send(String method, String path, Object body) {
         exchange(method, path, body, null);
+    }
+
+    /** PUT with a JSON body — e.g. replacing a settings document. */
+    public <T> T put(String path, Object body, JavaType responseType) {
+        return exchange("PUT", path, body, responseType);
+    }
+
+    /**
+     * POST a raw byte body under an explicit content type — e.g. streaming a graph export file
+     * back into {@code /resources/import}, which consumes {@code application/octet-stream}.
+     */
+    public <T> T postBytes(String path, byte[] body, String contentType, JavaType responseType) {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Authorization", "Bearer " + tokenProvider.getToken())
+                .header("Accept", "application/json")
+                .header("Content-Type", contentType)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build();
+        return parse(sendString(request, "POST", path), responseType, "POST", path);
     }
 
     /** GET returning the raw response body — e.g. a file download. */

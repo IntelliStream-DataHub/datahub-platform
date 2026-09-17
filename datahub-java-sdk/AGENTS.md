@@ -44,8 +44,11 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   assertion source is configured. The assertion is re-requested per exchange, never cached,
   because providers commonly reject a replayed one.
 - `http/` — shared plumbing: `ApiHttp` request helpers, `DatahubApiException` error mapping.
-- `services/` — one class per API area: resources, timeseries, datasets, events, units, files,
-  subscriptions.
+- `services/` — one class per API area: resources, assets, functions, timeseries, datasets,
+  events, labels, policies, governance, tenant, units, files, subscriptions. `assets` and
+  `functions` are the typed views of the `ASSET`/`FUNCTION` corners of the same graph `resources`
+  serves polymorphically; `labels` reads and writes through `LabelForm`, which is
+  `@Schema(name = "Label")` and is the label wire shape on both sides.
 - `ingest/` — batched ingestion plus the durable disk spool (`DatapointIngestor`,
   `EventIngestor`, `DurableSpool`, `BatchExecutor`), and the binary path
   (`BinaryDatapointIngestor`, `BinaryIngestOptions`, `BinaryIngestBuffer`, `SeriesResolver`).
@@ -58,6 +61,15 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 - Unit tests spin up a JDK `com.sun.net.httpserver.HttpServer` on a random loopback port and
   point a real `DatahubClient` at it — no mocking framework. Follow that pattern for new
   service tests. Run with `./gradlew :datahub-java-sdk:test`.
+- **`SdkWireContractTest` is the table every call belongs in.** One row per endpoint, asserting
+  the verb and path against what the controller maps, and re-binding the request body into the
+  controller's `@RequestBody` type with `FAIL_ON_UNKNOWN_PROPERTIES` on, which is what
+  `StrictRequestBodyConfig` does server-side. Add a row when you add a call: the older tests
+  assert on responses, so they pass a call that could only ever have returned a 400 (which is how
+  `units().byIds` and `events().byIds` shipped unusable).
+- **A `204` endpoint is typed `void`.** `ApiHttp` returns null for a 204, so a declared wrapper is
+  a null a caller dereferences. `NoContentResponseTest` stubs the real 204 and asserts the return
+  type for all nine.
 - `SubscriptionListenIT` is end-to-end (ingest → Pulsar fan-out → subscription delivery) and
   needs a running backend; it is gated behind `RUN_LISTEN_TESTS=1` and configured through
   `BASE_URL`/`TOKEN` like `fromEnv()`.
