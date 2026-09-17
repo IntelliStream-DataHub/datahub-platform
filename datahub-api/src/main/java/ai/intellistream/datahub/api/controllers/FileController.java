@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.datasecurity.DatasetAccessDeniedException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FileDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
@@ -172,6 +173,11 @@ public class FileController {
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
                     schema = @Schema(implementation = FileDataWrapper.class)
             ))
+    @ApiResponse(responseCode = "403", description = "No write permission on the file's dataset, or on the destination folder's.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
+            ))
     @ApiResponse(responseCode = "400", description = "Invalid upload request.",
             content = @Content(
                     mediaType = "application/problem+json",
@@ -258,11 +264,7 @@ public class FileController {
             // the caller must have write permission to the target dataset.
             Long uploadDataSetId = datahubFile.getDataSet() != null ? datahubFile.getDataSet().getId() : null;
             if (uploadDataSetId != null && !dataSecurity.hasWritePermissionToDataSet(uploadDataSetId)) {
-                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                return new ResponseEntity<>(
-                        Problems.forbidden("No write permission for data set " + uploadDataSetId + "."),
-                        HttpStatus.FORBIDDEN
-                );
+                throw new DatasetAccessDeniedException("write", uploadDataSetId);
             }
 
             // Adding content under an existing folder requires write access to that folder's
@@ -272,12 +274,7 @@ public class FileController {
             if (targetFolder != null && targetFolder.getDataSet() != null) {
                 Long parentDataSetId = targetFolder.getDataSet().getId();
                 if (!dataSecurity.hasWritePermissionToDataSet(parentDataSetId)) {
-                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                    return new ResponseEntity<>(
-                            Problems.forbidden("No write permission for data set " + parentDataSetId
-                                    + ", which the destination folder belongs to."),
-                            HttpStatus.FORBIDDEN
-                    );
+                    throw new DatasetAccessDeniedException("write", parentDataSetId);
                 }
             }
 
