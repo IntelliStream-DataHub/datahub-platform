@@ -40,6 +40,7 @@ public class ApiProblem {
             `.../errors/unknown-tenant`, `.../errors/not-found`, `.../errors/method-not-allowed`, \
             `.../errors/not-acceptable`, `.../errors/unsupported-media-type`, \
             `.../errors/duplicate`, `.../errors/conflict`, `.../errors/optimistic-lock`, \
+            `.../errors/restore-refused`, \
             `.../errors/referenced`, `.../errors/would-strand`, `.../errors/request-too-large`, \
             `.../errors/rate-limit-exceeded`, `.../errors/ingest-quota-exceeded`, \
             `.../errors/tenant-limit-reached`, `.../errors/tenant-provisioning`, \

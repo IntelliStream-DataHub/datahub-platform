@@ -100,11 +100,8 @@ class ProblemSchemaParityTest {
                                 "Still referenced.",
                                 List.of(Map.of("subscriptionExternalId", "fleet_dashboard")))},
                 new Object[] {"restore-refused", RestoreRefusedProblem.class,
-                        (Supplier<ProblemDetail>) () -> {
-                            ProblemDetail problem = Problems.conflict(null, "Its original folder is gone.");
-                            problem.setProperty("reason", "folder-missing");
-                            return problem;
-                        }},
+                        (Supplier<ProblemDetail>) () -> Problems.restoreRefused("folder-missing",
+                                "Its original folder is gone.")},
                 new Object[] {"not-found", ApiProblem.class,
                         (Supplier<ProblemDetail>) () -> Problems.notFound("Gone.")},
                 new Object[] {"internal", ApiProblem.class,

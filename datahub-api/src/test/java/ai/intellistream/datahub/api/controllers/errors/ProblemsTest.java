@@ -176,6 +176,8 @@ class ProblemsTest {
         assertThat(Problems.retryFor(Problems.forStatus(401, null))).isEqualTo(Problems.RETRY_CHANGE_REQUEST);
         assertThat(Problems.retryFor(Problems.forStatus(403, null))).isEqualTo(Problems.RETRY_NEEDS_OPERATOR);
         assertThat(Problems.retryFor(Problems.forStatus(500, null))).isEqualTo(Problems.RETRY_NEEDS_OPERATOR);
+        assertThat(Problems.retryFor(Problems.restoreRefused("folder-missing", "gone")))
+                .isEqualTo(Problems.RETRY_CHANGE_REQUEST);
     }
 
 }
