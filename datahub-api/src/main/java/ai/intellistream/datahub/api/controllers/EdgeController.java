@@ -41,7 +41,9 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Collection;
 import java.util.List;
-import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 
 @RestController
 @RequestMapping("/edges")
@@ -75,7 +77,7 @@ public class EdgeController {
             "No relationship with this id exists, or you lack read access to it.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(
@@ -108,7 +110,7 @@ public class EdgeController {
     @ApiResponse(responseCode = "404", description = "None of the given ids match a relationship.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/byids", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> byIds(
@@ -167,7 +169,7 @@ public class EdgeController {
                     "rules forbid.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = ValidationProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -260,7 +262,7 @@ public class EdgeController {
             "A type name was rejected — for example one that normalises down to nothing.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "A relationship type with the same (case-insensitive) name already exists.", content = @Content)
@@ -311,7 +313,7 @@ public class EdgeController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/would-strand",

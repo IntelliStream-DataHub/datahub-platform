@@ -33,12 +33,15 @@ import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Set;
-import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 
 @RestController
 @RequestMapping("/events")
@@ -73,7 +76,7 @@ public class EventController {
             "No event with this id exists, or it belongs to a tenant you can't read.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(@NotNull @Parameter(description = "UUID of the event to look up.", example = "0195f3a2-4c1b-7f9e-9c3a-1b2d4e6f8a90") @PathVariable("id") String id){
@@ -152,7 +155,7 @@ public class EventController {
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -357,13 +360,13 @@ public class EventController {
                     "`id` and `externalId` name different resources.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "An event with one of the `externalId`s already exists. Pick a different one.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/create",
@@ -442,7 +445,7 @@ public class EventController {
                     "`set` and `setNull` both present on the same field.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "429", description = "Too many requests — back off and retry.",
             content = @Content)
@@ -498,7 +501,7 @@ public class EventController {
     @ApiResponse(responseCode = "400", description = "Malformed request — e.g. neither `id` nor `externalId` supplied on an entry.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @RequestMapping(
             path = "/delete",

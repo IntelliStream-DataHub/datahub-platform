@@ -34,13 +34,17 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 
 @RestController
 @RequestMapping("/resources")
@@ -91,7 +95,7 @@ public class ResourceController {
                     "Double-check the id and your API token's tenant.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/{id}", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> get(@Parameter(description = "Numeric id of the resource.", example = "5677892") @PathVariable("id") Long id){
@@ -131,7 +135,7 @@ public class ResourceController {
             "The starting resource was not found. Check `id` / `externalId` and your tenant.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/fetch-related", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchRelatedResources(@RequestBody RelatedResourcesForm form) {
@@ -168,7 +172,7 @@ public class ResourceController {
                     + "and your tenant.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/fetch-nearest", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
     public ResponseEntity<?> fetchNearestResources(@RequestBody FetchNearestResourcesForm form) {
@@ -244,7 +248,7 @@ public class ResourceController {
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> list(
@@ -403,7 +407,7 @@ public class ResourceController {
                     "lists the offending fields.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             )
     )
     @RequestMapping(value = "/search", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
@@ -503,7 +507,7 @@ public class ResourceController {
                     "`fields` list tells you which input was wrong.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = ValidationProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -522,7 +526,7 @@ public class ResourceController {
                     "`externalId`, or use `POST /resources/update` to modify the existing resource.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DuplicateProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -641,7 +645,7 @@ public class ResourceController {
                     "was wrong.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = ValidationProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -660,7 +664,7 @@ public class ResourceController {
                     "and retry the update with fresh state.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DuplicateProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "error": {
@@ -755,7 +759,7 @@ public class ResourceController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/would-strand",

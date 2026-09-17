@@ -43,6 +43,10 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 @Slf4j
 @RestController
@@ -80,7 +84,7 @@ public class PolicyController {
     @ApiResponse(responseCode = "400", description = "`limit` is not a positive integer \u2264 10000.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> listPolicies(
@@ -222,7 +226,7 @@ public class PolicyController {
             """,
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class),
+                    schema = @Schema(implementation = DeleteRefusedProblem.class),
                     examples = @ExampleObject(value = """
                             {
                               "type": "https://intellistream.ai/errors/would-strand",
@@ -300,14 +304,14 @@ public class PolicyController {
     @ApiResponse(responseCode = "400", description = "The request carried no policies, or one failed validation.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "409", description =
             "Concurrency conflict — another request modified or deleted the policy " +
                     "between read and write. Clients should re-fetch the current state and retry.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     public ResponseEntity<?> updatePolicy(
             @Schema(implementation = UpdatePolicyDataWrapper.class)
@@ -368,7 +372,7 @@ public class PolicyController {
     @ApiResponse(responseCode = "403", description = "No read access to the requested data set.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     public ResponseEntity<Map<String, List<PolicyFinding>>> check(
             @RequestBody @Valid NamingCheckForm form) {

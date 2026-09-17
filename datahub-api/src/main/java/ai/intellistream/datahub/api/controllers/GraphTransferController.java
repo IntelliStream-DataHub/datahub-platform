@@ -29,6 +29,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
 import java.io.InputStream;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
+import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 
 /**
  * Export / import of a resource graph component as a portable binary file. Split out of
@@ -71,14 +73,14 @@ public class GraphTransferController {
             "The starting resource was not found. Check `id` and your tenant.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @ApiResponse(responseCode = "400", description =
             "The component is over the export limit (2,000,000 nodes / 2,000,000 relationships). "
                     + "Nothing is exported partially.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @GetMapping(value = "/export/{id}", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<?> export(
@@ -148,14 +150,14 @@ public class GraphTransferController {
             "The body is not a readable graph export file, or its content failed validation.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ValidationProblem.class)
             ))
     @ApiResponse(responseCode = "413", description =
             "The file is over a transfer limit: larger than 512 MB, or more than 2,000,000 nodes "
                     + "or 2,000,000 relationships. Nothing is imported.",
             content = @Content(
                     mediaType = "application/problem+json",
-                    schema = @Schema(implementation = ProblemDetail.class)
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @PostMapping(value = "/import",
             consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE,
