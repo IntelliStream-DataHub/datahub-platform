@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.validation.FieldLimits;
@@ -295,7 +296,7 @@ class TimeseriesServiceInsertDatapointsTest {
         // NumberFormatException used to escape as a 500; it is the caller's payload, so it is a 422.
         known("pump-1", 1L, "FLOAT");
 
-        assertThrows(InvalidDatapointException.class, () -> timeseriesService.insertDatapoints(request(
+        assertThrows(InvalidTimestampException.class, () -> timeseriesService.insertDatapoints(request(
                 collection("pump-1", point("last tuesday", "1.0")))));
 
         verify(allDatapointProducer, never()).send(any(DataWrapperBin.class));

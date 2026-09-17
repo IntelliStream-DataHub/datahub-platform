@@ -2,9 +2,11 @@
 package ai.intellistream.datahub.api.controllers.errors;
 
 /**
- * A datapoint the caller can fix: a value that does not parse against its timeseries' declared
- * {@code valueType}, or a timestamp that is neither ISO-8601 nor epoch milliseconds. This is what
- * {@code POST /timeseries/data} answers 422 for.
+ * A datapoint value that does not parse against its timeseries' declared {@code valueType} — text
+ * sent to a {@code BIGINT} series, {@code NaN} to a {@code NUMERIC} one. This is one of the two
+ * things {@code POST /timeseries/data} answers 422 for; a timestamp in neither accepted form is
+ * {@link InvalidTimestampException}, which answers the same status everywhere a timestamp is read
+ * rather than only here.
  *
  * <p>It exists so that answer is reserved for the caller's own payload. Every one of these used to
  * be a bare {@link RuntimeException}, which since the catch-alls were removed means a 500 — and a

@@ -34,7 +34,7 @@ public class ApiProblem {
             The problem type, and the only member worth branching on. Known values: \
             `.../errors/bad-request`, `.../errors/validation-failed`, \
             `.../errors/constraint-violation`, `.../errors/unreadable-request-body`, \
-            `.../errors/invalid-datapoint`, \
+            `.../errors/invalid-datapoint`, `.../errors/invalid-timestamp`, \
             `.../errors/filter-expression`, `.../errors/malformed-cursor`, \
             `.../errors/naming-policy`, `.../errors/unauthorized`, `.../errors/token-rejected`, \
             `.../errors/forbidden`, `.../errors/dataset-forbidden`, `.../errors/feature-disabled`, \

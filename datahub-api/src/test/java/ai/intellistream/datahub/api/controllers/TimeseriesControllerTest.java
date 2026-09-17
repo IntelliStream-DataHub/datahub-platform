@@ -4,6 +4,8 @@ package ai.intellistream.datahub.api.controllers;
 import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointException;
 import ai.intellistream.datahub.api.controllers.errors.MessagingUnavailableExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConstraintViolationExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConcurrencyExceptionHandler;
@@ -81,6 +83,7 @@ class TimeseriesControllerTest {
                         new DuplicateDataExceptionHandler(),
                         new ConstraintViolationExceptionHandler(),
                         new InvalidDatapointExceptionHandler(),
+                        new InvalidTimestampExceptionHandler(),
                         new MessagingUnavailableExceptionHandler(),
                         new RequestBodyValidationExceptionHandler(),
                         // Supplies requestId and retry, exactly as in production.
@@ -345,6 +348,24 @@ class TimeseriesControllerTest {
                 .andExpect(jsonPath("$.type").value(Problems.INVALID_DATAPOINT.toString()))
                 .andExpect(jsonPath("$.detail").value("Could not parse value: abc to long"))
                 // ...and the machine-readable half of the same answer.
+                .andExpect(jsonPath("$.retry").value(Problems.RETRY_CHANGE_REQUEST));
+    }
+
+    @Test
+    void insertDataPoints_badTimestamp_is422WithTheSharedTimestampType() throws Exception {
+        // Not invalid-datapoint: a timestamp is refused the same way wherever it is sent, so a
+        // caller who has learned this type on a filter bound recognises it here without reading
+        // the prose. It used to be a 500 on this path and a 400 on the other two.
+        Mockito.doThrow(new InvalidTimestampException(
+                        "'last tuesday' is not a valid timestamp. Send epoch milliseconds.", null))
+                .when(timeseriesService).insertDatapoints(Mockito.any());
+
+        mvc.perform(post("/timeseries/data")
+                        .content(INSERT_DATAPOINTS_BODY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.type").value(Problems.INVALID_TIMESTAMP.toString()))
                 .andExpect(jsonPath("$.retry").value(Problems.RETRY_CHANGE_REQUEST));
     }
 
