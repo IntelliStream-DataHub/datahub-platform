@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.config.UploadProperties;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
+import ai.intellistream.datahub.api.datasecurity.DatasetAccessDeniedException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.config.FilesConfig;
 import ai.intellistream.datahub.models.files.IndexNode;
@@ -26,8 +27,6 @@ import org.mockito.MockedStatic;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.transaction.TransactionStatus;
-import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -39,6 +38,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -124,18 +124,12 @@ class FileControllerUploadTest {
         request.addHeader("X-Datahub-Dataset-Id", "77");
         request.setContent("hello world".getBytes(StandardCharsets.UTF_8));
 
-        // The 403 branch calls TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-        // there's no real transaction in a direct call, so stub the static lookup.
-        try (MockedStatic<TransactionAspectSupport> tx = mockStatic(TransactionAspectSupport.class)) {
-            tx.when(TransactionAspectSupport::currentTransactionStatus)
-                    .thenReturn(mock(TransactionStatus.class));
-
-            ResponseEntity<?> response = (ResponseEntity<?>) controller.upload(request);
-
-            assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
-            assertTrue(String.valueOf(response.getBody()).contains("77"),
-                    "403 body should name the denied dataset id, was: " + response.getBody());
-        }
+        // Thrown, not answered: the advice renders it as the same dataset-forbidden problem, with
+        // dataSetId and permission, that every other dataset check produces.
+        DatasetAccessDeniedException denied = assertThrows(DatasetAccessDeniedException.class,
+                () -> controller.upload(request));
+        assertEquals(77L, denied.getDataSetId());
+        assertEquals("write", denied.getPermission());
 
         // The upload was rejected before any persistence.
         org.mockito.Mockito.verify(iNodeRepository, org.mockito.Mockito.never()).save(any());
@@ -212,16 +206,9 @@ class FileControllerUploadTest {
         request.addHeader("X-Datahub-Dataset-Id", "66");
         request.setContent("hello world".getBytes(StandardCharsets.UTF_8));
 
-        try (MockedStatic<TransactionAspectSupport> tx = mockStatic(TransactionAspectSupport.class)) {
-            tx.when(TransactionAspectSupport::currentTransactionStatus)
-                    .thenReturn(mock(TransactionStatus.class));
-
-            ResponseEntity<?> response = (ResponseEntity<?>) controller.upload(request);
-
-            assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
-            assertTrue(String.valueOf(response.getBody()).contains("55"),
-                    "403 body should name the denied parent folder dataset id, was: " + response.getBody());
-        }
+        DatasetAccessDeniedException denied = assertThrows(DatasetAccessDeniedException.class,
+                () -> controller.upload(request));
+        assertEquals(55L, denied.getDataSetId(), "the denial names the parent folder's dataset");
 
         org.mockito.Mockito.verify(iNodeRepository, org.mockito.Mockito.never()).save(any());
     }
@@ -357,12 +344,7 @@ class FileControllerUploadTest {
         request.addHeader("X-Datahub-External-Id", "..%2Fetc%2Fpasswd");
         request.setContent("hello world".getBytes(StandardCharsets.UTF_8));
 
-        try (MockedStatic<TransactionAspectSupport> tx = mockStatic(TransactionAspectSupport.class)) {
-            tx.when(TransactionAspectSupport::currentTransactionStatus)
-                    .thenReturn(mock(TransactionStatus.class));
-
-            controller.upload(request);
-        }
+        assertThrows(DatasetAccessDeniedException.class, () -> controller.upload(request));
 
         org.mockito.ArgumentCaptor<String> externalId = org.mockito.ArgumentCaptor.forClass(String.class);
         org.mockito.Mockito.verify(fileTransformer)
