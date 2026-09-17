@@ -182,8 +182,8 @@ public class GraphTransferController {
     }
 
     private static ProblemDetail payloadTooLarge(String message) {
-        return Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.type("request-too-large"),
-                "Payload Too Large", message);
+        return Problems.of(HttpStatus.PAYLOAD_TOO_LARGE, Problems.REQUEST_TOO_LARGE,
+                "Request body too large", message);
     }
 
     private static ProblemDetail badRequest(String message) {

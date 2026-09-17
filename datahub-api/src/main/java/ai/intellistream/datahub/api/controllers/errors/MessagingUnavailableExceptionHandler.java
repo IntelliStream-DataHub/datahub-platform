@@ -27,7 +27,7 @@ public class MessagingUnavailableExceptionHandler {
     @ExceptionHandler(PulsarClientException.class)
     public ProblemDetail handle(PulsarClientException ex) {
         log.error("Publish failed: {}", ex.getMessage(), ex);
-        return Problems.of(HttpStatus.SERVICE_UNAVAILABLE, Problems.type("messaging-unavailable"),
+        return Problems.of(HttpStatus.SERVICE_UNAVAILABLE, Problems.MESSAGING_UNAVAILABLE,
                 "Service Unavailable",
                 "The request could not be published for processing. It was not accepted; retry it.");
     }
