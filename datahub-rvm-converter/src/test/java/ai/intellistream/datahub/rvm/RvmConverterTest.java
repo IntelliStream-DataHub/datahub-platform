@@ -48,7 +48,7 @@ class RvmConverterTest {
         // The stub echoes its own arguments, so the test can see what the converter was told.
         Path stub = stub("""
                 echo "$@" >&2
-                printf 'glTF\\x02\\x00\\x00\\x00x'
+                printf 'glTF\\x02\\x00\\x00\\x00modeldata'
                 """);
 
         RvmConversion with = new RvmConverter(stub, Duration.ofSeconds(30))
