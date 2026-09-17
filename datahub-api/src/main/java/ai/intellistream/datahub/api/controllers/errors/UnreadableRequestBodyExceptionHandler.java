@@ -19,6 +19,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -80,10 +81,12 @@ public class UnreadableRequestBodyExceptionHandler {
      * verbatim — it is precise and it names characters, not classes. Other parse failures keep the
      * generic wording, since their messages quote the Java types involved.
      *
-     * <p>A bad timestamp is the exception: its message comes from {@code DateTimeHandler}, is
-     * written for the caller, and names the two accepted forms and what to do about a seconds
-     * value — so it is forwarded along with a pointer to the field. Flattening that to "could not
-     * be read" would leave the caller with a line and column and no idea the unit was the problem.
+     * <p>A bad timestamp leaves before any of that, as a {@link Problems#invalidTimestamp 422}:
+     * the body parsed and bound, and only the value is unusable, which is the line between this
+     * class's 400 and a 422. Its message comes from {@code DateTimeHandler} — written for the
+     * caller, naming both accepted forms and the factor of 1000 — so it is forwarded with a pointer
+     * to the field rather than flattened to "could not be read", which would leave the caller with
+     * a line and column and no idea the unit was the problem.
      */
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ProblemDetail handleUnreadableBody(HttpMessageNotReadableException ex) {
@@ -91,25 +94,22 @@ public class UnreadableRequestBodyExceptionHandler {
         boolean syntaxError = jackson instanceof StreamReadException;
         DateTimeParseException badTimestamp = timestampFailure(jackson);
 
-        String detail;
+        // A bad timestamp leaves early, as a 422 rather than this class's 400: the body parsed,
+        // every field is one this endpoint knows, and only the value is unusable — and the same
+        // mistake sent to a datapoint or a delete bound, which bind as strings and are parsed past
+        // this point, answers that 422 too. One error, one answer, wherever it was put.
         if (badTimestamp != null) {
-            detail = badTimestamp.getMessage();
-        } else if (syntaxError && jackson.getOriginalMessage() != null) {
-            detail = jackson.getOriginalMessage();
-        } else {
-            detail = "The request body could not be read.";
+            log.debug("Rejecting timestamp: {}", badTimestamp.getMessage());
+            return Problems.invalidTimestamp(badTimestamp.getMessage(), pointerOf(jackson), List.of());
         }
+
+        String detail = syntaxError && jackson.getOriginalMessage() != null
+                ? jackson.getOriginalMessage()
+                : "The request body could not be read.";
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, detail);
         problem.setTitle("Bad Request");
         problem.setType(URI.create("https://intellistream.ai/errors/unreadable-request-body"));
-
-        if (badTimestamp != null) {
-            String pointer = pointerOf(jackson);
-            if (pointer != null) {
-                problem.setProperty("pointer", pointer);
-            }
-        }
 
         TokenStreamLocation location = jackson == null ? null : jackson.getLocation();
         if (location != null && location.getLineNr() > 0) {

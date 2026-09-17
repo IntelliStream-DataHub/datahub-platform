@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointException;
+import ai.intellistream.datahub.api.controllers.errors.MessagingUnavailableExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.InvalidDatapointExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConstraintViolationExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.ConcurrencyExceptionHandler;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.ProblemResponseAdvice;
 import ai.intellistream.datahub.api.controllers.errors.Problems;
+import ai.intellistream.datahub.api.controllers.errors.RequestBodyValidationExceptionHandler;
+import org.apache.pulsar.client.api.PulsarClientException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.TimeseriesService;
 import ai.intellistream.datahub.models.IdCollection;
@@ -74,6 +82,12 @@ class TimeseriesControllerTest {
                         // The controller no longer catches these; the advices answer them.
                         new DuplicateDataExceptionHandler(),
                         new ConstraintViolationExceptionHandler(),
+                        new InvalidDatapointExceptionHandler(),
+                        new InvalidTimestampExceptionHandler(),
+                        new MessagingUnavailableExceptionHandler(),
+                        new RequestBodyValidationExceptionHandler(),
+                        // Supplies requestId and retry, exactly as in production.
+                        new ProblemResponseAdvice(),
                         new ResourceDeleteExceptionHandler())
                 .build();
     }
@@ -277,6 +291,100 @@ class TimeseriesControllerTest {
                 .andExpect(jsonPath("$.status").value(404))
                 .andExpect(jsonPath("$.missing[0].externalId").value("does_not_exist"))
                 .andExpect(jsonPath("$.items").doesNotExist());
+    }
+
+    @Test
+    void insertDataPoints_nullDatapointList_returns400_andNeverReachesService() throws Exception {
+        // Omitting `datapoints` bound cleanly and then NPE'd inside the insert — a 500 for what is
+        // plainly a malformed request. @NotNull on the field turns it into the documented 400.
+        mvc.perform(post("/timeseries/data")
+                        .content("""
+                                { "items": [ { "externalId": "sensor_temp_room_a" } ] }
+                                """)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(Problems.VALIDATION_FAILED.toString()))
+                .andExpect(jsonPath("$.fields[0].field", containsString("datapoints")));
+
+        verify(timeseriesService, never()).insertDatapoints(Mockito.any());
+    }
+
+    @Test
+    void insertDataPoints_blankValue_returns400_andNeverReachesService() throws Exception {
+        // @NotBlank on DatapointString only bites because `datapoints` carries @Valid, so the
+        // cascade reaches the elements. Without it a blank value failed deep inside the insert.
+        mvc.perform(post("/timeseries/data")
+                        .content("""
+                                {
+                                  "items": [
+                                    {
+                                      "externalId": "sensor_temp_room_a",
+                                      "datapoints": [ { "timestamp": 1745328000000, "value": "" } ]
+                                    }
+                                  ]
+                                }
+                                """)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value(Problems.VALIDATION_FAILED.toString()));
+
+        verify(timeseriesService, never()).insertDatapoints(Mockito.any());
+    }
+
+    @Test
+    void insertDataPoints_valueDoesNotMatchTheDeclaredType_returns422() throws Exception {
+        // The one case 422 is for. Retrying the same payload can't help, so the caller is told to
+        // fix the value rather than send it again — and gets a link to what the types accept.
+        Mockito.doThrow(new InvalidDatapointException("Could not parse value: abc to long"))
+                .when(timeseriesService).insertDatapoints(Mockito.any());
+
+        mvc.perform(post("/timeseries/data")
+                        .content(INSERT_DATAPOINTS_BODY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.type").value(Problems.INVALID_DATAPOINT.toString()))
+                .andExpect(jsonPath("$.detail").value("Could not parse value: abc to long"))
+                // ...and the machine-readable half of the same answer.
+                .andExpect(jsonPath("$.retry").value(Problems.RETRY_CHANGE_REQUEST));
+    }
+
+    @Test
+    void insertDataPoints_badTimestamp_is422WithTheSharedTimestampType() throws Exception {
+        // Not invalid-datapoint: a timestamp is refused the same way wherever it is sent, so a
+        // caller who has learned this type on a filter bound recognises it here without reading
+        // the prose. It used to be a 500 on this path and a 400 on the other two.
+        Mockito.doThrow(new InvalidTimestampException(
+                        "'last tuesday' is not a valid timestamp. Send epoch milliseconds.", null))
+                .when(timeseriesService).insertDatapoints(Mockito.any());
+
+        mvc.perform(post("/timeseries/data")
+                        .content(INSERT_DATAPOINTS_BODY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.type").value(Problems.INVALID_TIMESTAMP.toString()))
+                .andExpect(jsonPath("$.retry").value(Problems.RETRY_CHANGE_REQUEST));
+    }
+
+    @Test
+    void insertDataPoints_brokerUnreachable_isNotA422() throws Exception {
+        // Pulsar being down is the server's problem, not the payload's. It must not borrow the 422:
+        // the Java SDK reads 4xx as terminal, so the datapoints would be neither retried nor
+        // spooled to its durable buffer, and an outage would silently drop them.
+        Mockito.doThrow(new PulsarClientException("broker unreachable"))
+                .when(timeseriesService).insertDatapoints(Mockito.any());
+
+        mvc.perform(post("/timeseries/data")
+                        .content(INSERT_DATAPOINTS_BODY)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value(Problems.type("messaging-unavailable").toString()))
+                // Transient, so the caller is told to send the very same request again.
+                .andExpect(jsonPath("$.retry").value(Problems.RETRY_SAME_REQUEST));
     }
 
     private static ConstraintViolationException constraintViolation(String field, String message) {

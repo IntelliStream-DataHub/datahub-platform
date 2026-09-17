@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.InvalidTimestampException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.datasecurity.DatasetClosureService;
@@ -251,10 +252,14 @@ class TimeseriesServiceTest {
         when(timeseriesRepository.findByIdOrExternalId(isNull(), eq("sensor_a")))
                 .thenReturn(java.util.Optional.of(timeseriesEntity(5L, "sensor_a", "FLOAT")));
 
-        BadRequestException thrown = assertThrows(BadRequestException.class,
+        // InvalidTimestampException, not BadRequestException: a bad bound is the same 422 as a bad
+        // datapoint timestamp or a bad filter bound, rather than a 400 unique to this endpoint.
+        InvalidTimestampException thrown = assertThrows(InvalidTimestampException.class,
                 () -> timeseriesService.deleteDatapoints(deleteWindow("last tuesday", null)));
 
         assertTrue(thrown.getMessage().contains("inclusiveBegin"));
+        // Both locators survive the move: which bound, and which series it was sent for.
+        assertTrue(thrown.getFields().stream().anyMatch(f -> "externalId".equals(f.field())));
         // Nothing may go out: a bad window that reached the consumer would just nack until it DLQ'd.
         verifyNoInteractions(allDatapointProducer);
     }
