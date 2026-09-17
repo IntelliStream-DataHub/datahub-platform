@@ -42,7 +42,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRange;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
@@ -900,7 +899,7 @@ public class FileController {
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ApiProblem.class)
             ))
-    @ApiResponse(responseCode = "409", description = "Original name/path or externalId already taken, or the original folder is gone.",
+    @ApiResponse(responseCode = "409", description = "Original path or externalId already taken, the original folder is gone, or the node is a folder; `reason` says which.",
             content = @Content(
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = RestoreRefusedProblem.class)
@@ -941,12 +940,11 @@ public class FileController {
             return new ResponseEntity<>(resp, HttpStatus.OK);
         } catch (FileAlreadyExistsException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            return new ResponseEntity<>(Problems.conflict(null, "A file already exists at the original path."), HttpStatus.CONFLICT);
+            return new ResponseEntity<>(Problems.restoreRefused("path-taken",
+                    "A file already exists at the original path."), HttpStatus.CONFLICT);
         } catch (FileSystemService.RestoreRefusedException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-            ProblemDetail problem = Problems.conflict(null, e.getMessage());
-            problem.setProperty("reason", e.reason());
-            return new ResponseEntity<>(problem, HttpStatus.CONFLICT);
+            return new ResponseEntity<>(Problems.restoreRefused(e.reason(), e.getMessage()), HttpStatus.CONFLICT);
         } catch (IOException e) {
             log.error("File restore failed: {}", e.getMessage(), e);
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();

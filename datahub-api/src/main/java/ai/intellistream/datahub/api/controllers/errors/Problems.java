@@ -64,6 +64,8 @@ public final class Problems {
     public static final URI REFERENCED = type("referenced");
     /** A 409: a deletion that would cut the surviving nodes off from the graph root. */
     public static final URI WOULD_STRAND = type("would-strand");
+    /** A 409: a deleted file cannot be restored; {@code reason} says what stands in the way. */
+    public static final URI RESTORE_REFUSED = type("restore-refused");
 
     public static final URI UNAUTHORIZED = type("unauthorized");
     public static final URI FORBIDDEN = type("forbidden");
@@ -343,6 +345,22 @@ public final class Problems {
         if (blockedBy != null && !blockedBy.isEmpty()) {
             problem.setProperty("blockedBy", blockedBy);
         }
+        return problem;
+    }
+
+    /**
+     * A 409 for a restore the state of the tree refuses.
+     *
+     * <p>Its own type rather than {@code conflict} with a {@code reason} beside it: a caller told
+     * only "conflict" cannot tell a refused restore from a lost optimistic lock, which is retried
+     * rather than acted on. The {@code reason} stays as the sub-code that says which obstacle.
+     *
+     * @param reason a stable token: {@code path-taken}, {@code not-a-file}, {@code external-id-taken},
+     *               {@code external-id-unrecoverable} or {@code folder-missing}
+     */
+    public static ProblemDetail restoreRefused(String reason, String detail) {
+        ProblemDetail problem = of(HttpStatus.CONFLICT, RESTORE_REFUSED, "Restore refused", detail);
+        problem.setProperty("reason", reason);
         return problem;
     }
 
