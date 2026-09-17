@@ -3,7 +3,6 @@ package ai.intellistream.datahub.api.controllers.errors;
 
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -19,6 +18,10 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * existence from leaking through the status code. See {@code AccessDeniedExceptionHandler} for the
  * 403 path used by write/other endpoints.
  *
+ * <p>The body goes through {@link Problems#notFound} rather than being built here, so the miss
+ * carries {@code type: .../errors/not-found} like every other refusal. It was the last one in the
+ * API answering {@code about:blank}, which left a caller nothing to branch on but the status.
+ *
  * <p>Controllers that catch {@code ObjectNotFoundException} locally (e.g. to shape a bespoke body)
  * keep their own handling — a local {@code catch} wins over this advice.
  */
@@ -30,8 +33,6 @@ public class ObjectNotFoundExceptionHandler {
     public ProblemDetail handleNotFound(ObjectNotFoundException ex) {
         log.debug("Object not found: {}", ex.getMessage());
 
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, ex.getMessage());
-        problem.setTitle("Not Found");
-        return problem;
+        return Problems.notFound(ex.getMessage());
     }
 }
