@@ -19,6 +19,11 @@
 	var chart = null;
 	var plotted = {};      // externalId -> chart color, for series currently overlaid
 	var lastWindow = null; // { start, end } the current results were computed over
+	// { start, end } Dates of the last brush-zoom. The pickers only hold whole minutes, so this exact
+	// window wins over them until the user edits the range.
+	var zoomWindow = null;
+	// { start, end, preset } the picked range a zoom sits inside; double-clicking the chart returns to it.
+	var baseWindow = null;
 	var autoRunTimer = null; // debounce handle for auto-run on focus/param changes
 	var runToken = 0;      // monotonic; a run only touches the UI if it's still the latest
 	// Candidates whose composite relevance score falls below this are greyed out as likely-unrelated.
@@ -100,6 +105,7 @@
 		writeDateTime(document.getElementById("ts-end-date"), document.getElementById("ts-end-time"), end);
 	}
 	function getCurrentRange(){
+		if(zoomWindow) return zoomWindow;
 		var s = readLocalIso(document.getElementById("ts-start-date"), document.getElementById("ts-start-time"));
 		var e = readLocalIso(document.getElementById("ts-end-date"), document.getElementById("ts-end-time"));
 		if(!s || !e) return null;
@@ -116,10 +122,26 @@
 		if(typeof InsightsChart === "undefined") return null;
 		var el = document.getElementById("datapoints-chart");
 		if(!el) return null;
-		chart = new InsightsChart({ container: el });
+		chart = new InsightsChart({ container: el, onZoom: followZoom });
 		chart.height = 360 - chart.margin.top - chart.margin.bottom;
 		chart.refreshSVG();
 		return chart;
+	}
+
+	// Zooming the chart (or double-clicking it back out) changes the window being looked at, so
+	// the analysis follows: the window goes into the pickers and the results are recomputed over it.
+	// A double-click lands back on the picked range, which ends the zoom and restores its preset.
+	function followZoom(start, end){
+		if(!focusExternalId) return;
+		if(lastWindow && lastWindow.start === start.toISOString() && lastWindow.end === end.toISOString()) return;
+		var reset = !!baseWindow && start.getTime() === baseWindow.start.getTime() && end.getTime() === baseWindow.end.getTime();
+		zoomWindow = reset ? null : { start: start, end: end };
+		writeDateTime(document.getElementById("ts-start-date"), document.getElementById("ts-start-time"), start);
+		writeDateTime(document.getElementById("ts-end-date"), document.getElementById("ts-end-time"), end);
+		var quick = document.getElementById("ts-quick-range");
+		if(quick) quick.value = reset ? baseWindow.preset : "";
+		clearTimeout(autoRunTimer);
+		runAnalyze();
 	}
 
 	// InsightsChart.render() assumes at least one dataset (it reads dataSets[0]); refreshSVG()
@@ -169,7 +191,11 @@
 			var color = c.addDataSet(externalId, item);
 			if(!color) return false; // colour pool exhausted (max series reached)
 			plotted[externalId] = color;
-			try { c.setTimeWindow(new Date(lastWindow.start), new Date(lastWindow.end)); } catch(e){ /* noop */ }
+			// The x-axis spans the picked range and a zoom is drawn as the chart's own zoom inside it,
+			// so a double-click still has somewhere to return to.
+			var base = baseWindow || { start: new Date(lastWindow.start), end: new Date(lastWindow.end) };
+			try { c.setTimeWindow(base.start, base.end); } catch(e){ /* noop */ }
+			if(zoomWindow) c.zoomDomain = [ zoomWindow.start, zoomWindow.end ];
 			drawChart();
 			return color;
 		});
@@ -196,11 +222,21 @@
 					.sort(function(a,b){ return (a.name||a.externalId||"").localeCompare(b.name||b.externalId||""); });
 				renderList();
 				setStatus("");
+				if(!allSeries.length) flashNoSeries();
 				// A chat "open the analysis" hand-off wins over the plain carried selection: it also
 				// carries the time window and limit, not just the focus series.
 				if(!applyPendingView()) consumePreselect();
 			})
 			.catch(function(err){ setStatus("Failed to load time series: " + reason(err)); });
+	}
+
+	// The same message Explore and Insights show (their controller sets it server-side), kept up
+	// like theirs rather than auto-dismissed. Waits for the message bundle so it is localized.
+	function flashNoSeries(){
+		if(typeof Flash === "undefined" || !Flash.error) return;
+		(window.i18nReady || Promise.resolve()).then(function(){
+			Flash.error(L("no.timeseries.found", "No time series found"), { duration: 0 });
+		});
 	}
 
 	// If another page (e.g. Explore's "Related series" panel) navigated here with a series pre-selected
@@ -290,6 +326,10 @@
 		}
 		var range = getCurrentRange();
 		if(!range){ setStatus(L("insights.analysis.pickRange", "Pick a start and end time.")); return; }
+		if(!zoomWindow){
+			var quick = document.getElementById("ts-quick-range");
+			baseWindow = { start: range.start, end: range.end, preset: quick ? quick.value : "" };
+		}
 		// No granularity knob: the backend derives the bucket width from the window.
 		lastWindow = { start: range.start.toISOString(), end: range.end.toISOString() };
 		var body = {
@@ -532,13 +572,14 @@
 			applyQuickRange("1d");
 			quick.value = "1d";
 			quick.addEventListener("change", function(){
+				zoomWindow = null;
 				if(quick.value) applyQuickRange(quick.value);
 				autoRun();
 			});
 		}
 		["ts-start-date", "ts-start-time", "ts-end-date", "ts-end-time"].forEach(function(id){
 			var el = document.getElementById(id);
-			if(el) el.addEventListener("change", function(){ if(quick) quick.value = ""; autoRun(); });
+			if(el) el.addEventListener("change", function(){ zoomWindow = null; if(quick) quick.value = ""; autoRun(); });
 		});
 		var expand = document.getElementById("an-expand");
 		if(expand) expand.addEventListener("click", function(){

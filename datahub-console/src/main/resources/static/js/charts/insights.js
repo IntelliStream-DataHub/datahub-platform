@@ -35,6 +35,10 @@ class InsightsChart {
 
 		this.llValue = obj.llValue || null;
 		this.hhValue = obj.hhValue || null;
+		// Optional onZoom(start, end): called with the x-window once a brush zoom has been
+		// applied, and with the restored window after a double-click reset. Lets a page keep
+		// state that depends on the visible window (e.g. an analysis) in step with the chart.
+		this.onZoom = obj.onZoom || null;
 		this.dataSets = [];
 
 		// TODO: figure out why is this hack needed
@@ -364,6 +368,11 @@ class InsightsChart {
 				this.refreshSVG();
 				if(this.dataSets.length > 0){
 					this.render();
+				} else {
+					// An emptied chart keeps no zoom: the next series starts from the full
+					// window, aggregated, and a brush on it refetches finer data again.
+					this.zoomDomain = null;
+					if(!this.liveMode) this._hasRawData = false;
 				}
 				return;
 			}
@@ -735,6 +744,7 @@ class InsightsChart {
 				this.updateChart(e);
 				this.isDataFiltered = false;
 			});
+			if(this.onZoom) this.onZoom(this.x.domain()[0], this.x.domain()[1]);
 			return;
 		} else {
 
@@ -895,6 +905,7 @@ class InsightsChart {
 									return gen(visible);
 								});
 						});
+						if(this.onZoom) this.onZoom(x0, x1);
 					})
 					.catch((err) => {
 						console.error(err);
@@ -910,6 +921,7 @@ class InsightsChart {
 			// This remove the grey brush area as soon as the selection has been done
 			this.line.select(".brush").call(this.brush.move, null);
 			this.idleTimeout = null;
+			if(this.onZoom) this.onZoom(x0, x1);
 		}
 
 		// Update axis and line position
