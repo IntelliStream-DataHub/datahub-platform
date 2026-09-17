@@ -29,6 +29,16 @@ class DataIntegrityViolationExceptionHandlerTest {
                 Map.of("field", "name", "message", "Label with same name already exists.")));
     }
 
+    /** A file upload that lands on a taken path or external id answers its documented 409 with the field. */
+    @Test
+    void aTakenFilePathNamesPath() {
+        ProblemDetail problem = handler.handle(violation("inodes_path_hash_active_uk"));
+
+        assertThat(problem.getType()).isEqualTo(Problems.DUPLICATE);
+        assertThat(problem.getProperties().get("fields")).isEqualTo(List.of(
+                Map.of("field", "path", "message", "A file or folder already exists at this path.")));
+    }
+
     @Test
     void anUnmappedConstraintIsStillAConflictWithNoFields() {
         ProblemDetail problem = handler.handle(violation("some_new_key"));
