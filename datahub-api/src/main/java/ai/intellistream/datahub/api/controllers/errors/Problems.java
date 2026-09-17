@@ -59,6 +59,8 @@ public final class Problems {
     public static final URI CONSTRAINT_VIOLATION = type("constraint-violation");
     public static final URI OPTIMISTIC_LOCK = type("optimistic-lock");
     public static final URI BAD_REQUEST = type("bad-request");
+    /** A 422: a datapoint value or timestamp the caller has to fix before it can be stored. */
+    public static final URI INVALID_DATAPOINT = type("invalid-datapoint");
 
     /** A 409: a timeseries cannot be deleted while a subscription still reads it. */
     public static final URI REFERENCED = type("referenced");

@@ -53,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.http.ProblemDetail;
+import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.PartialWriteProblem;
@@ -697,6 +698,23 @@ public class TimeseriesController {
             content = @Content(
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = PartialWriteProblem.class)
+            ))
+    @ApiResponse(responseCode = "400", description =
+            "The request body is structurally wrong — `datapoints` missing, a datapoint with no " +
+                    "`timestamp`, or a blank `value`. `fields` names each offender.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @ApiResponse(responseCode = "422", description =
+            "A datapoint is well-formed but unusable: a value that failed to parse against the " +
+                    "target timeseries' `valueType` (e.g. text sent to a `BIGINT` series), or a " +
+                    "`timestamp` that is neither ISO-8601 nor epoch milliseconds. Fix the " +
+                    "offending entry and retry — resending it unchanged cannot succeed, which is " +
+                    "what `retry: change-request` says.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ApiProblem.class)
             ))
     @PostMapping( path = "/data",
             produces = {"application/json"},
