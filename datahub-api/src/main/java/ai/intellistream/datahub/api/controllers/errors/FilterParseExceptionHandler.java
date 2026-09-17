@@ -37,8 +37,6 @@ import java.net.URI;
 @Slf4j
 public class FilterParseExceptionHandler {
 
-    public static final String PROBLEM_TYPE = "https://intellistream.ai/errors/filter-expression";
-
     @ExceptionHandler(FilterParseException.class)
     public ProblemDetail handleFilterParse(FilterParseException ex) {
         // Logged so a rejected expression is visible for detection work; at debug because a
@@ -47,7 +45,7 @@ public class FilterParseExceptionHandler {
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
         problem.setTitle("Invalid filter expression");
-        problem.setType(URI.create(PROBLEM_TYPE));
+        problem.setType(Problems.FILTER_EXPRESSION);
         problem.setProperty("offset", ex.getOffset());
         problem.setProperty("length", ex.getLength());
         if (ex.getCode() != null) {

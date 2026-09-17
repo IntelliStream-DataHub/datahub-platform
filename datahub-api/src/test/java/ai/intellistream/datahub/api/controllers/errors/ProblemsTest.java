@@ -13,6 +13,9 @@ import org.springframework.http.ProblemDetail;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -146,6 +149,124 @@ class ProblemsTest {
         assertThat(problem.getProperties()).containsEntry("feature", "files");
     }
 
+
+    @Test
+    @DisplayName("decorate adds the page that explains the problem, beside the retry verdict")
+    void decorateAddsTheDocumentationLink() {
+        // retry says what to do; docs says where to read why. Both come from the type, and both
+        // are attached here so no throw site has to remember either.
+        ProblemDetail problem = Problems.decorate(
+                Problems.of(HttpStatus.BAD_REQUEST, Problems.type("naming-policy"),
+                        "Bad Request", "External ids broke the policy."),
+                "01J-request");
+
+        assertThat(problem.getProperties())
+                .containsEntry(Problems.DOCS_MEMBER,
+                        "https://intellistream.ai/sdk-documentation/reference/external-ids#rejections")
+                .containsEntry("retry", Problems.RETRY_CHANGE_REQUEST);
+    }
+
+    @Test
+    @DisplayName("a type written as a literal is covered too, because the table keys on the slug")
+    void aLiteralTypeStillGetsItsLink() {
+        // Five advices still build their type with URI.create(...). Keying on the slug rather than
+        // on a constant is what lets them carry a link without being touched.
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "bad cursor");
+        problem.setType(URI.create("https://intellistream.ai/errors/malformed-cursor"));
+
+        assertThat(Problems.decorate(problem, null).getProperties())
+                .containsEntry(Problems.DOCS_MEMBER,
+                        "https://intellistream.ai/sdk-documentation/reference/timeseries#sorting-and-paging");
+    }
+
+    @Test
+    @DisplayName("a type nothing is written about carries no link rather than a guess")
+    void anUndocumentedTypeCarriesNoLink() {
+        // A link to a page that does not discuss the error costs a click to learn nothing, so the
+        // member is absent instead. Give `duplicate` a section and it gains one here.
+        ProblemDetail problem = Problems.decorate(
+                Problems.duplicate("Taken.", List.of(Map.of("externalId", "pump_7"))), null);
+
+        assertThat(problem.getProperties()).doesNotContainKey(Problems.DOCS_MEMBER);
+        assertThat(Problems.docsFor(problem)).isNull();
+    }
+
+    @Test
+    @DisplayName("a foreign type is not mistaken for one of ours")
+    void aForeignTypeGetsNoLink() {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "elsewhere");
+        problem.setType(URI.create("https://example.com/errors/naming-policy"));
+
+        assertThat(Problems.docsFor(problem)).isNull();
+    }
+
+    @Test
+    @DisplayName("every documentation link is absolute and on one of the two sites we publish")
+    void everyLinkIsOnOneOfOurSites() {
+        // The links cannot be fetched here: the docs live in two other repositories a contributor
+        // is not expected to have checked out, so a test that dereferenced them would fail offline
+        // and pass against a page that had silently been renamed. Anchors are checked by hand when
+        // an entry is added; this pins the shape, and that the slug is real.
+        for (String slug : List.of("validation-failed", "constraint-violation", "naming-policy",
+                "unreadable-request-body", "malformed-cursor", "invalid-datapoint", "referenced",
+                "would-strand", "dataset-forbidden", "filter-expression", "unauthorized",
+                "invalid-timestamp",
+                "token-rejected", "permissions-unavailable", "rate-limit-exceeded",
+                "ingest-quota-exceeded", "tenant-limit-reached", "request-too-large",
+                "feature-disabled", "unknown-tenant")) {
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "x");
+            problem.setType(Problems.type(slug));
+
+            assertThat(Problems.docsFor(problem))
+                    .as("documentation link for %s", slug)
+                    .isNotNull()
+                    .matches("https://intellistream\\.ai/"
+                            + "(sdk-documentation|data-platform-documentation)/.+");
+        }
+    }
+
+    /**
+     * Types nothing is written about yet. Listing them here is the point: adding a type now forces
+     * a choice between giving it a page and saying out loud that it has none, instead of it
+     * silently arriving with no link because nobody looked.
+     */
+    private static final Set<String> DELIBERATELY_UNDOCUMENTED = Set.of(
+            "bad-request", "conflict", "duplicate", "forbidden", "internal", "messaging-unavailable",
+            "method-not-allowed", "not-acceptable", "not-found", "optimistic-lock",
+            "tenant-provisioning", "unsupported-media-type");
+
+    @Test
+    @DisplayName("every declared type either has a documentation page or is listed as having none")
+    void noTypeQuietlyMissesItsDocumentation() throws Exception {
+        for (Field field : Problems.class.getDeclaredFields()) {
+            if (!URI.class.equals(field.getType()) || !Modifier.isStatic(field.getModifiers())) {
+                continue;
+            }
+            URI type = (URI) field.get(null);
+            ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "x");
+            problem.setType(type);
+            String slug = type.toString().substring(Problems.BASE.length());
+
+            assertThat(Problems.docsFor(problem) != null || DELIBERATELY_UNDOCUMENTED.contains(slug))
+                    .as("%s (%s) has neither a docs entry nor a place on the undocumented list",
+                            field.getName(), slug)
+                    .isTrue();
+        }
+    }
+
+    @Test
+    @DisplayName("the link never replaces the identifier clients branch on")
+    void theLinkIsNotTheIdentifier() {
+        // type stays opaque and stable; limits.md and events.md print these exact strings and tell
+        // clients to match them. Repointing one at a docs page would break that.
+        ProblemDetail problem = Problems.decorate(
+                Problems.of(HttpStatus.UNPROCESSABLE_CONTENT, Problems.INVALID_DATAPOINT,
+                        "Unprocessable Content", "bad value"), null);
+
+        assertThat(problem.getType()).hasToString(Problems.BASE + "invalid-datapoint");
+        assertThat(problem.getProperties().get(Problems.DOCS_MEMBER))
+                .isNotEqualTo(problem.getType().toString());
+    }
 
     @Test
     @DisplayName("decorate adds the request id and a retry verdict, without overriding either")

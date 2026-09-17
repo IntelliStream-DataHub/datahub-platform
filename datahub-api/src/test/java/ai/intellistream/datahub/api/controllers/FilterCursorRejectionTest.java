@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.controllers.errors.MalformedCursorExceptionHandler;
+import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.services.DataSetService;
@@ -59,7 +60,7 @@ class FilterCursorRejectionTest {
                         .content("{\"cursor\":\"!!not-a-cursor!!\"}"))
                 .andExpect(status().isBadRequest())
                 // RFC 9457: a stable type a client can branch on, plus the human detail.
-                .andExpect(jsonPath("$.type").value(MalformedCursorExceptionHandler.PROBLEM_TYPE))
+                .andExpect(jsonPath("$.type").value(Problems.MALFORMED_CURSOR.toString()))
                 .andExpect(jsonPath("$.title").value("Malformed cursor"))
                 .andExpect(jsonPath("$.detail", containsString("cursor")));
     }

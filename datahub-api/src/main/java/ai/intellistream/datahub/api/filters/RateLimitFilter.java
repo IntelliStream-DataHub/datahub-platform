@@ -170,7 +170,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.reset();
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfter));
-        ProblemDetail problem = Problems.of(HttpStatus.TOO_MANY_REQUESTS, Problems.type("rate-limit-exceeded"),
+        ProblemDetail problem = Problems.of(HttpStatus.TOO_MANY_REQUESTS, Problems.RATE_LIMIT_EXCEEDED,
                 "Too many requests", "This %s has used its %d requests per minute. Retry in %d seconds."
                         .formatted(scope, limit, retryAfter));
         problem.setProperty("scope", scope);

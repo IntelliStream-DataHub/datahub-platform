@@ -43,7 +43,7 @@ public class NamingPolicyExceptionHandler {
 
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.detail());
         problem.setTitle("Bad Request");
-        problem.setType(URI.create(NamingPolicyViolationException.PROBLEM_TYPE));
+        problem.setType(Problems.NAMING_POLICY);
         problem.setProperty("violations", violationsOf(ex.getViolations()));
         return problem;
     }

@@ -42,7 +42,7 @@ public class UserInfoUnavailableExceptionHandler {
                 "Could not verify your permissions because the identity provider is unreachable. "
                         + "This is a temporary fault, not a denial; retry shortly.");
         problem.setTitle("Service Unavailable");
-        problem.setType(Problems.type("permissions-unavailable"));
+        problem.setType(Problems.PERMISSIONS_UNAVAILABLE);
         problem.setProperty("retryAfter", RETRY_AFTER_SECONDS);
         // The header too, as the 429s send it: a client honouring Retry-After should not have to read the body.
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)

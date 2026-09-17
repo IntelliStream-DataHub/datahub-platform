@@ -76,12 +76,97 @@ public final class Problems {
     public static final URI TENANT_PROVISIONING = type("tenant-provisioning");
     public static final URI FEATURE_DISABLED = type("feature-disabled");
 
+    /** A 422: a datapoint value that does not parse against its series' declared type. */
+    public static final URI INVALID_DATAPOINT = type("invalid-datapoint");
+
+    /** A 422: a timestamp in neither accepted form, anywhere one is accepted. */
+    public static final URI INVALID_TIMESTAMP = type("invalid-timestamp");
+
+    /** A 400: the request body could not be read, or named a field the endpoint does not accept. */
+    public static final URI UNREADABLE_REQUEST_BODY = type("unreadable-request-body");
+    /** A 400: a page cursor that no longer decodes, typically held across a deploy. */
+    public static final URI MALFORMED_CURSOR = type("malformed-cursor");
+    /** A 400: one or more external ids broke the tenant's configured naming policy. */
+    public static final URI NAMING_POLICY = type("naming-policy");
+    /** A 400: a filter expression the parser refused, with the offset it gave up at. */
+    public static final URI FILTER_EXPRESSION = type("filter-expression");
+
+    /** A 403: a dataset ACL refused this read or write. */
+    public static final URI DATASET_FORBIDDEN = type("dataset-forbidden");
+    /** A 401: the identity provider answered, and refused the token. */
+    public static final URI TOKEN_REJECTED = type("token-rejected");
+    /** A 503: the identity provider is unreachable, so the caller's grants cannot be resolved. */
+    public static final URI PERMISSIONS_UNAVAILABLE = type("permissions-unavailable");
+    /** A 503: the broker refused or dropped a publish. */
+    public static final URI MESSAGING_UNAVAILABLE = type("messaging-unavailable");
+
+    /** A 413: the request body is over the cap for its endpoint. */
+    public static final URI REQUEST_TOO_LARGE = type("request-too-large");
+    /** A 429: too many requests this minute, for the tenant or the user. */
+    public static final URI RATE_LIMIT_EXCEEDED = type("rate-limit-exceeded");
+    /** A 429: the tenant's daily ingest allowance is spent. */
+    public static final URI INGEST_QUOTA_EXCEEDED = type("ingest-quota-exceeded");
+    /** A 403: a lifetime ceiling only an operator can raise. */
+    public static final URI TENANT_LIMIT_REACHED = type("tenant-limit-reached");
+
     /** {@code retry}: the same request can succeed later; honour Retry-After when it is sent. */
     public static final String RETRY_SAME_REQUEST = "same-request";
     /** {@code retry}: only a different request can succeed. */
     public static final String RETRY_CHANGE_REQUEST = "change-request";
     /** {@code retry}: nothing the caller sends will succeed until an operator acts; quote the requestId. */
     public static final String RETRY_NEEDS_OPERATOR = "needs-operator";
+
+    /** The extension member naming the page that explains a problem. */
+    public static final String DOCS_MEMBER = "docs";
+
+    private static final String SDK_DOCS = "https://intellistream.ai/sdk-documentation/reference/";
+    private static final String OPERATOR_DOCS = "https://intellistream.ai/data-platform-documentation/";
+
+    /**
+     * Where a human goes to read more, per problem slug.
+     *
+     * <h2>Why this is not {@code type}</h2>
+     * RFC 9457 says {@code type} <em>should</em> dereference to documentation. Ours cannot: they
+     * live under {@code /errors/}, which neither documentation site serves, and they are published
+     * as identifiers — {@code limits.md} and {@code events.md} print the exact strings and tell
+     * clients to match them. Repointing {@code type} at a page would break that, so the identifier
+     * stays opaque and the link is a member of its own. {@code retry} beside it says what to do;
+     * this says where to read why.
+     *
+     * <h2>A missing entry is deliberate</h2>
+     * Only slugs with a section that actually explains them are listed. A link to a page that does
+     * not discuss the error costs a click to learn nothing, so {@code duplicate}, {@code conflict},
+     * {@code optimistic-lock}, {@code bad-request}, {@code not-found}, {@code internal},
+     * {@code messaging-unavailable}, {@code tenant-provisioning} and the bare-status slugs have no
+     * entry until something is written for them, and the member is simply absent there.
+     *
+     * <p>Keyed by slug, so a handler gains its link by having a type at all — no throw site has to
+     * remember, and the ones that still write their type as a literal are covered unchanged.
+     */
+    private static final Map<String, String> DOCS = Map.ofEntries(
+            Map.entry("validation-failed", SDK_DOCS + "client#batch-writes-are-all-or-nothing"),
+            Map.entry("constraint-violation", SDK_DOCS + "client#batch-writes-are-all-or-nothing"),
+            Map.entry("naming-policy", SDK_DOCS + "external-ids#rejections"),
+            Map.entry("unreadable-request-body", SDK_DOCS + "client#unknown-fields"),
+            Map.entry("malformed-cursor", SDK_DOCS + "timeseries#sorting-and-paging"),
+            Map.entry("invalid-datapoint", SDK_DOCS + "timeseries#value-types"),
+            Map.entry("invalid-timestamp", SDK_DOCS + "client#timestamps"),
+            Map.entry("referenced", SDK_DOCS + "timeseries#delete-a-series"),
+            Map.entry("would-strand", SDK_DOCS + "resources#delete"),
+            Map.entry("dataset-forbidden", SDK_DOCS + "datasets#access-control"),
+            Map.entry("filter-expression", SDK_DOCS + "events#when-an-expression-is-refused"),
+            Map.entry("unauthorized", SDK_DOCS + "client#when-a-call-returns-401"),
+            Map.entry("token-rejected", SDK_DOCS + "client#when-a-call-returns-401"),
+            Map.entry("permissions-unavailable", SDK_DOCS + "client#authentication"),
+            Map.entry("rate-limit-exceeded", SDK_DOCS + "limits#rate-limits"),
+            Map.entry("ingest-quota-exceeded", SDK_DOCS + "limits#daily-ingest-quotas"),
+            Map.entry("tenant-limit-reached", SDK_DOCS + "limits#lifetime-ceilings"),
+            Map.entry("request-too-large", SDK_DOCS + "limits#request-body-size"),
+            Map.entry("feature-disabled", SDK_DOCS + "tenant#features"),
+            // The one operator-site entry: onboarding an organization is not something the caller
+            // can act on, it is something they ask an administrator for — which is what this
+            // problem's `retry: needs-operator` already says.
+            Map.entry("unknown-tenant", OPERATOR_DOCS + "administration/organizations"));
 
     private Problems() {
     }
@@ -225,6 +310,29 @@ public final class Problems {
         return problem;
     }
 
+    /**
+     * A 422 for a timestamp in neither accepted form.
+     *
+     * <p>422, not 400, and the same 422 wherever a timestamp is read: the body parsed, every field
+     * is one the endpoint knows, and only this value is unusable. A caller who sends epoch seconds
+     * to one endpoint and to another should not have to learn that one calls it malformed and the
+     * other unprocessable. The detail comes from {@code DateTimeHandler} — it names both accepted
+     * forms and the factor of 1000 — so it is forwarded rather than flattened.
+     *
+     * @param pointer RFC 6901 location, when the failure happened somewhere with a JSON path
+     * @param fields  named locators for the sites that have no pointer, e.g. the bound and the
+     *                external id of the series it was sent for
+     */
+    public static ProblemDetail invalidTimestamp(String detail, String pointer,
+                                                 Collection<FieldProblem> fields) {
+        ProblemDetail problem = of(HttpStatus.UNPROCESSABLE_CONTENT, INVALID_TIMESTAMP,
+                "Unprocessable Content", detail);
+        if (pointer != null) {
+            problem.setProperty("pointer", pointer);
+        }
+        return withFields(problem, fields);
+    }
+
     /** A 403 for a feature switched off for this organization; an operator turns it on. */
     public static ProblemDetail featureDisabled(String feature, String detail) {
         ProblemDetail problem = of(HttpStatus.FORBIDDEN, FEATURE_DISABLED, "Forbidden", detail);
@@ -346,7 +454,10 @@ public final class Problems {
         return problem;
     }
 
-    /** Adds what every problem carries: the request's id and what the caller can do about it. */
+    /**
+     * Adds what every problem carries: the request's id, what the caller can do about it, and
+     * where to read more.
+     */
     public static ProblemDetail decorate(ProblemDetail problem, String requestId) {
         Map<String, Object> properties = problem.getProperties();
         if (requestId != null && (properties == null || !properties.containsKey("requestId"))) {
@@ -355,12 +466,30 @@ public final class Problems {
         if (properties == null || !properties.containsKey("retry")) {
             problem.setProperty("retry", retryFor(problem));
         }
+        String docs = docsFor(problem);
+        if (docs != null && (properties == null || !properties.containsKey(DOCS_MEMBER))) {
+            problem.setProperty(DOCS_MEMBER, docs);
+        }
         return problem;
     }
 
-    static String retryFor(ProblemDetail problem) {
+    /** The page explaining this problem, or null when nothing is written for it yet. */
+    public static String docsFor(ProblemDetail problem) {
+        return DOCS.get(slugOf(problem));
+    }
+
+    /**
+     * The kebab-case tail of a problem's type, or {@code ""} for a type this API did not mint.
+     * Keying on the slug rather than the full URI is what lets the five advices that still write
+     * their type as a string literal be covered without touching them.
+     */
+    private static String slugOf(ProblemDetail problem) {
         String type = problem.getType() == null ? "" : problem.getType().toString();
-        String slug = type.startsWith(BASE) ? type.substring(BASE.length()) : "";
+        return type.startsWith(BASE) ? type.substring(BASE.length()) : "";
+    }
+
+    static String retryFor(ProblemDetail problem) {
+        String slug = slugOf(problem);
         return switch (slug) {
             case "optimistic-lock", "rate-limit-exceeded", "ingest-quota-exceeded", "messaging-unavailable",
                  "permissions-unavailable", "tenant-provisioning" -> RETRY_SAME_REQUEST;

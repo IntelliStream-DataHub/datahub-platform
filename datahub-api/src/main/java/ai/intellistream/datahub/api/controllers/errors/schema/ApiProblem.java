@@ -80,6 +80,16 @@ public class ApiProblem {
             example = "0199f2a4-6c1e-7b3a-9d4f-2e8c5a1b7d90")
     private String requestId;
 
+    @Schema(description = """
+            The page explaining this problem type, for a person rather than a program. RFC 9457 \
+            says `type` should dereference to documentation; ours cannot, because it is an \
+            identifier you match on, so the link is a member of its own. `retry` says what to do; \
+            this says where to read why. Absent for problem types nothing is written about yet, \
+            so treat it as optional.""",
+            format = "uri",
+            example = "https://intellistream.ai/sdk-documentation/reference/external-ids#rejections")
+    private String docs;
+
     public String getType() { return type; }
     public String getTitle() { return title; }
     public Integer getStatus() { return status; }
@@ -87,4 +97,5 @@ public class ApiProblem {
     public String getInstance() { return instance; }
     public String getRetry() { return retry; }
     public String getRequestId() { return requestId; }
+    public String getDocs() { return docs; }
 }
