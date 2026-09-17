@@ -13,15 +13,21 @@ public class CachingBodyFilter implements Filter {
 
     // https://stackoverflow.com/questions/39935190/contentcachingresponsewrapper-produces-empty-response
 
-    // Exceptions propagate: swallowing one here left the status at 200 and the body empty.
+    /**
+     * Nothing is caught here, deliberately. This filter exists to make bodies loggable, so a
+     * failure below it is never its business to handle: swallowing one would leave the response
+     * at Tomcat's default 200 with an empty body, reporting a request that was dropped on the
+     * floor as a success. DispatcherServlet wraps everything a handler throws — {@code Error}s
+     * included — into {@code ServletException: Handler dispatch failed}, so a catch here would
+     * mask every unhandled failure on every endpoint, not just the odd I/O fault.
+     */
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
 
-        // Neither cached nor logged, and a failure has to propagate. Caught here, it reaches the
-        // caller as a 200 with an empty body however much of the request was lost, and a body that
-        // turned out too large never reaches the size filter outside this one to be answered 413.
+        // Neither cached nor logged: a body of up to 64 MiB that the controller reads once has
+        // nothing to gain from a second copy, and a request log must never carry it.
         if (StreamingEndpoints.isBinaryDatapointInsert(httpRequest)) {
             chain.doFilter(request, response);
             return;
@@ -40,8 +46,15 @@ public class CachingBodyFilter implements Filter {
 
         ContentCachingRequestWrapper reqWrapper = new ContentCachingRequestWrapper(httpRequest, 1024 * 1024 * 20);
         ContentCachingResponseWrapper resWrapper = new ContentCachingResponseWrapper((HttpServletResponse) response);
-        chain.doFilter(reqWrapper, resWrapper);
-        resWrapper.copyBodyToResponse();
+        try {
+            chain.doFilter(reqWrapper, resWrapper);
+        } finally {
+            // In a finally, not after the call: whatever was buffered before a failure has to reach
+            // the real response either way, or an error body written further down is discarded and
+            // the caller gets an empty one. Copying an empty buffer is a no-op, so the container is
+            // still free to write its own error page over an uncommitted response.
+            resWrapper.copyBodyToResponse();
+        }
     }
 
 }
