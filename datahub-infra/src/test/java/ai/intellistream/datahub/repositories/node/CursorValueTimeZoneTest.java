@@ -7,6 +7,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.time.ZoneId;
 import java.util.TimeZone;
 
@@ -38,14 +39,30 @@ class CursorValueTimeZoneTest {
     }
 
     @Test
-    void theBoundaryIsTheSameEpochMillisInAnyServerZone() {
+    void theBoundaryIsTheSameEpochMicrosInAnyServerZone() {
         Instant moment = Instant.parse("2026-04-22T14:30:00Z");
-        String expected = String.valueOf(moment.toEpochMilli());
+        String expected = String.valueOf(ChronoUnit.MICROS.between(Instant.EPOCH, moment));
 
         for (String zone : new String[]{"UTC", "America/Los_Angeles", "Asia/Kathmandu", "Pacific/Chatham"}) {
             TimeZone.setDefault(TimeZone.getTimeZone(zone));
             assertEquals(expected, createdTimeCursorValue(moment),
                     "cursor boundary shifted in " + zone + "; a walk would skip or repeat rows there");
         }
+    }
+
+    /**
+     * The boundary keeps the microseconds the column stores.
+     *
+     * <p>It used to be encoded as epoch millis, which put it strictly below every row in its own
+     * millisecond. {@code keyset()} compares {@code column = boundary} to engage the id
+     * tie-break, and that equality could never hold against a truncated value — so rows sharing
+     * the boundary's millisecond were dropped descending and repeated ascending.
+     */
+    @Test
+    void theBoundaryKeepsMicrosecondsRatherThanTruncatingToMillis() {
+        Instant moment = Instant.parse("2026-04-22T14:30:53.563456Z");
+
+        assertEquals("1776868253563456", createdTimeCursorValue(moment),
+                "boundary lost its microseconds; the keyset tie-break cannot match the row it names");
     }
 }

@@ -79,11 +79,11 @@ class PageCursorTest {
     @Test
     void aCursorFromAnotherVersionIsRejected() {
         String future = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                "v2|eventTime|asc|id-1|123".getBytes(StandardCharsets.UTF_8));
+                "v3|eventTime|asc|id-1|123".getBytes(StandardCharsets.UTF_8));
 
-        // Named in the message rather than decoded on a guess about what v2 means.
+        // Named in the message rather than decoded on a guess about what v3 means.
         assertTrue(assertThrows(MalformedCursorException.class, () -> PageCursor.decode(future))
-                .getMessage().contains("v2"));
+                .getMessage().contains("v3"));
     }
 
     @Test

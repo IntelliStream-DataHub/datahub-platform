@@ -35,7 +35,15 @@ import java.util.Objects;
  */
 public record PageCursor(String property, boolean descending, String value, String id) {
 
-    private static final String VERSION = "v1";
+    /**
+     * v2 because v1 encoded a timestamp boundary as epoch millis while the column it names stores
+     * microseconds. Reading a v1 cursor with the current parser would place the boundary in 1970 —
+     * an empty page descending, the whole table again ascending — so an old cursor has to be
+     * refused rather than continued. Every in-flight cursor is invalidated by the bump, including
+     * the ones on properties that were never affected; a 400 telling the caller to start again is
+     * the point of the version tag.
+     */
+    private static final String VERSION = "v2";
     private static final String SEPARATOR = "|";
     /** Tags a value segment that carries a value, as opposed to recording its absence. */
     private static final String VALUE_PREFIX = "v";
@@ -97,7 +105,8 @@ public record PageCursor(String property, boolean descending, String value, Stri
             throw malformed("it does not have the expected structure");
         }
         if (!VERSION.equals(parts[0])) {
-            // A cursor minted by a newer format. Saying so beats decoding it wrongly.
+            // A cursor minted by another format — older or newer. Either way, saying so beats
+            // decoding it wrongly: a v1 boundary read as v2 lands in 1970 and quietly pages wrong.
             throw malformed("it was produced by an incompatible version (" + summarise(parts[0]) + ")");
         }
         String property = parts[1];
