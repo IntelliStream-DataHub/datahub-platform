@@ -132,6 +132,28 @@ class AssetServiceTest {
         assertThat(filter.getNodeType()).containsExactly("asset");
     }
 
+    /**
+     * A body with no {@code filter} block at all still has to answer with assets only.
+     *
+     * <p>{@code SearchBody.filter} has no default, so the pin had nothing to write to and the query
+     * ran across every node type. The limit was then spent on that mixed page and the non-assets
+     * were dropped afterwards, so a search for a phrase matching many timeseries returned a handful
+     * of assets, or none, while matching ones sat just past the cut.
+     */
+    @Test
+    void searchPinsTheTypeEvenWhenTheBodyHasNoFilter() {
+        var body = new SearchBody<ResourceFilter>();
+        body.getSearch().setQuery("pump");
+        when(resourceService.search(any())).thenReturn(new DataWrapper<>());
+
+        assetService.search(body);
+
+        ArgumentCaptor<SearchBody<ResourceFilter>> sent = ArgumentCaptor.captor();
+        verify(resourceService).search(sent.capture());
+        assertThat(sent.getValue().getFilter()).isNotNull();
+        assertThat(sent.getValue().getFilter().getNodeType()).containsExactly("asset");
+    }
+
     /** Paging is the pipeline's; narrowing the page must not drop its cursor. */
     @Test
     void filterCarriesTheCursorThrough() {
