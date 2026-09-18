@@ -45,7 +45,7 @@ public class ClickHouseDashboardService extends ClickHouseService {
         AtomicLong count = new AtomicLong();
         String query = "SELECT count(1) as count FROM events WHERE lower(type) = lower({type:String})";
         Map<String, Object> params = new HashMap<>();
-        params.put("type", type);
+        params.put("type", ClickHouseHelper.escapeStringParam(type));
 
         Client client = getClickhouseClient();
         client.queryAll(query, params).forEach(r -> count.set(r.getLong("count")));

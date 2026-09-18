@@ -51,4 +51,14 @@ class ClickHouseEventParamLiteralsTest {
         assertEquals("['back\\\\slash']", ClickHouseEventService.toChStringArray(List.of("back\\slash")));
         assertEquals("{'it\\'s':'a\\\\b'}", ClickHouseEventService.toChStringMap(Map.of("it's", "a\\b")));
     }
+
+    /** A bare String parameter has no quotes to break out of, only the escaped-format unescaping. */
+    @Test
+    void bareStringParamsEscapeBackslashesTabsAndNewlinesOnly() {
+        assertEquals("ends\\\\", ClickHouseHelper.escapeStringParam("ends\\"));
+        assertEquals("C:\\\\temp", ClickHouseHelper.escapeStringParam("C:\\temp"));
+        assertEquals("a\\tb\\nc", ClickHouseHelper.escapeStringParam("a\tb\nc"));
+        assertEquals("it's \"æ☃\" %_\r", ClickHouseHelper.escapeStringParam("it's \"æ☃\" %_\r"));
+        assertEquals(null, ClickHouseHelper.escapeStringParam(null));
+    }
 }

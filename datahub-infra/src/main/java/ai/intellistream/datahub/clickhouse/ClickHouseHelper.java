@@ -180,4 +180,18 @@ public class ClickHouseHelper {
             }
         }
     }
+
+    /**
+     * A value for a bare {@code {name:String}} query parameter. ClickHouse parses those in its
+     * escaped (TSV) text format, and the client sends them as-is, so a raw value loses a level of
+     * backslashes on the way in: {@code C:\temp} is stored with a TAB, a trailing {@code \} fails
+     * the query, and a literal TAB or newline is rejected outright. Not for {@code Array(String)} or
+     * {@code Map} parameters, whose quoted elements are parsed with a single level of escaping.
+     */
+    public static String escapeStringParam(String value) {
+        if (value == null) {
+            return null;
+        }
+        return value.replace("\\", "\\\\").replace("\t", "\\t").replace("\n", "\\n");
+    }
 }

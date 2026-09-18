@@ -206,23 +206,23 @@ public class ClickHouseEventService extends ClickHouseService {
                 // lifecycle), so a rename had no per-event meaning there to mirror here.
                 if (fields.getType() != null && fields.getType().getSet() != null) {
                     setClauses.add("type = {type:String}");
-                    params.put("type", fields.getType().getSet());
+                    params.put("type", ClickHouseHelper.escapeStringParam(fields.getType().getSet()));
                 }
                 if (fields.getSubType() != null && fields.getSubType().getSet() != null) {
                     setClauses.add("sub_type = {sub_type:String}");
-                    params.put("sub_type", fields.getSubType().getSet());
+                    params.put("sub_type", ClickHouseHelper.escapeStringParam(fields.getSubType().getSet()));
                 }
                 if (fields.getStatus() != null && fields.getStatus().getSet() != null) {
                     setClauses.add("status = {status:String}");
-                    params.put("status", fields.getStatus().getSet());
+                    params.put("status", ClickHouseHelper.escapeStringParam(fields.getStatus().getSet()));
                 }
                 if (fields.getDescription() != null && fields.getDescription().getSet() != null) {
                     setClauses.add("description = {desc:String}");
-                    params.put("desc", fields.getDescription().getSet());
+                    params.put("desc", ClickHouseHelper.escapeStringParam(fields.getDescription().getSet()));
                 }
                 if (fields.getSource() != null && fields.getSource().getSet() != null) {
                     setClauses.add("source = {source:String}");
-                    params.put("source", fields.getSource().getSet());
+                    params.put("source", ClickHouseHelper.escapeStringParam(fields.getSource().getSet()));
                 }
                 // The dataset does move, unlike the two immutable fields either side of it:
                 // data_set_id is neither the sorting key (ORDER BY id) nor the partition key
@@ -614,14 +614,14 @@ public class ClickHouseEventService extends ClickHouseService {
                 String criteria;
                 if(value == null){
                     criteria = "arrayExists(k -> (k = {key"+i+":String}), mapKeys(metadata))";
-                    params.put("key"+i, key);
+                    params.put("key"+i, ClickHouseHelper.escapeStringParam(key));
                 } else if(key == null){
                     criteria = "arrayExists(v -> (v = {value"+i+":String}), mapValues(metadata))";
-                    params.put("value"+i, value);
+                    params.put("value"+i, ClickHouseHelper.escapeStringParam(value));
                 } else {
                     criteria = "arrayExists(k -> (k = {key"+i+":String}), mapKeys(metadata)) AND arrayExists(v -> (v = {value"+i+":String}), mapValues(metadata))";
-                    params.put("key"+i, key);
-                    params.put("value"+i, value);
+                    params.put("key"+i, ClickHouseHelper.escapeStringParam(key));
+                    params.put("value"+i, ClickHouseHelper.escapeStringParam(value));
                 }
                 criterias.add( new SqlField("metadata", entry, criteria) );
                 i++;
@@ -1115,7 +1115,7 @@ public class ClickHouseEventService extends ClickHouseService {
         for (String pattern : patterns) {
             String name = paramPrefix + "_p" + i++;
             alternatives.add(textColumn + " ILIKE {" + name + ":String}");
-            params.put(name, pattern);
+            params.put(name, ClickHouseHelper.escapeStringParam(pattern));
         }
         if (alternatives.isEmpty()) {
             return null;
@@ -1230,7 +1230,7 @@ public class ClickHouseEventService extends ClickHouseService {
             Map<String, Object> params = new HashMap<>();
             List<String> conditions = new ArrayList<>();
             if (query != null && !query.isBlank()) {
-                params.put("q", "%" + query + "%");
+                params.put("q", "%" + ClickHouseHelper.escapeStringParam(query) + "%");
                 conditions.add("(external_id ILIKE {q:String} "
                         + "OR description ILIKE {q:String} "
                         + "OR arrayExists(v -> v ILIKE {q:String}, mapValues(metadata)))");

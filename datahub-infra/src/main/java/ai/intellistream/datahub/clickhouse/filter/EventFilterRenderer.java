@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse.filter;
 
+import ai.intellistream.datahub.clickhouse.ClickHouseHelper;
 import ai.intellistream.datahub.filter.CompareOp;
 import ai.intellistream.datahub.filter.Expr;
 import ai.intellistream.datahub.filter.FilterParseException;
@@ -438,7 +439,9 @@ public final class EventFilterRenderer {
     /** Placeholder names are generated, never derived from anything the caller wrote. */
     private String bind(Object value, String clickHouseType) {
         String name = "fp" + sequence++;
-        params.put(name, value);
+        params.put(name, "String".equals(clickHouseType) && value instanceof String text
+                ? ClickHouseHelper.escapeStringParam(text)
+                : value);
         return "{" + name + ":" + clickHouseType + "}";
     }
 
