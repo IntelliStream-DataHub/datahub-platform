@@ -93,9 +93,20 @@ public class AssetService {
         return onlyAssets(page.getItems()).setNextCursor(page.getNextCursor());
     }
 
-    /** Free-text search, with the same type pinning as {@link #filter}. */
+    /**
+     * Free-text search, with the same type pinning as {@link #filter}.
+     *
+     * <p>A search body may legally omit the filter — {@code SearchBody.filter} has no default, where
+     * {@code ResourceRetreiver.filter} does — and there would then be nothing to pin the type on.
+     * The query would run across every node type, the limit would be spent on that mixed page, and
+     * the narrowing below would trim it, answering a request for N assets with however few of them
+     * happened to rank in the first N nodes. Give it a filter to carry the type.
+     */
     @Transactional(readOnly = true)
     public DataWrapper<Asset> search(SearchBody<ResourceFilter> searchForm) {
+        if (searchForm.getFilter() == null) {
+            searchForm.setFilter(new ResourceFilter());
+        }
         pinAssetType(searchForm.getFilter());
         DataWrapper<NodeModel> page = resourceService.search(searchForm);
         return onlyAssets(page.getItems()).setNextCursor(page.getNextCursor());
