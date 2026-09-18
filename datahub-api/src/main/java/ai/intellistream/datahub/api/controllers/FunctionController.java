@@ -10,10 +10,13 @@ import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper
 import ai.intellistream.datahub.api.services.FunctionService;
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.models.EdgeProxy;
+import ai.intellistream.datahub.models.FunctionRetreiver;
 import ai.intellistream.datahub.models.IdCollection;
+import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.models.datafilters.FunctionFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -21,6 +24,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -34,6 +38,11 @@ import org.springframework.web.bind.annotation.*;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import ai.intellistream.datahub.api.controllers.errors.schema.DeleteRefusedProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
+
+import java.util.HashSet;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A Function is a plain datastore node distinguished by its {@code FUNCTION} type-label.
@@ -131,6 +140,158 @@ public class FunctionController {
     @GetMapping(path = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> getFunction(@PathVariable("id") Long id) {
         return new ResponseEntity<>(functionService.get(id), HttpStatus.OK);
+    }
+
+    @Tag(name = "Functions")
+    @Operation(
+            summary = "Fetch functions by id or externalId",
+            description = """
+                    Look up several functions at once. Each entry needs either a numeric `id`, an
+                    `externalId`, or both.
+
+                    Ids that do not exist, are not functions, or are not readable by this caller are
+                    left out of the response rather than failing the call.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The functions that were found.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = FunctionDataWrapper.class)
+            ))
+    @PostMapping(path = "/byids", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> findByIdList(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    description = "Identifiers of the functions to look up.",
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            schema = @Schema(implementation = IdCollectionDataWrapper.class),
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "items": [
+                                        { "id": 5677892 },
+                                        { "externalId": "fn_rolling_average" }
+                                      ]
+                                    }
+                                    """)
+                    )
+            )
+            @Schema(implementation = IdCollectionDataWrapper.class)
+            @Valid @RequestBody DataWrapper<IdCollection> apiReqData) {
+        Set<Long> ids = apiReqData.getItems().stream()
+                .map(IdCollection::getId).filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+        Set<String> externalIds = apiReqData.getItems().stream()
+                .map(IdCollection::getExternalId).filter(Objects::nonNull)
+                .collect(Collectors.toCollection(HashSet::new));
+        return ResponseEntity.ok(functionService.byIds(ids, externalIds));
+    }
+
+    @Tag(name = "Functions")
+    @Operation(
+            summary = "Filter functions",
+            description = """
+                    Return the functions that match a set of filters. All filters are combined with
+                    AND — a function must match every filter you supply to be included.
+
+                    Every list field also accepts a bare value, so `"source": "sap"` and
+                    `"source": ["sap"]` mean the same thing.
+
+                    Supported filters are the criteria every node type shares:
+                    - `dataSetId` — functions of those data sets **and every data set beneath them**
+                      in the hierarchy. Each entry names a data set by `id` or `externalId`.
+                    - `id` / `externalId` / `name` / `source` / `labels` — `externalId`, `name` and
+                      `source` are pattern lists: `*` and `%` are wildcards, `_` is literal, matching
+                      is case-insensitive, and an entry without a wildcard matches exactly. `labels`
+                      must **all** be present.
+                    - `metadata` — every entry must be present. A **null value matches the key
+                      alone**, whatever it carries.
+                    - `createdTime` / `lastUpdatedTime` — inclusive `min`/`max` instants.
+
+                    Data sets you lack read access to are silently omitted. `limit` defaults to 1000
+                    and may not exceed 10 000; results come newest created first. For free-text
+                    lookups use `POST /functions/search` instead.
+
+                    `sort` takes one property with an `order` of `asc` or `desc`; `id` is always
+                    appended so the order is total. The response carries `nextCursor` when there may
+                    be more: send it back as `cursor`, with the same `sort` it came from. Keyset
+                    paging, not `OFFSET`, so a deep page costs what a shallow one does.
+                    """
+    )
+    @ApiResponse(responseCode = "200",
+            description = "The functions that match every supplied filter, newest first.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = FunctionDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "The request failed validation.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @PostMapping(path = "/filter", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> filter(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    description = "Filter criteria and optional limit.",
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "limit": 100,
+                                      "filter": {
+                                        "name": ["rolling*"],
+                                        "labels": ["AGGREGATION"],
+                                        "dataSetId": [{ "id": "12" }]
+                                      }
+                                    }
+                                    """)
+                    )
+            )
+            @Valid @RequestBody FunctionRetreiver apiReqData) {
+        return ResponseEntity.ok(functionService.filter(apiReqData));
+    }
+
+    @Tag(name = "Functions")
+    @Operation(
+            summary = "Search functions",
+            description = """
+                    Free-text search across functions, ranked by how well each one matches the
+                    phrase. The optional `filter` takes the same criteria as
+                    `POST /functions/filter` and is ANDed with the phrase.
+
+                    Matching rules may evolve over time; don't rely on this endpoint for equality
+                    tests — use `POST /functions/byids` for that.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "Functions ranked by how well they matched.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = FunctionDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "The request failed validation.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @PostMapping(path = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<?> search(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    description = "Search phrase, optional filter, optional limit.",
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "search": { "query": "rolling average" },
+                                      "filter": { "labels": ["AGGREGATION"] },
+                                      "limit": 50
+                                    }
+                                    """)
+                    )
+            )
+            @Valid @RequestBody SearchBody<FunctionFilter> apiReqData) {
+        return ResponseEntity.ok(functionService.search(apiReqData));
     }
 
     @Tag(name = "Functions")

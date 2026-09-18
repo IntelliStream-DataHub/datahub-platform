@@ -56,14 +56,14 @@ class FilterContractParityTest {
             "id", "externalId", "name", "createdTime", "lastUpdatedTime");
 
     @ParameterizedTest
-    @ValueSource(classes = {DataSetFilter.class, ResourceFilter.class, TimeseriesFilter.class})
+    @ValueSource(classes = {DataSetFilter.class, ResourceFilter.class, TimeseriesFilter.class, FunctionFilter.class})
     void everyNodeFilterExtendsTheBase(Class<?> filter) {
         assertTrue(NodeFilter.class.isAssignableFrom(filter),
                 filter.getSimpleName() + " must extend NodeFilter so the shared criteria have one implementation");
     }
 
     @ParameterizedTest
-    @ValueSource(classes = {ResourceFilter.class, TimeseriesFilter.class})
+    @ValueSource(classes = {ResourceFilter.class, TimeseriesFilter.class, FunctionFilter.class})
     void filtersOnNodesThatLiveInADataSetGetDataSetIds(Class<?> filter) {
         assertTrue(DataSetScopedFilter.class.isAssignableFrom(filter),
                 filter.getSimpleName() + " must extend DataSetScopedFilter to inherit dataSetId");
@@ -83,7 +83,7 @@ class FilterContractParityTest {
      * can see from the wire.
      */
     @ParameterizedTest
-    @ValueSource(classes = {DataSetFilter.class, ResourceFilter.class, TimeseriesFilter.class})
+    @ValueSource(classes = {DataSetFilter.class, ResourceFilter.class, TimeseriesFilter.class, FunctionFilter.class})
     void noSubclassRedeclaresABaseField(Class<?> filter) {
         Set<String> inherited = fieldNames(NodeFilter.class);
         inherited.addAll(fieldNames(DataSetScopedFilter.class));
@@ -231,7 +231,8 @@ class FilterContractParityTest {
      */
     @ParameterizedTest
     @ValueSource(classes = {NodeFilter.class, DataSetScopedFilter.class, DataSetFilter.class,
-            ResourceFilter.class, TimeseriesFilter.class, EventFilter.class, SubscriptionFilter.class})
+            ResourceFilter.class, TimeseriesFilter.class, FunctionFilter.class, EventFilter.class,
+            SubscriptionFilter.class})
     void everyListFieldAcceptsASingleValue(Class<?> filter) {
         List<String> missing = new ArrayList<>();
         for (Field f : filter.getDeclaredFields()) {
