@@ -22,6 +22,7 @@ import jakarta.persistence.criteria.Subquery;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -260,12 +261,14 @@ public final class SubscriptionPredicateBuilder {
             case "id" -> subscription.getId();
             case "externalId" -> subscription.getExternalId();
             case "name" -> subscription.getName();
-            // Epoch millis, so the boundary survives a round trip through any client without a
-            // timezone or precision question attached to it.
+            // Epoch micros, so the boundary survives a round trip through any client without a
+            // timezone attached to it — and at the precision the column actually stores. Millis
+            // truncated the boundary below every row in its own millisecond, so the cb.equal()
+            // branch in keyset() could never match and the id tie-break never engaged.
             case "dateCreated" -> subscription.getDateCreated() == null
-                    ? null : subscription.getDateCreated().toInstant().toEpochMilli();
+                    ? null : epochMicros(subscription.getDateCreated().toInstant());
             case "lastUpdated" -> subscription.getLastUpdated() == null
-                    ? null : subscription.getLastUpdated().toInstant().toEpochMilli();
+                    ? null : epochMicros(subscription.getLastUpdated().toInstant());
             default -> null;
         };
         return value == null ? null : String.valueOf(value);
@@ -276,9 +279,19 @@ public final class SubscriptionPredicateBuilder {
         return switch (sort.attribute()) {
             case "id" -> Long.valueOf(value);
             case "dateCreated", "lastUpdated" ->
-                    Instant.ofEpochMilli(Long.parseLong(value)).atOffset(ZoneOffset.UTC);
+                    Instant.EPOCH.plus(Long.parseLong(value), ChronoUnit.MICROS).atOffset(ZoneOffset.UTC);
             default -> value;
         };
+    }
+
+    /**
+     * An instant as microseconds since the epoch — the precision a Postgres
+     * {@code timestamp with time zone} stores, and so the precision a boundary has to carry to
+     * name a single row. {@link ChronoUnit#MICROS} rather than arithmetic on seconds and nanos
+     * because it floors correctly on either side of the epoch.
+     */
+    private static long epochMicros(Instant instant) {
+        return ChronoUnit.MICROS.between(Instant.EPOCH, instant);
     }
 
     private static Predicate ilike(CriteriaBuilder cb, Root<SubscriptionEntity> root, String attribute, String pattern) {

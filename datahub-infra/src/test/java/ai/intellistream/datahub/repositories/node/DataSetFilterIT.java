@@ -624,6 +624,51 @@ class DataSetFilterIT {
         assertThat(paged).isEqualTo(single);
     }
 
+    /**
+     * The timestamp case, which the {@code name} tie above does not reach.
+     *
+     * <p>A boundary is only a position if it can name the row it was taken from. Postgres
+     * {@code timestamp with time zone} stores microseconds, and the cursor used to carry epoch
+     * millis — so the boundary landed strictly below every row in its own millisecond,
+     * {@code cb.equal(column, boundary)} could never hold, and the id tie-break never engaged.
+     * Descending dropped the rest of that millisecond; ascending re-returned the boundary row.
+     *
+     * <p>Both directions are asserted because the two symptoms are opposite and a test that
+     * checked only one would read as a pass. The rows are forced to distinct microseconds inside
+     * a single millisecond by a native update: {@code @CreationTimestamp} overwrites whatever a
+     * setter put there, and rows persisted in a loop would otherwise land in whichever
+     * milliseconds the clock happened to hand out.
+     */
+    @Test
+    @DisplayName("timestamps sharing a millisecond page correctly in both directions")
+    void subMillisecondTimestampsPageCorrectly() {
+        for (int i = 1; i <= 6; i++) {
+            dataset("usec%d".formatted(i), "Micro %d".formatted(i), "src");
+        }
+        em.createNativeQuery("""
+                        UPDATE node SET date_created = TIMESTAMPTZ '2026-04-22 14:30:53.563000+00'
+                                                       + (ranked.rn * INTERVAL '1 microsecond')
+                        FROM (SELECT id, row_number() OVER (ORDER BY id) AS rn
+                                FROM node WHERE external_id LIKE 'usec%') ranked
+                        WHERE node.id = ranked.id""")
+                .executeUpdate();
+        // The walk mints its cursor from the entity it was handed, so it has to read the rows the
+        // update wrote rather than the ones still cached from the persist above.
+        em.clear();
+
+        for (boolean descending : new boolean[]{true, false}) {
+            NodeSort sort = new NodeSort("createdTime", "dateCreated", descending);
+
+            List<String> single = filter(named("usec*"), sort, null, 100);
+            List<String> paged = walk(named("usec*"), sort, 2);
+
+            assertThat(single).as("unpaged, descending=%s", descending).hasSize(6);
+            assertThat(paged).as("paged walk, descending=%s", descending)
+                    .doesNotHaveDuplicates()
+                    .isEqualTo(single);
+        }
+    }
+
     /** Ties are where keyset paging goes wrong without the id tie-breaker. */
     @Test
     @DisplayName("rows sharing a sort value are neither skipped nor repeated")

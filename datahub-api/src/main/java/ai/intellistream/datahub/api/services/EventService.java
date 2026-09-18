@@ -160,6 +160,14 @@ public class EventService {
         if (cursor == null) {
             return; // none supplied: the start of a walk, not an error in one
         }
+        if (!isUuid(cursor.id())) {
+            // The tie-breaker, checked for the same reason the boundary is. The event keyset binds
+            // it with UUID.fromString(), which threw an IllegalArgumentException out of the query
+            // builder on a forged id — a 500 from caller input.
+            throw new MalformedCursorException(
+                    "The cursor's row reference is not a valid event id. "
+                    + "Send back a nextCursor exactly as it was returned, or omit it to start again.");
+        }
         if (!ClickHouseEventService.canReadBoundary(sort, cursor.value())) {
             // Well-formed encoding, unusable contents — forged or truncated. Rejected like any
             // other unreadable cursor rather than restarting, which would loop a paging client.
@@ -174,6 +182,16 @@ public class EventService {
                             .formatted(cursor.property(), cursor.descending() ? "desc" : "asc",
                                     sort.property(), sort.descending() ? "desc" : "asc")
                             + "Send the cursor with the sort it came from, or start a new walk without it.");
+        }
+    }
+
+    /** Whether a cursor's id is the UUID the event keyset binds it as. */
+    private static boolean isUuid(String id) {
+        try {
+            UUID.fromString(id);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 
@@ -205,6 +223,16 @@ public class EventService {
      * — the DTOs double as Avro payloads, so they store millis and present ISO-8601 — and an ISO
      * string is not what the query layer parses the boundary back out of. Epoch millis also survive
      * a round trip through any client without a timezone or precision question attached.
+     *
+     * <p>Millis here, microseconds in {@code NodePredicateBuilder} — deliberately, and not an
+     * inconsistency to tidy up. The rule is that a boundary carries its column's <em>full</em>
+     * precision, because {@code keyset()} compares {@code column = boundary} to engage the id
+     * tie-break, and a truncated boundary makes that equality unsatisfiable: the walk then drops
+     * rows descending and repeats them ascending, with no cursor left to signal it. Events are
+     * millis all the way down — {@code DateTime64(3)} in ClickHouse, a {@code Long} of millis in
+     * the Avro-backed DTO — so nothing is lost. A Postgres {@code timestamp with time zone} keeps
+     * microseconds, so a node boundary has to as well. Raising this to micros would only invent
+     * precision the source never had.
      */
     private static String cursorValue(EventModel event, String property) {
         return switch (property) {
