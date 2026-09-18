@@ -205,6 +205,16 @@ public class EventService {
      * — the DTOs double as Avro payloads, so they store millis and present ISO-8601 — and an ISO
      * string is not what the query layer parses the boundary back out of. Epoch millis also survive
      * a round trip through any client without a timezone or precision question attached.
+     *
+     * <p>Millis here, microseconds in {@code NodePredicateBuilder} — deliberately, and not an
+     * inconsistency to tidy up. The rule is that a boundary carries its column's <em>full</em>
+     * precision, because {@code keyset()} compares {@code column = boundary} to engage the id
+     * tie-break, and a truncated boundary makes that equality unsatisfiable: the walk then drops
+     * rows descending and repeats them ascending, with no cursor left to signal it. Events are
+     * millis all the way down — {@code DateTime64(3)} in ClickHouse, a {@code Long} of millis in
+     * the Avro-backed DTO — so nothing is lost. A Postgres {@code timestamp with time zone} keeps
+     * microseconds, so a node boundary has to as well. Raising this to micros would only invent
+     * precision the source never had.
      */
     private static String cursorValue(EventModel event, String property) {
         return switch (property) {

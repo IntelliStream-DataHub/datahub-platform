@@ -30,8 +30,8 @@ import java.util.Objects;
  * cursor can mean.
  *
  * <p>Opaque on purpose: base64 of a versioned, pipe-delimited form. Callers echo back what they
- * were handed rather than assembling one, which is what lets the encoding change — the {@code v1}
- * prefix is how a later format announces itself to an older reader.
+ * were handed rather than assembling one. The {@code v1} prefix is there for a future format
+ * change.
  */
 public record PageCursor(String property, boolean descending, String value, String id) {
 

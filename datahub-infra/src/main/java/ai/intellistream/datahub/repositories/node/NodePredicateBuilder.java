@@ -21,6 +21,7 @@ import org.hibernate.query.criteria.HibernateCriteriaBuilder;
 
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -389,10 +390,14 @@ public final class NodePredicateBuilder {
             case "name" -> node.getName();
             case "source" -> node.getSource();
             case "description" -> node.getDescription();
-            // Epoch millis, so the boundary survives a round trip through any client without a
-            // timezone or precision question attached to it.
-            case "dateCreated" -> node.getDateCreated() == null ? null : node.getDateCreated().toInstant().toEpochMilli();
-            case "lastUpdated" -> node.getLastUpdated() == null ? null : node.getLastUpdated().toInstant().toEpochMilli();
+            // Epoch micros, so the boundary survives a round trip through any client without a
+            // timezone attached to it — and at the precision the column actually stores.
+            // Postgres `timestamp with time zone` holds microseconds, so encoding millis here
+            // truncated the boundary below every row in its own millisecond: cb.equal() in
+            // keyset() could never match, so the id tie-break never engaged. Descending dropped
+            // the rest of that millisecond, ascending re-returned the boundary row itself.
+            case "dateCreated" -> node.getDateCreated() == null ? null : epochMicros(node.getDateCreated().toInstant());
+            case "lastUpdated" -> node.getLastUpdated() == null ? null : epochMicros(node.getLastUpdated().toInstant());
             case "dataSet" -> node.getDataSet() == null ? null : node.getDataSet().getId();
             default -> null;
         };
@@ -410,9 +415,19 @@ public final class NodePredicateBuilder {
         return switch (sort.attribute()) {
             case "id", "dataSet" -> Long.valueOf(value);
             case "dateCreated", "lastUpdated" ->
-                    Instant.ofEpochMilli(Long.parseLong(value)).atZone(ZoneOffset.UTC);
+                    Instant.EPOCH.plus(Long.parseLong(value), ChronoUnit.MICROS).atZone(ZoneOffset.UTC);
             default -> value;
         };
+    }
+
+    /**
+     * An instant as microseconds since the epoch — the precision a Postgres
+     * {@code timestamp with time zone} stores, and so the precision a boundary has to carry to
+     * name a single row. {@link ChronoUnit#MICROS} rather than arithmetic on seconds and nanos
+     * because it floors correctly on either side of the epoch.
+     */
+    private static long epochMicros(Instant instant) {
+        return ChronoUnit.MICROS.between(Instant.EPOCH, instant);
     }
 
     /** OR the patterns together against one column, if there are any. */
