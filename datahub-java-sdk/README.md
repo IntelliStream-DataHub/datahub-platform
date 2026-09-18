@@ -203,6 +203,44 @@ try (BinaryIngestBuffer buffer = client.timeseries().binaryBuffer()) {   // 10 0
 }   // close flushes what is left
 ```
 
+## Errors
+
+Every refusal comes back as a `DatahubApiException` carrying an RFC 9457
+`application/problem+json` document, which `problem()` gives you read. It is **never null** — a
+body that was empty, HTML from a proxy, or JSON of some other shape yields a problem carrying just
+the HTTP status.
+
+```java
+try {
+    client.resources().create(resources);
+} catch (DatahubApiException e) {
+    Problem p = e.problem();
+    switch (p.slug()) {                       // "duplicate", "dataset-forbidden", …
+        case "duplicate"        -> reconcile(p.extensions().get("duplicated"));
+        case "validation-failed" -> p.fields().forEach(f -> markInvalid(f.field(), f.message()));
+        case "tenant-limit-reached" -> alertOperator(p.detail(), p.requestId());
+        case null, default -> throw e;          // null: not a problem document at all
+    }
+}
+```
+
+**Branch on the type, not on prose or on the status.** `slug()` is the type URI with
+`https://intellistream.ai/errors/` stripped, and null for a type from anywhere else. One status
+covers several types — a 403 is a dataset ACL, a disabled feature or a tenant ceiling, and only the
+type tells them apart.
+
+| Member | What it is for |
+| --- | --- |
+| `slug()` / `type()` | The one member to branch on. `is("duplicate")` reads best for a single check. |
+| `retry()` | `same-request` (send it again unchanged, after `Retry-After`), `change-request` (the request itself must change) or `needs-operator` (nothing you send will fix it). `retryable()` is the first of those. |
+| `requestId()` | The `X-Request-Id` this request was served under. Quote it to an operator; they can find it in the logs. |
+| `fields()` | The inputs that were refused: `field`, `message`, an i18n `code` so you can phrase it in your own words, and the bound a length broke. |
+| `detail()` / `title()` | Prose, for a human reading a log. Do not parse it. |
+| `extensions()` | Everything else the type carries — `duplicated`, `blockedBy`, `missing`, `reason`, `pointer`. |
+
+An extension member this SDK release does not know about is kept, not refused, so the API can add
+one without breaking a client built against an older version.
+
 ## Durable ingest buffering
 
 Optionally, the client can buffer datapoint and event ingestion to disk when a send can't get
@@ -210,7 +248,9 @@ through, and flush it automatically on the next ingest call once it can. Two kin
 buffer: the API being **unreachable** (network error, HTTP 429 or 5xx), and an **auth failure**
 (HTTP 401/403, e.g. an expired token) — so data keeps accumulating until either connectivity or
 the credential is restored, then flushes. A terminal error such as HTTP 400 is surfaced, not
-buffered. It is **off by default**; enable it on the config:
+buffered. One 403 is not buffered either: `tenant-limit-reached`, a ceiling that replaying can
+never turn into an acceptance, surfaces so the message saying it is raised by asking is not buried
+under a spool filling with refused data. It is **off by default**; enable it on the config:
 
 ```java
 DatahubClient client = DatahubClient.create(
@@ -243,6 +283,13 @@ It is memory-safe: failures are appended to a plain active segment, that segment
 at a ~50 MB rollover, and on flush segments are streamed and sent in fixed-size chunks, so even a
 multi-gigabyte spool never loads into memory. A torn trailing line from an unclean shutdown is
 skipped on read, and a spool left on disk is recovered on the next client start.
+
+Within a single ingest call, batches are retried according to the problem's `retry`: the API
+distinguishes a broker it could not publish to (503 `messaging-unavailable`, `same-request`) from a
+failure inside itself (500 `internal`, `needs-operator`), and a lost optimistic lock (409, worth
+sending again) from a duplicate external id (409, never). `IngestResult.isTransientFailure()`
+reports the same judgement, and `Retry-After` is honoured as the backoff floor. Where no problem
+document came back — a network error, a proxy's HTML 502 — the status decides as before.
 
 ### Idempotent retries
 

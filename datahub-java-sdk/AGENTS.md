@@ -16,6 +16,17 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   `TimeseriesService` go to `POST /timeseries/data/binary`; the JSON `ingest(...)` is untouched
   and the durable spool applies to it only. The binary path resolves series through
   `/timeseries/byids` (`ingest/SeriesResolver`), so it needs read access to the dataset too.
+- **Branch on the problem `type`, never on a substring of the body.** The api answers every
+  failure with one RFC 9457 shape whose `type` URI is the contract; `detail` and `title` are prose
+  for a human and may be reworded. `Problem.of(status, body)` never throws and never returns null,
+  so an error path has no special case for a proxy's HTML or an empty 502 — `slug()` is simply null
+  there and the status decides. A substring search over the whole body also fires on a `detail`
+  sentence that merely mentions the thing, which is how `unknown-timeseries` used to be matched.
+- **`retry` decides what is sent again; the status decides what is spooled.** They answer different
+  questions and neither implies the other (`IngestResult.isRetryable` vs `isBufferable`). An expired
+  token is `change-request` — that request will never work as it stands — yet holding the data while
+  someone renews the credential is exactly what the spool is for. Going by `retry` in `isBufferable`
+  would stop buffering 401/403 and defeat the feature.
 - **Wire types come from `datahub-api-model`** — never redefine request/response DTOs here.
   In-tree it is a project dependency (`api project(':datahub-api-model')`); the published POM
   pins resolved versions so non-Spring consumers work.
@@ -44,6 +55,8 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   assertion source is configured. The assertion is re-requested per exchange, never cached,
   because providers commonly reject a replayed one.
 - `http/` — shared plumbing: `ApiHttp` request helpers, `DatahubApiException` error mapping.
+  Every non-2xx is read as the api's RFC 9457 problem document through
+  `DatahubApiException.problem()` (`ai.intellistream.datahub.api.errors.Problem`, in api-model).
 - `services/` — one class per API area: resources, assets, functions, timeseries, datasets,
   events, labels, policies, governance, tenant, units, files, subscriptions. `assets` and
   `functions` are the typed views of the `ASSET`/`FUNCTION` corners of the same graph `resources`

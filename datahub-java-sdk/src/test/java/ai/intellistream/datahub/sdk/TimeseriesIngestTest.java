@@ -79,9 +79,78 @@ class TimeseriesIngestTest {
         }
     }
 
+    @Test
+    void aFailureTheApiSaysNeedsAnOperatorIsNotRetried() throws Exception {
+        // A 500 used to be a blip worth four more attempts. The API now separates a broker it could
+        // not publish to (503 messaging-unavailable, same-request) from a failure inside itself, and
+        // says of the latter that nothing the caller sends will fix it. Four more attempts only
+        // delay the failure the caller has to handle anyway.
+        AtomicInteger requests = new AtomicInteger();
+        String internal = """
+                {"type":"https://intellistream.ai/errors/internal","title":"Internal Server Error",\
+                "status":500,"detail":"The server failed to complete the request.",\
+                "retry":"needs-operator","requestId":"0199f2a4-6c1e-7b3a-9d4f-2e8c5a1b7d90"}""";
+        HttpServer server = serverThatReplies(500, internal, requests, null, null);
+        try {
+            IngestResult result = client(server).timeseries().ingest(List.of(collection("s", 100)),
+                    IngestOptions.builder().maxRetries(3).failFast(false).build());
+
+            assertFalse(result.isComplete());
+            assertEquals(1, requests.get());
+            // And the requestId survives to where a caller can quote it to an operator.
+            assertEquals("0199f2a4-6c1e-7b3a-9d4f-2e8c5a1b7d90",
+                    result.errors().get(0).problem().requestId());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aTransientFailureTheApiSaysToRepeatIsStillRetried() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        String unavailable = """
+                {"type":"https://intellistream.ai/errors/messaging-unavailable",\
+                "title":"Service Unavailable","status":503,"retry":"same-request"}""";
+        HttpServer server = serverThatReplies(200, "{\"items\":[\"ok\"]}", requests, 503, unavailable);
+        try {
+            IngestResult result = client(server).timeseries().ingest(List.of(collection("s", 100)),
+                    IngestOptions.builder().maxRetries(2).build());
+
+            assertTrue(result.isComplete());
+            assertEquals(2, requests.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aRetryAfterLongerThanAnAttemptShouldWaitFailsAtOnce() throws Exception {
+        // A spent daily ingest allowance returns at midnight UTC. Sleeping the cap and trying again
+        // only spends the remaining attempts being refused; failing now hands the batch to the
+        // caller, or to the durable spool, which can hold it that long.
+        AtomicInteger requests = new AtomicInteger();
+        String quota = """
+                {"type":"https://intellistream.ai/errors/ingest-quota-exceeded",\
+                "title":"Too Many Requests","status":429,"retry":"same-request"}""";
+        HttpServer server = serverThatReplies(429, quota, requests, null, null, "3600");
+        try {
+            long started = System.nanoTime();
+            IngestResult result = client(server).timeseries().ingest(List.of(collection("s", 100)),
+                    IngestOptions.builder().maxRetries(3).failFast(false).build());
+
+            assertFalse(result.isComplete());
+            assertEquals(1, requests.get());
+            assertTrue(System.nanoTime() - started < 30_000_000_000L, "the calling thread was parked");
+            // Still bufferable: a 429 is exactly what the spool is meant to hold.
+            assertTrue(result.isBufferable());
+        } finally {
+            server.stop(0);
+        }
+    }
+
     /**
      * Server returning {@code status}; if {@code firstStatus} is set, the very first request gets
-     * that instead.
+     * that instead, with {@code firstBody} in place of {@code body} where one is given.
      *
      * <p>The handler drains the request body before replying, and must keep doing so. An HTTP/1.1
      * connection can only be kept alive if the request body was consumed, so a
@@ -103,14 +172,29 @@ class TimeseriesIngestTest {
      */
     private static HttpServer serverThatReplies(int status, String body, AtomicInteger counter, Integer firstStatus)
             throws Exception {
+        return serverThatReplies(status, body, counter, firstStatus, null);
+    }
+
+    private static HttpServer serverThatReplies(int status, String body, AtomicInteger counter,
+                                                Integer firstStatus, String firstBody) throws Exception {
+        return serverThatReplies(status, body, counter, firstStatus, firstBody, null);
+    }
+
+    private static HttpServer serverThatReplies(int status, String body, AtomicInteger counter,
+                                                Integer firstStatus, String firstBody, String retryAfter)
+            throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/timeseries/data", exchange -> {
             int n = counter.incrementAndGet();
-            int code = (firstStatus != null && n == 1) ? firstStatus : status;
+            boolean first = firstStatus != null && n == 1;
+            int code = first ? firstStatus : status;
             try (var in = exchange.getRequestBody()) {
                 in.readAllBytes();
             }
-            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            byte[] bytes = (first && firstBody != null ? firstBody : body).getBytes(StandardCharsets.UTF_8);
+            if (retryAfter != null && code >= 400) {
+                exchange.getResponseHeaders().add("Retry-After", retryAfter);
+            }
             exchange.sendResponseHeaders(code, bytes.length);
             try (var os = exchange.getResponseBody()) {
                 os.write(bytes);
