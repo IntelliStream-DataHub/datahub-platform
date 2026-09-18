@@ -15,6 +15,8 @@ import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.paging.MalformedCursorException;
+import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.pulsar.EventCudMessage;
 import ai.intellistream.datahub.repositories.event.EventDimensionRepository;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
@@ -621,6 +623,25 @@ class EventServiceTest {
 
         assertEquals(1, em.getRelatedResources().size());
         assertEquals(7L, em.getRelatedResources().getFirst().getId());
+    }
+
+    /**
+     * A forged cursor id is a 400, not a 500.
+     *
+     * <p>The event keyset binds the tie-breaker with {@code UUID.fromString(after.id())}, which
+     * threw an {@code IllegalArgumentException} out of the query builder — a 500 produced by
+     * caller-supplied input. The boundary value was already guarded for exactly this reason; the
+     * id was not, because the server only ever mints well-formed ones. A cursor is opaque but not
+     * signed, so a caller can still send anything.
+     */
+    @Test
+    void filter_rejectsACursorWhoseIdIsNotAnEventId() {
+        EventRetreiver retreiver = new EventRetreiver();
+        // The default sort (eventTime ascending), so the cursor's *only* problem is its id — with
+        // any other sort this would be rejected as a sort mismatch and pass without the guard.
+        retreiver.setCursor(new PageCursor("eventTime", false, "1776868253563", "not-a-uuid").encode());
+
+        assertThrows(MalformedCursorException.class, () -> eventService.filter(retreiver));
     }
 
 }

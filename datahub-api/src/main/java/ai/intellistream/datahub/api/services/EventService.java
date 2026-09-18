@@ -160,6 +160,14 @@ public class EventService {
         if (cursor == null) {
             return; // none supplied: the start of a walk, not an error in one
         }
+        if (!isUuid(cursor.id())) {
+            // The tie-breaker, checked for the same reason the boundary is. The event keyset binds
+            // it with UUID.fromString(), which threw an IllegalArgumentException out of the query
+            // builder on a forged id — a 500 from caller input.
+            throw new MalformedCursorException(
+                    "The cursor's row reference is not a valid event id. "
+                    + "Send back a nextCursor exactly as it was returned, or omit it to start again.");
+        }
         if (!ClickHouseEventService.canReadBoundary(sort, cursor.value())) {
             // Well-formed encoding, unusable contents — forged or truncated. Rejected like any
             // other unreadable cursor rather than restarting, which would loop a paging client.
@@ -174,6 +182,16 @@ public class EventService {
                             .formatted(cursor.property(), cursor.descending() ? "desc" : "asc",
                                     sort.property(), sort.descending() ? "desc" : "asc")
                             + "Send the cursor with the sort it came from, or start a new walk without it.");
+        }
+    }
+
+    /** Whether a cursor's id is the UUID the event keyset binds it as. */
+    private static boolean isUuid(String id) {
+        try {
+            UUID.fromString(id);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 
