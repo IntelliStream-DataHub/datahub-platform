@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.ingest;
 
+import ai.intellistream.datahub.api.errors.Problem;
 import ai.intellistream.datahub.sdk.http.DatahubApiException;
 
 import java.util.ArrayList;
@@ -15,10 +16,14 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Runs ingest tasks — each an item count plus a send action — concurrently: bounded fan-out across
- * virtual threads, retry of transient failures (HTTP 429/5xx/network) with backoff, and aggregation
- * into an {@link IngestResult}. Shared by the datapoint and event ingestors.
+ * virtual threads, retry of what the API says is worth retrying (see
+ * {@link IngestResult#isRetryable}) with backoff, and aggregation into an {@link IngestResult}.
+ * Shared by the datapoint and event ingestors.
  */
 final class BatchExecutor {
+
+    /** A Retry-After past this is not waited out: the batch fails now and is held somewhere better. */
+    private static final long MAX_RETRY_AFTER_MILLIS = 30_000L;
 
     private BatchExecutor() {
     }
@@ -55,7 +60,8 @@ final class BatchExecutor {
                         failed.addAndGet(task.count());
                         int status = (e instanceof DatahubApiException de) ? de.statusCode() : 0;
                         String body = (e instanceof DatahubApiException de) ? de.body() : null;
-                        errors.add(new IngestResult.BatchError(task.count(), status, e.getMessage(), body));
+                        Problem problem = (e instanceof DatahubApiException de) ? de.problem() : Problem.of(0, null);
+                        errors.add(new IngestResult.BatchError(task.count(), status, e.getMessage(), body, problem));
                     } finally {
                         gate.release();
                     }
@@ -70,7 +76,7 @@ final class BatchExecutor {
             IngestResult.BatchError first = result.errors().get(0);
             throw new DatahubApiException(first.statusCode(),
                     "ingest failed (fail-fast): " + first.message()
-                            + " [" + result.failed() + " items failed]", null);
+                            + " [" + result.failed() + " items failed]", first.body());
         }
         return result;
     }
@@ -81,21 +87,35 @@ final class BatchExecutor {
                 send.send();
                 return;
             } catch (DatahubApiException e) {
-                if (!isRetryable(e.statusCode()) || attempt >= options.maxRetries()) {
+                if (!IngestResult.isRetryable(e.statusCode(), e.problem()) || attempt >= options.maxRetries()) {
                     throw e;
                 }
-                backoff(attempt);
+                // A wait longer than any one attempt should hold a calling thread. The server has
+                // said when the allowance returns — a spent daily ingest quota returns at midnight
+                // UTC — so retrying sooner only spends attempts being refused again. Fail now and
+                // let the caller, or the durable spool, hold the batch until then.
+                if (e.retryAfterSeconds() * 1000L > MAX_RETRY_AFTER_MILLIS) {
+                    throw e;
+                }
+                backoff(attempt, e.retryAfterSeconds());
             }
         }
     }
 
-    private static boolean isRetryable(int status) {
-        return status == 0 || status == 429 || status >= 500;
-    }
-
-    private static void backoff(int attempt) {
+    /**
+     * Exponential backoff, floored at the {@code Retry-After} the server asked for. The API sends
+     * that header with its 429s — a rate limit, a spent daily ingest allowance, too many binary
+     * requests in flight — and it knows when the allowance returns, so guessing shorter only spends
+     * a retry to be refused again. A delay past {@link #MAX_RETRY_AFTER_MILLIS} never gets here:
+     * the caller sees the failure instead of a parked thread.
+     */
+    private static void backoff(int attempt, long retryAfterSeconds) {
+        long millis = Math.min(2_000L, 100L * (1L << attempt));
+        if (retryAfterSeconds > 0) {
+            millis = Math.max(millis, retryAfterSeconds * 1000L);
+        }
         try {
-            Thread.sleep(Math.min(2_000L, 100L * (1L << attempt)));
+            Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

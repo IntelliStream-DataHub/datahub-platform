@@ -231,7 +231,7 @@ class TimeseriesBinaryIngestTest {
     void aStaleSeriesIsReResolvedAndSentOnceMore() {
         catalogue.put("temp", new String[]{"3", "float32"});
         scriptedStatuses.add(404);
-        scriptedBody = "{\"type\":\"https://intellistream.ai/errors/datapoint-block-rejected\",\"reason\":\"unknown-timeseries\",\"timeseriesIds\":[3]}";
+        scriptedBody = "{\"type\":\"https://intellistream.ai/errors/unknown-timeseries\",\"title\":\"Unknown timeseries\",\"status\":404,\"reason\":\"unknown-timeseries\",\"timeseriesIds\":[3],\"retry\":\"change-request\"}";
 
         IngestResult result = client.timeseries().ingestBinary(List.of(collection("temp", 10)));
 
@@ -241,8 +241,8 @@ class TimeseriesBinaryIngestTest {
         assertEquals(2, byIdsCalls.get(), "the series was evicted and resolved again");
     }
 
-    static final String EXTERNAL_ID_MISMATCH = "{\"type\":\"https://intellistream.ai/errors/datapoint-block-rejected\",\"reason\":\"external-id-mismatch\"}";
-    static final String UNKNOWN_TIMESERIES = "{\"type\":\"https://intellistream.ai/errors/datapoint-block-rejected\",\"reason\":\"unknown-timeseries\"}";
+    static final String EXTERNAL_ID_MISMATCH = "{\"type\":\"https://intellistream.ai/errors/external-id-mismatch\",\"title\":\"External id mismatch\",\"status\":422,\"reason\":\"external-id-mismatch\",\"frameIndex\":0,\"retry\":\"change-request\"}";
+    static final String UNKNOWN_TIMESERIES = "{\"type\":\"https://intellistream.ai/errors/unknown-timeseries\",\"title\":\"Unknown timeseries\",\"status\":404,\"reason\":\"unknown-timeseries\",\"retry\":\"change-request\"}";
 
     private static DatapointsCollection textCollection(String externalId, int n) {
         DatapointsCollection collection = new DatapointsCollection();

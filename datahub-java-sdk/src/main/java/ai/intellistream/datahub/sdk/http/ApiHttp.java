@@ -21,6 +21,13 @@ import java.util.Map;
  */
 public final class ApiHttp {
 
+    /**
+     * The API answers a failure with {@code application/problem+json} (RFC 9457), a different media
+     * type from the {@code application/json} it answers a success with. Both are asked for, so a
+     * strict negotiation cannot refuse the very answer that says what went wrong.
+     */
+    private static final String ACCEPT = "application/json, application/problem+json";
+
     private final String baseUrl;
     private final HttpClient http;
     private final JsonMapper mapper;
@@ -83,7 +90,7 @@ public final class ApiHttp {
     public <T> T postBytes(String path, byte[] body, String contentType, JavaType responseType) {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
-                .header("Accept", "application/json")
+                .header("Accept", ACCEPT)
                 .header("Content-Type", contentType)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
@@ -107,8 +114,8 @@ public final class ApiHttp {
         }
         int status = response.statusCode();
         if (status < 200 || status >= 300) {
-            throw new DatahubApiException(status, "HTTP " + status + " for GET " + path,
-                    new String(response.body(), StandardCharsets.UTF_8));
+            throw DatahubApiException.of(status, "GET", path,
+                    new String(response.body(), StandardCharsets.UTF_8), retryAfter(response));
         }
         return response.body();
     }
@@ -117,7 +124,7 @@ public final class ApiHttp {
     public <T> T put(String path, byte[] body, Map<String, String> headers, JavaType responseType) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
-                .header("Accept", "application/json")
+                .header("Accept", ACCEPT)
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(body));
         headers.forEach(builder::header);
         return parse(sendString(builder.build(), "PUT", path), responseType, "PUT", path);
@@ -127,7 +134,7 @@ public final class ApiHttp {
     public void postBytes(String path, byte[] body, String contentType, Map<String, String> headers) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
-                .header("Accept", "application/json")
+                .header("Accept", ACCEPT)
                 .header("Content-Type", contentType)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
         headers.forEach(builder::header);
@@ -137,7 +144,7 @@ public final class ApiHttp {
     private <T> T exchange(String method, String path, Object body, JavaType responseType) {
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
-                .header("Accept", "application/json");
+                .header("Accept", ACCEPT);
         if (body != null) {
             builder.header("Content-Type", "application/json")
                     .method(method, HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)));
@@ -162,11 +169,28 @@ public final class ApiHttp {
         int status = response.statusCode();
         String body = response.body();
         if (status < 200 || status >= 300) {
-            throw new DatahubApiException(status, "HTTP " + status + " for " + method + " " + path, body);
+            throw DatahubApiException.of(status, method, path, body, retryAfter(response));
         }
         if (responseType == null || status == 204 || body == null || body.isBlank()) {
             return null;
         }
         return mapper.readValue(body, responseType);
+    }
+
+    /**
+     * The {@code Retry-After} delay in seconds, or -1. Only the delta-seconds form is read: it is
+     * the one the API sends, and an HTTP-date would need a clock this client cannot trust against
+     * the server's.
+     */
+    private static long retryAfter(HttpResponse<?> response) {
+        return response.headers().firstValue("Retry-After")
+                .map(value -> {
+                    try {
+                        return Long.parseLong(value.trim());
+                    } catch (NumberFormatException httpDateOrGarbage) {
+                        return -1L;
+                    }
+                })
+                .orElse(-1L);
     }
 }

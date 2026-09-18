@@ -9,6 +9,7 @@ import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
+import ai.intellistream.datahub.api.errors.Problem;
 import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import ai.intellistream.datahub.sdk.ingest.SeriesResolver.Resolved;
 
@@ -68,7 +69,7 @@ public final class BinaryDatapointIngestor {
         List<Slice> again = new ArrayList<>();
         for (int i = 0; i < failures.length(); i++) {
             DatahubApiException e = failures.get(i);
-            if (e != null && isStaleSeries(e.statusCode(), e.body())) {
+            if (e != null && isStaleSeries(e.problem())) {
                 ids.addAll(prepared.requests().get(i).seriesIds());
                 again.addAll(prepared.requests().get(i).slices());
             }
@@ -85,7 +86,7 @@ public final class BinaryDatapointIngestor {
             }
             List<IngestResult.BatchError> errors = new ArrayList<>();
             for (IngestResult.BatchError e : live.errors()) {
-                if (!isStaleSeries(e.statusCode(), e.body())) errors.add(e);
+                if (!isStaleSeries(e.problem())) errors.add(e);
             }
             errors.addAll(retry.errors());
             errors.addAll(prepared.localErrors());
@@ -102,16 +103,31 @@ public final class BinaryDatapointIngestor {
         return new IngestResult(live.succeeded(), live.failed() + count(prepared.localErrors()), errors);
     }
 
-    private static boolean isStaleSeries(int statusCode, String body) {
-        if (body == null) return false;
-        return (statusCode == 404 && body.contains("unknown-timeseries"))
-                || (statusCode == 422 && body.contains("external-id-mismatch"));
+    /**
+     * The two refusals that mean this client's cached view of the series is out of date rather than
+     * that the request was wrong: the server no longer knows an id, or knows it under another
+     * external id.
+     *
+     * <p>Read from {@code type}, with the {@code reason} extension as the fallback. Both say it, and
+     * deliberately: the binary endpoint answered every refusal as one {@code datapoint-block-rejected}
+     * type until each got the type its status calls for, and {@code reason} was kept so the SDKs
+     * matching on it kept working. Reading both means one SDK build works against a server on either
+     * side of that change. What it no longer does is search the whole body — a {@code detail}
+     * sentence naming the series is prose, and a substring match fires on a refusal that merely
+     * mentions one.
+     */
+    private static boolean isStaleSeries(Problem problem) {
+        return isStale(problem.slug()) || isStale(problem.extensions().get("reason"));
+    }
+
+    private static boolean isStale(Object marker) {
+        return "unknown-timeseries".equals(marker) || "external-id-mismatch".equals(marker);
     }
 
     private static long staleCount(IngestResult result) {
         long n = 0;
         for (IngestResult.BatchError e : result.errors()) {
-            if (isStaleSeries(e.statusCode(), e.body())) n += e.datapointCount();
+            if (isStaleSeries(e.problem())) n += e.datapointCount();
         }
         return n;
     }
