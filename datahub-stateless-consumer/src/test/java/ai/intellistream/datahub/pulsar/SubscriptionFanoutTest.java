@@ -13,14 +13,18 @@ import org.apache.pulsar.client.api.TypedMessageBuilder;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,27 +33,22 @@ import static org.mockito.Mockito.when;
 class SubscriptionFanoutTest {
 
     private static final String TENANT = "tenant-a";
+    private static final String TOPIC = "persistent://tenant-a/subscriptions/fanout";
+    private static final int PARTITIONS = 8;
 
     /**
-     * A fanout topic whose producer can never be created — the shape a partitioned topic takes when
-     * one partition is over its backlog quota and the broker refuses producer creation — must not
-     * hold up the caller. {@code forward()} runs on the datapoints-listener pool after the
-     * ClickHouse write, so blocking here stalls ingest that fan-out is meant to be decoupled from.
+     * A fanout partition whose producer can never be created — what the broker does to a partition
+     * over its backlog quota — must not hold up the caller. {@code forward()} runs on the
+     * datapoints-listener pool after the ClickHouse write, so blocking here stalls the ingest that
+     * fan-out is meant to be decoupled from.
      */
     @Test
-    @SuppressWarnings("unchecked")
-    void forwardDoesNotBlockWhenTheProducerCannotBeCreated() {
-        PulsarClient client = mock(PulsarClient.class);
-        ProducerBuilder<Object> builder = mock(ProducerBuilder.class, Answers.RETURNS_SELF);
-        when(client.newProducer(any(Schema.class))).thenReturn(builder);
-        // Never completes: the broker accepted the connection but will not hand back a producer.
-        when(builder.createAsync()).thenReturn(new CompletableFuture<>());
-
-        SubscriptionFanout fanout = new SubscriptionFanout(
-                client, topicNames(), cacheWith("sub-a"), new AppInstanceId("host-numa0"));
+    void forwardDoesNotBlockWhenAProducerCannotBeCreated() {
+        Harness h = new Harness();
+        h.producerNeverReady();
 
         long start = System.nanoTime();
-        fanout.forward(batch());
+        h.fanout.forward(h.batch("sub-a"));
         long elapsedMs = (System.nanoTime() - start) / 1_000_000;
 
         assertTrue(elapsedMs < 1_000,
@@ -57,136 +56,245 @@ class SubscriptionFanoutTest {
     }
 
     /**
-     * While a build is in flight, later batches must share it rather than each queuing another
-     * create against a broker that is already refusing them.
+     * The point of per-partition producers: one partition the broker refuses must not stop
+     * subscriptions routed to any other partition. Before this, a single partitioned producer made
+     * the tenant's whole fan-out all-or-nothing.
      */
     @Test
-    @SuppressWarnings("unchecked")
-    void onlyOneProducerBuildIsStartedWhileOneIsInFlight() {
-        PulsarClient client = mock(PulsarClient.class);
-        ProducerBuilder<Object> builder = mock(ProducerBuilder.class, Answers.RETURNS_SELF);
-        when(client.newProducer(any(Schema.class))).thenReturn(builder);
-        when(builder.createAsync()).thenReturn(new CompletableFuture<>());
+    void aBlockedPartitionDoesNotStopTheOthers() {
+        String blocked = "sub-on-blocked";
+        int blockedPartition = SubscriptionFanout.partitionFor(blocked, PARTITIONS);
+        String healthy = externalIdOnAnyPartitionOtherThan(blockedPartition);
 
-        SubscriptionFanout fanout = new SubscriptionFanout(
-                client, topicNames(), cacheWith("sub-a"), new AppInstanceId("host-numa0"));
+        Harness h = new Harness();
+        h.blockProducerOn(partitionTopic(blockedPartition));
 
-        fanout.forward(batch());
-        fanout.forward(batch());
-        fanout.forward(batch());
+        h.fanout.forward(h.batch(blocked));
+        h.fanout.forward(h.batch(healthy));
 
-        verify(builder, times(1)).createAsync();
+        assertEquals(List.of(partitionTopic(SubscriptionFanout.partitionFor(healthy, PARTITIONS))),
+                h.sentOnTopics,
+                "the subscription on a healthy partition should still have been published");
     }
 
     /**
-     * Batches published while the producer is still building must be sent once it arrives, not
+     * A partition the broker refuses must back off, not be retried on every batch. The failure
+     * arrives as an already-failed future, so the completion callback runs inline.
+     */
+    @Test
+    void aRefusedPartitionBacksOffInsteadOfRetryingEveryBatch() {
+        String blocked = "sub-on-blocked";
+        Harness h = new Harness();
+        h.blockProducerOn(partitionTopic(SubscriptionFanout.partitionFor(blocked, PARTITIONS)));
+
+        h.fanout.forward(h.batch(blocked));
+        h.fanout.forward(h.batch(blocked));
+        h.fanout.forward(h.batch(blocked));
+
+        verify(h.producerBuilder, times(1)).createAsync();
+    }
+
+    /**
+     * And once the broker accepts producers again — the operator cleared the backlog — the
+     * partition must recover on its own. A failed build left cached would leave the partition dead
+     * until the consumer was restarted.
+     */
+    @Test
+    void aRefusedPartitionRecoversOnceTheBrokerAcceptsProducersAgain() {
+        String blocked = "sub-on-blocked";
+        String blockedTopic = partitionTopic(SubscriptionFanout.partitionFor(blocked, PARTITIONS));
+
+        Harness h = new Harness();
+        h.fanout.retryBackoffMs = 0;   // don't make the test wait out the real backoff
+        h.blockProducerOn(blockedTopic);
+
+        h.fanout.forward(h.batch(blocked));
+        assertEquals(List.of(), h.sentOnTopics, "the refused partition cannot publish yet");
+
+        h.unblockProducers();
+        h.fanout.forward(h.batch(blocked));
+
+        assertEquals(List.of(blockedTopic), h.sentOnTopics,
+                "the partition should have retried and published once the broker accepted a producer");
+    }
+
+    /**
+     * While a build is in flight, later batches must fall straight through rather than each queuing
+     * another create against a broker that is already refusing them.
+     */
+    @Test
+    void onlyOneProducerBuildIsStartedPerPartitionWhileOneIsInFlight() {
+        Harness h = new Harness();
+        h.producerNeverReady();
+
+        h.fanout.forward(h.batch("sub-a"));
+        h.fanout.forward(h.batch("sub-a"));
+        h.fanout.forward(h.batch("sub-a"));
+
+        verify(h.producerBuilder, times(1)).createAsync();
+    }
+
+    /**
+     * Batches published while a producer is still building must be sent once it arrives, not
      * dropped. The first datapoints written after a consumer starts land in exactly that window —
      * dropping them makes a subscriber's first write vanish with no error anywhere.
      */
     @Test
-    @SuppressWarnings("unchecked")
-    void batchesQueuedWhileTheProducerIsBuildingAreSentOnceItArrives() {
-        PulsarClient client = mock(PulsarClient.class);
-        ProducerBuilder<Object> builder = mock(ProducerBuilder.class, Answers.RETURNS_SELF);
-        when(client.newProducer(any(Schema.class))).thenReturn(builder);
-        CompletableFuture<Producer<DataWrapperMessage>> pending = new CompletableFuture<>();
-        when(builder.createAsync()).thenReturn((CompletableFuture) pending);
+    void batchesQueuedWhileAProducerIsBuildingAreSentOnceItArrives() {
+        Harness h = new Harness();
+        Runnable completeProducers = h.producerPending();
 
-        Producer<DataWrapperMessage> producer = mock(Producer.class);
-        TypedMessageBuilder<DataWrapperMessage> message = mock(TypedMessageBuilder.class, Answers.RETURNS_SELF);
-        when(producer.newMessage()).thenReturn(message);
-        AtomicInteger sends = new AtomicInteger();
-        when(message.sendAsync()).thenAnswer(inv -> {
-            sends.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
-        });
+        h.fanout.forward(h.batch("sub-a"));
+        assertEquals(List.of(), h.sentOnTopics, "nothing can be sent before the producer exists");
 
-        SubscriptionFanout fanout = new SubscriptionFanout(
-                client, topicNames(), cacheWith("sub-a"), new AppInstanceId("host-numa0"));
+        completeProducers.run();
 
-        fanout.forward(batch());
-        assertEquals(0, sends.get(), "nothing can be sent before the producer exists");
-
-        pending.complete(producer);
-
-        assertEquals(1, sends.get(), "the queued batch should have been sent once the producer arrived");
-    }
-
-    /**
-     * A tenant whose producer the broker refuses must back off, not retry on every batch, and must
-     * recover once the broker accepts producers again. The refusal arrives as an already-failed
-     * future, so the completion callback runs inline — a failed future left cached there would
-     * leave the tenant dead until the consumer restarted.
-     */
-    @Test
-    @SuppressWarnings("unchecked")
-    void aRefusedProducerBacksOffAndThenRecovers() {
-        PulsarClient client = mock(PulsarClient.class);
-        ProducerBuilder<Object> builder = mock(ProducerBuilder.class, Answers.RETURNS_SELF);
-        when(client.newProducer(any(Schema.class))).thenReturn(builder);
-        when(builder.createAsync()).thenReturn(CompletableFuture.failedFuture(
-                new IllegalStateException("Cannot create producer on topic with backlog quota exceeded")));
-
-        SubscriptionFanout fanout = new SubscriptionFanout(
-                client, topicNames(), cacheWith("sub-a"), new AppInstanceId("host-numa0"));
-        fanout.retryBackoffMs = 0;   // don't make the test wait out the real backoff
-
-        fanout.forward(batch());
-        fanout.forward(batch());
-
-        Producer<DataWrapperMessage> producer = mock(Producer.class);
-        TypedMessageBuilder<DataWrapperMessage> message = mock(TypedMessageBuilder.class, Answers.RETURNS_SELF);
-        when(producer.newMessage()).thenReturn(message);
-        AtomicInteger sends = new AtomicInteger();
-        when(message.sendAsync()).thenAnswer(inv -> {
-            sends.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
-        });
-        when(builder.createAsync()).thenReturn((CompletableFuture) CompletableFuture.completedFuture(producer));
-
-        fanout.forward(batch());
-
-        assertEquals(1, sends.get(), "the tenant should have retried and published once accepted");
+        assertEquals(List.of(partitionTopic(SubscriptionFanout.partitionFor("sub-a", PARTITIONS))),
+                h.sentOnTopics, "the queued batch should have been sent once the producer arrived");
     }
 
     /** A tenant with no {@code pulsar.tenant} is reported, not retried on every batch. */
     @Test
-    @SuppressWarnings("unchecked")
-    void unconfiguredTenantDoesNotStartAProducerBuild() {
-        PulsarClient client = mock(PulsarClient.class);
-        ProducerBuilder<Object> builder = mock(ProducerBuilder.class, Answers.RETURNS_SELF);
-        when(client.newProducer(any(Schema.class))).thenReturn(builder);
-
-        TopicNames topicNames = mock(TopicNames.class);
-        when(topicNames.getSubscriptionFanoutTopicName(TENANT))
+    void unconfiguredTenantDoesNotLookUpPartitions() {
+        Harness h = new Harness();
+        when(h.topicNames.getSubscriptionFanoutTopicName(TENANT))
                 .thenThrow(new IllegalStateException("Tenant " + TENANT + " has no 'pulsar.tenant' configured"));
 
-        SubscriptionFanout fanout = new SubscriptionFanout(
-                client, topicNames, cacheWith("sub-a"), new AppInstanceId("host-numa0"));
+        h.fanout.forward(h.batch("sub-a"));
+        h.fanout.forward(h.batch("sub-a"));
 
-        fanout.forward(batch());
-        fanout.forward(batch());
-
-        verify(builder, times(0)).createAsync();
+        verify(h.client, times(0)).getPartitionsForTopic(anyString());
     }
 
-    private static TopicNames topicNames() {
-        TopicNames topicNames = mock(TopicNames.class);
-        when(topicNames.getSubscriptionFanoutTopicName(TENANT))
-                .thenReturn("persistent://" + TENANT + "/subscriptions/fanout");
-        return topicNames;
+    /**
+     * Routing must stay byte-identical to Pulsar's SinglePartition router under JavaStringHash, or
+     * taking it over would silently move existing subscriptions to a different partition — where
+     * their durable cursor's backlog, and their ordering, do not follow.
+     */
+    @Test
+    void routingMatchesPulsarsSinglePartitionRouter() {
+        for (String id : List.of("autoencoder_inputs_fleet", "debug_probe_tmp", "a", "")) {
+            assertEquals((id.hashCode() & Integer.MAX_VALUE) % PARTITIONS,
+                    SubscriptionFanout.partitionFor(id, PARTITIONS), id);
+        }
     }
 
-    private static SubscriptionCache cacheWith(String externalId) {
-        SubscriptionCache cache = mock(SubscriptionCache.class);
-        when(cache.getSubscriptionExternalIds(TENANT, 1L)).thenReturn(Set.of(externalId));
-        return cache;
+    // --- helpers ---
+
+    private static String partitionTopic(int partition) {
+        return TOPIC + "-partition-" + partition;
     }
 
-    private static DataWrapperMessage batch() {
-        DataCollectionString item = new DataCollectionString();
-        item.setId(1L);
-        item.setExternalId("ts-1");
-        return new DataWrapperMessage(EventObject.DATAPOINTS, EventAction.CREATE, List.of(item), TENANT);
+    private static String externalIdOnAnyPartitionOtherThan(int partition) {
+        return IntStream.range(0, 1000)
+                .mapToObj(i -> "sub-" + i)
+                .filter(id -> SubscriptionFanout.partitionFor(id, PARTITIONS) != partition)
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private static long idFor(String subscriptionExternalId) {
+        return subscriptionExternalId.hashCode() & 0xFFFF;
+    }
+
+    /** A SubscriptionFanout wired to mocks, recording the partition topic each send landed on. */
+    @SuppressWarnings("unchecked")
+    private static final class Harness {
+        final PulsarClient client = mock(PulsarClient.class);
+        final TopicNames topicNames = mock(TopicNames.class);
+        final SubscriptionCache cache = mock(SubscriptionCache.class);
+        final ProducerBuilder<Object> producerBuilder = mock(ProducerBuilder.class, Answers.RETURNS_SELF);
+        final List<String> sentOnTopics = new ArrayList<>();
+        final Map<Long, Set<String>> bindings = new HashMap<>();
+        final SubscriptionFanout fanout;
+
+        private String topicOfProducerUnderConstruction;
+
+        Harness() {
+            when(topicNames.getSubscriptionFanoutTopicName(TENANT)).thenReturn(TOPIC);
+            when(client.getPartitionsForTopic(TOPIC)).thenReturn(CompletableFuture.completedFuture(
+                    IntStream.range(0, PARTITIONS)
+                            .mapToObj(SubscriptionFanoutTest::partitionTopic)
+                            .toList()));
+            when(client.newProducer(any(Schema.class))).thenReturn(producerBuilder);
+            // Remember which partition topic the builder was pointed at, so createAsync() can hand
+            // back a producer that records sends against it.
+            when(producerBuilder.topic(anyString())).thenAnswer(inv -> {
+                topicOfProducerUnderConstruction = inv.getArgument(0);
+                return producerBuilder;
+            });
+            when(producerBuilder.createAsync())
+                    .thenAnswer(inv -> CompletableFuture.completedFuture(
+                            recordingProducer(topicOfProducerUnderConstruction)));
+            // Each timeseries id resolves to the subscriptions bound to it by batch().
+            when(cache.getSubscriptionExternalIds(anyString(), any()))
+                    .thenAnswer(inv -> bindings.getOrDefault(inv.<Long>getArgument(1), Set.of()));
+            fanout = new SubscriptionFanout(client, topicNames, cache, new AppInstanceId("host-numa0"));
+        }
+
+        /** A one-timeseries batch whose timeseries is bound to exactly this subscription. */
+        DataWrapperMessage batch(String subscriptionExternalId) {
+            long timeseriesId = idFor(subscriptionExternalId);
+            bindings.put(timeseriesId, Set.of(subscriptionExternalId));
+            DataCollectionString item = new DataCollectionString();
+            item.setId(timeseriesId);
+            item.setExternalId("ts-" + subscriptionExternalId);
+            return new DataWrapperMessage(EventObject.DATAPOINTS, EventAction.CREATE, List.of(item), TENANT);
+        }
+
+        /** No producer ever becomes ready, whatever partition it is for. */
+        void producerNeverReady() {
+            when(producerBuilder.createAsync()).thenReturn(new CompletableFuture<>());
+        }
+
+        /**
+         * Hold every producer pending; the returned action completes them, standing in for the
+         * broker finally handing one back.
+         */
+        Runnable producerPending() {
+            List<CompletableFuture<Producer<DataWrapperMessage>>> pending = new ArrayList<>();
+            List<String> topics = new ArrayList<>();
+            when(producerBuilder.createAsync()).thenAnswer(inv -> {
+                CompletableFuture<Producer<DataWrapperMessage>> f = new CompletableFuture<>();
+                pending.add(f);
+                topics.add(topicOfProducerUnderConstruction);
+                return f;
+            });
+            return () -> {
+                for (int i = 0; i < pending.size(); i++) {
+                    pending.get(i).complete(recordingProducer(topics.get(i)));
+                }
+            };
+        }
+
+        /** Only this partition topic refuses producers; the rest behave normally. */
+        void blockProducerOn(String blockedPartitionTopic) {
+            when(producerBuilder.createAsync()).thenAnswer(inv -> {
+                String topic = topicOfProducerUnderConstruction;
+                if (blockedPartitionTopic.equals(topic)) {
+                    return CompletableFuture.failedFuture(
+                            new IllegalStateException("Cannot create producer on topic with backlog quota exceeded"));
+                }
+                return CompletableFuture.completedFuture(recordingProducer(topic));
+            });
+        }
+
+        /** Every partition accepts producers again, as after an operator clears the backlog. */
+        void unblockProducers() {
+            when(producerBuilder.createAsync()).thenAnswer(inv ->
+                    CompletableFuture.completedFuture(recordingProducer(topicOfProducerUnderConstruction)));
+        }
+
+        private Producer<DataWrapperMessage> recordingProducer(String topic) {
+            Producer<DataWrapperMessage> producer = mock(Producer.class);
+            TypedMessageBuilder<DataWrapperMessage> message =
+                    mock(TypedMessageBuilder.class, Answers.RETURNS_SELF);
+            when(producer.newMessage()).thenReturn(message);
+            when(message.sendAsync()).thenAnswer(inv -> {
+                sentOnTopics.add(topic);
+                return CompletableFuture.completedFuture(null);
+            });
+            return producer;
+        }
     }
 }
