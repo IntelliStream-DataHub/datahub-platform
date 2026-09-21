@@ -5,8 +5,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.util.Base64;
-import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -77,16 +75,6 @@ class PageCursorTest {
     }
 
     @Test
-    void aCursorFromAnotherVersionIsRejected() {
-        String future = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                "v2|eventTime|asc|id-1|123".getBytes(StandardCharsets.UTF_8));
-
-        // Named in the message rather than decoded on a guess about what v2 means.
-        assertTrue(assertThrows(MalformedCursorException.class, () -> PageCursor.decode(future))
-                .getMessage().contains("v2"));
-    }
-
-    @Test
     void matchesOnlyTheSortThatProducedIt() {
         PageCursor cursor = new PageCursor("eventTime", false, "123", "id-1");
 
@@ -97,34 +85,9 @@ class PageCursorTest {
 
 
     // --- what an error message is allowed to say back ------------------------------------------
-    // Everything in a cursor arrives base64-decoded, so it is arbitrary bytes of arbitrary length.
-    // A message that quotes it puts caller-controlled text into the response body and the log line,
-    // where newlines forge log entries and length costs real money.
-
-    @Test
-    void anIncompatibleVersionIsEchoedButStrippedOfControlCharacters() {
-        String nasty = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                "v2\nFAKE LOG LINE|name|asc|1|vx".getBytes(StandardCharsets.UTF_8));
-
-        String message = assertThrows(MalformedCursorException.class,
-                () -> PageCursor.decode(nasty)).getMessage();
-
-        assertFalse(message.contains("\n"), "a newline would forge a log entry: " + message);
-        assertTrue(message.contains("?"), "control characters are replaced, not dropped silently");
-    }
-
-    @Test
-    void anAbsurdVersionTagIsTruncated() {
-        String huge = "v" + "A".repeat(5_000);
-        String encoded = Base64.getUrlEncoder().withoutPadding().encodeToString(
-                (huge + "|name|asc|1|vx").getBytes(StandardCharsets.UTF_8));
-
-        String message = assertThrows(MalformedCursorException.class,
-                () -> PageCursor.decode(encoded)).getMessage();
-
-        assertTrue(message.length() < 300, "message grew with the input: " + message.length() + " chars");
-        assertTrue(message.contains("..."), "truncation should be visible, not silent");
-    }
+    // Nothing caller-supplied is echoed at all now. The only fragment that ever was is the version
+    // tag, and there is no longer one, so the log-forging and unbounded-length cases it needed
+    // guarding against cannot arise: every rejection names a condition, never a value.
 
     /** The boundary value is never quoted back at all — the caller already holds the cursor. */
     @Test
