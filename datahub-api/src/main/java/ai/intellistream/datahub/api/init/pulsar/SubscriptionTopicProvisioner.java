@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Set;
 
-import static org.apache.pulsar.common.policies.data.BacklogQuota.RetentionPolicy.producer_exception;
+import static org.apache.pulsar.common.policies.data.BacklogQuota.RetentionPolicy.consumer_backlog_eviction;
 
 /**
  * Provisions each customer's subscription fan-out topic in that customer's OWN Pulsar tenant,
@@ -36,6 +36,21 @@ import static org.apache.pulsar.common.policies.data.BacklogQuota.RetentionPolic
  * <p>Best-effort: any Pulsar-admin failure is logged and never thrown, so a broker hiccup or a
  * not-yet-created Pulsar tenant can't block API startup. The fan-out producer (stateless consumer)
  * and the WebSocket consumers self-heal once the topic exists.
+ *
+ * <h2>Why the backlog quota evicts rather than refuses producers</h2>
+ * The fan-out topic is a live tail: a subscriber reads its datapoints as they arrive, and a cursor
+ * that has fallen 2 GB behind has no useful position left to resume from. Under
+ * {@code producer_exception} such a cursor did not just fail itself — the broker refused
+ * <em>producer creation</em> on its partition, so one abandoned subscription silenced live
+ * datapoints for every subscription in that tenant, with nothing surfaced to any connected client.
+ * {@code consumer_backlog_eviction} confines the cost to the subscriber that fell behind, which is
+ * the one that can least use the data anyway.
+ *
+ * <p>The trade this accepts: a subscription whose client is legitimately offline past the quota
+ * loses the oldest part of its backlog instead of pausing the topic until it returns. That is a
+ * weaker durable-resume guarantee than before, and it is the intended one — the quota is already
+ * the bound on how far behind a subscriber may be, and the previous behaviour paid for it with
+ * every other subscriber's live feed.
  */
 @Component
 @Slf4j
@@ -46,6 +61,12 @@ public class SubscriptionTopicProvisioner {
 
     // Namespace policies mirror the subscription namespace set up by InitNamespaces.
     private static final long BACKLOG_LIMIT_BYTES = 2L * 1024 * 1024 * 1024;
+    // NOTE: inert. Pulsar keeps size and age as two separate quota *types*, and the two-argument
+    // setBacklogQuota registers only destination_storage — the size one. An age limit needs a
+    // second call under BacklogQuotaType.message_age, which has never been made, so only the 2 GB
+    // size limit has ever been enforced here. Left in place rather than deleted because the
+    // intended policy is 7 days as well; registering it is a behaviour change on live tenants and
+    // wants its own commit.
     private static final int BACKLOG_LIMIT_MINUTES = 7 * 60 * 24;   // 7 days
     private static final int RETENTION_TIME_MINUTES = 7 * 60 * 24;  // 7 days
     private static final int RETENTION_SIZE_MB = 12000;             // 12 GB
@@ -101,25 +122,28 @@ public class SubscriptionTopicProvisioner {
     /**
      * Idempotently create the {@code <pulsar-tenant>/subscriptions} namespace with the same
      * backlog/retention/permission policies InitNamespaces applies. Never throws.
+     *
+     * <p>Policies are applied on <em>every</em> boot, not only when the namespace is created. They
+     * used to be set once at creation, which left every namespace provisioned by an earlier build
+     * pinned to that build's policies forever — so a policy fix like the eviction change below
+     * would have healed new tenants and no existing one.
      */
     private void ensureNamespace(String namespace, String tenantId) {
         String pulsarTenant = namespace.substring(0, namespace.indexOf('/'));
         try {
-            if (admin.namespaces().getNamespaces(pulsarTenant).contains(namespace)) {
-                return;
+            if (!admin.namespaces().getNamespaces(pulsarTenant).contains(namespace)) {
+                admin.namespaces().createNamespace(namespace);
+                log.info("Created subscription namespace {} for tenant {}.", namespace, tenantId);
             }
-            admin.namespaces().createNamespace(namespace);
-            admin.namespaces().setBacklogQuota(namespace, BacklogQuota.builder()
-                    .limitSize(BACKLOG_LIMIT_BYTES)
-                    .limitTime(BACKLOG_LIMIT_MINUTES)
-                    .retentionPolicy(producer_exception)
-                    .build());
-            admin.namespaces().setRetention(namespace, new RetentionPolicies(RETENTION_TIME_MINUTES, RETENTION_SIZE_MB));
-            admin.namespaces().grantPermissionOnNamespace(namespace, "admin,istream",
-                    Set.of(AuthAction.produce, AuthAction.consume));
-            log.info("Created subscription namespace {} for tenant {}.", namespace, tenantId);
+            applyNamespacePolicies(namespace);
         } catch (PulsarAdminException.ConflictException alreadyExists) {
-            // Created concurrently or out-of-band — fine.
+            // Created concurrently or out-of-band — still apply the policies.
+            try {
+                applyNamespacePolicies(namespace);
+            } catch (PulsarAdminException e) {
+                log.error("Failed to apply subscription namespace policies on {} for tenant {}: {}",
+                        namespace, tenantId, e.getMessage(), e);
+            }
         } catch (PulsarAdminException.NotFoundException tenantMissing) {
             log.error("Pulsar tenant '{}' does not exist; cannot provision subscription namespace {} for tenant {}. "
                     + "Create the Pulsar tenant at customer onboarding.", pulsarTenant, namespace, tenantId);
@@ -127,6 +151,18 @@ public class SubscriptionTopicProvisioner {
             log.error("Failed to ensure subscription namespace {} for tenant {}: {}",
                     namespace, tenantId, e.getMessage(), e);
         }
+    }
+
+    /** The namespace policies, reapplied on every boot. All three admin calls are idempotent. */
+    private void applyNamespacePolicies(String namespace) throws PulsarAdminException {
+        admin.namespaces().setBacklogQuota(namespace, BacklogQuota.builder()
+                .limitSize(BACKLOG_LIMIT_BYTES)
+                .limitTime(BACKLOG_LIMIT_MINUTES)
+                .retentionPolicy(consumer_backlog_eviction)
+                .build());
+        admin.namespaces().setRetention(namespace, new RetentionPolicies(RETENTION_TIME_MINUTES, RETENTION_SIZE_MB));
+        admin.namespaces().grantPermissionOnNamespace(namespace, "admin,istream",
+                Set.of(AuthAction.produce, AuthAction.consume));
     }
 
     /** persistent://&lt;tenant&gt;/&lt;namespace&gt;/&lt;topic&gt; → &lt;tenant&gt;/&lt;namespace&gt; */
