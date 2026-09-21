@@ -304,6 +304,39 @@ class SubscriptionFilterIT {
                 .containsExactlyInAnyOrder("sub_0", "sub_1", "sub_2", "sub_3", "sub_4", "sub_5", "sub_6");
     }
 
+    /**
+     * The same walk, with the rows packed inside a single millisecond.
+     *
+     * <p>{@code date_created} is a Postgres {@code timestamp with time zone}, which stores
+     * microseconds. The cursor used to carry epoch millis, so the boundary landed strictly below
+     * every row in its own millisecond: {@code cb.equal(column, boundary)} in {@code keyset()}
+     * could never hold and the id tie-break never engaged. The test above spaces its rows a minute
+     * apart, so it never reaches the case — it ties two rows on the same value, which the
+     * tie-break handles, rather than putting distinct values inside one millisecond.
+     *
+     * <p>Both directions, because the two symptoms are opposite: descending dropped the rest of
+     * the millisecond, ascending re-returned the boundary row.
+     */
+    @Test
+    @DisplayName("timestamps sharing a millisecond page correctly in both directions")
+    void subMillisecondTimestampsPageCorrectly() {
+        TimeseriesEntity ts = timeseries("sensor_temp_room_a");
+        OffsetDateTime base = OffsetDateTime.of(2026, 4, 22, 14, 30, 53, 563_000_000, ZoneOffset.UTC);
+        for (int i = 0; i < 6; i++) {
+            // One microsecond apart, all within .563 — the precision the column keeps and the
+            // cursor used to throw away.
+            createdAt(subscription("usec_" + i, ts), base.plusNanos((i + 1) * 1_000L));
+        }
+
+        for (boolean descending : new boolean[]{true, false}) {
+            List<String> seen = walk(new SubscriptionSort("createdTime", "dateCreated", descending), 2);
+
+            assertThat(seen).as("walk with descending=%s", descending)
+                    .hasSize(6).doesNotHaveDuplicates()
+                    .containsExactlyInAnyOrder("usec_0", "usec_1", "usec_2", "usec_3", "usec_4", "usec_5");
+        }
+    }
+
     @Test
     @DisplayName("paging by an ascending non-default sort visits every row exactly once")
     void pagingByExternalIdAscendingVisitsEveryRowExactlyOnce() {

@@ -29,20 +29,17 @@ import java.util.Objects;
  * on which side the boundary fell. The id makes the order total, so there is exactly one row the
  * cursor can mean.
  *
- * <p>Opaque on purpose: base64 of a versioned, pipe-delimited form. Callers echo back what they
- * were handed rather than assembling one, which is what lets the encoding change — the {@code v1}
- * prefix is how a later format announces itself to an older reader.
+ * <p>Opaque on purpose: base64 of a pipe-delimited form. Callers echo back what they were handed
+ * rather than assembling one, so the format stays ours to change. No version tag: a change to the
+ * shape stops an old cursor parsing, a change to what a field means does not.
  */
 public record PageCursor(String property, boolean descending, String value, String id) {
 
-    private static final String VERSION = "v1";
     private static final String SEPARATOR = "|";
     /** Tags a value segment that carries a value, as opposed to recording its absence. */
     private static final String VALUE_PREFIX = "v";
     /** The value segment for a row whose sort column is null. */
     private static final String NULL_VALUE = "n";
-    /** How much of a caller-supplied fragment may appear in an error message. */
-    private static final int MAX_ECHOED = 32;
 
     public PageCursor {
         Objects.requireNonNull(property, "property");
@@ -62,7 +59,7 @@ public record PageCursor(String property, boolean descending, String value, Stri
         // null is a different cursor from one whose value is the empty string. They land in
         // different parts of the order, so conflating them would skip or repeat a whole block.
         String tagged = value == null ? NULL_VALUE : VALUE_PREFIX + value;
-        String raw = String.join(SEPARATOR, VERSION, property, descending ? "desc" : "asc", id, tagged);
+        String raw = String.join(SEPARATOR, property, descending ? "desc" : "asc", id, tagged);
         return Base64.getUrlEncoder().withoutPadding()
                 .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
     }
@@ -91,19 +88,15 @@ public record PageCursor(String property, boolean descending, String value, Stri
         } catch (IllegalArgumentException e) {
             throw malformed("it is not valid base64url");
         }
-        // Limit 5: the value is last and may itself contain a separator.
-        String[] parts = raw.split("\\" + SEPARATOR, 5);
-        if (parts.length != 5) {
+        // Limit 4: the value is last and may itself contain a separator.
+        String[] parts = raw.split("\\" + SEPARATOR, 4);
+        if (parts.length != 4) {
             throw malformed("it does not have the expected structure");
         }
-        if (!VERSION.equals(parts[0])) {
-            // A cursor minted by a newer format. Saying so beats decoding it wrongly.
-            throw malformed("it was produced by an incompatible version (" + summarise(parts[0]) + ")");
-        }
-        String property = parts[1];
-        String direction = parts[2];
-        String id = parts[3];
-        String tagged = parts[4];
+        String property = parts[0];
+        String direction = parts[1];
+        String id = parts[2];
+        String tagged = parts[3];
         if (property.isBlank() || id.isBlank() || tagged.isEmpty()) {
             throw malformed("it is missing a property, id or value");
         }
@@ -116,20 +109,6 @@ public record PageCursor(String property, boolean descending, String value, Stri
             throw malformed("its value segment is not tagged");
         }
         return new PageCursor(property, "desc".equalsIgnoreCase(direction), value, id);
-    }
-
-    /**
-     * A caller-supplied fragment, made safe to put in a message.
-     *
-     * <p>Everything in a cursor arrives base64-decoded, so it is arbitrary bytes of arbitrary
-     * length. Echoed raw it would carry newlines into the log — where they forge entries — and
-     * unbounded length into both the log and the response body. Only the version tag is echoed at
-     * all, because naming the format a token came from is genuinely diagnostic; the rest is not
-     * quoted back, since the caller already has the cursor.
-     */
-    private static String summarise(String fragment) {
-        String stripped = fragment.replaceAll("[^\\p{Print}]", "?");
-        return stripped.length() <= MAX_ECHOED ? stripped : stripped.substring(0, MAX_ECHOED) + "...";
     }
 
     private static MalformedCursorException malformed(String why) {

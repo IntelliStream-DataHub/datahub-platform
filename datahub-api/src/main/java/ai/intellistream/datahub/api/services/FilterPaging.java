@@ -55,11 +55,32 @@ final class FilterPaging {
         return validated(rawCursor, sort.property(), sort.descending(), sort::canReadBoundary);
     }
 
+    /** Whether a cursor's id is the numeric row reference both keysets here parse it as. */
+    private static boolean isLong(String id) {
+        try {
+            Long.parseLong(id);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private static PageCursor validated(String rawCursor, String property, boolean descending,
                                         Predicate<String> canReadBoundary) {
         PageCursor cursor = PageCursor.decode(rawCursor);
         if (cursor == null) {
             return null; // none supplied: the start of a walk, not an error in one
+        }
+        if (!isLong(cursor.id())) {
+            // The tie-breaker, checked for the same reason the boundary is. Both node and
+            // subscription keysets do Long.valueOf(cursor.id()), so a non-numeric one threw a
+            // NumberFormatException out of the query builder — a 500 produced by caller input, the
+            // exact failure canReadBoundary was added to stop, missed because the server only ever
+            // mints numeric ids here. A forged or cross-endpoint cursor can still carry one: an
+            // event cursor's id is a UUID.
+            throw new MalformedCursorException(
+                    "The cursor's row reference is not a valid id. "
+                    + "Send back a nextCursor exactly as it was returned, or omit it to start again.");
         }
         if (!canReadBoundary.test(cursor.value())) {
             // Well-formed encoding, unusable contents — a forged or truncated cursor. Rejected like
