@@ -20,8 +20,11 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The fan-out of inserted datapoints to the WebSocket subscriptions, shared by the Avro and the
@@ -45,9 +48,20 @@ public class SubscriptionFanout {
     // Pulsar tenant (resolved by TopicNames from the tenant's pulsar config). Producers are created
     // lazily on first fanout attempt for a tenant so the consumer can come up before the API has
     // provisioned that tenant's fanout topic, and self-heal once it exists.
-    private final Map<String, Producer<DataWrapperMessage>> fanoutProducers = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<Producer<DataWrapperMessage>>> fanoutProducers =
+            new ConcurrentHashMap<>();
     private final Map<String, Long> fanoutProducerNextAttemptMs = new ConcurrentHashMap<>();
-    private static final long FANOUT_PRODUCER_RETRY_BACKOFF_MS = 10_000;
+    // Not a constant so a test can shorten it; production never reassigns it.
+    volatile long retryBackoffMs = 10_000;
+    // Batches queued behind a producer that has not arrived yet, and the cap past which they are
+    // dropped instead of retained. Bounded because a producer the broker never answers stays
+    // pending for the client's whole operation timeout.
+    private final AtomicInteger pendingSends = new AtomicInteger();
+    private final AtomicBoolean pendingSendsExceeded = new AtomicBoolean();
+    private static final int MAX_PENDING_SENDS = 1_000;
+    // Set by @PreDestroy so a build that completes after shutdown closes its producer instead of
+    // publishing it into a map nothing will drain.
+    private volatile boolean closed = false;
 
     public SubscriptionFanout(PulsarClient pulsarClient, TopicNames topicNames,
                               SubscriptionCache subscriptionCache, AppInstanceId appInstanceId) {
@@ -67,7 +81,7 @@ public class SubscriptionFanout {
         if (items == null || items.isEmpty()) return;
 
         String tenantId = batch.getTenantId();
-        Producer<DataWrapperMessage> producer = getOrCreateFanoutProducer(tenantId);
+        CompletableFuture<Producer<DataWrapperMessage>> producer = getOrCreateFanoutProducer(tenantId);
         if (producer == null) return;
 
         for (DataCollectionString item : items) {
@@ -83,8 +97,38 @@ public class SubscriptionFanout {
                         List.of(item),
                         tenantId
                 );
+                send(producer, tenantId, externalId, forwarded);
+            }
+        }
+    }
 
-                producer.newMessage()
+    /**
+     * Publish once the producer exists. Already-built is the steady state and runs inline; while a
+     * producer is still building this queues behind it rather than dropping the batch, so the first
+     * datapoints written after a consumer start still reach their subscribers.
+     *
+     * <p>Queuing is capped: a producer the broker never answers stays pending for the client's
+     * whole operation timeout, and retaining every batch published in that window would trade a
+     * stalled fan-out for a heap problem. Past the cap this drops, which is what best-effort means.
+     */
+    private void send(CompletableFuture<Producer<DataWrapperMessage>> producer,
+                      String tenantId, String externalId, DataWrapperMessage forwarded) {
+        if (!producer.isDone()) {
+            if (pendingSends.get() >= MAX_PENDING_SENDS) {
+                if (pendingSendsExceeded.compareAndSet(false, true)) {
+                    log.warn("Fan-out has {} batches queued behind producers that have not arrived "
+                            + "(most recently for tenant {}); dropping until they recover.",
+                            MAX_PENDING_SENDS, tenantId);
+                }
+                return;
+            }
+            pendingSends.incrementAndGet();
+            producer.whenComplete((p, err) -> {
+                pendingSends.decrementAndGet();
+                pendingSendsExceeded.set(false);
+            });
+        }
+        producer.thenAccept(p -> p.newMessage()
                         // `key` drives partition routing + the broker entry filter on the sub.
                         .key(externalId)
                         // orderingKey MUST equal the partition key. KEY_BASED batching groups a
@@ -101,62 +145,93 @@ public class SubscriptionFanout {
                         .exceptionally(ex -> {
                             log.error("Failed to forward datapoints for subscription {}: {}", externalId, ex.getMessage());
                             return null;
-                        });
-            }
-        }
+                        }))
+                .exceptionally(ex -> null); // the producer never arrived; already logged there
     }
 
     /**
-     * Lazily build the fanout producer for a tenant on first use. Each tenant's fanout topic is
-     * provisioned by {@code datahub-api}'s subscription-topic provisioner, so the consumer can
-     * start before a tenant's topic exists. We retry per tenant at a throttled cadence so a
-     * missing topic at boot self-heals once the API comes up, without spamming the broker on
-     * every batch.
+     * Return the tenant's fanout producer if it is ready, otherwise start building it in the
+     * background and return {@code null} for this batch. Each tenant's fanout topic is provisioned
+     * by {@code datahub-api}'s subscription-topic provisioner, so the consumer can start before a
+     * tenant's topic exists. We retry per tenant at a throttled cadence so a missing topic at boot
+     * self-heals once the API comes up, without spamming the broker on every batch.
+     *
+     * <p><b>Never blocks the caller.</b> This runs on the datapoints-listener pool, after the
+     * ClickHouse insert and before the ack, and building a producer is a broker round-trip that can
+     * take up to the client's whole operation timeout (30s): a slow topic lookup, a bundle moving
+     * between brokers, a broker restart. Creating it synchronously under one {@code fanoutProducers}
+     * monitor shared by every tenant meant one tenant's slow build held that lock while every other
+     * tenant's batches queued behind it, so a single stuck fan-out stalled ingest and acks
+     * tenant-wide. Fan-out is best-effort; waiting for it is not.
      */
-    private Producer<DataWrapperMessage> getOrCreateFanoutProducer(String tenantId) {
+    private CompletableFuture<Producer<DataWrapperMessage>> getOrCreateFanoutProducer(String tenantId) {
         if (tenantId == null || tenantId.isBlank()) return null;
-        Producer<DataWrapperMessage> cached = fanoutProducers.get(tenantId);
+        CompletableFuture<Producer<DataWrapperMessage>> cached = fanoutProducers.get(tenantId);
         if (cached != null) return cached;
         Long nextAttempt = fanoutProducerNextAttemptMs.get(tenantId);
         if (nextAttempt != null && System.currentTimeMillis() < nextAttempt) return null;
-        synchronized (fanoutProducers) {
-            cached = fanoutProducers.get(tenantId);
-            if (cached != null) return cached;
-            Long next = fanoutProducerNextAttemptMs.get(tenantId);
-            if (next != null && System.currentTimeMillis() < next) return null;
-            try {
-                String topic = topicNames.getSubscriptionFanoutTopicName(tenantId);
-                Producer<DataWrapperMessage> producer = pulsarClient
-                        .newProducer(Schema.AVRO(DataWrapperMessage.class))
-                        .topic(topic)
-                        .producerName("subscription-fanout-" + tenantId + "-" + appInstanceId.get())
-                        .hashingScheme(HashingScheme.JavaStringHash)
-                        .messageRoutingMode(MessageRoutingMode.SinglePartition)
-                        // KEY_BASED batching groups by orderingKey when set, else by partition
-                        // key. The broker-side entry filter sees only the batch-level partition
-                        // key, so its accept/reject is correct for every message in a batch ONLY
-                        // if batches are single-partition-key — which forward() guarantees by
-                        // setting orderingKey equal to the partition key.
-                        .batcherBuilder(BatcherBuilder.KEY_BASED)
-                        .sendTimeout(10, TimeUnit.SECONDS)
-                        .create();
-                fanoutProducers.put(tenantId, producer);
-                fanoutProducerNextAttemptMs.remove(tenantId);
-                log.info("Fanout producer ready for tenant {} on {}", tenantId, topic);
-                return producer;
-            } catch (PulsarClientException e) {
-                fanoutProducerNextAttemptMs.put(tenantId, System.currentTimeMillis() + FANOUT_PRODUCER_RETRY_BACKOFF_MS);
-                log.warn("Fanout producer not yet available for tenant {} ({}); retrying in {}ms",
-                        tenantId, e.getMessage(), FANOUT_PRODUCER_RETRY_BACKOFF_MS);
-                return null;
-            } catch (IllegalStateException e) {
-                // Tenant has no pulsar.tenant configured. Surface loudly but do NOT break datapoint
-                // ingestion (the ClickHouse write already happened); back off so we don't log every batch.
-                fanoutProducerNextAttemptMs.put(tenantId, System.currentTimeMillis() + FANOUT_PRODUCER_RETRY_BACKOFF_MS);
-                log.error("Cannot fan out subscriptions for tenant {}: {}", tenantId, e.getMessage());
-                return null;
-            }
+
+        String topic;
+        try {
+            topic = topicNames.getSubscriptionFanoutTopicName(tenantId);
+        } catch (IllegalStateException e) {
+            // Tenant has no pulsar.tenant configured. Surface loudly but do NOT break datapoint
+            // ingestion (the ClickHouse write already happened); back off so we don't log every batch.
+            fanoutProducerNextAttemptMs.put(tenantId, System.currentTimeMillis() + retryBackoffMs);
+            log.error("Cannot fan out subscriptions for tenant {}: {}", tenantId, e.getMessage());
+            return null;
         }
+
+        // One build in flight per tenant: concurrent batches share the same pending future and queue
+        // their sends behind it instead of each starting a create. Reserved with putIfAbsent, never
+        // computeIfAbsent — the completion callback clears the slot on failure, and a failure that
+        // arrives inline would then be modifying the map from inside its own mapping function, which
+        // ConcurrentHashMap does not apply: the failed future would stay cached forever and the
+        // tenant would never fan out again until the consumer restarted.
+        CompletableFuture<Producer<DataWrapperMessage>> slot = new CompletableFuture<>();
+        CompletableFuture<Producer<DataWrapperMessage>> existing = fanoutProducers.putIfAbsent(tenantId, slot);
+        if (existing != null) return existing;
+        buildFanoutProducer(tenantId, topic, slot);
+        return slot;
+    }
+
+    private void buildFanoutProducer(String tenantId, String topic,
+                                     CompletableFuture<Producer<DataWrapperMessage>> slot) {
+        pulsarClient.newProducer(Schema.AVRO(DataWrapperMessage.class))
+                .topic(topic)
+                .producerName("subscription-fanout-" + tenantId + "-" + appInstanceId.get())
+                .hashingScheme(HashingScheme.JavaStringHash)
+                .messageRoutingMode(MessageRoutingMode.SinglePartition)
+                // KEY_BASED batching groups by orderingKey when set, else by partition
+                // key. The broker-side entry filter sees only the batch-level partition
+                // key, so its accept/reject is correct for every message in a batch ONLY
+                // if batches are single-partition-key — which forward() guarantees by
+                // setting orderingKey equal to the partition key.
+                .batcherBuilder(BatcherBuilder.KEY_BASED)
+                .sendTimeout(10, TimeUnit.SECONDS)
+                .createAsync()
+                .whenComplete((producer, err) -> {
+                    if (err != null) {
+                        // Clear the slot so the next batch past the backoff retries.
+                        fanoutProducers.remove(tenantId, slot);
+                        fanoutProducerNextAttemptMs.put(tenantId,
+                                System.currentTimeMillis() + retryBackoffMs);
+                        log.warn("Fanout producer not yet available for tenant {} ({}); retrying in {}ms",
+                                tenantId, err.getMessage(), retryBackoffMs);
+                        slot.completeExceptionally(err);
+                        return;
+                    }
+                    if (closed) {
+                        // Shutdown raced the build; don't leak the connection.
+                        producer.closeAsync();
+                        fanoutProducers.remove(tenantId, slot);
+                        slot.completeExceptionally(new IllegalStateException("fan-out is shutting down"));
+                        return;
+                    }
+                    fanoutProducerNextAttemptMs.remove(tenantId);
+                    log.info("Fanout producer ready for tenant {} on {}", tenantId, topic);
+                    slot.complete(producer);
+                });
     }
 
     /**
@@ -165,10 +240,13 @@ public class SubscriptionFanout {
      */
     @PreDestroy
     public void close() {
-        for (Map.Entry<String, Producer<DataWrapperMessage>> entry : fanoutProducers.entrySet()) {
+        closed = true;
+        for (Map.Entry<String, CompletableFuture<Producer<DataWrapperMessage>>> entry : fanoutProducers.entrySet()) {
+            Producer<DataWrapperMessage> producer = entry.getValue().getNow(null);
+            if (producer == null) continue;  // still building; the build closes it on completion
             try {
-                entry.getValue().flush();
-                entry.getValue().closeAsync();
+                producer.flush();
+                producer.closeAsync();
             } catch (PulsarClientException e) {
                 log.warn("Failed to flush fanout producer for tenant {}: {}", entry.getKey(), e.getMessage());
             }
