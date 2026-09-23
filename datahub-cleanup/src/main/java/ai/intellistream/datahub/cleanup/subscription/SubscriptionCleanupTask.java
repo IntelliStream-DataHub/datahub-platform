@@ -26,8 +26,12 @@ import java.util.Map;
 /**
  * Periodically deletes ORPHANED user-managed subscriptions: durable Pulsar subscriptions (and their
  * {@code SubscriptionEntity} rows) that no client reconnects to, whose backlog would otherwise grow
- * until it trips the fan-out namespace's backlog quota ({@code producer_exception}) and stalls the
- * tenant's live datapoint feed for <em>every</em> subscription on that topic.
+ * until it trips the fan-out namespace's backlog quota and the broker starts evicting the oldest
+ * entries under it ({@code consumer_backlog_eviction}, see {@code SubscriptionTopicProvisioner}).
+ * Reclaiming the storage before that point is the point of this sweep; it is no longer load-bearing
+ * for availability, since eviction costs only the abandoned cursor — under the previous
+ * {@code producer_exception} quota the same backlog stalled the tenant's live datapoint feed for
+ * <em>every</em> subscription on that topic.
  *
  * <p>A subscription is a candidate only when ALL hold:
  * <ul>
