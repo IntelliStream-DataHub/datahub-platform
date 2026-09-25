@@ -22,8 +22,9 @@ One accessor on `DatahubClient` per area of the API:
 
 Every REST endpoint the api publishes is reachable this way. The two that are not: `GET /stats`,
 which is internal to the console and excluded from the published contract, and the browser
-datapoint tail (`/timeseries/datapoints/listen`), which authenticates with a token in the query
-string; `subscriptions().listen(..)` is the server-side way to the same data.
+datapoint tail (`/timeseries/datapoints/listen`), which authenticates with a
+`datahub.bearer.<jwt>` WebSocket subprotocol because a browser cannot set a header;
+`subscriptions().listen(..)` is the server-side way to the same data.
 
 ## Requirements
 

@@ -28,6 +28,7 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.WebSocketMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.testcontainers.containers.PulsarContainer;
@@ -277,7 +278,18 @@ abstract class AbstractPulsarWebSocketIT {
      * PING frames and other non-text messages are ignored.
      */
     static WebSocketSession mockSession(String id, URI uri, Principal principal, List<TextMessage> outbox) {
+        return mockSession(id, uri, principal, outbox, new WebSocketHttpHeaders());
+    }
+
+    /**
+     * As {@link #mockSession(String, URI, Principal, List)}, with the handshake headers the
+     * handler sees — the live-tail endpoint reads its access token from
+     * {@code Sec-WebSocket-Protocol}.
+     */
+    static WebSocketSession mockSession(String id, URI uri, Principal principal, List<TextMessage> outbox,
+                                        WebSocketHttpHeaders handshakeHeaders) {
         WebSocketSession session = mock(WebSocketSession.class);
+        when(session.getHandshakeHeaders()).thenReturn(handshakeHeaders);
         when(session.getId()).thenReturn(id);
         when(session.isOpen()).thenReturn(true);
         when(session.getUri()).thenReturn(uri);

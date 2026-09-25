@@ -210,9 +210,9 @@ class SecurityFilterChainTest {
                 "/api-docs/swagger-config",
                 "/static/redoc/redoc.html",
                 // The browser live-tail handshake cannot send an Authorization header, so the
-                // chain permits it and DatapointListenWebSocketHandler validates the ?token=
-                // itself. A plain GET fails the WebSocket upgrade with 400 — which is the point:
-                // it got past authorization.
+                // chain permits it and DatapointListenWebSocketHandler validates the
+                // datahub.bearer.<jwt> handshake subprotocol itself. A plain GET fails the
+                // WebSocket upgrade with 400 — which is the point: it got past authorization.
                 "/timeseries/datapoints/listen");
     }
 
