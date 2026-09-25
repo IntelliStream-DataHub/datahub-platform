@@ -10,7 +10,7 @@ import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.UpdateRelForm;
-import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.models.UpdateAssetForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
@@ -86,16 +86,16 @@ public final class AssetService {
      * <p>The echo is the shared node graph, so nodes come back as {@link NodeModel}: an update may
      * touch relations whose other end is not an asset.
      */
-    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes,
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateAssetForm> nodes,
                                                         List<UpdateRelForm> relations) {
-        GraphDataWrapper<UpdateResourceForm, UpdateRelForm> request = new GraphDataWrapper<>();
+        GraphDataWrapper<UpdateAssetForm, UpdateRelForm> request = new GraphDataWrapper<>();
         request.setNodes(nodes);
         request.setRelations(relations);
         return http.post("/assets/update", request, nodeGraph);
     }
 
     /** {@link #update(List, List)} for the common node-only update. */
-    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes) {
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateAssetForm> nodes) {
         return update(nodes, List.of());
     }
 

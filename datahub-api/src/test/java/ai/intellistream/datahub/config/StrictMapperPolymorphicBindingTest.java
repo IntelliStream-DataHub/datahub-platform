@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.config;
 
+import ai.intellistream.datahub.function.UpdateFunctionForm;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.NodeModelSubtypes;
 import ai.intellistream.datahub.models.Resource;
+import ai.intellistream.datahub.models.UpdateAssetForm;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -87,5 +89,42 @@ class StrictMapperPolymorphicBindingTest {
         assertInstanceOf(Resource.class, strictMapper.readValue("""
                 {"externalId":"pump_1","name":"Pump 1","labels":["PIPE"]}
                 """, NodeModel.class));
+    }
+
+    /**
+     * {@code /assets/update} moved from the generic resource form to its own, with the same field
+     * names, so a body an existing SDK sends still binds — geoLocation included.
+     */
+    @Test
+    void theAssetUpdateFormBindsTheBodyTheGenericFormDid() {
+        UnknownFieldCollector.begin();
+        try {
+            UpdateAssetForm bound = strictMapper.readValue("""
+                    {"externalId":"pump_1","update":{"name":{"set":"Pump 1"},"labels":{"add":["PIPE"]},
+                     "metadata":{"add":{"k":"v"}},"geoLocation":{"setNull":true}}}
+                    """, UpdateAssetForm.class);
+            assertTrue(UnknownFieldCollector.drain().isEmpty());
+            assertEquals("Pump 1", bound.getUpdate().getName().getSet());
+            assertTrue(bound.getUpdate().getGeoLocation().getSetNull());
+        } finally {
+            UnknownFieldCollector.drain();
+        }
+    }
+
+    /**
+     * A function has no location. The generic form accepted {@code geoLocation} on
+     * {@code /functions/update} and the update dropped it; the function's own form refuses it.
+     */
+    @Test
+    void theFunctionUpdateFormRejectsGeoLocation() {
+        UnknownFieldCollector.begin();
+        try {
+            strictMapper.readValue("""
+                    {"id":"7","update":{"geoLocation":{"setNull":true}}}
+                    """, UpdateFunctionForm.class);
+            assertFalse(UnknownFieldCollector.drain().isEmpty());
+        } finally {
+            UnknownFieldCollector.drain();
+        }
     }
 }

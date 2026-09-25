@@ -1,9 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.validation.ResourceFields;
+import ai.intellistream.datahub.models.AssetFields;
+import ai.intellistream.datahub.models.UpdateAssetForm;
+import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
+import ai.intellistream.datahub.errors.InvalidResourceException;
+import ai.intellistream.datahub.jpa.domains.AssetEntity;
+import ai.intellistream.datahub.jpa.domains.NodeEntity;
+import ai.intellistream.datahub.models.policy.PolicyFinding;
+import ai.intellistream.datahub.models.policy.PolicyWarning;
+import ai.intellistream.datahub.transformers.NodeReadMapper;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
@@ -16,10 +30,14 @@ import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.jpa.domains.TypeLabels;
+import ai.intellistream.datahub.repositories.node.AssetRepository;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -33,14 +51,27 @@ import java.util.Set;
  * not. Reads come back already typed: the read mapper builds an {@link Asset} for an
  * {@code AssetEntity}, so this narrows rather than converts, and a node of some other type is
  * simply not an asset and is reported as missing.
+ *
+ * <p>The writes are the exception to "nothing decided here": the pipeline resolves its targets as
+ * plain nodes, so update and delete load them through {@link AssetRepository} instead. Update then
+ * drives the shared {@code NodeUpdateService} stages itself, as {@code TimeseriesService} does;
+ * delete hands the loaded ids to the pipeline. Without that, {@code /assets/delete} would delete a
+ * timeseries and {@code /assets/update} would edit one.
  */
 @Service
 public class AssetService {
 
     private final ResourceService resourceService;
+    private final AssetRepository assetRepository;
+    private final NodeUpdateService nodeUpdateService;
+    private final GraphOutbox graphOutbox;
 
-    public AssetService(ResourceService resourceService) {
+    public AssetService(ResourceService resourceService, AssetRepository assetRepository,
+                        NodeUpdateService nodeUpdateService, GraphOutbox graphOutbox) {
         this.resourceService = resourceService;
+        this.assetRepository = assetRepository;
+        this.nodeUpdateService = nodeUpdateService;
+        this.graphOutbox = graphOutbox;
     }
 
     /**
@@ -113,31 +144,121 @@ public class AssetService {
     }
 
     /**
-     * Update assets (and any relations) through the shared pipeline. The intrinsic {@code ASSET}
-     * type-label stays immutable there, so an update cannot turn an asset into something else.
+     * Update assets (and any relations), the way {@code TimeseriesService} updates timeseries:
+     * every target is loaded through {@link AssetRepository}, so only {@code ASSET} rows can be
+     * reached, and those entities are what the shared {@link NodeUpdateService} stages authorize
+     * and change. A target that is not an asset is a 404, as a missing one is, and the whole batch
+     * fails before anything is written.
+     *
+     * <p>Relations still go through {@link ResourceService#update}, which owns the write check on
+     * both endpoints of an edge and the dataset-ACL invalidation for {@code BELONGS_TO}.
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public GraphDataWrapper<NodeModel, EdgeProxy> update(
-            GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
-        return resourceService.update(apiReqData);
+            GraphDataWrapper<UpdateAssetForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+        Collection<UpdateAssetForm> forms = apiReqData.getNodes();
+        if (forms == null || forms.isEmpty()) {
+            // Relations only: nothing typed to load, and the pipeline owns edges.
+            return updateRelations(apiReqData.getRelations());
+        }
+
+        // Id when there is one, external id otherwise: the same precedence the pipeline uses.
+        Set<Long> ids = forms.stream().map(UpdateAssetForm::getId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> externalIds = forms.stream().filter(f -> f.getId() == null)
+                .map(UpdateAssetForm::getExternalId).filter(Objects::nonNull).collect(Collectors.toSet());
+        List<AssetEntity> assets = assetRepository.findAllByIdOrExternalId(ids, externalIds);
+
+        // Pass 1: pair every form with its asset and authorize it, mutating nothing.
+        List<NodeUpdateService.Target> targets = new ArrayList<>();
+        for (UpdateAssetForm form : forms) {
+            targets.add(nodeUpdateService.authorize(asNodeCommand(form), assetFor(form, assets)));
+        }
+
+        // Pass 2: the shared stages over the whole batch — rename collisions (409), the naming
+        // policy, then the field changes. Judged before applied; see NodeUpdateService.
+        List<PolicyFinding> warnings;
+        List<NodeEntity> updated;
+        try {
+            nodeUpdateService.guardRenames(targets);
+            warnings = nodeUpdateService.judgeNaming(targets);
+            updated = nodeUpdateService.apply(targets);
+        } catch (InvalidResourceException e) {
+            // e.g. a label update mixing set with add/remove: a 400, not a 500.
+            throw ResourceService.toBadRequest(e);
+        }
+        assetRepository.flush();
+        graphOutbox.queueUpsert(updated, List.of());
+        resourceService.recordPolicyWarnings(warnings, updated);
+
+        var result = new GraphDataWrapper<NodeModel, EdgeProxy>();
+        result.setNodes(NodeReadMapper.from(updated));
+        result.setWarnings(warnings.stream().map(PolicyWarning::from).toList());
+
+        if (apiReqData.getRelations() != null && !apiReqData.getRelations().isEmpty()) {
+            result.setRelations(updateRelations(apiReqData.getRelations()).getRelations());
+        }
+        return result;
     }
 
-    /** Delete assets by id or external id through the shared pipeline. */
+    /** Relations alone, through the generic pipeline: it owns edges. */
+    private GraphDataWrapper<NodeModel, EdgeProxy> updateRelations(Collection<UpdateRelForm> relations)
+            throws PulsarClientException {
+        var relationsOnly = new GraphDataWrapper<UpdateResourceForm, UpdateRelForm>();
+        relationsOnly.setRelations(relations == null ? new ArrayList<>() : new ArrayList<>(relations));
+        return resourceService.update(relationsOnly);
+    }
+
+    /**
+     * The command the shared stages take. The field objects are handed over as they are, so
+     * {@link NodeUpdateService} validates and applies exactly what the caller sent.
+     */
+    private static UpdateResourceForm asNodeCommand(UpdateAssetForm form) {
+        AssetFields update = form.getUpdate();
+        ResourceFields fields = new ResourceFields();
+        fields.setExternalId(update.getExternalId());
+        fields.setName(update.getName());
+        fields.setDescription(update.getDescription());
+        fields.setDataSetId(update.getDataSetId());
+        fields.setMetadata(update.getMetadata());
+        fields.setSource(update.getSource());
+        fields.setLabels(update.getLabels());
+        fields.setGeoLocation(update.getGeoLocation());
+        return new UpdateResourceForm(form.getId()).setExternalId(form.getExternalId()).setUpdate(fields);
+    }
+
+    /** The loaded asset a form names, by id when it has one and by external id otherwise. */
+    private static AssetEntity assetFor(UpdateAssetForm form, List<AssetEntity> assets) {
+        if (form.getId() != null) {
+            return assets.stream().filter(it -> form.getId().equals(it.getId())).findFirst()
+                    .orElseThrow(() -> new ObjectNotFoundException("Asset with id: " + form.getId() + " Not found!"));
+        }
+        if (form.getExternalId() != null) {
+            // By hash, as the lookup matched: a raw string compare would miss a differently-cased id.
+            Long hash = ExternalIds.hash(form.getExternalId());
+            return assets.stream().filter(it -> hash.equals(it.getExternalIdHash())).findFirst()
+                    .orElseThrow(() -> new ObjectNotFoundException(
+                            "Asset with externalId: " + form.getExternalId() + " Not found!"));
+        }
+        throw new BadRequestException("Asset id or externalId is required.",
+                new FieldErrors().addFieldError("id", "null").addFieldError("externalId", "null"));
+    }
+
+    /**
+     * Delete assets by id or external id through the shared pipeline. Ids that are not assets are
+     * left alone, the same way ids that do not exist are.
+     */
     @Transactional
     public void delete(DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
         if (apiReqData.getItems() == null || apiReqData.getItems().isEmpty()) return;
 
         var graph = new GraphDataWrapper<Resource, EdgeProxy>();
-        apiReqData.getItems().forEach(it -> {
+        assetRepository.findAllByIdCollection(apiReqData.getItems()).forEach(entity -> {
             Resource r = new Resource();
-            if (it.getId() != null) {
-                r.setId(it.getId());
-                graph.getNodes().add(r);
-            } else if (it.getExternalId() != null) {
-                r.setExternalId(it.getExternalId());
-                graph.getNodes().add(r);
-            }
+            r.setId(entity.getId());
+            graph.getNodes().add(r);
         });
+        if (graph.getNodes().isEmpty()) return;
         resourceService.delete(graph);
     }
 

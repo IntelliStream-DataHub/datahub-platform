@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers;
 
+import ai.intellistream.datahub.models.UpdateAssetForm;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.api.controllers.errors.DuplicateDataException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -15,7 +16,6 @@ import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.UpdateRelForm;
-import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -256,10 +256,18 @@ public class AssetController {
     @Tag(name = "Assets")
     @Operation(
             summary = "Update asset",
-            description = "Update one or more assets (and any relations). Only the fields named in "
-                    + "each entry's `update` block are changed."
+            description = """
+                    Update one or more assets (and any relations). Only the fields named in each
+                    entry's `update` block are changed.
+
+                    Every entry must name an asset. An id or `externalId` belonging to some other
+                    node type is a 404, like one that does not exist, and nothing in the batch is
+                    written.
+                    """
     )
     @ApiResponse(responseCode = "200", description = "Asset(s) updated.")
+    @ApiResponse(responseCode = "404", description = "An entry is not an asset, or does not exist. Nothing was updated.",
+            content = @Content(mediaType = "application/problem+json"))
     @ApiResponse(responseCode = "400", description = "Bad request.",
             content = @Content(
                     mediaType = "application/problem+json",
@@ -267,7 +275,7 @@ public class AssetController {
             ))
     @PostMapping(path = "/update", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<?> updateAsset(
-            @RequestBody GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+            @RequestBody GraphDataWrapper<UpdateAssetForm, UpdateRelForm> apiReqData) throws PulsarClientException {
         GraphDataWrapper<NodeModel, EdgeProxy> results = assetService.update(apiReqData);
         return new ResponseEntity<>(results, HttpStatus.OK);
     }
@@ -275,8 +283,12 @@ public class AssetController {
     @Tag(name = "Assets")
     @Operation(
             summary = "Delete asset",
-            description = "Delete one or more assets by id or externalId. Deleting an asset removes "
-                    + "all of its relationships; the delete is rejected if it would strand a surviving node."
+            description = """
+                    Delete one or more assets by id or externalId. Deleting an asset removes all of
+                    its relationships; the delete is rejected if it would strand a surviving node.
+
+                    Ids that do not exist or are not assets are skipped, not deleted.
+                    """
     )
     @ApiResponse(responseCode = "204", description = "Asset(s) deleted. No response body.",
             content = @Content)

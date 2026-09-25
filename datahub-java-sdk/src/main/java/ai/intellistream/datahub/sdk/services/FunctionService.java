@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.services;
 
+import ai.intellistream.datahub.function.UpdateFunctionForm;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.function.Function;
@@ -8,7 +9,6 @@ import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.UpdateRelForm;
-import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
@@ -53,16 +53,16 @@ public final class FunctionService {
     }
 
     /** POST /functions/update — only the fields named in each entry's {@code update} block change. */
-    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes,
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateFunctionForm> nodes,
                                                         List<UpdateRelForm> relations) {
-        GraphDataWrapper<UpdateResourceForm, UpdateRelForm> request = new GraphDataWrapper<>();
+        GraphDataWrapper<UpdateFunctionForm, UpdateRelForm> request = new GraphDataWrapper<>();
         request.setNodes(nodes);
         request.setRelations(relations);
         return http.post("/functions/update", request, nodeGraph);
     }
 
     /** {@link #update(List, List)} for the common node-only update. */
-    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateResourceForm> nodes) {
+    public GraphDataWrapper<NodeModel, EdgeProxy> update(List<UpdateFunctionForm> nodes) {
         return update(nodes, List.of());
     }
 
