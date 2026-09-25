@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.models.validation.ResourceFields;
+import ai.intellistream.datahub.function.FunctionFields;
+import ai.intellistream.datahub.function.UpdateFunctionForm;
+import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
+import ai.intellistream.datahub.errors.InvalidResourceException;
+import ai.intellistream.datahub.jpa.domains.NodeEntity;
+import ai.intellistream.datahub.models.policy.PolicyFinding;
+import ai.intellistream.datahub.models.policy.PolicyWarning;
+import ai.intellistream.datahub.transformers.NodeReadMapper;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -8,6 +20,7 @@ import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 import ai.intellistream.datahub.function.Function;
 import ai.intellistream.datahub.errors.ObjectNotFoundException;
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.RelForm;
@@ -28,6 +41,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -36,9 +50,12 @@ import java.util.stream.Collectors;
 
 /**
  * A Function is a plain datastore node distinguished only by its {@code FUNCTION}
- * type-label. This service is a thin adapter over the shared {@link ResourceService}
- * pipeline — every write goes through the same dataset-ACL enforcement, optimistic
- * locking, graph-connectivity validation, and Neo4j CUD publishing that resources get.
+ * type-label. This service is a thin adapter over the shared write pipeline — every write
+ * goes through the same dataset-ACL enforcement, optimistic locking, graph-connectivity
+ * validation, and Neo4j CUD publishing that resources get. Update and delete load their
+ * targets through {@link FunctionRepository} first, so they cannot reach another node type;
+ * update then drives the {@code NodeUpdateService} stages itself, as {@code TimeseriesService}
+ * does.
  * The {@code FUNCTION} label (always present on {@link Function}) is what makes
  * {@code NodeService.createFromResource} build a {@code FunctionEntity} rather than a
  * plain resource.
@@ -51,15 +68,21 @@ public class FunctionService {
     private final ResourceService resourceService;
     private final DataSecurity dataSecurity;
     private final DatasetClosureService datasetClosureService;
+    private final NodeUpdateService nodeUpdateService;
+    private final GraphOutbox graphOutbox;
 
     public FunctionService(FunctionRepository functionRepository,
                            ResourceService resourceService,
                            DataSecurity dataSecurity,
-                           DatasetClosureService datasetClosureService) {
+                           DatasetClosureService datasetClosureService,
+                           NodeUpdateService nodeUpdateService,
+                           GraphOutbox graphOutbox) {
         this.functionRepository = functionRepository;
         this.resourceService = resourceService;
         this.dataSecurity = dataSecurity;
         this.datasetClosureService = datasetClosureService;
+        this.nodeUpdateService = nodeUpdateService;
+        this.graphOutbox = graphOutbox;
     }
 
     /**
@@ -260,35 +283,121 @@ public class FunctionService {
     }
 
     /**
-     * Update functions (and any relations) through the shared resource pipeline. Functions
-     * are editable like resources; the intrinsic {@code FUNCTION} type-label stays immutable
-     * via the label-resolution rules in {@link ResourceService}.
+     * Update functions (and any relations), the way {@code TimeseriesService} updates timeseries:
+     * every target is loaded through {@link FunctionRepository}, so only {@code FUNCTION} rows can be
+     * reached, and those entities are what the shared {@link NodeUpdateService} stages authorize
+     * and change. A target that is not a function is a 404, as a missing one is, and the whole batch
+     * fails before anything is written.
+     *
+     * <p>Relations still go through {@link ResourceService#update}, which owns the write check on
+     * both endpoints of an edge and the dataset-ACL invalidation for {@code BELONGS_TO}.
      */
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public GraphDataWrapper<NodeModel, EdgeProxy> update(
-            GraphDataWrapper<UpdateResourceForm, UpdateRelForm> apiReqData) throws PulsarClientException {
-        return resourceService.update(apiReqData);
+            GraphDataWrapper<UpdateFunctionForm, UpdateRelForm> apiReqData) throws PulsarClientException {
+        Collection<UpdateFunctionForm> forms = apiReqData.getNodes();
+        if (forms == null || forms.isEmpty()) {
+            // Relations only: nothing typed to load, and the pipeline owns edges.
+            return updateRelations(apiReqData.getRelations());
+        }
+
+        // Id when there is one, external id otherwise: the same precedence the pipeline uses.
+        Set<Long> ids = forms.stream().map(UpdateFunctionForm::getId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> externalIds = forms.stream().filter(f -> f.getId() == null)
+                .map(UpdateFunctionForm::getExternalId).filter(Objects::nonNull).collect(Collectors.toSet());
+        List<FunctionEntity> functions = functionRepository.findAllByIdOrExternalId(ids, externalIds);
+
+        // Pass 1: pair every form with its function and authorize it, mutating nothing.
+        List<NodeUpdateService.Target> targets = new ArrayList<>();
+        for (UpdateFunctionForm form : forms) {
+            targets.add(nodeUpdateService.authorize(asNodeCommand(form), functionFor(form, functions)));
+        }
+
+        // Pass 2: the shared stages over the whole batch — rename collisions (409), the naming
+        // policy, then the field changes. Judged before applied; see NodeUpdateService.
+        List<PolicyFinding> warnings;
+        List<NodeEntity> updated;
+        try {
+            nodeUpdateService.guardRenames(targets);
+            warnings = nodeUpdateService.judgeNaming(targets);
+            updated = nodeUpdateService.apply(targets);
+        } catch (InvalidResourceException e) {
+            // e.g. a label update mixing set with add/remove: a 400, not a 500.
+            throw ResourceService.toBadRequest(e);
+        }
+        functionRepository.flush();
+        graphOutbox.queueUpsert(updated, List.of());
+        resourceService.recordPolicyWarnings(warnings, updated);
+
+        var result = new GraphDataWrapper<NodeModel, EdgeProxy>();
+        result.setNodes(NodeReadMapper.from(updated));
+        result.setWarnings(warnings.stream().map(PolicyWarning::from).toList());
+
+        if (apiReqData.getRelations() != null && !apiReqData.getRelations().isEmpty()) {
+            result.setRelations(updateRelations(apiReqData.getRelations()).getRelations());
+        }
+        return result;
+    }
+
+    /** Relations alone, through the generic pipeline: it owns edges. */
+    private GraphDataWrapper<NodeModel, EdgeProxy> updateRelations(Collection<UpdateRelForm> relations)
+            throws PulsarClientException {
+        var relationsOnly = new GraphDataWrapper<UpdateResourceForm, UpdateRelForm>();
+        relationsOnly.setRelations(relations == null ? new ArrayList<>() : new ArrayList<>(relations));
+        return resourceService.update(relationsOnly);
+    }
+
+    /**
+     * The command the shared stages take. The field objects are handed over as they are, so
+     * {@link NodeUpdateService} validates and applies exactly what the caller sent.
+     */
+    private static UpdateResourceForm asNodeCommand(UpdateFunctionForm form) {
+        FunctionFields update = form.getUpdate();
+        ResourceFields fields = new ResourceFields();
+        fields.setExternalId(update.getExternalId());
+        fields.setName(update.getName());
+        fields.setDescription(update.getDescription());
+        fields.setDataSetId(update.getDataSetId());
+        fields.setMetadata(update.getMetadata());
+        fields.setSource(update.getSource());
+        fields.setLabels(update.getLabels());
+        return new UpdateResourceForm(form.getId()).setExternalId(form.getExternalId()).setUpdate(fields);
+    }
+
+    /** The loaded function a form names, by id when it has one and by external id otherwise. */
+    private static FunctionEntity functionFor(UpdateFunctionForm form, List<FunctionEntity> functions) {
+        if (form.getId() != null) {
+            return functions.stream().filter(it -> form.getId().equals(it.getId())).findFirst()
+                    .orElseThrow(() -> new ObjectNotFoundException("Function with id: " + form.getId() + " Not found!"));
+        }
+        if (form.getExternalId() != null) {
+            // By hash, as the lookup matched: a raw string compare would miss a differently-cased id.
+            Long hash = ExternalIds.hash(form.getExternalId());
+            return functions.stream().filter(it -> hash.equals(it.getExternalIdHash())).findFirst()
+                    .orElseThrow(() -> new ObjectNotFoundException(
+                            "Function with externalId: " + form.getExternalId() + " Not found!"));
+        }
+        throw new BadRequestException("Function id or externalId is required.",
+                new FieldErrors().addFieldError("id", "null").addFieldError("externalId", "null"));
     }
 
     /**
      * Delete one or more functions by id or externalId through the shared resource pipeline
-     * (dataset-ACL, subscription, and graph-connectivity checks all apply).
+     * (dataset-ACL, subscription, and graph-connectivity checks all apply). Ids that are not
+     * functions are left alone, the same way ids that do not exist are.
      */
     @Transactional
     public void delete(DataWrapper<IdCollection> apiReqData) throws PulsarClientException {
         if (apiReqData.getItems() == null || apiReqData.getItems().isEmpty()) return;
 
         var graph = new GraphDataWrapper<Resource, EdgeProxy>();
-        apiReqData.getItems().forEach(it -> {
+        functionRepository.findAllByIdCollection(apiReqData.getItems()).forEach(entity -> {
             Resource r = new Resource();
-            if (it.getId() != null) {
-                r.setId(it.getId());
-                graph.getNodes().add(r);
-            } else if (it.getExternalId() != null) {
-                r.setExternalId(it.getExternalId());
-                graph.getNodes().add(r);
-            }
+            r.setId(entity.getId());
+            graph.getNodes().add(r);
         });
+        if (graph.getNodes().isEmpty()) return;
         resourceService.delete(graph);
     }
 }

@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.errors.ObjectNotFoundException;
 import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.api.messaging.outbox.GraphOutbox;
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.api.services.node.NodeUpdateService;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.function.Function;
+import ai.intellistream.datahub.function.UpdateFunctionForm;
 import ai.intellistream.datahub.jpa.domains.FunctionEntity;
 import ai.intellistream.datahub.models.EdgeProxy;
 import ai.intellistream.datahub.models.IdCollection;
@@ -22,11 +26,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -47,13 +53,15 @@ class FunctionServiceTest {
     @Mock private ResourceService resourceService;
     @Mock private DataSecurity dataSecurity;
     @Mock private ai.intellistream.datahub.api.datasecurity.DatasetClosureService datasetClosureService;
+    @Mock private NodeUpdateService nodeUpdateService;
+    @Mock private GraphOutbox graphOutbox;
 
     private FunctionService functionService;
 
     @BeforeEach
     void setUp() {
         functionService = new FunctionService(functionRepository, resourceService, dataSecurity,
-                datasetClosureService);
+                datasetClosureService, nodeUpdateService, graphOutbox);
     }
 
     @Test
@@ -90,21 +98,50 @@ class FunctionServiceTest {
     }
 
     @Test
-    void update_delegatesToResourcePipeline() throws Exception {
-        var req = new GraphDataWrapper<UpdateResourceForm, UpdateRelForm>();
-        var expected = new GraphDataWrapper<NodeModel, EdgeProxy>();
-        when(resourceService.update(req)).thenReturn(expected);
+    @SuppressWarnings("unchecked")
+    void update_appliesTheSharedStagesToTheLoadedFunctions() throws Exception {
+        var form = new UpdateFunctionForm().setId(7L);
+        var fn = functionEntity(7L, "fn_a");
+        when(functionRepository.findAllByIdOrExternalId(Set.of(7L), Set.of())).thenReturn(List.of(fn));
+        when(nodeUpdateService.authorize(any(), any()))
+                .thenAnswer(inv -> new NodeUpdateService.Target(inv.getArgument(0), inv.getArgument(1)));
+        when(nodeUpdateService.judgeNaming(any())).thenReturn(List.of());
+        when(nodeUpdateService.apply(any())).thenAnswer(inv ->
+                ((List<NodeUpdateService.Target>) inv.getArgument(0)).stream()
+                        .map(NodeUpdateService.Target::entity).toList());
 
-        assertSame(expected, functionService.update(req));
-        verify(resourceService).update(req);
+        functionService.update(updating(form));
+
+        ArgumentCaptor<UpdateResourceForm> command = ArgumentCaptor.captor();
+        verify(nodeUpdateService).authorize(command.capture(), org.mockito.ArgumentMatchers.eq(fn));
+        assertEquals(7L, command.getValue().getId());
+        verify(graphOutbox).queueUpsert(List.of(fn), List.of());
+        verify(resourceService, never()).update(any());
     }
 
+    /** A non-function target is a 404 like a missing one, and nothing in the batch is written. */
     @Test
-    void delete_resolvesReferences_andDelegatesToResourcePipeline() throws Exception {
+    void update_ofANonFunctionIs404AndAppliesNothing() {
+        var req = updating(new UpdateFunctionForm().setExternalId("pump_1"));
+        when(functionRepository.findAllByIdOrExternalId(Set.of(), Set.of("pump_1"))).thenReturn(List.of());
+
+        assertThrows(ObjectNotFoundException.class, () -> functionService.update(req));
+        verify(nodeUpdateService, never()).apply(any());
+    }
+
+    /**
+     * The pipeline resolves ids as any node, so only what the function repository resolved may
+     * reach it. Here the external id names a function and the id does not.
+     */
+    @Test
+    void delete_forwardsOnlyTheIdsThatResolveToFunctions() throws Exception {
         var req = new DataWrapper<IdCollection>();
+        var assetId = new IdCollection();
+        assetId.setId(5L);
         var ref = new IdCollection();
         ref.setExternalId("fn_a");
-        req.getItems().add(ref);
+        req.getItems().addAll(List.of(assetId, ref));
+        when(functionRepository.findAllByIdCollection(any())).thenReturn(List.of(functionEntity(7L, "fn_a")));
 
         functionService.delete(req);
 
@@ -112,7 +149,33 @@ class FunctionServiceTest {
         ArgumentCaptor<GraphDataWrapper<Resource, EdgeProxy>> captor =
                 ArgumentCaptor.forClass(GraphDataWrapper.class);
         verify(resourceService).delete(captor.capture());
-        assertEquals("fn_a", captor.getValue().getNodes().iterator().next().getExternalId());
+        assertEquals(List.of(7L), captor.getValue().getNodes().stream().map(Resource::getId).toList());
+    }
+
+    @Test
+    void delete_ofOnlyNonFunctions_isNoop() throws Exception {
+        var req = new DataWrapper<IdCollection>();
+        var assetId = new IdCollection();
+        assetId.setId(5L);
+        req.getItems().add(assetId);
+        when(functionRepository.findAllByIdCollection(any())).thenReturn(List.of());
+
+        functionService.delete(req);
+
+        verify(resourceService, never()).delete(any());
+    }
+
+    private static FunctionEntity functionEntity(long id, String externalId) {
+        var e = new FunctionEntity();
+        e.setId(id);
+        e.setExternalId(externalId);
+        return e;
+    }
+
+    private static GraphDataWrapper<UpdateFunctionForm, UpdateRelForm> updating(UpdateFunctionForm... forms) {
+        var w = new GraphDataWrapper<UpdateFunctionForm, UpdateRelForm>();
+        w.getNodes().addAll(List.of(forms));
+        return w;
     }
 
     @Test

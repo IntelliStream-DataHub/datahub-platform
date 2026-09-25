@@ -383,7 +383,9 @@ public class ResourceService {
      * <p>Keyed on external id rather than on batch position because the two do not line up: the
      * candidate list carries the submitted index, while {@code nodes} is what was actually mapped.
      */
-    private void recordPolicyWarnings(List<PolicyFinding> warnings, List<NodeEntity> nodes) {
+    // Package-private: the typed families that drive NodeUpdateService themselves (/assets,
+    // /functions) record their findings the same way.
+    void recordPolicyWarnings(List<PolicyFinding> warnings, List<NodeEntity> nodes) {
         if (warnings == null || warnings.isEmpty()) {
             return;
         }
@@ -549,7 +551,7 @@ public class ResourceService {
      * typing, ...) into a {@link BadRequestException} so it surfaces as a 400 carrying the original
      * message, plus the offending field when the source set one.
      */
-    private BadRequestException toBadRequest(InvalidResourceException e) {
+    static BadRequestException toBadRequest(InvalidResourceException e) {
         if (e.getField() != null && !e.getField().isBlank()) {
             return new BadRequestException(e.getMessage(), e.getField(), e.getMessage());
         }

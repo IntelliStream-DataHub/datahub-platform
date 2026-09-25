@@ -25,7 +25,9 @@ import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.UpdateRelForm;
+import ai.intellistream.datahub.models.UpdateAssetForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
+import ai.intellistream.datahub.function.UpdateFunctionForm;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
@@ -249,8 +251,8 @@ class SdkWireContractTest {
             new Contract("assets.search", "POST", "/assets/search", searchBody(ResourceFilter.class),
                     c -> c.assets().search(new SearchBody<>())),
             new Contract("assets.update", "POST", "/assets/update",
-                    graph(UpdateResourceForm.class, UpdateRelForm.class),
-                    c -> c.assets().update(List.of(new UpdateResourceForm()))),
+                    graph(UpdateAssetForm.class, UpdateRelForm.class),
+                    c -> c.assets().update(List.of(new UpdateAssetForm()))),
             new Contract("assets.delete", "DELETE", "/assets/delete", IDS,
                     c -> c.assets().delete(ids())),
 
@@ -262,8 +264,8 @@ class SdkWireContractTest {
             new Contract("functions.getById", "GET", "/functions/1", null,
                     c -> c.functions().getById(1)),
             new Contract("functions.update", "POST", "/functions/update",
-                    graph(UpdateResourceForm.class, UpdateRelForm.class),
-                    c -> c.functions().update(List.of(new UpdateResourceForm()))),
+                    graph(UpdateFunctionForm.class, UpdateRelForm.class),
+                    c -> c.functions().update(List.of(new UpdateFunctionForm()))),
             new Contract("functions.delete", "DELETE", "/functions/delete", IDS,
                     c -> c.functions().delete(ids())),
 
