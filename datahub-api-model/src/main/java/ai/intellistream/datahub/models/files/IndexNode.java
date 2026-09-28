@@ -67,6 +67,10 @@ public class IndexNode implements Comparable<IndexNode> {
     @Schema(description = "When file was last updated in IntelliStream DataHub.", example = "2024-01-01 18:00")
     private ZonedDateTime lastUpdated;
 
+    @Schema(description = "When the file was deleted. Present only on deleted files, as listed by the trash.",
+            example = "2024-02-01 09:30")
+    private ZonedDateTime deletedAt;
+
     @Schema(description = "Parent Index Node id, always a folder.", example = "MyDocuments")
     @JsonSerialize(using = ToStringSerializer.class)
     private Long parentId;

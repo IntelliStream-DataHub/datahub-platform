@@ -33,9 +33,8 @@ public class FileCleanupProperties {
 
     /**
      * How long a soft-deleted (trashed) file/folder is retained before the {@code DeletedFilePurgeTask}
-     * permanently deletes it — the retention window a user has to restore it. Keyed off the deletion
-     * epoch embedded in the trashed inode's {@code external_id} ({@code DELETED_..._<epochMillis>}).
-     * Default 30 days.
+     * permanently deletes it — the retention window a user has to restore it. Keyed off the trashed
+     * inode's {@code deleted_at}. Default 30 days.
      */
     private Duration deletedFileGrace = Duration.ofDays(30);
 

@@ -85,7 +85,9 @@ public class DirectoryService {
             // Create the current directory
             INode newFolder = new INode();
             newFolder.setName(currentDirectoryName);
-            newFolder.setExternalId("datahub-folder-" + currentDirectoryName);
+            // Not derived from the name: folders named alike in different places would share it and
+            // collide on the external-id index.
+            newFolder.setExternalId("datahub-folder-" + IdGenerator.getRandomUUID7AsString());
             newFolder.setNodeType(INode.INodeType.FOLDER);
             newFolder.setPath(currentFullPath);
             newFolder.setPathHash(pathHash);

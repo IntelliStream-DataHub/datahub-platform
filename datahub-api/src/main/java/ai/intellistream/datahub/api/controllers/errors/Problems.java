@@ -421,7 +421,7 @@ public final class Problems {
      * rather than acted on. The {@code reason} stays as the sub-code that says which obstacle.
      *
      * @param reason a stable token: {@code path-taken}, {@code not-a-file}, {@code external-id-taken},
-     *               {@code external-id-unrecoverable} or {@code folder-missing}
+     *               {@code trash-entry-missing} or {@code folder-missing}
      */
     public static ProblemDetail restoreRefused(String reason, String detail) {
         ProblemDetail problem = of(HttpStatus.CONFLICT, RESTORE_REFUSED, "Restore refused", detail);

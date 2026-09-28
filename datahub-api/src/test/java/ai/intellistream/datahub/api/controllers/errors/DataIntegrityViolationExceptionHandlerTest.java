@@ -40,6 +40,15 @@ class DataIntegrityViolationExceptionHandlerTest {
     }
 
     @Test
+    void aTakenFileExternalIdNamesExternalId() {
+        ProblemDetail problem = handler.handle(violation("inodes_external_id_hash_active_uk"));
+
+        assertThat(problem.getType()).isEqualTo(Problems.DUPLICATE);
+        assertThat(problem.getProperties().get("fields")).isEqualTo(List.of(
+                Map.of("field", "externalId", "message", "External id already exists.")));
+    }
+
+    @Test
     void anUnmappedConstraintIsStillAConflictWithNoFields() {
         ProblemDetail problem = handler.handle(violation("some_new_key"));
 

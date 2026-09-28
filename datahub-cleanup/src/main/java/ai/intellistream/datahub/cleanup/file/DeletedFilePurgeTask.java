@@ -19,13 +19,11 @@ import java.util.Map;
 /**
  * Permanently deletes soft-deleted (trashed) files once their retention window has elapsed.
  *
- * <p><b>Zero-schema.</b> The API delete path already moves a deleted file to the tenant trash folder,
- * marks its inode {@code is_deleted=true}, and renames its {@code external_id} to
- * {@code DELETED_<...>_<epochMillis>} (see {@code FileSystemService.moveNodeToTrash}) — so the
- * deletion time is already on the row, no new column needed. This janitor, per tenant, reads the
- * trashed inodes, recovers the {@code epochMillis} from {@code external_id}, and for anything older
- * than {@link FileCleanupProperties#getDeletedFileGrace()} (default 30 days): unlinks
- * {@code <trash>/<external_id>} and hard-deletes the row (+ its owned child rows) via
+ * <p>The API delete path moves a deleted file to the tenant trash folder as {@code trash_name}, marks
+ * its inode deleted by stamping {@code deleted_at} (see {@code FileSystemService.delete}).
+ * This janitor, per tenant, reads the trashed inodes and for anything deleted longer ago than
+ * {@link FileCleanupProperties#getDeletedFileGrace()} (default 30 days): unlinks
+ * {@code <trash>/<trash_name>} and hard-deletes the row (+ its owned child rows) via
  * {@link TrashPurger}. Dry-run (default in the {@code dev} profile) logs and touches nothing.
  */
 @Component
@@ -40,7 +38,7 @@ public class DeletedFilePurgeTask {
     // Default: daily at 02:30. Override with datahub.cleanup.file.deleted-file-cron.
     @Scheduled(cron = "${datahub.cleanup.file.deleted-file-cron:0 30 2 * * *}")
     public void purgeExpiredTrash() {
-        long cutoffMillis = Instant.now().minus(props.getDeletedFileGrace()).toEpochMilli();
+        Instant cutoff = Instant.now().minus(props.getDeletedFileGrace());
         Map<String, Tenant> tenants = tenantConfigService.cachedTenants;
         log.info("Deleted-file purge starting ({}, grace={}) over {} tenant(s).",
                 props.isDryRun() ? "dry-run" : "deleting", props.getDeletedFileGrace(), tenants.size());
@@ -60,7 +58,7 @@ public class DeletedFilePurgeTask {
             String previous = TenantContext.getTenantId();
             try {
                 TenantContext.setTenantId(tenantId);
-                total += purgeTenant(tenantId, Path.of(fs.getTrashPath()).normalize(), cutoffMillis);
+                total += purgeTenant(tenantId, Path.of(fs.getTrashPath()).normalize(), cutoff);
             } catch (Exception e) {
                 log.error("Deleted-file purge failed for tenant {}: {}", tenantId, e.getMessage(), e);
             } finally {
@@ -75,64 +73,39 @@ public class DeletedFilePurgeTask {
                 total, props.isDryRun() ? "would be purged (dry-run)" : "purged");
     }
 
-    private int purgeTenant(String tenantId, Path trashDir, long cutoffMillis) {
+    private int purgeTenant(String tenantId, Path trashDir, Instant cutoff) {
         int purged = 0;
         for (TrashedNode node : trashPurger.findTrashed()) {
-            Long deletedAtMillis = deletionEpochMillis(node.externalId());
-            if (deletedAtMillis == null) {
-                log.warn("Trashed inode id={} has an unparseable external_id '{}'; leaving it (tenant {}).",
-                        node.id(), node.externalId(), tenantId);
-                continue;
-            }
-            if (deletedAtMillis >= cutoffMillis) {
+            if (!node.deletedAt().isBefore(cutoff)) {
                 continue; // still within the grace window — restorable
             }
             if (props.isDryRun()) {
-                log.info("[dry-run] Would purge trashed inode id={} externalId={} (tenant {}).",
-                        node.id(), node.externalId(), tenantId);
+                log.info("[dry-run] Would purge trashed inode id={} (tenant {}).", node.id(), tenantId);
                 purged++;
                 continue;
             }
-            // A trashed FILE is stored at <trash>/<external_id>; a trashed FOLDER keeps no bytes there,
-            // so deleteIfExists is a harmless no-op for it. Confine the resolved path to the trash dir
-            // so a crafted external_id can never unlink something outside it.
-            Path target = trashDir.resolve(node.externalId()).normalize();
-            if (!target.startsWith(trashDir)) {
-                log.warn("Trashed path '{}' escapes trash dir '{}'; skipping inode id={} (tenant {}).",
-                        target, trashDir, node.id(), tenantId);
-                continue;
-            }
             try {
-                Files.deleteIfExists(target);
+                // A trashed FILE is stored at <trash>/<trash_name>; a trashed FOLDER keeps nothing there.
+                // Confine the resolved path to the trash dir so a bad trash_name can never unlink
+                // something outside it.
+                if (node.trashName() != null) {
+                    Path target = trashDir.resolve(node.trashName()).normalize();
+                    if (!target.startsWith(trashDir)) {
+                        log.warn("Trashed path '{}' escapes trash dir '{}'; skipping inode id={} (tenant {}).",
+                                target, trashDir, node.id(), tenantId);
+                        continue;
+                    }
+                    Files.deleteIfExists(target);
+                }
                 // Disk first, then the row: a crash between the two leaves an orphan row whose file is
                 // already gone — the next run re-selects it (deleteIfExists no-ops) and finishes.
                 trashPurger.hardDelete(node.id());
                 purged++;
-                log.info("Purged trashed inode id={} externalId={} (tenant {}).", node.id(), node.externalId(), tenantId);
+                log.info("Purged trashed inode id={} (tenant {}).", node.id(), tenantId);
             } catch (Exception e) {
                 log.error("Failed to purge trashed inode id={} (tenant {}): {}", node.id(), tenantId, e.getMessage());
             }
         }
         return purged;
-    }
-
-    /**
-     * Recover the deletion instant a trashed inode carries as the trailing {@code _<epochMillis>}
-     * segment of its {@code DELETED_..._<epochMillis>} external id. Returns null if it can't be parsed
-     * (leave the node alone rather than guess its age).
-     */
-    static Long deletionEpochMillis(String externalId) {
-        if (externalId == null) {
-            return null;
-        }
-        int idx = externalId.lastIndexOf('_');
-        if (idx < 0 || idx == externalId.length() - 1) {
-            return null;
-        }
-        try {
-            return Long.parseLong(externalId.substring(idx + 1));
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 }

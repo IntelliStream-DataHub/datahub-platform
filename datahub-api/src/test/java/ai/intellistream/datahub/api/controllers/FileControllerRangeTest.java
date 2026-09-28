@@ -93,7 +93,7 @@ class FileControllerRangeTest {
         when(inode.getSize()).thenReturn((long) CONTENT.length);
         when(inode.getMimeType()).thenReturn("application/octet-stream");
         when(inode.getChecksum()).thenReturn(checksum);
-        when(iNodeRepository.findByIdAndIsDeletedEquals(5L, false, INodeDownload.class))
+        when(iNodeRepository.findByIdAndDeletedAtIsNull(5L, INodeDownload.class))
                 .thenReturn(Optional.of(inode));
     }
 

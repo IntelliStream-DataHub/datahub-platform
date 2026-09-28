@@ -286,76 +286,89 @@ class FileControllerUploadTest {
     }
 
     /**
-     * A client-supplied {@code X-Datahub-External-Id} is percent-decoded and then ALWAYS run through
-     * the slug sanitizer before it is set on the node. This is a server-side protection: a hostile
-     * value (path traversal, spaces, control/special characters) can never reach storage verbatim.
-     * The external id is set before the dataset-ACL check, so we drive the (denied) 403 path and
-     * capture what was handed to the transformer.
+     * A client-supplied {@code X-Datahub-External-Id} is percent-decoded and stored verbatim, so the
+     * charset check is the server-side protection: a hostile value (path traversal, spaces,
+     * control characters) is refused with a 400 before it is set on the node.
      */
     @Test
-    void upload_alwaysSanitizesClientSuppliedExternalId() {
-        FileTransformer fileTransformer = mock(FileTransformer.class);
-        INodeRepository iNodeRepository = mock(INodeRepository.class);
-        FilesConfig filesConfig = mock(FilesConfig.class);
-        Validator validator = mock(Validator.class);
-        FileSystemService fileSystemService = mock(FileSystemService.class);
-        HttpHelper httpHelper = mock(HttpHelper.class);
-        TenantConfigService tenantConfigService = mock(TenantConfigService.class);
-        DataSecurity dataSecurity = mock(DataSecurity.class);
-        DirectoryService directoryService = mock(DirectoryService.class);
-        ChecksumFactory checksumFactory = new ChecksumFactory(ChecksumAlgorithm.SHA_256);
-        UploadProperties uploadProperties = new UploadProperties();
-
-        FileController controller = new FileController(
-                fileTransformer, iNodeRepository, filesConfig, validator, fileSystemService,
-                httpHelper, tenantConfigService, dataSecurity,
-                checksumFactory, directoryService, uploadProperties);
-
-        TenantContext.setTenantId("tenant-1");
-        Tenant tenant = mock(Tenant.class);
-        TenantFeatures features = mock(TenantFeatures.class);
-        when(tenantConfigService.getConfig("tenant-1")).thenReturn(tenant);
-        when(tenant.getFeatures()).thenReturn(features);
-        when(features.isFilesEnabled()).thenReturn(true);
-
-        when(fileSystemService.validateFolderPath("/secret")).thenReturn(true);
-        when(validator.validate(any())).thenReturn(Collections.emptySet());
-        when(filesConfig.getRoot()).thenReturn(Path.of("/tmp/datahub-test"));
-
-        // Resolve a dataset the caller cannot write, so the upload stops at the 403 right after the
-        // external id has been set on the node.
-        doAnswer(inv -> {
-            INode file = inv.getArgument(0);
-            String field = inv.getArgument(1);
-            if ("dataSet".equals(field)) {
-                DatasetEntity ds = new DatasetEntity();
-                ds.setId(77L);
-                file.setDataSet(ds);
-            }
-            return null;
-        }).when(fileTransformer).setProperty(any(INode.class), anyString(), anyString());
-        when(dataSecurity.hasWritePermissionToDataSet(77L)).thenReturn(false);
-
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setMethod("PUT");
-        request.addHeader("X-Datahub-Path", "/secret/strategy.txt");
-        request.addHeader("X-Datahub-Dataset-Id", "77");
+    void upload_rejectsClientSuppliedExternalIdOutsideTheCharset() {
+        UploadHarness h = new UploadHarness();
         // Percent-encoded "../etc/passwd" - a path-traversal attempt smuggled through the header.
-        request.addHeader("X-Datahub-External-Id", "..%2Fetc%2Fpasswd");
-        request.setContent("hello world".getBytes(StandardCharsets.UTF_8));
+        h.request.addHeader("X-Datahub-External-Id", "..%2Fetc%2Fpasswd");
 
-        assertThrows(DatasetAccessDeniedException.class, () -> controller.upload(request));
+        ResponseEntity<?> response = h.controller.upload(h.request);
+
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        org.mockito.Mockito.verify(h.fileTransformer, org.mockito.Mockito.never())
+                .setProperty(any(INode.class), eq("externalId"), anyString());
+    }
+
+    /**
+     * A valid external id reaches the node exactly as sent, case and separators intact. The external
+     * id is set before the dataset-ACL check, so we drive the (denied) 403 path and capture what was
+     * handed to the transformer.
+     */
+    @Test
+    void upload_keepsClientSuppliedExternalIdVerbatim() {
+        UploadHarness h = new UploadHarness();
+        h.request.addHeader("X-Datahub-External-Id", "COM-99-PT-1034.Report");
+
+        assertThrows(DatasetAccessDeniedException.class, () -> h.controller.upload(h.request));
 
         org.mockito.ArgumentCaptor<String> externalId = org.mockito.ArgumentCaptor.forClass(String.class);
-        org.mockito.Mockito.verify(fileTransformer)
+        org.mockito.Mockito.verify(h.fileTransformer)
                 .setProperty(any(INode.class), eq("externalId"), externalId.capture());
+        assertEquals("COM-99-PT-1034.Report", externalId.getValue());
+    }
 
-        String sanitized = externalId.getValue();
-        assertEquals("_etc_passwd", sanitized,
-                "decoded path-traversal id must collapse to a safe slug");
-        assertTrue(sanitized.matches("[a-z0-9_]+"),
-                "external id must be a lowercase [a-z0-9_] slug, was: " + sanitized);
-        assertTrue(!sanitized.contains("/") && !sanitized.contains(".."),
-                "external id must never contain path separators or traversal, was: " + sanitized);
+    /** An upload of /secret/strategy.txt into dataset 77, which the caller cannot write. */
+    private static final class UploadHarness {
+        final FileTransformer fileTransformer = mock(FileTransformer.class);
+        final MockHttpServletRequest request = new MockHttpServletRequest();
+        final FileController controller;
+
+        UploadHarness() {
+            FilesConfig filesConfig = mock(FilesConfig.class);
+            Validator validator = mock(Validator.class);
+            FileSystemService fileSystemService = mock(FileSystemService.class);
+            TenantConfigService tenantConfigService = mock(TenantConfigService.class);
+            DataSecurity dataSecurity = mock(DataSecurity.class);
+
+            controller = new FileController(
+                    fileTransformer, mock(INodeRepository.class), filesConfig, validator, fileSystemService,
+                    mock(HttpHelper.class), tenantConfigService, dataSecurity,
+                    new ChecksumFactory(ChecksumAlgorithm.SHA_256), mock(DirectoryService.class),
+                    new UploadProperties());
+
+            TenantContext.setTenantId("tenant-1");
+            Tenant tenant = mock(Tenant.class);
+            TenantFeatures features = mock(TenantFeatures.class);
+            when(tenantConfigService.getConfig("tenant-1")).thenReturn(tenant);
+            when(tenant.getFeatures()).thenReturn(features);
+            when(features.isFilesEnabled()).thenReturn(true);
+
+            when(fileSystemService.validateFolderPath("/secret")).thenReturn(true);
+            when(validator.validate(any())).thenReturn(Collections.emptySet());
+            when(filesConfig.getRoot()).thenReturn(Path.of("/tmp/datahub-test"));
+
+            // Resolve a dataset the caller cannot write, so the upload stops at the 403 right after
+            // the external id has been set on the node.
+            doAnswer(inv -> {
+                INode file = inv.getArgument(0);
+                String field = inv.getArgument(1);
+                if ("dataSet".equals(field)) {
+                    DatasetEntity ds = new DatasetEntity();
+                    ds.setId(77L);
+                    file.setDataSet(ds);
+                }
+                return null;
+            }).when(fileTransformer).setProperty(any(INode.class), anyString(), anyString());
+            when(dataSecurity.hasWritePermissionToDataSet(77L)).thenReturn(false);
+
+            request.setMethod("PUT");
+            request.addHeader("X-Datahub-Path", "/secret/strategy.txt");
+            request.addHeader("X-Datahub-Dataset-Id", "77");
+            request.setContent("hello world".getBytes(StandardCharsets.UTF_8));
+        }
     }
 }

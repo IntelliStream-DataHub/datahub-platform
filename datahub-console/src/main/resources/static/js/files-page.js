@@ -441,8 +441,8 @@
 /**
  * Deleted-files (trash) tab: list soft-deleted files (GET /files/trash) and restore them
  * (POST /files/restore). Talks to datahub-api directly with a bearer from /token — same pattern as
- * the file-info fetch. A trashed file's externalId is DELETED_<checksum>_<origId>_<epochMillis>, so
- * the trailing _<epoch> gives the deletion time; name and path are the pre-deletion values.
+ * the file-info fetch. A trashed file keeps its externalId, name and path; deletedAt says when it
+ * was deleted. Restore goes by id, since trashed copies may share an externalId.
  */
 (function(){
 	const meta = document.querySelector('meta[name="datahub-api-url"]');
@@ -476,10 +476,8 @@
 		viewTrash.hidden = false;
 		loadTrash();
 	}
-	function deletedDate(externalId){
-		const m = /_(\d+)$/.exec(externalId || '');
-		if (!m) return '';
-		const d = new Date(Number(m[1]));
+	function deletedDate(value){
+		const d = new Date(value || '');
 		return isNaN(d.getTime()) ? '' : d.toLocaleString();
 	}
 	function loadTrash(){
@@ -504,7 +502,7 @@
 		const name = document.createElement('span'); name.textContent = n.name || '';
 		nameTd.appendChild(icon); nameTd.appendChild(document.createTextNode(' ')); nameTd.appendChild(name);
 		const pathTd = document.createElement('td'); pathTd.className = 'fs-path'; pathTd.textContent = n.path || '';
-		const whenTd = document.createElement('td'); whenTd.textContent = deletedDate(n.externalId);
+		const whenTd = document.createElement('td'); whenTd.textContent = deletedDate(n.deletedAt);
 		const actTd = document.createElement('td');
 		const btn = document.createElement('button');
 		btn.type = 'button'; btn.className = 'dh-btn small'; btn.textContent = i18n.restore;
@@ -520,7 +518,7 @@
 			return fetch(apiBase + '/files/restore', {
 				method: 'POST',
 				headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json', Accept: 'application/json' },
-				body: JSON.stringify({ items: [{ externalId: n.externalId }] })
+				body: JSON.stringify({ items: [{ id: n.id }] })
 			}).then(r => {
 				if (r.ok) {
 					tr.remove();

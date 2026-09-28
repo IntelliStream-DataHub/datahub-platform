@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.jpa.domains;
 
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import jakarta.persistence.*;
@@ -10,7 +11,6 @@ import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import net.openhft.hashing.LongHashFunction;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -75,8 +75,13 @@ public class INode {
     @Column(name = "last_updated")
     private ZonedDateTime lastUpdated;
 
-    @Column(name = "is_deleted")
-    private boolean isDeleted = false;
+    /** When the node was soft-deleted; null while it is live. This is the only soft-delete flag. */
+    @Column(name = "deleted_at")
+    private ZonedDateTime deletedAt;
+
+    /** A trashed file's name under the tenant trash folder; null for live nodes and for folders. */
+    @Column(name = "trash_name")
+    private String trashName;
 
     @OneToOne(fetch = FetchType.EAGER, cascade = CascadeType.ALL)
     @JoinColumn(name = "data_set_id")
@@ -130,9 +135,10 @@ public class INode {
     @Column(name = "security_category")
     private Set<Integer> securityCategories = new TreeSet<>();
 
+    /** Stored verbatim; uniqueness and lookup are case-insensitive through {@link ExternalIds#hash}. */
     public void setExternalId(String externalId){
-        this.externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(externalId);
-        this.externalIdHash = LongHashFunction.xx3().hashChars(this.externalId);
+        this.externalId = externalId;
+        this.externalIdHash = externalId == null ? null : ExternalIds.hash(externalId);
     }
 
     public void setPath(String path){
@@ -190,7 +196,8 @@ public class INode {
                 .add("sourceLastUpdated=" + sourceLastUpdated)
                 .add("dateCreated=" + dateCreated)
                 .add("lastUpdated=" + lastUpdated)
-                .add("isDeleted=" + isDeleted)
+                .add("deletedAt=" + deletedAt)
+                .add("trashName='" + trashName + "'")
                 .add("dataSet=" + dataSet)
                 .add("metadata=" + metadata)
                 .add("labelEntities=" + labelEntities)

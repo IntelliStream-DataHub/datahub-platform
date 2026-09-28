@@ -3,15 +3,14 @@ package ai.intellistream.datahub.services;
 
 import ai.intellistream.datahub.config.FilesConfig;
 import ai.intellistream.datahub.helpers.text.TextValidator;
-import ai.intellistream.datahub.helpers.utils.IdGenerator;
 import ai.intellistream.datahub.jpa.domains.INode;
 import ai.intellistream.datahub.jpa.domains.NodeEntity;
-import ai.intellistream.datahub.jpa.dto.INodeProxy;
 import ai.intellistream.datahub.repositories.files.INodeRepository;
-import jakarta.validation.constraints.NotNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.IOException;
 import java.nio.file.DirectoryNotEmptyException;
@@ -23,9 +22,9 @@ import java.nio.file.Paths;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
-import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -173,102 +172,81 @@ public class FileSystemService {
         }
     }
 
-    @Transactional
-    public void moveNodeToTrash(INodeProxy inode) throws IOException {
-
-        List<INodeProxy> nodesToMarkAsDeleted = new ArrayList<>();
-        collectNodesRecursively(inode, nodesToMarkAsDeleted);
-        sortINodes(nodesToMarkAsDeleted);
-
-        for (INodeProxy nodeToMark : nodesToMarkAsDeleted) {
-
-            String newExternalId = "DELETED_";
-            if( nodeToMark.getNodeType() == INode.INodeType.FILE ){
-                String checksum = HexFormat.of().formatHex(nodeToMark.getChecksum());
-                newExternalId = newExternalId + checksum + "_" + nodeToMark.getExternalId();
-            } else {
-                newExternalId = newExternalId + "_" + nodeToMark.getExternalId();
-            }
-            newExternalId = newExternalId + "_" + ZonedDateTime.now().withZoneSameInstant(ZoneOffset.UTC).toInstant().toEpochMilli();
-            // Move THIS node's filesystem object (not the top-level inode) to trash. The sort above
-            // guarantees descendant files are processed before their containing folders, so each
-            // folder is empty by the time it is removed.
-            moveFileSystemObjectToTrash(nodeToMark, newExternalId);
-            long newHash = IdGenerator.xxHash(newExternalId);
-            log.debug("deleted with externalId: " + newExternalId + " and hash: " + newHash);
-            iNodeRepository.markDeleted(nodeToMark.getId(), newExternalId, newHash, true);
+    /**
+     * Soft-delete {@code roots} and everything beneath them. Each file moves to
+     * {@code <trash>/<id>} and each folder is removed from disk (it is empty by then); every row gets
+     * {@code deleted_at} and keeps its external id, since uniqueness covers live rows only.
+     *
+     * <p>Takes managed entities: the caller's transaction carries the row changes. The disk steps
+     * cannot join it, so each is undone if it rolls back — whether a later move failed or the commit
+     * did — rather than leaving files in the trash under live rows.
+     */
+    @Transactional(rollbackFor = IOException.class)
+    public void delete(List<INode> roots) throws IOException {
+        // A folder and something inside it may both be named; each node is handled once.
+        Map<Long, INode> byId = new LinkedHashMap<>();
+        for (INode root : roots) {
+            collectNodesRecursively(root, byId);
         }
+        List<INode> nodes = new ArrayList<>(byId.values());
+        sortINodes(nodes);
 
+        List<DiskStep> undo = undoOnRollback();
+        ZonedDateTime now = ZonedDateTime.now(ZoneOffset.UTC);
+        for (INode node : nodes) {
+            // Descendant files come before their folders (sortINodes), so each folder is empty here.
+            boolean isFile = node.getNodeType() == INode.INodeType.FILE;
+            String trashName = isFile ? String.valueOf(node.getId()) : null;
+            moveFileSystemObjectToTrash(node, trashName, undo);
+            node.setDeletedAt(now);
+            node.setTrashName(trashName);
+        }
     }
 
-    /**
-     * Recursively collects an INode and all its descendants into a list.
-     *
-     * @param node The starting INode.
-     * @param collectedNodes A list to store the collected nodes.
-     */
-    private void collectNodesRecursively(INodeProxy node, List<INodeProxy> collectedNodes) {
-        collectedNodes.add(node);
-
+    private void collectNodesRecursively(INode node, Map<Long, INode> collected) {
+        if (collected.putIfAbsent(node.getId(), node) != null) {
+            return;
+        }
         if (node.getNodeType() == INode.INodeType.FOLDER) {
-            // Use the repository to find all direct children of the current folder
-            List<INodeProxy> children = iNodeRepository.findAllWhereParentIdAndIsDeleted(node.getId(), false);
-            for (INodeProxy child : children) {
-                // Recurse for each child
-                collectNodesRecursively(child, collectedNodes);
+            for (INode child : iNodeRepository.findAllByParentAndDeletedAtIsNull(node, INode.class)) {
+                collectNodesRecursively(child, collected);
             }
         }
     }
 
-    /**
-     * Moves the corresponding file or folder on the physical filesystem to the trash directory.
-     *
-     * @param node The INode representing the file or folder to move.
-     * @throws IOException if the move operation fails.
-     */
-    private void moveFileSystemObjectToTrash(INodeProxy node, @NotNull String newFileName) throws IOException {
+    /** Move a file to {@code <trash>/<trashName>}, or remove a folder, recording how to undo it. */
+    private void moveFileSystemObjectToTrash(INode node, String trashName, List<DiskStep> undo) throws IOException {
         Path sourcePath = Paths.get(filesConfig.getRoot().toString(), node.getPath())
                 .toAbsolutePath()
                 .normalize();
-        Path trashPath = Paths.get(filesConfig.getTrash().toString(), newFileName)
-                .toAbsolutePath()
-                .normalize();
 
-        // Do the filesystem op first, then let the caller mark the row deleted.
-        // No Files.exists() pre-check: on NFS it lies (attribute cache), and
-        // with multiple API instances it's a TOCTOU anyway. Tolerate missing
-        // source idempotently so a retried delete doesn't fail the whole batch.
-        if(node.getNodeType() == INode.INodeType.FILE){
+        // No Files.exists() pre-check: on NFS it lies (attribute cache), and with multiple API
+        // instances it's a TOCTOU anyway. Tolerate a missing source so a retried delete doesn't fail
+        // the whole batch.
+        if (node.getNodeType() == INode.INodeType.FILE) {
+            Path trashPath = filesConfig.getTrash().resolve(trashName).toAbsolutePath().normalize();
             try {
                 Files.createDirectories(trashPath.getParent());
                 Files.move(sourcePath, trashPath);
-                log.debug("Successfully moved file from '{}' to '{}'", sourcePath, trashPath);
+                undo.add(new DiskStep(sourcePath, trashPath));
+                log.debug("Moved file '{}' to '{}'", sourcePath, trashPath);
             } catch (NoSuchFileException e) {
                 log.warn("Source file already gone at delete time, continuing: {}", sourcePath);
             }
-        } else if(node.getNodeType() == INode.INodeType.FOLDER){
-            try{
+        } else if (node.getNodeType() == INode.INodeType.FOLDER) {
+            try {
                 Files.delete(sourcePath);
-                log.debug("Successfully deleted folder: '{}'", sourcePath);
+                undo.add(new DiskStep(sourcePath, null));
+                log.debug("Deleted folder '{}'", sourcePath);
             } catch (NoSuchFileException e) {
                 log.warn("Source folder already gone at delete time, continuing: {}", sourcePath);
-            } catch (DirectoryNotEmptyException e){
+            } catch (DirectoryNotEmptyException e) {
                 log.error(e.getMessage());
             }
         }
     }
 
-    @Transactional
-    public void delete(Set<Long> idList, Set<String> externalIdHashes) throws IOException {
-        List<INodeProxy> inodes = iNodeRepository.findAllByIdAndExternalIdAndNotDeleted(idList, externalIdHashes);
-        sortINodes(inodes);
-
-        for(INodeProxy inode : inodes){
-            moveNodeToTrash(inode);
-        }
-    }
-
-    private void sortINodes(List<INodeProxy> inodes) {
+    private void sortINodes(List<INode> inodes) {
         // Sort by files first, then by inode level (desc)
         inodes.sort((i1, i2) -> {
             // Files first
@@ -288,41 +266,33 @@ public class FileSystemService {
     }
 
     /**
-     * Restore soft-deleted FILES from the trash: recover the original external id from each node's
-     * {@code DELETED_<checksum>_<origId>_<epoch>} name, move the file back from trash to its original
-     * path, and clear {@code is_deleted}. Folders are not restorable in this version. Never overwrites:
-     * throws {@link FileAlreadyExistsException} when the original path is taken and {@link
-     * IllegalStateException} when the original external id is in use, the original folder is gone, or the
-     * id can't be recovered — both mapped to 409 by the controller (like {@code update}'s move conflict).
-     * Returns the restored nodes (carrying their original external id) for the response.
+     * Restore soft-deleted FILES: move each back from the trash to its original path and set
+     * {@code deleted_at} back to null. Folders are not restorable in this version. Never overwrites: throws
+     * {@link FileAlreadyExistsException} when the original path is taken and
+     * {@link RestoreRefusedException} when the external id is in use by a live node, the original
+     * folder is gone, or the trash entry is unknown — all mapped to 409 by the controller. Takes
+     * managed entities and returns them restored.
      */
-    @Transactional
+    @Transactional(rollbackFor = IOException.class)
     public List<INode> restore(List<INode> nodes) throws IOException {
-        List<Long> restoredIds = new ArrayList<>();
+        List<DiskStep> undo = undoOnRollback();
         for (INode node : nodes) {
-            restoreOne(node);
-            restoredIds.add(node.getId());
+            restoreOne(node, undo);
         }
-        // markDeleted clears the persistence context (clearAutomatically), which detaches these
-        // nodes — reading their lazy collections afterwards would throw. Re-load the restored rows
-        // as managed entities so the controller's transformToIndexNode can read them inside the
-        // transaction (the same contract the update endpoint relies on).
-        return iNodeRepository.findAllById(restoredIds);
+        return nodes;
     }
 
-    private void restoreOne(INode node) throws IOException {
+    private void restoreOne(INode node, List<DiskStep> undo) throws IOException {
         if (node.getNodeType() != INode.INodeType.FILE) {
             throw new RestoreRefusedException("not-a-file", "Only files can be restored, not folders.");
         }
-        String original = recoverOriginalExternalId(node.getExternalId());
-        if (original == null || original.isBlank()) {
-            throw new RestoreRefusedException("external-id-unrecoverable",
-                    "The file's original external id could not be recovered from its trash entry.");
+        if (node.getTrashName() == null) {
+            throw new RestoreRefusedException("trash-entry-missing", "The file has no entry in the trash.");
         }
-        long originalHash = IdGenerator.xxHash(original);
-        // Delete frees the original external id for reuse; refuse if a live file has since taken it.
-        if (iNodeRepository.findByExternalIdHashAndIsDeletedIs(originalHash, false, INode.class).isPresent()) {
-            throw new RestoreRefusedException("external-id-taken", "A file with the original external id already exists.");
+        // Delete frees the external id for reuse; refuse if a live node has since taken it. The query
+        // flushes earlier restores in this batch first, so two trashed copies of one id can't both return.
+        if (iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(node.getExternalIdHash(), INode.class).isPresent()) {
+            throw new RestoreRefusedException("external-id-taken", "A file with the same external id already exists.");
         }
         Path dest = Paths.get(filesConfig.getRoot().toString(), node.getPath()).toAbsolutePath().normalize();
         if (Files.exists(dest)) {
@@ -332,29 +302,46 @@ public class FileSystemService {
         if (destParent == null || !Files.isDirectory(destParent)) {
             throw new RestoreRefusedException("folder-missing", "The file's original folder no longer exists.");
         }
-        Path trashFile = Paths.get(filesConfig.getTrash().toString(), node.getExternalId()).toAbsolutePath().normalize();
+        Path trash = filesConfig.getTrash().toAbsolutePath().normalize();
+        Path trashFile = trash.resolve(node.getTrashName()).normalize();
+        if (!trashFile.startsWith(trash)) {
+            throw new RestoreRefusedException("trash-entry-missing", "The file has no entry in the trash.");
+        }
         Files.move(trashFile, dest); // throws FileAlreadyExistsException / IOException on failure
-        // Disk moved back — clear is_deleted and put the original external id (and its hash) back.
-        iNodeRepository.markDeleted(node.getId(), original, originalHash, false);
+        undo.add(new DiskStep(trashFile, dest));
+        node.setDeletedAt(null);
+        node.setTrashName(null);
     }
 
+    /** One reversible disk step: a move {@code from → to}, or the removal of folder {@code from} ({@code to} null). */
+    private record DiskStep(Path from, Path to) {}
+
     /**
-     * Recover the original external id from a trashed FILE's external id, which {@code moveNodeToTrash}
-     * formed as {@code DELETED_<checksumHex>_<originalExternalId>_<epochMillis>} — the original is
-     * everything between the checksum and the trailing epoch. Returns null if the shape isn't recognized.
+     * A list the caller appends its disk steps to; if the current transaction rolls back they are
+     * reversed, newest first, so disk returns to where the database is.
      */
-    static String recoverOriginalExternalId(String deletedExternalId) {
-        final String prefix = "DELETED_";
-        if (deletedExternalId == null || !deletedExternalId.startsWith(prefix)) {
-            return null;
-        }
-        String rest = deletedExternalId.substring(prefix.length()); // <checksum>_<originalId>_<epoch>
-        int firstUnderscore = rest.indexOf('_');
-        int lastUnderscore = rest.lastIndexOf('_');
-        if (firstUnderscore < 0 || lastUnderscore <= firstUnderscore) {
-            return null;
-        }
-        return rest.substring(firstUnderscore + 1, lastUnderscore);
+    private List<DiskStep> undoOnRollback() {
+        List<DiskStep> steps = new ArrayList<>();
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_ROLLED_BACK) {
+                    return;
+                }
+                for (DiskStep step : steps.reversed()) {
+                    try {
+                        if (step.to() == null) {
+                            Files.createDirectories(step.from());
+                        } else {
+                            Files.move(step.to(), step.from());
+                        }
+                    } catch (IOException e) {
+                        log.error("Could not undo disk step {} after rollback: {}", step, e.getMessage());
+                    }
+                }
+            }
+        });
+        return steps;
     }
 
     /**
