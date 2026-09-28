@@ -24,6 +24,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import jakarta.validation.Validation;
+import jakarta.validation.ValidatorFactory;
+
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -184,6 +187,34 @@ class PolicyServiceCreateTest {
         String generated = sent.getNodes().iterator().next().getExternalId();
         assertThat(generated).isNotBlank();
         assertThat(sent.getRelations().iterator().next().getToExternalId()).isEqualTo(generated);
+    }
+
+    /**
+     * The bodies the adapter builds must satisfy the constraints the pipeline enforces on them.
+     *
+     * <p>The one thing every other test here could not see. They assert the <em>shape</em> handed
+     * to a mocked {@code ResourceService}; the real one begins with
+     * {@code validator.validate(apiReqData)} over a {@code @Valid} node collection, so a body that
+     * cannot satisfy its own bean constraints is rejected before anything is mapped — and every
+     * policy create in the tenant fails with it. Run over the request the adapter actually built,
+     * from a body carrying no {@code type}, which is what the console form and the SDK both send.
+     */
+    @Test
+    void buildsBodiesThePipelineWillAccept() throws Exception {
+        pipelineReturnsNodes(1);
+        when(policyRepository.findAllByExternalIdHashIn(anyList())).thenReturn(List.of(entity("p_one")));
+
+        // Attached to a data set, so the ENFORCED_ON relation is judged here too — `relations` is
+        // the wrapper's other @Valid collection.
+        policyService.create(List.of(body("p_one", "One", 42L)));
+
+        try (ValidatorFactory factory = Validation.buildDefaultValidatorFactory()) {
+            var violations = factory.getValidator().validate(capturedRequest());
+            assertThat(violations)
+                    .withFailMessage("The pipeline validates this wrapper before it maps anything, "
+                            + "so a violation here is a 400 on every /policies/create: %s", violations)
+                    .isEmpty();
+        }
     }
 
     /** Naming warnings the pipeline recorded must reach the caller, not be swallowed by re-wrapping. */
