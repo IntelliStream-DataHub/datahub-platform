@@ -229,16 +229,29 @@ public final class Problems {
     public static ProblemDetail fieldValidation(Collection<FieldValidationError> errors) {
         List<FieldProblem> fields = new ArrayList<>();
         for (FieldValidationError error : errors) {
-            String[] codes = error.getCodes();
-            Object[] arguments = error.getArguments();
-            fields.add(new FieldProblem(
-                    error.getObjectName(),
-                    error.getDefaultMessage(),
-                    codes == null || codes.length == 0 ? null : codes[0],
-                    arguments == null || arguments.length == 0 ? null : firstOrList(arguments)));
+            fields.add(fieldProblem(error));
         }
         return withFields(of(HttpStatus.BAD_REQUEST, VALIDATION_FAILED,
                 "Validation failed", "One or more fields are invalid."), fields);
+    }
+
+    /**
+     * One validator error, with everything it carries kept.
+     *
+     * <p>Shared with {@link FieldErrors} so the hand-written validators land on the wire the same
+     * way whether they are rendered straight into a problem or accumulated behind a
+     * {@link BadRequestException} first. Collapsing to field and message is what this exists to
+     * stop: {@code code} is the i18n key a caller phrases in their own words, and the argument is
+     * the bound that was broken.
+     */
+    static FieldProblem fieldProblem(FieldValidationError error) {
+        String[] codes = error.getCodes();
+        Object[] arguments = error.getArguments();
+        return new FieldProblem(
+                error.getObjectName(),
+                error.getDefaultMessage(),
+                codes == null || codes.length == 0 ? null : codes[0],
+                arguments == null || arguments.length == 0 ? null : firstOrList(arguments));
     }
 
     /** A single argument reads better unwrapped; several are worth keeping as a list. */

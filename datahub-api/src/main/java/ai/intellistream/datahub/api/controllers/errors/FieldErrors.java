@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.controllers.errors;
 
+import ai.intellistream.datahub.validation.FieldValidationError;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,6 +26,18 @@ public final class FieldErrors {
     /** One rejected field. Chainable, because most sites add several in a row. */
     public FieldErrors addFieldError(String field, String message) {
         entries.add(new Problems.FieldProblem(field, message, null, null));
+        return this;
+    }
+
+    /**
+     * One rejected field from a hand-written validator, with its i18n code and bound kept.
+     *
+     * <p>The {@code (field, message)} overload above drops both, because most throw sites have
+     * nothing else to give. A {@link FieldValidationError} does, and collapsing it left callers
+     * with English prose they could neither localise nor read the limit from.
+     */
+    public FieldErrors addFieldError(FieldValidationError error) {
+        entries.add(Problems.fieldProblem(error));
         return this;
     }
 

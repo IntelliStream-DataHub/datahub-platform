@@ -263,10 +263,12 @@ public class NodeUpdateService {
      * {@link UpdateResourceForm} already; this is the missing half of that translation.
      */
     public void validateOrThrow(UpdateResourceForm form) {
-        if(!form.getUpdate().validateFields()){
+        if (!form.getUpdate().validateFields()) {
             var errors = new FieldErrors();
-            form.getUpdate().getErrors().forEach( error ->
-                    errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
+            // Each error whole, not flattened to (name, message): FieldValidationError carries the
+            // i18n code and the bound that was broken, and dropping them left a caller with English
+            // prose they could neither localise nor read the limit from.
+            form.getUpdate().getErrors().forEach(errors::addFieldError);
             throw new BadRequestException("One or more fields are invalid.", errors);
         }
     }
