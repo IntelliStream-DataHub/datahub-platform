@@ -13,6 +13,7 @@ import ai.intellistream.datahub.models.DataSetRetreiver;
 import ai.intellistream.datahub.models.DeleteDatapoint;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.FetchNearestResourcesForm;
+import ai.intellistream.datahub.models.FunctionRetreiver;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.NodeModelSubtypes;
@@ -29,6 +30,7 @@ import ai.intellistream.datahub.models.UpdateAssetForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.function.UpdateFunctionForm;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
+import ai.intellistream.datahub.models.datafilters.FunctionFilter;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.events.EventFilter;
@@ -263,6 +265,13 @@ class SdkWireContractTest {
                     c -> c.functions().list(10)),
             new Contract("functions.getById", "GET", "/functions/1", null,
                     c -> c.functions().getById(1)),
+            new Contract("functions.byIds", "POST", "/functions/byids", IDS,
+                    c -> c.functions().byIds(ids())),
+            new Contract("functions.filter", "POST", "/functions/filter",
+                    TF.constructType(FunctionRetreiver.class),
+                    c -> c.functions().filter(new FunctionFilter())),
+            new Contract("functions.search", "POST", "/functions/search", searchBody(FunctionFilter.class),
+                    c -> c.functions().search(new SearchBody<>())),
             new Contract("functions.update", "POST", "/functions/update",
                     graph(UpdateFunctionForm.class, UpdateRelForm.class),
                     c -> c.functions().update(List.of(new UpdateFunctionForm()))),
@@ -313,6 +322,9 @@ class SdkWireContractTest {
             new Contract("timeseries.retrieve", "POST", "/timeseries/data/list",
                     retriever(RetrieveFilter.class),
                     c -> c.timeseries().retrieve(new DataRetriever<>())),
+            new Contract("timeseries.retrieveAggregated", "POST", "/timeseries/data/list",
+                    retriever(RetrieveFilter.class),
+                    c -> c.timeseries().retrieveAggregated(new DataRetriever<>())),
             new Contract("timeseries.latest", "POST", "/timeseries/data/latest", IDS,
                     c -> c.timeseries().latest(ids()), LATEST_RESPONSE),
             new Contract("timeseries.deleteDatapoints", "POST", "/timeseries/data/delete",
