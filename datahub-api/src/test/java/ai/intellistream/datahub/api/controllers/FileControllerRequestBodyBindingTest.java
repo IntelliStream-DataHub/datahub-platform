@@ -24,7 +24,6 @@ import jakarta.validation.Validator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -32,7 +31,6 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import java.nio.file.Path;
 import java.util.Set;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -120,22 +118,63 @@ class FileControllerRequestBodyBindingTest {
                         .content("{\"items\":[{\"id\":4242}]}"))
                 .andExpect(status().isNoContent());
 
-        verify(fileSystemService).delete(Set.of(4242L), Set.of());
+        verify(iNodeRepository).findAllByIdOrExternalIdHashAndNotDeleted(Set.of(4242L), Set.of());
     }
 
     @Test
-    void restoreReceivesTheExternalIdsInTheBody() throws Exception {
+    void deleteHashesTheExternalIdCaseInsensitively() throws Exception {
+        when(dataSecurity.hasWriteAccessToEverything()).thenReturn(true);
+
+        mvc.perform(post("/files/delete")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"externalId\":\"Report-2026.PDF\"}]}"))
+                .andExpect(status().isNoContent());
+
+        verify(iNodeRepository).findAllByIdOrExternalIdHashAndNotDeleted(
+                Set.of(), Set.of(ExternalIds.hash("report-2026.pdf")));
+    }
+
+    @Test
+    void restoreReceivesTheIdsInTheBody() throws Exception {
         mvc.perform(post("/files/restore")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"items\":[{\"externalId\":\"DELETED_ab12_99_1700000000000\"}]}"))
-                // Nothing matches the (mocked) repository, but the lookup ran with the hash below.
+                        .content("{\"items\":[{\"id\":99}]}"))
+                // Nothing matches the (mocked) repository, but the lookup ran with the id.
                 .andExpect(status().isNotFound());
 
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<Set<Long>> hashes = ArgumentCaptor.forClass(Set.class);
-        verify(iNodeRepository).findAllByIdOrExternalIdHashAndDeleted(any(), hashes.capture());
-        assertThat(hashes.getValue())
-                .containsExactly(ExternalIds.hash("DELETED_ab12_99_1700000000000"));
+        verify(iNodeRepository).findAllDeletedByIdIn(Set.of(99L));
+    }
+
+    @Test
+    void restoreAcceptsTheIdAsTheStringTheTrashListingSerialisesItAs() throws Exception {
+        // IndexNode.id is written with ToStringSerializer, and the console sends it back as it came.
+        mvc.perform(post("/files/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"id\":\"99\"}]}"))
+                .andExpect(status().isNotFound());
+
+        verify(iNodeRepository).findAllDeletedByIdIn(Set.of(99L));
+    }
+
+    @Test
+    void restoreByExternalIdLooksUpTheMostRecentDeleteCaseInsensitively() throws Exception {
+        mvc.perform(post("/files/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{\"externalId\":\"Report.PDF\"}]}"))
+                .andExpect(status().isNotFound());
+
+        verify(iNodeRepository).findFirstByExternalIdHashAndDeletedAtIsNotNullOrderByDeletedAtDesc(
+                ExternalIds.hash("report.pdf"));
+    }
+
+    @Test
+    void restoreRefusesAnItemThatIdentifiesNothing() throws Exception {
+        mvc.perform(post("/files/restore")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"items\":[{}]}"))
+                .andExpect(status().isBadRequest());
+
+        verify(iNodeRepository, never()).findAllDeletedByIdIn(any());
     }
 
     @Test
@@ -164,7 +203,6 @@ class FileControllerRequestBodyBindingTest {
                         .content(""))
                 .andExpect(status().isBadRequest());
 
-        verify(iNodeRepository, never())
-                .findAllByIdOrExternalIdHashAndDeleted(any(), any());
+        verify(iNodeRepository, never()).findAllDeletedByIdIn(any());
     }
 }

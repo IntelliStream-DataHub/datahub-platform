@@ -128,6 +128,6 @@ class FileControllerDeleteTest {
 
         assertEquals(HttpStatus.NO_CONTENT, response.getStatusCode());
         // The delete proceeded to the filesystem layer.
-        org.mockito.Mockito.verify(fileSystemService).delete(Set.of(1000L), Set.of());
+        org.mockito.Mockito.verify(fileSystemService).delete(List.of(publicFolder));
     }
 }

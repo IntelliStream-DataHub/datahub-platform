@@ -12,9 +12,9 @@ public class RestoreRefusedProblem extends ApiProblem {
     @Schema(description = """
             `path-taken` (a file exists at its original path now), `not-a-file` (only files can be \
             restored), `external-id-taken` (another file uses its externalId now), \
-            `external-id-unrecoverable` (its original externalId could not be recovered) or \
+            `trash-entry-missing` (the file has no entry in the trash) or \
             `folder-missing` (its original folder is gone).""",
-            allowableValues = {"path-taken", "not-a-file", "external-id-taken", "external-id-unrecoverable",
+            allowableValues = {"path-taken", "not-a-file", "external-id-taken", "trash-entry-missing",
                     "folder-missing"},
             example = "folder-missing")
     private String reason;

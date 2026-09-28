@@ -80,9 +80,8 @@ public final class FileService {
     /**
      * GET /files/trash — the soft-deleted files the caller can read.
      *
-     * <p>Their {@code name} and {@code path} are the pre-deletion values; the deletion time is
-     * encoded in the externalId as {@code DELETED_..._<epochMillis>}. Put one back with
-     * {@link #restore(List)}.
+     * <p>Their {@code externalId}, {@code name} and {@code path} are the pre-deletion values, and
+     * {@code deletedAt} says when they were deleted. Put one back with {@link #restore(List)}.
      */
     public DataWrapper<IndexNode> trash() {
         return http.get("/files/trash", indexNodes);
@@ -91,8 +90,12 @@ public final class FileService {
     /**
      * POST /files/restore — move soft-deleted files back to the path they were deleted from.
      *
-     * <p>A {@code 409} when something else already occupies that path: restore is not a
-     * force-overwrite, so move or rename the occupant first.
+     * <p>Identify each file by id or externalId. A deleted file keeps its externalId, so several
+     * deleted copies may share one: by externalId the most recently deleted copy comes back, and an
+     * older one needs its id.
+     *
+     * <p>A {@code 409} when something else already occupies that path or externalId: restore is not
+     * a force-overwrite, so move or rename the occupant first.
      */
     public DataWrapper<IndexNode> restore(List<IdCollection> ids) {
         return http.post("/files/restore", new DataWrapper<IdCollection>().setItems(ids), indexNodes);

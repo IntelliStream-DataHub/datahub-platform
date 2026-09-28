@@ -30,7 +30,7 @@ public class DataIntegrityViolationExceptionHandler {
     /** Constraint name to the request field it is really about. */
     private static final Map<String, Map<String, String>> BY_CONSTRAINT = Map.of(
             "node_external_id_hash_key", Map.of("externalId", "External id already exists."),
-            "inode_external_id_hash_key", Map.of("externalId", "External id already exists."),
+            "inodes_external_id_hash_active_uk", Map.of("externalId", "External id already exists."),
             "inodes_path_hash_active_uk", Map.of("path", "A file or folder already exists at this path."),
             "label_hash_key", Map.of("name", "Label with same name already exists."),
             "relationship_hash_key", Map.of("name", "Relationship type with same name already exists."),

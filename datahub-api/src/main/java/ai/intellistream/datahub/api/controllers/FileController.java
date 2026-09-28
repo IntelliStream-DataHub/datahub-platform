@@ -8,6 +8,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.FileDataWrapper;
 import ai.intellistream.datahub.api.responses.swaggerdto.IdCollectionDataWrapper;
 import ai.intellistream.datahub.config.FilesConfig;
+import ai.intellistream.datahub.helpers.text.ExternalIds;
 import ai.intellistream.datahub.helpers.text.TextValidator;
 import ai.intellistream.datahub.helpers.utils.HttpHelper;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
@@ -37,7 +38,6 @@ import lombok.extern.slf4j.Slf4j;
 import ai.intellistream.datahub.api.config.UploadProperties;
 import ai.intellistream.datahub.helpers.checksum.ChecksumFactory;
 import ai.intellistream.datahub.helpers.checksum.FileChecksum;
-import net.openhft.hashing.LongHashFunction;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRange;
@@ -155,8 +155,8 @@ public class FileController {
                     "validates and authorises the upload before it reads a single body byte. " +
                     "Headers: 'X-Datahub-Path' (required, the full destination path including the " +
                     "filename, each path segment percent-encoded), 'X-Datahub-External-Id' " +
-                    "(optional, percent-encoded; defaults to the filename and is always " +
-                    "sanitised to a lowercase slug), 'X-Datahub-Dataset-Id' " +
+                    "(optional, percent-encoded; defaults to the filename and is stored as sent. " +
+                    "Letters, digits and . _ : + = - only; uniqueness is case-insensitive), 'X-Datahub-Dataset-Id' " +
                     "(optional, dataset id for access control), and the optional, percent-encoded " +
                     "'X-Datahub-Description', 'X-Datahub-Source', 'X-Datahub-Source-Date-Created', " +
                     "'X-Datahub-Source-Last-Updated' (the two source dates are ISO-8601 with a zone " +
@@ -221,18 +221,20 @@ public class FileController {
             fileTransformer.setProperty(datahubFile, "name", filename);
             datahubFile.setPath(filePath.endsWith("/") ? filePath + filename : filePath + "/" + filename);
 
-            // External id: a client-supplied value (percent-decoded like the other headers), or a
-            // default derived from the filename when the header is omitted. Either way it is ALWAYS
-            // run through the slug sanitizer - that is the server-side protection that guarantees
-            // external ids are safe (lowercased, alphanumerics and underscores only, no path or
-            // control characters). Never omit this check, even for client-supplied ids.
+            // External id: a client-supplied value (percent-decoded like the other headers), or the
+            // filename when the header is omitted. Stored verbatim like every other external id, so
+            // the charset check is what keeps path and control characters out. Never skip it.
             String externalId = request.getHeader("X-Datahub-External-Id");
             if (externalId == null || externalId.isBlank()) {
                 externalId = filename;
             } else {
                 externalId = URLDecoder.decode(externalId, StandardCharsets.UTF_8);
             }
-            externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(externalId);
+            if (!TextValidator.validateExternalIdCharset(externalId)) {
+                String invalid = "An external id can contain letters, digits and the characters . _ : + = - only.";
+                return new ResponseEntity<>(Problems.withFields(Problems.badRequest(invalid),
+                        List.of(new Problems.FieldProblem("externalId", invalid, null, null))), HttpStatus.BAD_REQUEST);
+            }
             fileTransformer.setProperty(datahubFile, "externalId", externalId);
             // Optional metadata headers, each percent-encoded by the client. The two source dates
             // are epoch millis (UTC). These mirror the fields the old multipart form set.
@@ -279,8 +281,8 @@ public class FileController {
             }
 
             // Reserve the path in the DB first. The unique partial index on
-            // (path_hash WHERE is_deleted = false) plus the existing unique constraint on
-            // external_id_hash make this the authoritative "path is taken" check across all
+            // (path_hash WHERE deleted_at IS NULL) plus the one on (external_id_hash WHERE
+            // deleted_at IS NULL) make this the authoritative "path is taken" check across all
             // stateless API instances — no filesystem TOCTOU, no NFS caching surprises.
             fileTransformer.setDirectoryOrCreateIfMissing(datahubFile, filePath);
             iNodeRepository.save(datahubFile);
@@ -443,13 +445,13 @@ public class FileController {
             List<INode> nodes;
             if(foundPath.isEmpty() || foundPath.equals("/")){
                 nodes = readAll
-                        ? iNodeRepository.findAllByParentAndIsDeletedEquals(null, false, INode.class)
-                        : iNodeRepository.findReadableInRoot(false, allowed, INode.class);
+                        ? iNodeRepository.findAllByParentAndDeletedAtIsNull(null, INode.class)
+                        : iNodeRepository.findReadableInRoot(allowed, INode.class);
             } else {
                 var pathHash = IdGenerator.xxHash(foundPath);
                 nodes = readAll
-                        ? iNodeRepository.findAllByParentPathHashAndIsDeletedEquals(pathHash, false, INode.class)
-                        : iNodeRepository.findReadableByParentPathHash(pathHash, false, allowed, INode.class);
+                        ? iNodeRepository.findLiveByParentPathHash(pathHash, INode.class)
+                        : iNodeRepository.findReadableByParentPathHash(pathHash, allowed, INode.class);
             }
             data.setItems(fileTransformer.transformToIndexNode(nodes));
             return new ResponseEntity<>(data, HttpStatus.OK);
@@ -491,9 +493,8 @@ public class FileController {
             return new ResponseEntity<>(Problems.badRequest("A file id or externalId is required."), HttpStatus.BAD_REQUEST);
         }
         Optional<INode> maybeNode = hasExternalId
-                ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        LongHashFunction.xx3().hashChars(externalId), false, INode.class)
-                : iNodeRepository.findByIdAndIsDeletedEquals(id, false, INode.class);
+                ? iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(ExternalIds.hash(externalId), INode.class)
+                : iNodeRepository.findByIdAndDeletedAtIsNull(id, INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
         }
@@ -551,13 +552,13 @@ public class FileController {
         int cap = (limit == null || limit <= 0) ? SEARCH_LIMIT : Math.min(limit, MAX_SEARCH_LIMIT);
         List<INode> nodes;
         if (dataSecurity.hasReadAccessToEverything()) {
-            nodes = iNodeRepository.searchByName(q.trim(), false, cap);
+            nodes = iNodeRepository.searchByName(q.trim(), cap);
         } else {
             Set<Long> allowed = dataSecurity.readableDataSetIds();
             // Empty IN (...) is invalid SQL in a native query; a non-existent id keeps it valid and
             // matches nothing, so only public (no-dataset) inodes come back.
             Collection<Long> ids = allowed.isEmpty() ? List.of(-1L) : allowed;
-            nodes = iNodeRepository.searchReadableByName(q.trim(), false, ids, cap);
+            nodes = iNodeRepository.searchReadableByName(q.trim(), ids, cap);
         }
         data.setItems(fileTransformer.transformToIndexNode(nodes));
         return new ResponseEntity<>(data, HttpStatus.OK);
@@ -806,6 +807,9 @@ public class FileController {
             consumes = {MediaType.APPLICATION_JSON_VALUE},
             produces = { "application/json", "application/xml" }
     )
+    // One transaction for the lookup, the permission check and the delete, so the service works on
+    // managed entities and a failure part way rolls back rows and disk together.
+    @Transactional
     public ResponseEntity<?> delete(
             @RequestBody
             @Schema(implementation = IdCollectionDataWrapper.class)
@@ -815,33 +819,27 @@ public class FileController {
             return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
         Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
-        Set<String> externalIdHashes = data.getItems().stream()
-                .map(IdCollection::getExternalId)
-                .filter(Objects::nonNull)
+        Set<Long> extHashes = data.getItems().stream().map(IdCollection::getExternalIdHash).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+        List<INode> roots = iNodeRepository.findAllByIdOrExternalIdHashAndNotDeleted(idList, extHashes);
 
         // Enforce write permission on the datasets of the files/folders being deleted (skipped for
         // write-all). Deleting a folder cascades to its whole subtree, so we check the datasets of
         // every descendant too — a public (no-dataset) folder containing dataset-bearing children
         // can't be deleted by someone who can't write those children's datasets. Public
         // (no-dataset) nodes are deletable by anyone.
-        if (!dataSecurity.hasWriteAccessToEverything()) {
-            Set<Long> extHashes = externalIdHashes.stream()
-                    .map(it -> LongHashFunction.xx3().hashChars(it))
-                    .collect(Collectors.toSet());
-            Set<Long> rootIds = iNodeRepository.findAllByIdOrExternalIdHashAndNotDeleted(idList, extHashes)
-                    .stream().map(INode::getId).collect(Collectors.toSet());
-            if (!rootIds.isEmpty()) {
-                for (Long dataSetId : iNodeRepository.findSubtreeDataSetIds(rootIds)) {
-                    dataSecurity.assertCanWriteDataSet(dataSetId);
-                }
+        if (!dataSecurity.hasWriteAccessToEverything() && !roots.isEmpty()) {
+            Set<Long> rootIds = roots.stream().map(INode::getId).collect(Collectors.toSet());
+            for (Long dataSetId : iNodeRepository.findSubtreeDataSetIds(rootIds)) {
+                dataSecurity.assertCanWriteDataSet(dataSetId);
             }
         }
 
         try{
-            fileSystemService.delete(idList, externalIdHashes);
+            fileSystemService.delete(roots);
         } catch (IOException e){
             log.error(e.getMessage(), e);
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             return new ResponseEntity<>(Problems.internal(Problems.INTERNAL_DETAIL), HttpStatus.INTERNAL_SERVER_ERROR);
         }
         return new ResponseEntity<>(HttpStatus.NO_CONTENT);
@@ -850,8 +848,8 @@ public class FileController {
     @Tag(name = "Files")
     @Operation(summary = "List deleted files",
             description = "The soft-deleted files in the tenant trash that the caller can read. Their "
-                    + "name and path are the pre-deletion values; the deletion time is encoded in the "
-                    + "externalId (DELETED_..._<epochMillis>). Restore them via POST /files/restore.")
+                    + "externalId, name and path are the pre-deletion values and deletedAt says when "
+                    + "they were deleted. Restore them by id via POST /files/restore.")
     @ApiResponse(responseCode = "200", description = "Deleted files in the trash.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -879,9 +877,11 @@ public class FileController {
     @Tag(name = "Files")
     @Operation(summary = "Restore deleted files",
             description = "Move soft-deleted files out of the trash back to their original location and "
-                    + "clear the deleted flag. Identify each by id or (trashed) externalId. Files only. "
-                    + "Never overwrites: if a file's original name/path or externalId is already taken, or "
-                    + "its original folder is gone, the request is refused (409) and nothing is restored.")
+                    + "clear the deleted flag. Identify each by id or externalId. A deleted file keeps its "
+                    + "externalId, so several deleted copies may share one; by externalId the most recently "
+                    + "deleted copy is restored, and an older one needs its id. Files only. Never overwrites: "
+                    + "if a file's original path or externalId is already taken, or its original folder is "
+                    + "gone, the request is refused (409) and nothing is restored.")
     @ApiResponse(responseCode = "200", description = "The restored files.",
             content = @Content(
                     mediaType = MediaType.APPLICATION_JSON_VALUE,
@@ -892,7 +892,12 @@ public class FileController {
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ApiProblem.class)
             ))
-    @ApiResponse(responseCode = "404", description = "None of the given ids/externalIds match a deleted file.",
+    @ApiResponse(responseCode = "400", description = "An item has neither id nor externalId.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @ApiResponse(responseCode = "404", description = "None of the given ids or externalIds match a deleted file.",
             content = @Content(
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ApiProblem.class)
@@ -912,14 +917,23 @@ public class FileController {
         if (isFilesDisabled()) {
             return new ResponseEntity<>(Problems.featureDisabled("files", FILES_FEATURE_DISABLED), HttpStatus.FORBIDDEN);
         }
-        Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull).collect(Collectors.toSet());
-        // Hash the RAW external id (getExternalIdHash), NOT getExternalId() — the latter
-        // snake-lowercases it, but a trashed id is DELETED_<checksum>_<id>_<epoch> (uppercase
-        // DELETED), so sanitizing would change the hash and never match the stored value.
-        Set<Long> extHashes = data.getItems().stream().map(IdCollection::getExternalIdHash).filter(Objects::nonNull)
+        if (data.getItems().stream().anyMatch(item -> item.getId() == null && item.getExternalId() == null)) {
+            return new ResponseEntity<>(Problems.badRequest("Each item needs an id or an externalId."),
+                    HttpStatus.BAD_REQUEST);
+        }
+        Set<Long> idList = data.getItems().stream().map(IdCollection::getId).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
 
-        List<INode> nodes = iNodeRepository.findAllByIdOrExternalIdHashAndDeleted(idList, extHashes);
+        // By id exactly; by externalId the most recently deleted copy, since several may share it.
+        Map<Long, INode> byId = new LinkedHashMap<>();
+        iNodeRepository.findAllDeletedByIdIn(idList).forEach(n -> byId.put(n.getId(), n));
+        data.getItems().stream()
+                .filter(item -> item.getId() == null)
+                .map(item -> iNodeRepository.findFirstByExternalIdHashAndDeletedAtIsNotNullOrderByDeletedAtDesc(
+                        item.getExternalIdHash()))
+                .flatMap(Optional::stream)
+                .forEach(n -> byId.putIfAbsent(n.getId(), n));
+        List<INode> nodes = new ArrayList<>(byId.values());
         if (nodes.isEmpty()) {
             return new ResponseEntity<>(Problems.notFound("No matching deleted files."), HttpStatus.NOT_FOUND);
         }
@@ -1000,9 +1014,8 @@ public class FileController {
         }
 
         Optional<INode> maybeNode = (request.getExternalId() != null)
-                ? iNodeRepository.findByExternalIdHashAndIsDeletedIs(
-                        LongHashFunction.xx3().hashChars(request.getExternalId()), false, INode.class)
-                : iNodeRepository.findByIdAndIsDeletedEquals(request.getId(), false, INode.class);
+                ? iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(ExternalIds.hash(request.getExternalId()), INode.class)
+                : iNodeRepository.findByIdAndDeletedAtIsNull(request.getId(), INode.class);
         if (maybeNode.isEmpty()) {
             return new ResponseEntity<>(Problems.notFound("File or folder not found."), HttpStatus.NOT_FOUND);
         }
@@ -1143,16 +1156,15 @@ public class FileController {
             long parsedId = Long.parseLong(id);
             if (parsedId > 0) {
                 inode = readAll
-                        ? iNodeRepository.findByIdAndIsDeletedEquals(parsedId, false, INodeDownload.class)
-                        : iNodeRepository.findReadableById(parsedId, false, allowed, INodeDownload.class);
+                        ? iNodeRepository.findByIdAndDeletedAtIsNull(parsedId, INodeDownload.class)
+                        : iNodeRepository.findReadableById(parsedId, allowed, INodeDownload.class);
             }
         } catch (NumberFormatException e){
             // Try external Id
-            String externalId = TextValidator.toSnakeLowerCasedAllowStartWithDigits(id);
-            final long h = IdGenerator.xxHash(externalId);
+            final long h = ExternalIds.hash(id);
             inode = readAll
-                    ? iNodeRepository.findByExternalIdHashAndIsDeletedEquals(h, false, INodeDownload.class)
-                    : iNodeRepository.findReadableByExternalIdHash(h, false, allowed, INodeDownload.class);
+                    ? iNodeRepository.findByExternalIdHashAndDeletedAtIsNull(h, INodeDownload.class)
+                    : iNodeRepository.findReadableByExternalIdHash(h, allowed, INodeDownload.class);
         }
         inode.ifPresent(idxNode -> log.debug("Found inode: " + idxNode.getExternalId()));
         return inode;

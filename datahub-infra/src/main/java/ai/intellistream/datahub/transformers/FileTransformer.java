@@ -182,6 +182,7 @@ public class FileTransformer {
         dto.setDescription(node.getDescription());
         dto.setDateCreated(node.getDateCreated());
         dto.setLastUpdated(node.getLastUpdated());
+        dto.setDeletedAt(node.getDeletedAt());
         dto.setSource( node.getSource() );
         dto.setMimeType( node.getMimeType() );
         dto.setSourceDateCreated( node.getSourceDateCreated() );
