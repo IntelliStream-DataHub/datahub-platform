@@ -54,7 +54,7 @@ public class Timeseries extends NodeModel {
 
     @NotBlank(message = "timeseries.unit.not.blank")
     @Size(max = 64)
-    @Schema(description = "The unit that the time series use.", example = "kg/hr")
+    @Schema(description = "The unit that the time series use. May be left out on create when unitExternalId names a catalogue unit; it is then filled from the catalogue.", example = "kg/hr")
     private String unit;
 
     @Size(min = 3, max = 256, message = "{unit.externalId.size}")

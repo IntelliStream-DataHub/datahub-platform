@@ -353,7 +353,8 @@ public class TimeseriesController {
                     - a `name`,
                     - a `valueType` — `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`,
                       `TEXT`, or `MIXED` — which fixes what kinds of values you can write to it later,
-                    - optional `unit` / `unitExternalId` if you're tracking a physical quantity,
+                    - a unit: a free-text `unit`, or a `unitExternalId` from `GET /units` (the
+                      `unit` is then filled from the catalogue), or both,
                     - optional `dataSetId` to group it with related data.
 
                     ### All-or-nothing

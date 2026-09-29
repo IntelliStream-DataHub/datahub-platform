@@ -31,6 +31,7 @@ import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesValueType;
+import ai.intellistream.datahub.jpa.domains.Unit;
 import ai.intellistream.datahub.jpa.dto.*;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
@@ -133,6 +134,8 @@ public class TimeseriesService {
     private final ValkeyService valkeyService;
 
     private final LatestDatapointCache latestDatapointCache;
+
+    private final UnitService unitService;
 
     private final JsonMapper jsonMapper;
     private final TimeseriesRepository timeseriesRepository;
@@ -532,6 +535,7 @@ public class TimeseriesService {
         List<Map<String, String>> duplicatedInBatch = new ArrayList<>();
         // Validate Entities
         apiReqData.getItems().forEach(ts -> {
+            resolveUnitFromCatalogue(ts);
             Set<ConstraintViolation<Timeseries>> errors = validator.validate(ts);
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
@@ -694,6 +698,30 @@ public class TimeseriesService {
 
     private DuplicateDataException duplicateExternalIdException(Collection<Map<String, String>> duplicated) {
         return new DuplicateDataException("Timeseries with externalId already exists.", duplicated);
+    }
+
+    /**
+     * A create may name its unit by {@code unitExternalId} alone: {@code unit} is then filled from
+     * the catalogue (symbol, else name) before the validator sees it. A {@code unit} the caller did
+     * send is kept as is, and so is an unknown {@code unitExternalId} beside it — that pairing has
+     * always been accepted as free text.
+     */
+    private void resolveUnitFromCatalogue(Timeseries ts) {
+        if (!isBlank(ts.getUnit()) || isBlank(ts.getUnitExternalId())) {
+            return;
+        }
+        Unit known = unitService.findByExternalId(ts.getUnitExternalId());
+        if (known == null) {
+            throw new BadRequestException(
+                    "Unknown unitExternalId '" + ts.getUnitExternalId() + "'.",
+                    "unitExternalId",
+                    "Not in the unit catalogue. Use an externalId from GET /units, or send a free-text unit.");
+        }
+        ts.setUnit(isBlank(known.getSymbol()) ? known.getName() : known.getSymbol());
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     private void validateDataSet(Collection<Long> dataSetIds) {
