@@ -354,7 +354,8 @@ public class TimeseriesController {
                     - a `valueType` — `BIGINT`, `FLOAT`, `FLOAT32`, `NUMERIC`, `DECIMAL32`,
                       `TEXT`, or `MIXED` — which fixes what kinds of values you can write to it later,
                     - a unit: a free-text `unit`, or a `unitExternalId` from `GET /units` (the
-                      `unit` is then filled from the catalogue), or both,
+                      `unit` is then filled from the catalogue), or both. A `unitExternalId`, when
+                      sent, must be non-blank and in the catalogue,
                     - optional `dataSetId` to group it with related data.
 
                     ### All-or-nothing

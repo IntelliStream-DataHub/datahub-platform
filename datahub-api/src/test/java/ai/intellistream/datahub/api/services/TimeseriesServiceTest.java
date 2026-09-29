@@ -33,6 +33,7 @@ import ai.intellistream.datahub.services.Neo4JService;
 import ai.intellistream.datahub.repositories.node.NodeSort;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import ai.intellistream.datahub.timeseries.Timeseries;
+import ai.intellistream.datahub.timeseries.UpdateTimeseries;
 import ai.intellistream.datahub.models.SearchBody;
 import jakarta.validation.Validator;
 import org.apache.pulsar.client.api.Producer;
@@ -202,16 +203,73 @@ class TimeseriesServiceTest {
     }
 
     @Test
-    void save_withAnExplicitUnit_keepsItAndDoesNotConsultTheCatalogue() throws Exception {
+    void save_withAnExplicitUnit_keepsItOverTheCatalogueSymbol() throws Exception {
+        when(unitService.findByExternalId("temperature_deg_c")).thenReturn(unit("Celsius", "°C"));
         Timeseries ts = ts("reactor_temp");
         ts.setUnit("degC");
-        ts.setUnitExternalId("my_own_unit_id");
+        ts.setUnitExternalId("temperature_deg_c");
         when(validator.validate(any())).thenThrow(new StopAfterValidation());
 
         assertThrows(StopAfterValidation.class, () -> timeseriesService.save(wrap(ts)));
 
         assertEquals("degC", ts.getUnit());
-        verifyNoInteractions(unitService);
+    }
+
+    @Test
+    void save_withAUnitAndAnUnknownUnitExternalId_throwsBadRequest() throws Exception {
+        // Used to be stored as free text beside the unit; a reference to nothing is refused now.
+        when(unitService.findByExternalId("my_own_unit_id")).thenReturn(null);
+        Timeseries ts = ts("reactor_temp");
+        ts.setUnit("degC");
+        ts.setUnitExternalId("my_own_unit_id");
+
+        BadRequestException e = assertThrows(BadRequestException.class, () -> timeseriesService.save(wrap(ts)));
+
+        assertEquals("unitExternalId", e.getFields().getFirst().field());
+        verifyNoInteractions(validator);
+    }
+
+    @Test
+    void save_withABlankUnitExternalId_throwsBadRequest() throws Exception {
+        Timeseries ts = ts("reactor_temp");
+        ts.setUnit("degC");
+        ts.setUnitExternalId("   ");
+
+        BadRequestException e = assertThrows(BadRequestException.class, () -> timeseriesService.save(wrap(ts)));
+
+        assertEquals("unitExternalId", e.getFields().getFirst().field());
+        verifyNoInteractions(unitService, validator);
+    }
+
+    @Test
+    void update_toAnUnknownUnitExternalId_throwsBadRequest() throws Exception {
+        when(unitService.findByExternalId("kelvins_ish")).thenReturn(null);
+        UpdateTimeseries u = new UpdateTimeseries().setId(7L);
+        u.getUpdate().getUnitExternalId().set("kelvins_ish");
+
+        BadRequestException e = assertThrows(BadRequestException.class,
+                () -> timeseriesService.updateTimeseries(wrapUpdate(u)));
+
+        assertEquals("unitExternalId", e.getFields().getFirst().field());
+        verifyNoInteractions(nodeRepository, timeseriesRepository);
+    }
+
+    @Test
+    void update_toABlankUnitExternalId_throwsBadRequest() throws Exception {
+        UpdateTimeseries u = new UpdateTimeseries().setId(7L);
+        u.getUpdate().getUnitExternalId().set("");
+
+        BadRequestException e = assertThrows(BadRequestException.class,
+                () -> timeseriesService.updateTimeseries(wrapUpdate(u)));
+
+        assertEquals("unitExternalId", e.getFields().getFirst().field());
+        verifyNoInteractions(unitService, nodeRepository, timeseriesRepository);
+    }
+
+    private static DataWrapper<UpdateTimeseries> wrapUpdate(UpdateTimeseries u) {
+        DataWrapper<UpdateTimeseries> w = new DataWrapper<>();
+        w.getItems().add(u);
+        return w;
     }
 
     private static final class StopAfterValidation extends RuntimeException {}

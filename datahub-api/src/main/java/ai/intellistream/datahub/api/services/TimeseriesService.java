@@ -703,21 +703,33 @@ public class TimeseriesService {
     /**
      * A create may name its unit by {@code unitExternalId} alone: {@code unit} is then filled from
      * the catalogue (symbol, else name) before the validator sees it. A {@code unit} the caller did
-     * send is kept as is, and so is an unknown {@code unitExternalId} beside it — that pairing has
-     * always been accepted as free text.
+     * send is kept as is.
      */
     private void resolveUnitFromCatalogue(Timeseries ts) {
-        if (!isBlank(ts.getUnit()) || isBlank(ts.getUnitExternalId())) {
+        if (ts.getUnitExternalId() == null) {
             return;
         }
-        Unit known = unitService.findByExternalId(ts.getUnitExternalId());
-        if (known == null) {
-            throw new BadRequestException(
-                    "Unknown unitExternalId '" + ts.getUnitExternalId() + "'.",
-                    "unitExternalId",
-                    "Not in the unit catalogue. Use an externalId from GET /units, or send a free-text unit.");
+        Unit known = requireCatalogueUnit(ts.getUnitExternalId());
+        if (isBlank(ts.getUnit())) {
+            ts.setUnit(isBlank(known.getSymbol()) ? known.getName() : known.getSymbol());
         }
-        ts.setUnit(isBlank(known.getSymbol()) ? known.getName() : known.getSymbol());
+    }
+
+    /**
+     * A {@code unitExternalId}, when sent at all, must name a unit in the catalogue. Leaving it out
+     * is fine; a blank or unknown one is refused rather than stored as a reference to nothing.
+     */
+    private Unit requireCatalogueUnit(String unitExternalId) {
+        if (unitExternalId.isBlank()) {
+            throw new BadRequestException("unitExternalId must not be blank.",
+                    "unitExternalId", "Must not be blank. Leave it out, or use an externalId from GET /units.");
+        }
+        Unit known = unitService.findByExternalId(unitExternalId);
+        if (known == null) {
+            throw new BadRequestException("Unknown unitExternalId '" + unitExternalId + "'.",
+                    "unitExternalId", "Not in the unit catalogue. Use an externalId from GET /units.");
+        }
+        return known;
     }
 
     private static boolean isBlank(String s) {
@@ -1369,6 +1381,10 @@ public class TimeseriesService {
                 ts.getUpdate().getErrors().forEach( error ->
                         errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
                 throw new BadRequestException("One or more fields are invalid.", errors);
+            }
+            String newUnitExternalId = ts.getUpdate().getUnitExternalId().getSet();
+            if (newUnitExternalId != null) {
+                requireCatalogueUnit(newUnitExternalId);
             }
         });
 
