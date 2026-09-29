@@ -11,7 +11,6 @@ import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.api.services.TimeseriesService;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
-import ai.intellistream.datahub.api.services.UnitService;
 import ai.intellistream.datahub.helpers.updates.UpdateStringField;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
@@ -60,14 +59,9 @@ import java.util.Map;
 public class TimeseriesMcpTools {
 
     private final TimeseriesService timeseriesService;
-    private final UnitService unitService;
 
-    public TimeseriesMcpTools(
-            TimeseriesService timeseriesService,
-            UnitService unitService
-    ) {
+    public TimeseriesMcpTools(TimeseriesService timeseriesService) {
         this.timeseriesService = timeseriesService;
-        this.unitService = unitService;
     }
 
     @Tool(
@@ -116,29 +110,13 @@ public class TimeseriesMcpTools {
                             + "catalogue, or use a dimensionless unit such as 'count' or 'ratio'.");
         }
 
-        String resolvedUnit = unit;
-        if (!isBlank(unitExternalId)) {
-            // unitExternalId alone is not enough for the validator: it only constrains 'unit'. The
-            // console resolves the pair the same way (symbol into unit, externalId beside it), so
-            // do that here rather than making the model send a symbol it would have to guess.
-            var known = unitService.findByExternalId(unitExternalId);
-            if (known == null) {
-                throw new IllegalArgumentException(
-                        "Unknown unit externalId '" + unitExternalId + "'. Call unit_list to see the "
-                                + "catalogue, or pass a free-text 'unit' instead.");
-            }
-            if (isBlank(resolvedUnit)) {
-                resolvedUnit = isBlank(known.getSymbol()) ? known.getName() : known.getSymbol();
-            }
-        }
-
         Timeseries ts = new Timeseries();
         ts.setExternalId(externalId);
         ts.setName(name);
         ts.setDataSetId(dataSetId);
         if (description != null) ts.setDescription(description);
         if (valueType != null) ts.setValueType(valueType);
-        ts.setUnit(resolvedUnit);
+        if (!isBlank(unit)) ts.setUnit(unit);
         if (!isBlank(unitExternalId)) ts.setUnitExternalId(unitExternalId);
 
         var req = new DataWrapper<Timeseries>();

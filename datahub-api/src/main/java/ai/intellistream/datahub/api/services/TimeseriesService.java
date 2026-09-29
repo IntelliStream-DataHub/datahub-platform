@@ -31,6 +31,7 @@ import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.jpa.domains.EdgeEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesEntity;
 import ai.intellistream.datahub.jpa.domains.TimeseriesValueType;
+import ai.intellistream.datahub.jpa.domains.Unit;
 import ai.intellistream.datahub.jpa.dto.*;
 import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
@@ -133,6 +134,8 @@ public class TimeseriesService {
     private final ValkeyService valkeyService;
 
     private final LatestDatapointCache latestDatapointCache;
+
+    private final UnitService unitService;
 
     private final JsonMapper jsonMapper;
     private final TimeseriesRepository timeseriesRepository;
@@ -532,6 +535,7 @@ public class TimeseriesService {
         List<Map<String, String>> duplicatedInBatch = new ArrayList<>();
         // Validate Entities
         apiReqData.getItems().forEach(ts -> {
+            resolveUnitFromCatalogue(ts);
             Set<ConstraintViolation<Timeseries>> errors = validator.validate(ts);
             if (!errors.isEmpty()) {
                 throw new ConstraintViolationException(errors);
@@ -694,6 +698,42 @@ public class TimeseriesService {
 
     private DuplicateDataException duplicateExternalIdException(Collection<Map<String, String>> duplicated) {
         return new DuplicateDataException("Timeseries with externalId already exists.", duplicated);
+    }
+
+    /**
+     * A create may name its unit by {@code unitExternalId} alone: {@code unit} is then filled from
+     * the catalogue (symbol, else name) before the validator sees it. A {@code unit} the caller did
+     * send is kept as is.
+     */
+    private void resolveUnitFromCatalogue(Timeseries ts) {
+        if (ts.getUnitExternalId() == null) {
+            return;
+        }
+        Unit known = requireCatalogueUnit(ts.getUnitExternalId());
+        if (isBlank(ts.getUnit())) {
+            ts.setUnit(isBlank(known.getSymbol()) ? known.getName() : known.getSymbol());
+        }
+    }
+
+    /**
+     * A {@code unitExternalId}, when sent at all, must name a unit in the catalogue. Leaving it out
+     * is fine; a blank or unknown one is refused rather than stored as a reference to nothing.
+     */
+    private Unit requireCatalogueUnit(String unitExternalId) {
+        if (unitExternalId.isBlank()) {
+            throw new BadRequestException("unitExternalId must not be blank.",
+                    "unitExternalId", "Must not be blank. Leave it out, or use an externalId from GET /units.");
+        }
+        Unit known = unitService.findByExternalId(unitExternalId);
+        if (known == null) {
+            throw new BadRequestException("Unknown unitExternalId '" + unitExternalId + "'.",
+                    "unitExternalId", "Not in the unit catalogue. Use an externalId from GET /units.");
+        }
+        return known;
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     private void validateDataSet(Collection<Long> dataSetIds) {
@@ -1341,6 +1381,10 @@ public class TimeseriesService {
                 ts.getUpdate().getErrors().forEach( error ->
                         errors.addFieldError(error.getObjectName(), error.getDefaultMessage()));
                 throw new BadRequestException("One or more fields are invalid.", errors);
+            }
+            String newUnitExternalId = ts.getUpdate().getUnitExternalId().getSet();
+            if (newUnitExternalId != null) {
+                requireCatalogueUnit(newUnitExternalId);
             }
         });
 
