@@ -25,10 +25,12 @@ name: E2E
 #
 # This is also why there is no `sdk_ref` input: letting a caller name the ref is what
 # made the checked-out code arbitrary rather than merely third-party. To test against
-# a specific SDK revision, push a branch here that pins it.
+# a specific SDK revision, push a branch here that pins it. The one ref that varies is
+# derived from the PR's BASE branch (release/vX.Y -> the SDK's newest vX.Y.z tag), and
+# only people with write access here can create a base branch.
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'release/**']
 
 permissions:
   contents: read
@@ -95,18 +97,49 @@ jobs:
       # No token: both repositories are public, so this works on fork pull
       # requests too. If dataplatform-rust-sdk is ever made private, this needs a
       # token AND a guard skipping the job on forks (where secrets are empty).
-      # No `ref:` — always the SDK's default branch. See the trigger comment above.
+      #
+      # A PR into main tests against the SDK's default branch. A PR into a release
+      # branch (one per minor, release/vX.Y) tests against the SDK's newest vX.Y.z tag
+      # instead: the SDK's main follows the next platform release, whose wire changes
+      # a release line does not have. With no vX.Y tag yet it falls back to the
+      # default branch and says so.
+      - name: Resolve the SDK ref
+        id: sdk-ref
+        env:
+          # Via env, never ${{ }} inside the script: branch names are not shell-safe.
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          ref=""
+          if [[ "$BASE_REF" =~ ^release/v([0-9]+)\.([0-9]+)$ ]]; then
+            major="${BASH_REMATCH[1]}"
+            minor="${BASH_REMATCH[2]}"
+            ref=$(git ls-remote --tags --refs \
+                    https://github.com/IntelliStream-DataHub/dataplatform-rust-sdk.git \
+                    "refs/tags/v${major}.${minor}.*" \
+                  | sed 's#.*refs/tags/##' \
+                  | { grep -E "^v${major}\.${minor}\.[0-9]+$" || true; } \
+                  | sort -V | tail -n1)
+            if [ -z "$ref" ]; then
+              echo "::warning::No v${major}.${minor}.z tag in the SDK; testing $BASE_REF against the SDK's default branch."
+            fi
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
       - name: Check out the Rust/Python SDK
         uses: actions/checkout@v7
         with:
           repository: IntelliStream-DataHub/dataplatform-rust-sdk
+          ref: ${{ steps.sdk-ref.outputs.ref }}
           path: sdk
 
       # A green run here says nothing useful unless you can tell WHICH SDK
       # revision it was green against.
       - name: Record the SDK revision under test
+        env:
+          SDK_REF: ${{ steps.sdk-ref.outputs.ref }}
         run: |
-          echo "### SDK under test" >> "$GITHUB_STEP_SUMMARY"
+          echo "### SDK under test (${SDK_REF:-default branch})" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           git -C sdk log -1 --format='%H%n%s%n%an, %ad' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
