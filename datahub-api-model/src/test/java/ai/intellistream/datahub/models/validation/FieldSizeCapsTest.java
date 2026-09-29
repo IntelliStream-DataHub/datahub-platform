@@ -8,6 +8,7 @@ import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.GeoLocation;
 import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.Resource;
+import ai.intellistream.datahub.timeseries.Timeseries;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
@@ -220,6 +221,19 @@ class FieldSizeCapsTest {
     }
 
     // ---- datapoints --------------------------------------------------------------------------
+
+    @Test
+    void timeseries_unitExternalIdTooShort_isRejectedInWords() {
+        // Regression: the {unit.externalId.size} template had no bundle to resolve in, so the API
+        // answered with the key itself as the message.
+        Timeseries ts = new Timeseries();
+        ts.setUnitExternalId("ab");
+        List<String> messages = validator.validate(ts).stream()
+                .filter(v -> v.getPropertyPath().toString().equals("unitExternalId"))
+                .map(ConstraintViolation::getMessage)
+                .toList();
+        assertEquals(List.of("External id for unit must be between 3 and 256 characters"), messages);
+    }
 
     @Test
     void datapointValueOverMax_isRejected() {
