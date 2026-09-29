@@ -6,7 +6,6 @@ import ai.intellistream.datahub.json.ToStringSerializer;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -29,7 +28,13 @@ public class Policy extends NodeModel {
         return "POLICY";
     }
 
-    @NotNull
+    // No @NotNull, deliberately: the field is read-side, derived from the node's name by
+    // PolicyTransformer, and nothing on the write path stores it. The constraint was dead while
+    // policy create built a PolicyEntity by hand; once create started building this DTO and
+    // handing it to the shared pipeline — whose first act is to bean-validate a @Valid node
+    // collection — it rejected every policy create in the tenant, including the console's and the
+    // SDK's, neither of which sends a type. PolicyScopeValidator, the only reader, already treats
+    // a null type as "no scope rule to check".
     @Schema(description = "If you want to write data to a write-protected data set, you need to be a member of a group that has the \"datasets:owner\" policy for the data set. Read more: [Owner policy docs](https://intellistream.ai/documentation/datasets#owner)\"\n ", example = "IS_WRITE_PROTECTED or IS_READ_PROTECTED or REQUIREMENT")
     private PolicyType type;
 
