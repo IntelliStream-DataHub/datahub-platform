@@ -91,7 +91,7 @@ dependencies {
     runtimeOnly 'org.flywaydb:flyway-database-postgresql:13.8.0'
 
     implementation 'at.yawk.lz4:lz4-java:1.12.0'
-    implementation 'com.github.luben:zstd-jni:1.5.7-17'
+    implementation 'com.github.luben:zstd-jni:1.5.7-20'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
