@@ -3,6 +3,8 @@ package ai.intellistream.datahub.sdk.ingest;
 
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.json.JsonMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.BufferedOutputStream;
 import java.io.BufferedReader;
@@ -52,6 +54,8 @@ import java.util.zip.GZIPOutputStream;
  * @param <T> the spooled item type (e.g. a datapoint line or an event)
  */
 public final class DurableSpool<T> {
+
+    private static final Logger log = LoggerFactory.getLogger(DurableSpool.class);
 
     /** Sends one chunk of records; returns {@code true} if the server accepted them (so they can be dropped). */
     @FunctionalInterface
@@ -299,7 +303,7 @@ public final class DurableSpool<T> {
                 }
             }
         } catch (IOException e) {
-            System.err.println("DataHub SDK: ignoring unreadable spool segment " + segment.path + ": " + e.getMessage());
+            log.warn("Ignoring unreadable spool segment {}: {}", segment.path, e.getMessage());
         }
     }
 
@@ -323,7 +327,7 @@ public final class DurableSpool<T> {
                 }
             });
         } catch (IOException e) {
-            System.err.println("DataHub SDK: could not list spool dir " + dir + ": " + e.getMessage());
+            log.warn("Could not list spool dir {}: {}", dir, e.getMessage());
             return;
         }
         deleteQuietly(temps);

@@ -29,6 +29,10 @@ dependencies {
     // has no zstd). api-model's ZstdPayloadCodec compiles against it but does not carry it.
     implementation 'com.github.luben:zstd-jni:1.5.7-17'
 
+    // The SDK's own warnings (spooled data dropped or unreadable) go to the caller's logging
+    // backend. api-model already brings slf4j-api; declared here because the SDK uses it directly.
+    implementation 'org.slf4j:slf4j-api'
+
     // JUnit (version managed by the Spring Boot BOM) is supplied by java-common-conventions.
 }
 

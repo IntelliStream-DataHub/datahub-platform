@@ -6,7 +6,7 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 ## Hard constraints
 
 - **No server stack.** Built on the JDK `java.net.http.HttpClient`; depends only on
-  `datahub-api-model` (the wire contract) plus Jackson 3 and zstd-jni. No Spring, no Feign, no
+  `datahub-api-model` (the wire contract) plus Jackson 3, zstd-jni and slf4j-api. No Spring, no Feign, no
   Vault client — the Spring Boot plugins in `build.gradle` exist only for BOM version management.
   Keep the dependency surface at zero-/tiny-transitive jars; this artifact ships to external users.
   zstd-jni is the one native library, and it is there because the binary datapoint path requires
@@ -27,6 +27,8 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   token is `change-request` — that request will never work as it stands — yet holding the data while
   someone renews the credential is exactly what the spool is for. Going by `retry` in `isBufferable`
   would stop buffering 401/403 and defeat the feature.
+- **Log through SLF4J, never `System.err`/`System.out`.** The SDK runs inside someone else's
+  application, and its warnings belong in that application's logging backend.
 - **Wire types come from `datahub-api-model`** — never redefine request/response DTOs here.
   In-tree it is a project dependency (`api project(':datahub-api-model')`); the published POM
   pins resolved versions so non-Spring consumers work.
