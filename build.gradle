@@ -54,3 +54,57 @@ subprojects {
         dependsOn rootProject.tasks.named('validateKeycloakRealm')
     }
 }
+
+// ---------------------------------------------------------------------------
+// Maven Central release bundle.
+//
+// The Central Portal takes a single zip laid out as a Maven repository and validates it
+// as one deployment, so the two published modules (datahub-api-model and datahub-sdk,
+// released in lockstep) stage into ONE shared directory and ship as ONE bundle. Gradle
+// does not upload: that is a separate manual step, deliberately, so nothing reaches a
+// permanent, undeletable Central release by accident.
+// ---------------------------------------------------------------------------
+def centralPublishTasks = [
+        ':datahub-api-model:publishMavenJavaPublicationToCentralStagingRepository',
+        ':datahub-java-sdk:publishMavenJavaPublicationToCentralStagingRepository',
+]
+
+// Wipe the staging dir first: it is keyed by version, so without this a re-run after a
+// version bump would ship the previous version's files alongside the new ones.
+tasks.register('clearCentralStaging', Delete) {
+    delete layout.buildDirectory.dir('central-staging')
+}
+
+subprojects {
+    tasks.matching { it.name == 'publishMavenJavaPublicationToCentralStagingRepository' }
+            .configureEach { dependsOn rootProject.tasks.named('clearCentralStaging') }
+}
+
+tasks.register('centralBundle', Zip) {
+    group = 'publishing'
+    description = 'Stage datahub-api-model + datahub-sdk and zip the Maven Central deployment bundle.'
+    dependsOn centralPublishTasks
+
+    def stagingDir = layout.buildDirectory.dir('central-staging')
+    from stagingDir
+    // Gradle writes no maven-metadata.xml for releases, but exclude it defensively: the
+    // Portal rejects a bundle carrying files it did not expect.
+    exclude '**/maven-metadata*'
+
+    archiveFileName = "datahub-central-${providers.gradleProperty('javaSdkVersion').getOrElse('0.3.0-SNAPSHOT')}.zip"
+    destinationDirectory = layout.buildDirectory.dir('central')
+
+    // Central rejects an unsigned deployment, and the Sign tasks skip silently when no key
+    // is configured. Fail here instead, where the fix is obvious.
+    doFirst {
+        def jars = fileTree(stagingDir) { include '**/*.jar', '**/*.pom' }.files
+        def unsigned = jars.findAll { !new File(it.path + '.asc').exists() }
+        if (unsigned) {
+            throw new GradleException(
+                    "Maven Central requires a PGP signature for every published file; these have none:\n" +
+                    unsigned.collect { "  ${it.name}" }.join('\n') +
+                    "\nConfigure a signing key (-PsigningKey / SIGNING_KEY, or " +
+                    "-PsigningUseGpgCommand=true).")
+        }
+    }
+}

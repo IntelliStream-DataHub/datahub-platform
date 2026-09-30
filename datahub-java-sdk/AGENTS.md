@@ -96,6 +96,7 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   JWT as a static token (the SDK bakes the token into the client, hence per-request wrappers).
   Changes to `DatahubConfig`, `TokenProvider`, or service signatures ripple there.
 - Out-of-tree consumers install the artifact with `publishToMavenLocal`; there is no
-  public Maven release yet. `publish` targets whatever `-PmavenPublishUrl` names, and has
-  no default. The version comes from the `javaSdkVersion` Gradle property
-  (default `0.1.0-SNAPSHOT`).
+  public Maven release yet. The remote `publish` repository exists only when
+  `-PmavenPublishUrl` names one; `centralBundle` (root project) stages to a local directory
+  for Maven Central. The version comes from the `javaSdkVersion` Gradle property (default
+  `0.3.0-SNAPSHOT`), and the Maven artifactId is `datahub-sdk`, not the Gradle project name.

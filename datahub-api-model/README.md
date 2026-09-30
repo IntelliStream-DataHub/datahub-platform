@@ -1,8 +1,9 @@
 # datahub-api-model
 
 The **lean, framework-free wire-contract** module. It owns the request/response DTOs,
-form models and envelopes that make up the `datahub-api` REST contract — the types
-referenced by the Feign `DatahubApi` interface — and nothing else.
+form models and envelopes that make up the `datahub-api` REST contract, and nothing else.
+Published as `ai.intellistream:datahub-api-model`, the model the Java SDK
+(`ai.intellistream:datahub-sdk`) is built on.
 
 It is the new **bottom of the build graph**, below `datahub-commons`:
 
@@ -41,12 +42,14 @@ contract jars.
 
 | Dependency | Why | Scope |
 |---|---|---|
-| `com.fasterxml.jackson.core:jackson-databind` (Jackson 2) | JSON mapping, custom (de)serializers | `api` |
+| `tools.jackson.core:jackson-databind` (Jackson 3) | JSON mapping, custom (de)serializers | `api` |
 | `tools.jackson.dataformat:jackson-dataformat-xml` (Jackson 3) | one `@JacksonXmlElementWrapper` on `DataWrapper` | `compileOnly` |
 | `jakarta.validation:jakarta.validation-api` | constraint annotations + custom validators | `api` |
 | `io.swagger.core.v3:swagger-annotations-jakarta` | `@Schema` on DTOs | `api` |
 | `net.openhft:zero-allocation-hashing` | xxHash on `Resource`/`IdCollection`/`PolicyType` | `api` |
 | `org.slf4j:slf4j-api` | one `@Slf4j` helper | `api` |
+| `org.apache.arrow:arrow-format` | FlatBuffers classes of the Arrow IPC format, for the binary datapoint frames | `api` |
+| `com.github.luben:zstd-jni` | `ZstdPayloadCodec`; each consumer supplies the native library | `compileOnly` |
 | Lombok | accessors/builders | compile-time only |
 
 Explicitly **absent**: Spring, OpenFeign, Vault, Pulsar, JPA, the JDK-HttpClient
@@ -57,7 +60,7 @@ Spring code to the artifact, and `bootJar` is disabled.
 ### XML is server-only
 
 Only `DataWrapper` carries a single Jackson-3 XML annotation, used by the web apps that
-serve `application/xml`. It is `compileOnly` here so consumers (a future SDK) don't drag
+serve `application/xml`. It is `compileOnly` here so consumers (the Java SDK) don't drag
 in woodstox; `datahub-commons` keeps `jackson-dataformat-xml` at runtime for the server.
 
 ### Two decouplings vs. the pre-extraction code

@@ -129,7 +129,7 @@ lz4-java 1.11.0
     Resolved from the `at.yawk.lz4` coordinates, a republished build of the
     original artifact.
 
-zero-allocation-hashing 0.27ea0
+zero-allocation-hashing 2026.0
     Copyright Higher Frequency Trading
     Apache License 2.0
 
