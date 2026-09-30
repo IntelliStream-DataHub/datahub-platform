@@ -48,6 +48,26 @@ as the authoritative store, validation before anything goes async, one type labe
 on the frontend, calling datahub-api directly rather than extending the console's
 backend-for-frontend proxy. Read it before adding a feature that touches any of those.
 
+## Releasing the published artifacts
+
+`datahub-api-model` and `datahub-java-sdk` are the only modules published as Maven coordinates:
+`ai.intellistream:datahub-api-model` and `ai.intellistream:datahub-sdk` (the SDK's artifactId is
+**not** its Gradle project name). They are released in lockstep, because the SDK's POM pins the
+model at the exact version built alongside it. The shared POM, signing and staging setup is the
+`maven-central-conventions` plugin in `buildSrc`. `./gradlew centralBundle` stages both modules
+and zips the Maven Central deployment bundle. The upload is a deliberate manual step, because
+**a Central release can never be replaced or deleted**. A mistake can only be fixed by releasing
+a new version.
+
+- Versions live in the root `gradle.properties` (`apiModelVersion`, `javaSdkVersion`). Bump both.
+- Signing is skipped unless a key is configured: `-PsigningKey`/`SIGNING_KEY` (plus
+  `-PsigningPassword`), or `-PsigningUseGpgCommand=true`. `centralBundle` refuses to build an
+  unsigned bundle.
+- Tag SDK releases `java-sdk-v<version>`. The SDK and the platform are on separate version lines.
+
+The step-by-step runbook (Portal account, namespace verification, key generation, upload) is
+kept locally and is not checked in. Ask the maintainer for it.
+
 ## Build Commands
 
 ```bash

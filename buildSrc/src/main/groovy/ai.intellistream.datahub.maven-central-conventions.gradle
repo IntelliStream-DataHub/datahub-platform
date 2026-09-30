@@ -1,0 +1,155 @@
+// Publishing conventions for the two artifacts that leave this repo as Maven coordinates:
+// ai.intellistream:datahub-api-model and ai.intellistream:datahub-sdk. Everything Maven
+// Central demands of a release lives here so the two modules stay identical; each module
+// supplies only its own version property and POM name/description.
+//
+// Central's release requirements (https://central.sonatype.org/publish/requirements/):
+//   - sources + javadoc jars alongside the main jar
+//   - POM with name, description, url, licence, developer and scm entries
+//   - a detached PGP signature (.asc) for every published file
+//   - md5/sha1 checksums (Gradle writes these when publishing to a maven repository)
+//
+// Publishing is deliberately a two-step, offline-first flow: `publish...ToCentralStaging`
+// writes a real Maven layout into the ROOT build dir, and the root `centralBundle` task
+// zips both modules' output into the single deployment bundle the Central Portal API
+// takes. Nothing is uploaded by Gradle; the upload is a separate, manual step.
+
+plugins {
+    id 'maven-publish'
+    id 'signing'
+}
+
+group = 'ai.intellistream'
+
+// Central rejects a release without these two.
+java {
+    withSourcesJar()
+    withJavadocJar()
+}
+
+// Ship the module's LICENSE inside every jar. Licence scanners read jar metadata as well as
+// POMs, and a consumer who vendors or shades the jar keeps the notice by default rather than
+// having to remember it. (slf4j is the cautionary case: MIT, but undeclared in its POM, so
+// scanners routinely report it as unknown.)
+tasks.withType(Jar).configureEach {
+    from(layout.projectDirectory.file('LICENSE')) { into 'META-INF' }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+
+            // Pin resolved versions into the published POM. Several dependencies are
+            // version-managed by the Spring Boot BOM at build time and would otherwise be
+            // published with no version at all, which breaks resolution for the non-Spring
+            // consumers these artifacts exist for.
+            versionMapping {
+                usage('java-api') { fromResolutionResult() }
+                usage('java-runtime') { fromResolutionResult() }
+            }
+
+            pom {
+                // name/description are set per module; the rest is Central boilerplate.
+                url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
+                // Apache-2.0, NOT the repository's AGPL-3.0. These two modules are the
+                // only ones a third party links into their own application, and a copyleft
+                // client library would be unusable for most of them; it also matches the
+                // Python and Rust SDKs. Each module carries its own LICENSE file, which is
+                // what makes the exception to the root LICENSE explicit. Both must stay
+                // Apache-2.0 together: datahub-sdk puts datahub-api-model on every
+                // consumer's compile classpath, so relicensing only one achieves nothing.
+                licenses {
+                    license {
+                        name = 'Apache License, Version 2.0'
+                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
+                        distribution = 'repo'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'intellistream'
+                        name = 'Intellistream AS'
+                        organization = 'Intellistream AS'
+                        organizationUrl = 'https://intellistream.ai'
+                    }
+                }
+                scm {
+                    url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
+                    connection = 'scm:git:https://github.com/IntelliStream-DataHub/datahub-platform.git'
+                    developerConnection = 'scm:git:git@github.com:IntelliStream-DataHub/datahub-platform.git'
+                }
+            }
+        }
+    }
+
+    repositories {
+        // Local staging directory in the ROOT build dir, shared by both modules, so one zip
+        // covers the whole release. Not a remote: the Central Portal takes an uploaded bundle.
+        maven {
+            name = 'centralStaging'
+            url = rootProject.layout.buildDirectory.dir('central-staging')
+        }
+
+        // Optional remote registry for pre-release builds that should not go to Central.
+        // No default: a hardcoded host would advertise one nobody outside the project can
+        // resolve from. Supply -PmavenPublishUrl, and credentials via -PmavenPublishUser /
+        // -PmavenPublishToken or MAVEN_PUBLISH_USER / MAVEN_PUBLISH_TOKEN.
+        def mavenPublishUrl = providers.gradleProperty('mavenPublishUrl').orNull
+        if (mavenPublishUrl) {
+            maven {
+                name = 'remote'
+                url = mavenPublishUrl
+                credentials {
+                    username = providers.gradleProperty('mavenPublishUser')
+                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_USER')).getOrNull()
+                    password = providers.gradleProperty('mavenPublishToken')
+                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_TOKEN')).getOrNull()
+                }
+                authentication { basic(BasicAuthentication) }
+            }
+        }
+    }
+}
+
+// --- Signing --------------------------------------------------------------------------
+// Two supported key sources, neither of which puts a key in the repo:
+//   -PsigningKey / SIGNING_KEY          ASCII-armoured secret key (what CI uses)
+//   -PsigningUseGpgCommand=true         delegate to the local gpg agent (what a laptop uses)
+// With neither set, the Sign tasks are skipped so ordinary `./gradlew build` and
+// publishToMavenLocal keep working unsigned. The root `centralBundle` task refuses to
+// produce an unsigned bundle, so a forgotten key fails the release rather than Central.
+def signingKey = providers.gradleProperty('signingKey')
+        .orElse(providers.environmentVariable('SIGNING_KEY'))
+def signingPassword = providers.gradleProperty('signingPassword')
+        .orElse(providers.environmentVariable('SIGNING_PASSWORD'))
+def useGpgCommand = providers.gradleProperty('signingUseGpgCommand')
+        .orElse(providers.environmentVariable('SIGNING_USE_GPG_COMMAND'))
+        .map { it.toBoolean() }.getOrElse(false)
+def signingConfigured = signingKey.present || useGpgCommand
+
+signing {
+    if (signingKey.present) {
+        useInMemoryPgpKeys(signingKey.get(), signingPassword.getOrElse(''))
+    } else if (useGpgCommand) {
+        useGpgCmd()
+    }
+    sign publishing.publications.mavenJava
+}
+
+tasks.withType(Sign).configureEach {
+    onlyIf { signingConfigured }
+}
+
+// --- Keep the Spring Boot BOM out of the published POM ---------------------------------
+// Both modules apply io.spring.dependency-management purely for build-time version
+// management, but by default that plugin copies the imported spring-boot-dependencies BOM
+// into the generated POM's <dependencyManagement>. A consumer of these deliberately
+// framework-free artifacts would then import the entire Spring Boot platform and have
+// versions forced on ~everything in their build. versionMapping above already writes a
+// concrete version onto every dependency, so the BOM import buys the POM nothing.
+pluginManager.withPlugin('io.spring.dependency-management') {
+    dependencyManagement {
+        generatedPomCustomization { enabled = false }
+    }
+}

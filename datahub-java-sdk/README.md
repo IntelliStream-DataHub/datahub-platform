@@ -44,8 +44,8 @@ DatahubClient client = DatahubClient.create(
                 "https://keycloak.intellistream.ai/realms/datahub/protocol/openid-connect/token")
         .build());
 
-DataWrapper<Resource> resources = client.resources().getById(5677892L);
-resources.getItems().forEach(System.out::println);
+DataWrapper<NodeModel> nodes = client.resources().getById(5677892L);
+nodes.getItems().forEach(System.out::println);
 ```
 
 ### Authentication
@@ -104,7 +104,10 @@ TimeseriesFilter criteria = new TimeseriesFilter();
 criteria.setDataSetId(List.of(IdCollection.createFromExternalId("plant_a")));
 criteria.setName(List.of("Pump*", "Valve*"));        // wildcards, OR-ed
 criteria.setUnit(List.of("kg/hr", "deg_*"));
-criteria.setMetadata(Map.of("owner", "plant-a", "health", null));
+Map<String, String> metadata = new HashMap<>();
+metadata.put("owner", "plant-a");
+metadata.put("health", null);           // Map.of rejects null values
+criteria.setMetadata(metadata);
 
 client.timeseries().filter(criteria).getItems().forEach(System.out::println);
 ```
@@ -213,7 +216,7 @@ the HTTP status.
 
 ```java
 try {
-    client.resources().create(resources);
+    client.resources().create(resources, null);
 } catch (DatahubApiException e) {
     Problem p = e.problem();
     switch (p.slug()) {                       // "duplicate", "dataset-forbidden", …
@@ -326,9 +329,10 @@ here and installing both artifacts to the local Maven repository:
 ```
 
 Then add `mavenLocal()` to that project's repositories and depend on
-`ai.intellistream:datahub-sdk:0.1.0-SNAPSHOT` (or whatever `javaSdkVersion` you built with).
+`ai.intellistream:datahub-sdk:0.3.0-SNAPSHOT` (or whatever `javaSdkVersion` you built with).
 
-To publish to a Maven repository of your own, pass its URL; there is deliberately no default:
+To also publish to a Maven repository of your own, pass its URL; there is deliberately no default
+(`centralBundle`, for Maven Central, stages to a local directory instead):
 
 ```bash
 ./gradlew :datahub-api-model:publish :datahub-java-sdk:publish \

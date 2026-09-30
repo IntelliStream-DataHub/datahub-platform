@@ -33,7 +33,7 @@ dependencies {
     implementation "tools.jackson.dataformat:jackson-dataformat-xml:${jacksonVersion}"
     implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
 
-    implementation 'net.openhft:zero-allocation-hashing:0.27ea0'
+    implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
     // UUID v7
     implementation 'com.fasterxml.uuid:java-uuid-generator:5.2.0'
 

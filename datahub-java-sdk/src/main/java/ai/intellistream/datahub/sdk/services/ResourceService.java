@@ -11,7 +11,6 @@ import ai.intellistream.datahub.models.FetchNearestResourcesForm;
 import ai.intellistream.datahub.models.RelatedResourcesForm;
 import ai.intellistream.datahub.models.Asset;
 import ai.intellistream.datahub.models.NodeModel;
-import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.ResourceRetreiver;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
@@ -116,10 +115,6 @@ public final class ResourceService {
         return http.post("/resources/search", search, nodes);
     }
 
-    /**
-     * POST /resources/create — create resources, optionally with relations between them.
-     * Returns the created graph (nodes as {@link Resource}, relations as {@link EdgeProxy}).
-     */
     /**
      * POST /resources/create. Any creatable node kind rides one call — an {@link Asset} with a
      * geoLocation, a {@code DataSetModel}, a {@code Timeseries} next to the assets it measures —

@@ -12,8 +12,7 @@ plugins {
     id 'ai.intellistream.datahub.java-library-conventions'
     id 'org.springframework.boot'
     id 'io.spring.dependency-management'
-    id 'maven-publish'
-    id 'signing'
+    id 'ai.intellistream.datahub.maven-central-conventions'
 }
 
 dependencies {
@@ -37,92 +36,18 @@ bootJar { enabled = false }
 jar { enabled = true; archiveClassifier = '' }
 
 // --- Publishing -----------------------------------------------------------------
-// Published so external consumers can resolve the client as a versioned Maven artifact:
-// ai.intellistream:datahub-sdk (depending on ai.intellistream:datahub-api-model).
-group = 'ai.intellistream'
-version = providers.gradleProperty('javaSdkVersion').getOrElse('0.1.0-SNAPSHOT')
+// Published to Maven Central as ai.intellistream:datahub-sdk, in lockstep with the
+// model. The group, licence/scm/developer POM metadata, sources+javadoc jars, the
+// LICENSE inside each jar, signing and the staging repository all come from the
+// maven-central-conventions plugin; `./gradlew centralBundle` builds the deployment.
+version = providers.gradleProperty('javaSdkVersion').getOrElse('0.3.0-SNAPSHOT')
 
-java {
-    withSourcesJar()
-    withJavadocJar()
-}
-
-publishing {
-    publications {
-        mavenJava(MavenPublication) {
-            from components.java
-            // Pin BOM-managed versions into the published POM so non-Spring consumers resolve.
-            versionMapping {
-                usage('java-api') { fromResolutionResult() }
-                usage('java-runtime') { fromResolutionResult() }
-            }
-            pom {
-                name = 'DataHub SDK'
-                description = 'Java client for the DataHub Platform REST API.'
-                url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
-                licenses {
-                    // Apache-2.0, not the platform's AGPL. A client library has to be safe to
-                    // link into someone else's application, and a copyleft one is not.
-                    license {
-                        name = 'The Apache License, Version 2.0'
-                        url = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
-                        distribution = 'repo'
-                    }
-                }
-                developers {
-                    developer {
-                        id = 'intellistream'
-                        name = 'IntelliStream AS'
-                        url = 'https://intellistream.ai'
-                    }
-                }
-                scm {
-                    connection = 'scm:git:https://github.com/IntelliStream-DataHub/datahub-platform.git'
-                    developerConnection = 'scm:git:ssh://git@github.com/IntelliStream-DataHub/datahub-platform.git'
-                    url = 'https://github.com/IntelliStream-DataHub/datahub-platform'
-                }
-            }
-        }
-    }
-    repositories {
-        // No public Maven release yet, so there is no default registry here: a hardcoded
-        // one would advertise a host nobody outside the project can resolve from. Supply a
-        // target to publish remotely:
-        //
-        //   ./gradlew :datahub-java-sdk:publish \
-        //       -PmavenPublishUrl=https://example.org/api/packages/<owner>/maven
-        //
-        // Credentials come from -PmavenPublishUser / -PmavenPublishToken, or the
-        // MAVEN_PUBLISH_USER / MAVEN_PUBLISH_TOKEN environment variables, so no secrets
-        // live in the repo. Without the URL only publishToMavenLocal is available, which is
-        // how out-of-tree consumers try the artifact today.
-        def mavenPublishUrl = providers.gradleProperty('mavenPublishUrl').orNull
-        if (mavenPublishUrl) {
-            maven {
-                name = 'remote'
-                url = mavenPublishUrl
-                credentials {
-                    username = providers.gradleProperty('mavenPublishUser')
-                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_USER')).getOrNull()
-                    password = providers.gradleProperty('mavenPublishToken')
-                            .orElse(providers.environmentVariable('MAVEN_PUBLISH_TOKEN')).getOrNull()
-                }
-                authentication { basic(BasicAuthentication) }
-            }
-        }
-    }
-}
-
-// Signing. Maven Central rejects unsigned artifacts, but a normal build and
-// publishToMavenLocal must not need a key, so signing is required only when one is
-// configured. Supply it as -PsigningInMemoryKey (an ASCII-armoured secret key) plus
-// -PsigningInMemoryKeyPassword, or via ORG_GRADLE_PROJECT_ equivalents in CI.
-signing {
-    def signingKey = providers.gradleProperty('signingInMemoryKey').orNull
-    def signingPassword = providers.gradleProperty('signingInMemoryKeyPassword').orNull
-    required { signingKey != null }
-    if (signingKey != null) {
-        useInMemoryPgpKeys(signingKey, signingPassword)
-        sign publishing.publications.mavenJava
+publishing.publications.mavenJava {
+    // The Maven coordinate is datahub-sdk, not the Gradle project name datahub-java-sdk —
+    // that is what the SDK docs tell consumers to depend on. Do not let it default.
+    artifactId = 'datahub-sdk'
+    pom {
+        name = 'DataHub SDK'
+        description = 'Java client for the DataHub Platform REST API.'
     }
 }
