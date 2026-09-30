@@ -26,7 +26,7 @@ dependencies {
 
     // zstd for the binary datapoint frames (compression is mandatory on that path and the JDK
     // has no zstd). api-model's ZstdPayloadCodec compiles against it but does not carry it.
-    implementation 'com.github.luben:zstd-jni:1.5.7-17'
+    implementation 'com.github.luben:zstd-jni:1.5.7-20'
 
     // The SDK's own warnings (spooled data dropped or unreadable) go to the caller's logging
     // backend. api-model already brings slf4j-api; declared here because the SDK uses it directly.
