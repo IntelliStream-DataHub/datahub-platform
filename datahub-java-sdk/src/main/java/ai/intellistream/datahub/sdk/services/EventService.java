@@ -16,6 +16,8 @@ import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.sdk.util.UuidV7;
 import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -24,6 +26,8 @@ import java.util.Map;
 
 /** Events — record and query operational events. Mirrors the {@code /events} endpoints. */
 public final class EventService {
+
+    private static final Logger log = LoggerFactory.getLogger(EventService.class);
 
     private static final String CREATE_PATH = "/events/create";
 
@@ -278,7 +282,7 @@ public final class EventService {
         if (result.isBufferable()) {
             return false; // stop draining; server unreachable or auth not yet restored
         }
-        System.err.println("DataHub SDK: dropping spooled events after a terminal error: " + result.errors());
+        log.warn("Dropping spooled events after a terminal error: {}", result.errors());
         return true; // terminal: drop so the spool can't get stuck forever
     }
 

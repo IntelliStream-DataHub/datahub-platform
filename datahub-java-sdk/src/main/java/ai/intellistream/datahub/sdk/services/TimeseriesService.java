@@ -29,6 +29,8 @@ import ai.intellistream.datahub.models.SearchForm;
 import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -44,6 +46,8 @@ import java.util.function.Consumer;
  * both single-request and high-throughput concurrent datapoint ingestion.
  */
 public final class TimeseriesService {
+
+    private static final Logger log = LoggerFactory.getLogger(TimeseriesService.class);
 
     private static final String DATA_PATH = "/timeseries/data";
 
@@ -383,7 +387,7 @@ public final class TimeseriesService {
         if (result.isBufferable()) {
             return false; // stop draining; server unreachable or auth not yet restored
         }
-        System.err.println("DataHub SDK: dropping spooled datapoints after a terminal error: " + result.errors());
+        log.warn("Dropping spooled datapoints after a terminal error: {}", result.errors());
         return true; // terminal: drop so the spool can't get stuck forever
     }
 
