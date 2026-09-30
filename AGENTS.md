@@ -58,17 +58,32 @@ model at the exact version built alongside it. The shared POM, signing and stagi
 and zips the Maven Central deployment bundle. **A Central release can never be replaced or
 deleted**. A mistake can only be fixed by releasing a new version.
 
-- To release, set both versions in the root `gradle.properties` (`apiModelVersion`,
-  `javaSdkVersion`) to `X.Y.Z`, merge, and push the tag `java-sdk-vX.Y.Z`. The tag is prefixed
-  because the SDK and the platform are on separate version lines.
-- `.github/workflows/java-sdk-release.yml` then checks the tag against both versions, builds and
-  tests, and signs, uploads and publishes to Central. It waits in the `release` environment for
-  approval, which is the human gate. On a pull request touching the release machinery it
-  rehearses everything except the upload, signing with a throwaway key.
-- Signing is skipped unless a key is configured: `-PsigningKey`/`SIGNING_KEY` (plus
-  `-PsigningPassword`, and `-PsigningKeyId`, the signing subkey's last 8 hex digits, when the
-  primary key only certifies), or `-PsigningUseGpgCommand=true`. `centralBundle` refuses to build an
-  unsigned bundle.
+Each release is signed on the release manager's own machine with their **personal** key; CI
+never holds a signing key. The keys allowed to sign are the primary fingerprints in
+`datahub-java-sdk/RELEASE_SIGNERS`, so adding a release manager is a reviewed change to that file.
+
+To release `X.Y.Z`:
+
+1. Set both versions in the root `gradle.properties` (`apiModelVersion`, `javaSdkVersion`) to
+   `X.Y.Z` and merge.
+2. On that merged commit, with no `-P` version overrides, run
+   `./gradlew centralBundle -PsigningUseGpgCommand=true`. It signs through your local gpg agent;
+   add `-Psigning.gnupg.keyName=<fingerprint>` if you hold more than one key.
+3. `gh release create java-sdk-vX.Y.Z build/central/datahub-central-X.Y.Z.zip`. The tag is
+   prefixed because the SDK and the platform are on separate version lines.
+
+`.github/workflows/java-sdk-release.yml` then checks the tag against both versions, and builds and
+tests. `scripts/verify-central-bundle.sh` then verifies the attached bundle: it holds exactly the
+expected files, every file is signed by a listed key, and every file is byte-identical to what
+the tagged commit builds. The build is reproducible across JDK vendors, so a bundle built from any
+other commit or version fails. The job then waits in the `release` environment for approval, and
+uploads and publishes the verified bundle to Central. On a pull request that touches the release
+machinery, the workflow rehearses everything except the upload, signing with a throwaway key.
+
+`centralBundle` refuses to build an unsigned bundle. Besides `-PsigningUseGpgCommand=true` it
+takes an in-memory key, `-PsigningKey`/`SIGNING_KEY` with `-PsigningPassword`, which is what the
+rehearsal uses. With a key whose primary only certifies, it also needs `-PsigningKeyId`, the
+signing subkey's last 8 hex digits.
 
 The step-by-step runbook (Portal account, namespace verification, key generation, upload) is
 kept locally and is not checked in. Ask the maintainer for it.

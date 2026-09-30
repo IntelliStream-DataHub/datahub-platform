@@ -114,9 +114,10 @@ publishing {
 
 // --- Signing --------------------------------------------------------------------------
 // Two supported key sources, neither of which puts a key in the repo:
-//   -PsigningKey / SIGNING_KEY          ASCII-armoured secret key (what CI uses), plus
+//   -PsigningKey / SIGNING_KEY          ASCII-armoured secret key (CI's rehearsal), plus
 //   -PsigningKeyId / SIGNING_KEY_ID     the signing subkey's ID when the primary only certifies
-//   -PsigningUseGpgCommand=true         delegate to the local gpg agent (what a laptop uses)
+//   -PsigningUseGpgCommand=true         delegate to the local gpg agent: how releases are
+//                                       signed, on the release manager's own machine
 // With neither set, the Sign tasks are skipped so ordinary `./gradlew build` and
 // publishToMavenLocal keep working unsigned. The root `centralBundle` task refuses to
 // produce an unsigned bundle, so a forgotten key fails the release rather than Central.
@@ -140,6 +141,12 @@ signing {
     } else if (signingKey.present) {
         useInMemoryPgpKeys(signingKey.get(), signingPassword.getOrElse(''))
     } else if (useGpgCommand) {
+        // Gradle calls `gpg2` by default, which only some installs provide; GnuPG 2 installs as
+        // `gpg` everywhere. -Psigning.gnupg.executable still overrides it, and
+        // -Psigning.gnupg.keyName=<fingerprint> picks a key when there is more than one.
+        if (!project.hasProperty('signing.gnupg.executable')) {
+            project.ext['signing.gnupg.executable'] = 'gpg'
+        }
         useGpgCmd()
     }
     sign publishing.publications.mavenJava

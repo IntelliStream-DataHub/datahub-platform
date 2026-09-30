@@ -1,0 +1,15 @@
+# Keys allowed to sign releases of ai.intellistream:datahub-sdk and
+# ai.intellistream:datahub-api-model.
+#
+# Each release is signed on the release manager's own machine with their personal key.
+# The release workflow refuses a bundle signed by any key not listed here, so adding a
+# release manager is a reviewed change to this file.
+#
+# This is also the list to check a downloaded artifact against:
+#   gpg --verify datahub-sdk-X.Y.Z.jar.asc datahub-sdk-X.Y.Z.jar
+# should report a good signature whose primary key fingerprint is below.
+#
+# One line per signer: the primary key fingerprint (40 hex digits), then who holds it.
+# A signer rotates signing subkeys without changing this file.
+
+906FF6D8E0B2AEE4606A6278243C23A826F4BAB8  Jostein Gjesdal <jostein@intellistream.ai>
