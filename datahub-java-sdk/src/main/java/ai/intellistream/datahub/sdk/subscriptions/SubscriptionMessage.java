@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.subscriptions;
 
+import ai.intellistream.datahub.sdk.client.SubscriptionListener;
 import ai.intellistream.datahub.api.responses.DataWrapperMessage;
 
 /**

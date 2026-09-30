@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.subscriptions;
+package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.sdk.subscriptions.SubscriptionMessage;
+import ai.intellistream.datahub.sdk.subscriptions.SubscriptionError;
 import ai.intellistream.datahub.api.responses.DataWrapperMessage;
 import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -46,7 +48,7 @@ public final class SubscriptionListener implements AutoCloseable {
     }
 
     /** Open a listener for the given subscription external ids (handshake authed with the bearer token). */
-    public static SubscriptionListener connect(HttpClient httpClient, String baseUrl, String token,
+    static SubscriptionListener connect(HttpClient httpClient, String baseUrl, String token,
                                                JsonMapper mapper, List<String> externalIds) {
         BlockingQueue<SubscriptionMessage> queue = new LinkedBlockingQueue<>();
         BlockingQueue<SubscriptionError> errors = new LinkedBlockingQueue<>();

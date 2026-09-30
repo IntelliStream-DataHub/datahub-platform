@@ -9,7 +9,7 @@ import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
-import ai.intellistream.datahub.sdk.ingest.BinaryIngestBuffer;
+import ai.intellistream.datahub.sdk.client.BinaryIngestBuffer;
 import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;

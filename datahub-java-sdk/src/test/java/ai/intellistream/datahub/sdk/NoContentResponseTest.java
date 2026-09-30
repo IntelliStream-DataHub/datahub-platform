@@ -98,15 +98,15 @@ class NoContentResponseTest {
     void noBodyCallsAreDeclaredVoid() {
         record Call(Class<?> service, String method, Class<?>... parameters) {}
         List<Call> noBody = List.of(
-                new Call(ai.intellistream.datahub.sdk.services.ResourceService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.TimeseriesService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.TimeseriesService.class, "insertDatapoints", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.TimeseriesService.class, "deleteDatapoints", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.DatasetService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.EventService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.SubscriptionService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.FileService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.services.EdgeService.class, "delete", List.class));
+                new Call(ai.intellistream.datahub.sdk.client.ResourceService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.TimeseriesService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.TimeseriesService.class, "insertDatapoints", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.TimeseriesService.class, "deleteDatapoints", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.DatasetService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.EventService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.SubscriptionService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.FileService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.EdgeService.class, "delete", List.class));
 
         List<String> wrongly = new ArrayList<>();
         for (Call call : noBody) {

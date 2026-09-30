@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -9,7 +9,6 @@ import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.RelationshipType;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.resource.RelTypeForm;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
@@ -30,7 +29,7 @@ public final class EdgeService {
     private final JavaType edgeGraph;          // GraphDataWrapper<Resource, EdgeProxy>
     private final JavaType relationshipTypes;  // DataWrapper<RelationshipType>
 
-    public EdgeService(ApiHttp http) {
+    EdgeService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.edges = tf.constructParametricType(DataWrapper.class, EdgeProxy.class);

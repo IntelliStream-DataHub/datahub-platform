@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
@@ -12,7 +12,6 @@ import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateAssetForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
@@ -32,7 +31,7 @@ public final class AssetService {
     private final JavaType assets;     // DataWrapper<Asset>
     private final JavaType nodeGraph;  // GraphDataWrapper<NodeModel, EdgeProxy> — the update echo
 
-    public AssetService(ApiHttp http) {
+    AssetService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.assets = tf.constructParametricType(DataWrapper.class, Asset.class);

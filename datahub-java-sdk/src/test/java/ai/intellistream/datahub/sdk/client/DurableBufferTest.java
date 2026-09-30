@@ -1,11 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
-import ai.intellistream.datahub.sdk.client.DatahubClient;
-import ai.intellistream.datahub.sdk.client.DatahubConfig;
-import ai.intellistream.datahub.sdk.ingest.DatapointSpool;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;

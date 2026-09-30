@@ -44,7 +44,7 @@ import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
 import ai.intellistream.datahub.resource.RelTypeForm;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
-import ai.intellistream.datahub.sdk.services.FileUploadRequest;
+import ai.intellistream.datahub.sdk.client.FileUploadRequest;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import ai.intellistream.datahub.timeseries.Timeseries;

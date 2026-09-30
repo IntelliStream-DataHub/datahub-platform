@@ -40,15 +40,6 @@ public final class BinaryIngestOptions {
     public int maxRetries()              { return maxRetries; }
     public boolean failFast()            { return failFast; }
 
-    /** The equivalent executor options: same retry, parallelism and fail-fast rules. */
-    IngestOptions executorOptions() {
-        return IngestOptions.builder()
-                .parallelism(parallelism)
-                .maxRetries(maxRetries)
-                .failFast(failFast)
-                .build();
-    }
-
     public static BinaryIngestOptions defaults() {
         return builder().build();
     }

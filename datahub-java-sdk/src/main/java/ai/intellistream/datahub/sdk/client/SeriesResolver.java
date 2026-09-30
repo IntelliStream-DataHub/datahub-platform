@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -23,7 +23,7 @@ import java.util.function.Function;
  * in bulk, and cached for the life of the client. A server answer that a series is unknown or
  * renamed evicts it, so the next request resolves it afresh.
  */
-public final class SeriesResolver {
+final class SeriesResolver {
 
     /** A series as the frame names it. */
     public record Resolved(long id, String externalId, DatapointValueType type) {

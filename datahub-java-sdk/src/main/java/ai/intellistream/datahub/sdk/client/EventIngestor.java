@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.sdk.ingest.IngestOptions;
+import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.EventModel;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 
 import java.util.ArrayList;
@@ -13,7 +14,7 @@ import java.util.List;
  * Sends events concurrently: chunks them into batches of at most {@code batchSize} and runs the
  * batches through {@link BatchExecutor}.
  */
-public final class EventIngestor {
+final class EventIngestor {
 
     private final ApiHttp http;
     private final String path;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.function.UpdateFunctionForm;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -12,7 +12,6 @@ import ai.intellistream.datahub.models.NodeModel;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.datafilters.FunctionFilter;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
@@ -28,7 +27,7 @@ public final class FunctionService {
     private final JavaType functions;  // DataWrapper<Function>
     private final JavaType nodeGraph;  // GraphDataWrapper<NodeModel, EdgeProxy> — the update echo
 
-    public FunctionService(ApiHttp http) {
+    FunctionService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.functions = tf.constructParametricType(DataWrapper.class, Function.class);

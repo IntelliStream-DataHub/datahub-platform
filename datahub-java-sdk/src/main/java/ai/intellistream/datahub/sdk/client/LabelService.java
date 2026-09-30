@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.label.LabelForm;
 import ai.intellistream.datahub.models.IdCollection;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 
 import java.util.List;
@@ -26,7 +25,7 @@ public final class LabelService {
     private final ApiHttp http;
     private final JavaType labels; // DataWrapper<LabelForm>
 
-    public LabelService(ApiHttp http) {
+    LabelService(ApiHttp http) {
         this.http = http;
         this.labels = http.typeFactory().constructParametricType(DataWrapper.class, LabelForm.class);
     }

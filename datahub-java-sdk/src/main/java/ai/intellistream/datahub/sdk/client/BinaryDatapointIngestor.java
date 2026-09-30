@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.sdk.ingest.IngestOptions;
+import ai.intellistream.datahub.sdk.ingest.IngestResult;
+import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.FrameLimits;
@@ -8,10 +11,9 @@ import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.helpers.datetime.DateTimeHandler;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.api.errors.Problem;
 import ai.intellistream.datahub.sdk.http.DatahubApiException;
-import ai.intellistream.datahub.sdk.ingest.SeriesResolver.Resolved;
+import ai.intellistream.datahub.sdk.client.SeriesResolver.Resolved;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -36,7 +38,7 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
  * {@link BatchExecutor}. A request the server refuses because a series is unknown or renamed
  * evicts those series from the resolver, and the points it carried are rebuilt and sent once more.
  */
-public final class BinaryDatapointIngestor {
+final class BinaryDatapointIngestor {
 
     static final String PATH = "/timeseries/data/binary";
     /** Leave headroom under the 4 MiB raw cap so the estimate never lands on the wrong side of it. */
@@ -166,7 +168,13 @@ public final class BinaryDatapointIngestor {
                 }
             }));
         }
-        return BatchExecutor.execute(tasks, options.executorOptions());
+        // Same retry, parallelism and fail-fast rules as the JSON path's executor.
+        IngestOptions executorOptions = IngestOptions.builder()
+                .parallelism(options.parallelism())
+                .maxRetries(options.maxRetries())
+                .failFast(options.failFast())
+                .build();
+        return BatchExecutor.execute(tasks, executorOptions);
     }
 
     /**

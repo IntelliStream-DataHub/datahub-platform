@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.json.JsonMapper;
@@ -53,7 +53,7 @@ import java.util.zip.GZIPOutputStream;
  *
  * @param <T> the spooled item type (e.g. a datapoint line or an event)
  */
-public final class DurableSpool<T> {
+final class DurableSpool<T> {
 
     private static final Logger log = LoggerFactory.getLogger(DurableSpool.class);
 

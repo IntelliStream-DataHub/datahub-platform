@@ -15,7 +15,7 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 - **Binary ingest is its own method.** `ingestBinary(...)` and `binaryBuffer()` on
   `TimeseriesService` go to `POST /timeseries/data/binary`; the JSON `ingest(...)` is untouched
   and the durable spool applies to it only. The binary path resolves series through
-  `/timeseries/byids` (`ingest/SeriesResolver`), so it needs read access to the dataset too.
+  `/timeseries/byids` (`client/SeriesResolver`), so it needs read access to the dataset too.
 - **Branch on the problem `type`, never on a substring of the body.** The api answers every
   failure with one RFC 9457 shape whose `type` URI is the contract; `detail` and `title` are prose
   for a human and may be reworded. `Problem.of(status, body)` never throws and never returns null,
@@ -36,7 +36,7 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   first send, so a retry carries the same id and collapses in ClickHouse
   (`ReplacingMergeTree ORDER BY id`). Never switch to random v4 ids for events — they scatter
   the sort key and degrade insert/merge/query performance.
-- **The durable spool must stay memory-safe** (`ingest/DurableSpool`): append to a plain NDJSON
+- **The durable spool must stay memory-safe** (`client/DurableSpool`): append to a plain NDJSON
   active segment, gzip-seal at ~50 MiB rollover, stream sealed segments in fixed-size chunks on
   flush — a multi-gigabyte spool never loads into memory. Buffer only retryable failures:
   unreachable (network error, 429, 5xx) and auth (401/403). Terminal errors such as 400 are
@@ -47,28 +47,37 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 
 ## Layout (`ai.intellistream.datahub.sdk`)
 
-- `client/` — `DatahubClient` (entry point, one accessor per service), `DatahubConfig`
-  (builder; `fromEnv()` on `BASE_URL` + `TOKEN` or `CLIENT_ID`/`CLIENT_SECRET`/`TOKEN_URI`,
-  optionally `SCOPE`/`AUDIENCE` and the `ASSERTION*` keys that select the `jwt-bearer` grant;
-  Vault variants via `VaultSecretLoader`, a JDK-HttpClient KV v2 read supporting token and
-  AppRole auth).
-- `auth/` — `TokenProvider`: static token pass-through, or a cached single-flight exchange
-  refreshed ~30 s before expiry — client-credentials, or the RFC 7523 `jwt-bearer` grant when an
-  assertion source is configured. The assertion is re-requested per exchange, never cached,
-  because providers commonly reject a replayed one.
-- `http/` — shared plumbing: `ApiHttp` request helpers, `DatahubApiException` error mapping.
-  Every non-2xx is read as the api's RFC 9457 problem document through
-  `DatahubApiException.problem()` (`ai.intellistream.datahub.api.errors.Problem`, in api-model).
-- `services/` — one class per API area: resources, assets, functions, timeseries, datasets,
-  events, labels, policies, governance, tenant, units, files, subscriptions. `assets` and
-  `functions` are the typed views of the `ASSET`/`FUNCTION` corners of the same graph `resources`
-  serves polymorphically; `labels` reads and writes through `LabelForm`, which is
-  `@Schema(name = "Label")` and is the label wire shape on both sides.
-- `ingest/` — batched ingestion plus the durable disk spool (`DatapointIngestor`,
-  `EventIngestor`, `DurableSpool`, `BatchExecutor`), and the binary path
-  (`BinaryDatapointIngestor`, `BinaryIngestOptions`, `BinaryIngestBuffer`, `SeriesResolver`).
-- `subscriptions/` — `SubscriptionListener`: durable subscription listening over the api's
-  WebSocket endpoint with per-subscription ack/nack.
+**`DatahubClient` is the only way in.** Everything a caller does is reached through it. The
+plumbing is package-private, and so are the service constructors, which is why the services and
+the plumbing share one package: Java can only hide a constructor from other packages. Keep new
+plumbing package-private in `client/`, and keep new service constructors package-private.
+Narrowing a published public type later is a breaking change. The other packages hold only
+value types a caller names.
+
+- `client/` — the entry point and everything behind it:
+  - public: `DatahubClient` (one accessor per service); `DatahubConfig` (builder; `fromEnv()`
+    on `BASE_URL` + `TOKEN` or `CLIENT_ID`/`CLIENT_SECRET`/`TOKEN_URI`, optionally
+    `SCOPE`/`AUDIENCE` and the `ASSERTION*` keys that select the `jwt-bearer` grant; Vault
+    variants via `VaultSecretLoader`, a JDK-HttpClient KV v2 read supporting token and AppRole
+    auth); one `*Service` per API area (resources, assets, functions, timeseries, datasets,
+    events, labels, policies, governance, tenant, units, files, subscriptions); and the handles
+    a service returns, `BinaryIngestBuffer` and `SubscriptionListener`. `assets` and `functions`
+    are the typed views of the `ASSET`/`FUNCTION` corners of the same graph `resources` serves
+    polymorphically; `labels` reads and writes through `LabelForm`, which is
+    `@Schema(name = "Label")` and is the label wire shape on both sides.
+  - package-private: `ApiHttp` (request helpers; every non-2xx becomes a
+    `DatahubApiException`); `TokenProvider` (static token pass-through, or a cached single-flight
+    exchange refreshed ~30 s before expiry, either client-credentials or the RFC 7523
+    `jwt-bearer` grant when an assertion source is configured; the assertion is re-requested per
+    exchange, never cached, because providers commonly reject a replayed one); the ingest
+    machinery (`DatapointIngestor`, `EventIngestor`, `BatchExecutor`, `DurableSpool`,
+    `DatapointSpool`, and for the binary path `BinaryDatapointIngestor` and `SeriesResolver`).
+- `http/` — `DatahubApiException`. Every refusal is read as the api's RFC 9457 problem
+  document through `problem()` (`ai.intellistream.datahub.api.errors.Problem`, in api-model).
+- `ingest/` — `IngestOptions`, `BinaryIngestOptions`, `IngestResult`.
+- `subscriptions/` — `SubscriptionMessage`, `SubscriptionError`, delivered by
+  `client/SubscriptionListener` (durable subscription listening over the api's WebSocket endpoint
+  with per-subscription ack/nack).
 - `timeseries/`, `util/` — `Datapoint` model, UUID v7 generator.
 
 ## Tests

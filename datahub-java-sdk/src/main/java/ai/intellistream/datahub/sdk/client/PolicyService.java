@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.IdCollection;
@@ -7,7 +7,6 @@ import ai.intellistream.datahub.models.Policy;
 import ai.intellistream.datahub.models.forms.UpdatePolicyForm;
 import ai.intellistream.datahub.models.policy.NamingCheckForm;
 import ai.intellistream.datahub.models.policy.PolicyFinding;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
 
@@ -28,7 +27,7 @@ public final class PolicyService {
     private final JavaType policies; // DataWrapper<Policy>
     private final JavaType findings; // {"findings": [...]} — the envelope the endpoint returns
 
-    public PolicyService(ApiHttp http) {
+    PolicyService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.policies = tf.constructParametricType(DataWrapper.class, Policy.class);

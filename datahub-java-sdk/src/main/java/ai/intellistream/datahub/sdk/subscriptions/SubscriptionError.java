@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.subscriptions;
 
+import ai.intellistream.datahub.sdk.client.SubscriptionListener;
 /**
  * A server-side error notice for a single subscription, delivered over the WebSocket as
  * {@code {"error": true, "subscriptionExternalId": "<id>", "reason": "<reason>"}}. The connection is

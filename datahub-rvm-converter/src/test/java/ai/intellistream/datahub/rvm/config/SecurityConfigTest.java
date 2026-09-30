@@ -4,7 +4,7 @@ package ai.intellistream.datahub.rvm.config;
 import ai.intellistream.datahub.rvm.RvmConversion;
 import ai.intellistream.datahub.rvm.RvmConverter;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
-import ai.intellistream.datahub.sdk.services.FileService;
+import ai.intellistream.datahub.sdk.client.FileService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

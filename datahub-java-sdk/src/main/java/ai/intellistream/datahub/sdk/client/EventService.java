@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.EventModel;
@@ -8,9 +8,6 @@ import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
-import ai.intellistream.datahub.sdk.ingest.DurableSpool;
-import ai.intellistream.datahub.sdk.ingest.EventIngestor;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.sdk.util.UuidV7;
@@ -38,11 +35,11 @@ public final class EventService {
     private final JavaType stringWrapper; // DataWrapper<String>
     private final JavaType countType;     // Map<String, Object> — /events/count returns {"count": N}
 
-    public EventService(ApiHttp http) {
+    EventService(ApiHttp http) {
         this(http, null);
     }
 
-    public EventService(ApiHttp http, DurableSpool<EventModel> spool) {
+    EventService(ApiHttp http, DurableSpool<EventModel> spool) {
         this.http = http;
         this.spool = spool;
         this.ingestor = new EventIngestor(http, CREATE_PATH);
