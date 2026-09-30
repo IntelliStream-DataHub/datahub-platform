@@ -55,15 +55,19 @@ backend-for-frontend proxy. Read it before adding a feature that touches any of 
 **not** its Gradle project name). They are released in lockstep, because the SDK's POM pins the
 model at the exact version built alongside it. The shared POM, signing and staging setup is the
 `maven-central-conventions` plugin in `buildSrc`. `./gradlew centralBundle` stages both modules
-and zips the Maven Central deployment bundle. The upload is a deliberate manual step, because
-**a Central release can never be replaced or deleted**. A mistake can only be fixed by releasing
-a new version.
+and zips the Maven Central deployment bundle. **A Central release can never be replaced or
+deleted**. A mistake can only be fixed by releasing a new version.
 
-- Versions live in the root `gradle.properties` (`apiModelVersion`, `javaSdkVersion`). Bump both.
+- To release, set both versions in the root `gradle.properties` (`apiModelVersion`,
+  `javaSdkVersion`) to `X.Y.Z`, merge, and push the tag `java-sdk-vX.Y.Z`. The tag is prefixed
+  because the SDK and the platform are on separate version lines.
+- `.github/workflows/java-sdk-release.yml` then checks the tag against both versions, builds and
+  tests, and signs, uploads and publishes to Central. It waits in the `release` environment for
+  approval, which is the human gate. On a pull request touching the release machinery it
+  rehearses everything except the upload, signing with a throwaway key.
 - Signing is skipped unless a key is configured: `-PsigningKey`/`SIGNING_KEY` (plus
   `-PsigningPassword`), or `-PsigningUseGpgCommand=true`. `centralBundle` refuses to build an
   unsigned bundle.
-- Tag SDK releases `java-sdk-v<version>`. The SDK and the platform are on separate version lines.
 
 The step-by-step runbook (Portal account, namespace verification, key generation, upload) is
 kept locally and is not checked in. Ask the maintainer for it.

@@ -1,0 +1,144 @@
+name: Java SDK release
+
+# Publishes ai.intellistream:datahub-api-model and ai.intellistream:datahub-sdk to Maven Central,
+# in lockstep, when a java-sdk-vX.Y.Z tag is pushed (or a GitHub Release is created with one).
+# The tag is prefixed because the SDK and the platform are on separate version lines; a bare
+# vX.Y.Z belongs to the platform.
+on:
+  push:
+    tags: ['java-sdk-v*']
+  # Rehearse the whole pipeline, signing and bundle included, when the version or the release
+  # machinery changes, so it is not first exercised during an actual release. The publish job
+  # skips unless this is a tag.
+  pull_request:
+    paths:
+      - gradle.properties
+      - build.gradle
+      - buildSrc/src/main/groovy/ai.intellistream.datahub.maven-central-conventions.gradle
+      - datahub-api-model/build.gradle
+      - datahub-java-sdk/build.gradle
+      - .github/workflows/java-sdk-release.yml
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    name: Tag matches the versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: |
+          set -euo pipefail
+          model=$(grep -m1 '^apiModelVersion=' gradle.properties | cut -d= -f2)
+          sdk=$(grep -m1 '^javaSdkVersion=' gradle.properties | cut -d= -f2)
+          echo "apiModelVersion=$model javaSdkVersion=$sdk ref=${GITHUB_REF_NAME:-}"
+          # The SDK's POM pins api-model at the version built alongside it.
+          if [ "$model" != "$sdk" ]; then
+            echo "::error::apiModelVersion ($model) and javaSdkVersion ($sdk) disagree"
+            exit 1
+          fi
+          # Only a tag push carries a version to check against; a rehearsal has none.
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^java-sdk-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected java-sdk-vX.Y.Z)"
+              exit 1
+            fi
+            if [ "${GITHUB_REF_NAME#java-sdk-v}" != "$sdk" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match javaSdkVersion $sdk"
+              exit 1
+            fi
+          fi
+
+  build:
+    name: Build and test
+    runs-on: ubuntu-latest
+    needs: versions
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      # build.yml does not run on a tag push, so this is the only test run a release gets.
+      - run: ./gradlew :datahub-api-model:build :datahub-java-sdk:build
+
+  bundle:
+    name: Signed bundle (throwaway key)
+    runs-on: ubuntu-latest
+    needs: versions
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      # Signs with a key generated here, so every rehearsal exercises signing and the bundle's
+      # unsigned-file guard without touching the real key. The real key is used only by publish.
+      - run: |
+          set -euo pipefail
+          export GNUPGHOME=$(mktemp -d)
+          gpg --batch --passphrase '' --quick-generate-key \
+              "throwaway rehearsal key <ci@example.invalid>" rsa2048 sign 1d
+          SIGNING_KEY=$(gpg --armor --export-secret-keys ci@example.invalid) \
+          SIGNING_PASSWORD='' \
+              ./gradlew centralBundle
+      - uses: actions/upload-artifact@v7
+        with:
+          name: central-bundle-rehearsal
+          retention-days: 7
+          path: build/central/*.zip
+
+  publish:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+    needs: [build, bundle]
+    if: startsWith(github.ref, 'refs/tags/java-sdk-v') && github.repository_owner == 'IntelliStream-DataHub'
+    environment: release
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      # Signing needs the real key, so the bundle is rebuilt here rather than downloaded.
+      - run: ./gradlew centralBundle
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+      # Central has no OIDC trusted publishing, so this takes a Portal user token. AUTOMATIC
+      # publishes as soon as validation passes; the release environment is the human gate.
+      # A Central release can never be replaced or deleted.
+      - name: Upload and wait for Central to publish
+        env:
+          CENTRAL_TOKEN_USER: ${{ secrets.CENTRAL_TOKEN_USER }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#java-sdk-v}
+          auth=$(printf '%s:%s' "$CENTRAL_TOKEN_USER" "$CENTRAL_TOKEN_PASSWORD" | base64 -w0)
+          api=https://central.sonatype.com/api/v1/publisher
+          id=$(curl -sS --fail-with-body -H "Authorization: Bearer $auth" \
+                 -F "bundle=@build/central/datahub-central-$version.zip" \
+                 "$api/upload?name=datahub-java-sdk-$version&publishingType=AUTOMATIC")
+          echo "deployment $id"
+          # Validation plus the push to Central usually takes minutes; allow up to 45.
+          for _ in $(seq 1 90); do
+            status=$(curl -sS --fail-with-body -X POST -H "Authorization: Bearer $auth" \
+                       "$api/status?id=$id")
+            state=$(printf '%s' "$status" | jq -r .deploymentState)
+            echo "state: $state"
+            case "$state" in
+              PUBLISHED) exit 0 ;;
+              FAILED) printf '%s\n' "$status" | jq .; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::deployment $id did not reach PUBLISHED in time; check the Portal"
+          exit 1
