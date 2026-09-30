@@ -6,8 +6,8 @@ name: Java SDK release
 #
 # To release: set both versions in gradle.properties to X.Y.Z and merge; on that commit run
 #   ./gradlew centralBundle -PsigningUseGpgCommand=true
-# then publish a GitHub Release tagged java-sdk-vX.Y.Z with build/central/datahub-central-X.Y.Z.zip
-# attached. The tag is prefixed because the SDK and the platform are on separate version lines.
+# then publish a GitHub Release tagged vX.Y.Z with build/central/datahub-central-X.Y.Z.zip attached.
+# Every published release runs this, so vX.Y.Z tags belong to the Java SDK.
 on:
   release:
     types: [published]
@@ -46,11 +46,11 @@ jobs:
           fi
           # Only a release carries a version to check against; a rehearsal has none.
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^java-sdk-v[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected java-sdk-vX.Y.Z)"
+            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected vX.Y.Z)"
               exit 1
             fi
-            if [ "${GITHUB_REF_NAME#java-sdk-v}" != "$sdk" ]; then
+            if [ "${GITHUB_REF_NAME#v}" != "$sdk" ]; then
               echo "::error::tag $GITHUB_REF_NAME does not match javaSdkVersion $sdk"
               exit 1
             fi
@@ -87,7 +87,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = release ]; then
-            echo "VERSION=${GITHUB_REF_NAME#java-sdk-v}" >> "$GITHUB_ENV"
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
             echo "VERSION_ARGS=" >> "$GITHUB_ENV"
           else
             # A snapshot stages under timestamped file names that differ build to build, so the
@@ -166,7 +166,7 @@ jobs:
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
         run: |
           set -euo pipefail
-          version=${GITHUB_REF_NAME#java-sdk-v}
+          version=${GITHUB_REF_NAME#v}
           auth=$(printf '%s:%s' "$CENTRAL_TOKEN_USER" "$CENTRAL_TOKEN_PASSWORD" | base64 -w0)
           api=https://central.sonatype.com/api/v1/publisher
           id=$(curl -sS --fail-with-body -H "Authorization: Bearer $auth" \

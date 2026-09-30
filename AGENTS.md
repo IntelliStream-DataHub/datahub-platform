@@ -69,8 +69,8 @@ To release `X.Y.Z`:
 2. On that merged commit, with no `-P` version overrides, run
    `./gradlew centralBundle -PsigningUseGpgCommand=true`. It signs through your local gpg agent;
    add `-Psigning.gnupg.keyName=<fingerprint>` if you hold more than one key.
-3. `gh release create java-sdk-vX.Y.Z build/central/datahub-central-X.Y.Z.zip`. The tag is
-   prefixed because the SDK and the platform are on separate version lines.
+3. `gh release create vX.Y.Z build/central/datahub-central-X.Y.Z.zip`. Every published GitHub
+   Release runs the release workflow, so `vX.Y.Z` tags and releases belong to the Java SDK.
 
 `.github/workflows/java-sdk-release.yml` then checks the tag against both versions, and builds and
 tests. `scripts/verify-central-bundle.sh` then verifies the attached bundle: it holds exactly the
