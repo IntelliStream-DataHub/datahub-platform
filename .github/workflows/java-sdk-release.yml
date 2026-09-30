@@ -112,6 +112,8 @@ jobs:
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
           SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          # The signing subkey's last 8 hex digits. Public, so a variable, not a secret.
+          SIGNING_KEY_ID: ${{ vars.SIGNING_KEY_ID }}
       # Central has no OIDC trusted publishing, so this takes a Portal user token. AUTOMATIC
       # publishes as soon as validation passes; the release environment is the human gate.
       # A Central release can never be replaced or deleted.

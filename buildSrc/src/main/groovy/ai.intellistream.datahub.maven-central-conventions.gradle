@@ -114,7 +114,8 @@ publishing {
 
 // --- Signing --------------------------------------------------------------------------
 // Two supported key sources, neither of which puts a key in the repo:
-//   -PsigningKey / SIGNING_KEY          ASCII-armoured secret key (what CI uses)
+//   -PsigningKey / SIGNING_KEY          ASCII-armoured secret key (what CI uses), plus
+//   -PsigningKeyId / SIGNING_KEY_ID     the signing subkey's ID when the primary only certifies
 //   -PsigningUseGpgCommand=true         delegate to the local gpg agent (what a laptop uses)
 // With neither set, the Sign tasks are skipped so ordinary `./gradlew build` and
 // publishToMavenLocal keep working unsigned. The root `centralBundle` task refuses to
@@ -123,13 +124,20 @@ def signingKey = providers.gradleProperty('signingKey')
         .orElse(providers.environmentVariable('SIGNING_KEY'))
 def signingPassword = providers.gradleProperty('signingPassword')
         .orElse(providers.environmentVariable('SIGNING_PASSWORD'))
+// The signing subkey's short ID (its last 8 hex digits; Gradle rejects the 16-digit form).
+// Required when the primary key only certifies, which is the recommended layout: without it
+// the in-memory signer uses the primary key and produces a signature nothing can verify.
+def signingKeyId = providers.gradleProperty('signingKeyId')
+        .orElse(providers.environmentVariable('SIGNING_KEY_ID'))
 def useGpgCommand = providers.gradleProperty('signingUseGpgCommand')
         .orElse(providers.environmentVariable('SIGNING_USE_GPG_COMMAND'))
         .map { it.toBoolean() }.getOrElse(false)
 def signingConfigured = signingKey.present || useGpgCommand
 
 signing {
-    if (signingKey.present) {
+    if (signingKey.present && signingKeyId.present) {
+        useInMemoryPgpKeys(signingKeyId.get(), signingKey.get(), signingPassword.getOrElse(''))
+    } else if (signingKey.present) {
         useInMemoryPgpKeys(signingKey.get(), signingPassword.getOrElse(''))
     } else if (useGpgCommand) {
         useGpgCmd()

@@ -66,7 +66,8 @@ deleted**. A mistake can only be fixed by releasing a new version.
   approval, which is the human gate. On a pull request touching the release machinery it
   rehearses everything except the upload, signing with a throwaway key.
 - Signing is skipped unless a key is configured: `-PsigningKey`/`SIGNING_KEY` (plus
-  `-PsigningPassword`), or `-PsigningUseGpgCommand=true`. `centralBundle` refuses to build an
+  `-PsigningPassword`, and `-PsigningKeyId`, the signing subkey's last 8 hex digits, when the
+  primary key only certifies), or `-PsigningUseGpgCommand=true`. `centralBundle` refuses to build an
   unsigned bundle.
 
 The step-by-step runbook (Portal account, namespace verification, key generation, upload) is
