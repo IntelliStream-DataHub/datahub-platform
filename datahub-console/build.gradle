@@ -5,7 +5,6 @@ plugins {
 }
 
 group = 'ai.intellistream.datahub'
-version = '0.0.1-SNAPSHOT'
 
 // Generates META-INF/build-info.properties, which Spring Boot turns into a BuildProperties bean.
 // The About dialog reports the version and build time from it (see AboutInfo). The Boot plugin

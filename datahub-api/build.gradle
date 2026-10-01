@@ -9,7 +9,6 @@ plugins {
 }
 
 group = 'ai.intellistream.datahub.api'
-version = '0.0.1-SNAPSHOT'
 
 
 configurations {

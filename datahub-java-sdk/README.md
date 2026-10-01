@@ -329,7 +329,7 @@ here and installing both artifacts to the local Maven repository:
 ```
 
 Then add `mavenLocal()` to that project's repositories and depend on
-`ai.intellistream:datahub-sdk:0.3.0-SNAPSHOT` (or whatever `javaSdkVersion` you built with).
+`ai.intellistream:datahub-sdk:1.0.0-SNAPSHOT` (or whatever `version` you built with).
 
 To also publish to a Maven repository of your own, pass its URL; there is deliberately no default
 (`centralBundle`, for Maven Central, stages to a local directory instead):

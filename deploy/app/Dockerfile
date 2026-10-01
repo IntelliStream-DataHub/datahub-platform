@@ -15,8 +15,17 @@ FROM docker.io/library/eclipse-temurin:25-jdk AS build
 WORKDIR /src
 COPY . .
 # --no-daemon: one-shot build, no lingering daemon in the layer. Builds all app
-# bootJars (incl. the console's PostCSS/node step, provisioned by node-gradle).
-RUN ./gradlew --no-daemon clean bootJar
+# bootJars (incl. the console's PostCSS/node step, provisioned by node-gradle), then copies each
+# module's boot jar to /out/<module>.jar so the runtime stage need not know the version. The
+# -plain jar the jar task builds beside it is skipped.
+RUN ./gradlew --no-daemon clean bootJar \
+    && mkdir /out \
+    && for libs in datahub-*/build/libs; do \
+         m=${libs%%/*}; \
+         for j in "$libs/$m"-*.jar; do \
+           case "$j" in *-plain.jar|*"*"*) ;; *) cp "$j" "/out/$m.jar" ;; esac; \
+         done; \
+       done
 
 # ---- runtime stage: JRE + this module's jar + the shared entrypoint ----
 FROM docker.io/library/eclipse-temurin:25-jre
@@ -31,7 +40,7 @@ WORKDIR /app
 # Which module's jar this image runs (datahub-api / datahub-console /
 # datahub-stateless-consumer / datahub-analysis / datahub-cleanup).
 ARG MODULE
-COPY --from=build /src/${MODULE}/build/libs/${MODULE}-0.0.1-SNAPSHOT.jar /app/app.jar
+COPY --from=build /out/${MODULE}.jar /app/app.jar
 COPY --from=build /src/deploy/app/entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint
 
