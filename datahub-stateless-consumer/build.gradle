@@ -6,7 +6,6 @@ plugins {
 }
 
 group = 'ai.intellistream.datahub.consumer.stateless'
-version = '0.0.1-SNAPSHOT'
 
 
 idea {

@@ -91,7 +91,7 @@ tasks.register('centralBundle', Zip) {
     // Portal rejects a bundle carrying files it did not expect.
     exclude '**/maven-metadata*'
 
-    archiveFileName = "datahub-central-${providers.gradleProperty('javaSdkVersion').getOrElse('0.3.0-SNAPSHOT')}.zip"
+    archiveFileName = "datahub-central-${version}.zip"
     destinationDirectory = layout.buildDirectory.dir('central')
 
     // Central rejects an unsigned deployment, and the Sign tasks skip silently when no key

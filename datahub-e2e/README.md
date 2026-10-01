@@ -26,10 +26,10 @@ benchmark prints would be measuring that instead of the code.
 ./gradlew :datahub-api:bootJar :datahub-stateless-consumer:bootJar
 
 java -Xms4g -Xmx4g -XX:+UseG1GC -Dspring.profiles.active=dev,local \
-  -jar datahub-api/build/libs/datahub-api-0.0.1-SNAPSHOT.jar &
+  -jar datahub-api/build/libs/datahub-api-*-SNAPSHOT.jar &
 
 java -Xms4g -Xmx4g -XX:+UseG1GC -Dspring.profiles.active=dev,local \
-  -jar datahub-stateless-consumer/build/libs/datahub-stateless-consumer-0.0.1-SNAPSHOT.jar &
+  -jar datahub-stateless-consumer/build/libs/datahub-stateless-consumer-*-SNAPSHOT.jar &
 ```
 
 ## Environment

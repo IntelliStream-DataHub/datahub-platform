@@ -76,7 +76,7 @@ jar { enabled = true; archiveClassifier = '' }
 // SDK. The group, licence/scm/developer POM metadata, sources+javadoc jars, the
 // LICENSE inside each jar, signing and the staging repository all come from the
 // maven-central-conventions plugin; `./gradlew centralBundle` builds the deployment.
-version = providers.gradleProperty('apiModelVersion').getOrElse('0.3.0-SNAPSHOT')
+// The version is the platform's, from the root gradle.properties.
 
 publishing.publications.mavenJava {
     pom {

@@ -98,5 +98,5 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
 - Out-of-tree consumers install the artifact with `publishToMavenLocal`; there is no
   public Maven release yet. The remote `publish` repository exists only when
   `-PmavenPublishUrl` names one; `centralBundle` (root project) stages to a local directory
-  for Maven Central. The version comes from the `javaSdkVersion` Gradle property (default
-  `0.3.0-SNAPSHOT`), and the Maven artifactId is `datahub-sdk`, not the Gradle project name.
+  for Maven Central. The version is the platform's, the `version` in the root
+  `gradle.properties`, and the Maven artifactId is `datahub-sdk`, not the Gradle project name.

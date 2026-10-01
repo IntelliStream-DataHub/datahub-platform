@@ -40,6 +40,8 @@ tasks.register('nar', Zip) {
     dependsOn tasks.named('jar')
     archiveExtension = 'nar'
     archiveClassifier = ''
+    // Unversioned, as brokers load it by path (README); a release attaches it with the version.
+    archiveVersion = ''
     from(tasks.named('jar')) {
         into 'META-INF/bundled-dependencies'
     }

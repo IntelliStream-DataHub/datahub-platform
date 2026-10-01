@@ -1,57 +1,67 @@
-name: Java SDK release
+name: Release
 
-# Publishes ai.intellistream:datahub-api-model and ai.intellistream:datahub-sdk to Maven Central,
-# in lockstep. Each release is signed on the release manager's own machine with their personal
-# key; this workflow never holds a signing key. It checks the signed bundle and uploads it.
+# Releases the platform and the Java SDK together, at one version, from a vX.Y.Z GitHub Release
+# on the minor version's release branch release/vX.Y:
+#   - the service jars and the Pulsar filter are attached to the GitHub Release, with SHA256SUMS
+#     and a build-provenance attestation;
+#   - ai.intellistream:datahub-api-model and ai.intellistream:datahub-sdk go to Maven Central.
 #
-# To release: set both versions in gradle.properties to X.Y.Z and merge; on that commit run
+# The SDK is signed on the release manager's own machine with their personal key; this workflow
+# never holds a signing key. To release X.Y.Z: on release/vX.Y, set `version` in gradle.properties
+# to X.Y.Z; on that commit run
 #   ./gradlew centralBundle -PsigningUseGpgCommand=true
-# then publish a GitHub Release tagged vX.Y.Z with build/central/datahub-central-X.Y.Z.zip attached.
-# Every published release runs this, so vX.Y.Z tags belong to the Java SDK.
+# then publish a GitHub Release tagged vX.Y.Z, targeting release/vX.Y, with
+# build/central/datahub-central-X.Y.Z.zip attached.
 on:
   release:
     types: [published]
-  # Rehearse the whole pipeline, with a throwaway signing key, when the version or the release
-  # machinery changes, so it is not first exercised during an actual release. The publish job
-  # skips unless this is a release.
+  # Rehearse everything but the upload and the attaching, with a throwaway signing key, when the
+  # version or the release machinery changes, so it is not first exercised during a release.
   pull_request:
     paths:
       - gradle.properties
       - build.gradle
-      - buildSrc/src/main/groovy/ai.intellistream.datahub.maven-central-conventions.gradle
-      - datahub-api-model/build.gradle
-      - datahub-java-sdk/build.gradle
+      - '*/build.gradle'
+      - buildSrc/**
       - datahub-java-sdk/RELEASE_SIGNERS
       - scripts/verify-central-bundle.sh
-      - .github/workflows/java-sdk-release.yml
+      - .github/workflows/release.yml
 
 permissions:
   contents: read
 
 jobs:
   versions:
-    name: Tag matches the versions
+    name: Tag matches the version and its release branch
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The release-branch check needs the branches' history, not just the tagged commit.
+          fetch-depth: 0
       - run: |
           set -euo pipefail
-          model=$(grep -m1 '^apiModelVersion=' gradle.properties | cut -d= -f2)
-          sdk=$(grep -m1 '^javaSdkVersion=' gradle.properties | cut -d= -f2)
-          echo "apiModelVersion=$model javaSdkVersion=$sdk ref=${GITHUB_REF_NAME:-}"
-          # The SDK's POM pins api-model at the version built alongside it.
-          if [ "$model" != "$sdk" ]; then
-            echo "::error::apiModelVersion ($model) and javaSdkVersion ($sdk) disagree"
-            exit 1
-          fi
+          version=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          echo "version=$version ref=${GITHUB_REF_NAME:-}"
           # Only a release carries a version to check against; a rehearsal has none.
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
             if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
               echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected vX.Y.Z)"
               exit 1
             fi
-            if [ "${GITHUB_REF_NAME#v}" != "$sdk" ]; then
-              echo "::error::tag $GITHUB_REF_NAME does not match javaSdkVersion $sdk"
+            if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match version $version in gradle.properties"
+              exit 1
+            fi
+            # Released from the minor version's release branch: the tagged commit has to be on
+            # it, not just anywhere in the repository.
+            branch=release/${GITHUB_REF_NAME%.*}
+            if ! git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null; then
+              echo "::error::release branch $branch does not exist; tag vX.Y.Z on release/vX.Y"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+              echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on $branch"
               exit 1
             fi
           fi
@@ -69,10 +79,43 @@ jobs:
           java-version: '25'
       - uses: gradle/actions/setup-gradle@v6
       # build.yml does not run on a release, so this is the only test run a release gets.
-      - run: ./gradlew :datahub-api-model:build :datahub-java-sdk:build
+      - run: ./gradlew build
 
-  verify:
-    name: Verify the signed bundle
+  platform:
+    name: Platform jars
+    runs-on: ubuntu-latest
+    needs: versions
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '25'
+      - uses: gradle/actions/setup-gradle@v6
+      # The services the systemd examples run, one boot jar each, and the broker-side Pulsar
+      # filter. The NAR builds unversioned, because brokers load it by path; the release copy
+      # carries the version like the jars.
+      - run: |
+          set -euo pipefail
+          ./gradlew :datahub-api:bootJar :datahub-console:bootJar :datahub-stateless-consumer:bootJar \
+                    :datahub-analysis:bootJar :datahub-cleanup:bootJar :datahub-pulsar-filter:nar
+          version=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          mkdir dist
+          for m in api console stateless-consumer analysis cleanup; do
+            cp "datahub-$m/build/libs/datahub-$m-$version.jar" dist/
+          done
+          cp datahub-pulsar-filter/build/distributions/datahub-pulsar-filter.nar \
+             "dist/datahub-pulsar-filter-$version.nar"
+          (cd dist && sha256sum * > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: platform-dist
+          retention-days: 7
+          path: dist/
+
+  sdk:
+    name: Verify the signed SDK bundle
     runs-on: ubuntu-latest
     needs: versions
     timeout-minutes: 30
@@ -92,9 +135,9 @@ jobs:
           else
             # A snapshot stages under timestamped file names that differ build to build, so the
             # rehearsal builds at the release version the snapshot is heading for.
-            v=$(grep -m1 '^javaSdkVersion=' gradle.properties | cut -d= -f2)
+            v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
             echo "VERSION=${v%-SNAPSHOT}" >> "$GITHUB_ENV"
-            echo "VERSION_ARGS=-PjavaSdkVersion=${v%-SNAPSHOT} -PapiModelVersion=${v%-SNAPSHOT}" >> "$GITHUB_ENV"
+            echo "VERSION_ARGS=-Pversion=${v%-SNAPSHOT}" >> "$GITHUB_ENV"
           fi
       # What the tagged source builds to, unsigned. The bundle must match it byte for byte.
       - name: Build the expected artifacts
@@ -129,7 +172,7 @@ jobs:
           SIGNING_PASSWORD='' \
               ./gradlew centralBundle $VERSION_ARGS
           mkdir -p "$RUNNER_TEMP/bundle"
-          cp build/central/*.zip "$RUNNER_TEMP/bundle/"
+          cp "build/central/datahub-central-$VERSION.zip" "$RUNNER_TEMP/bundle/"
           fpr=$(gpg --list-keys --with-colons ci@example.invalid | awk -F: '/^fpr/{print $10; exit}')
           echo "$fpr  throwaway rehearsal key" > "$RUNNER_TEMP/signers"
           gpg --armor --export ci@example.invalid > "$RUNNER_TEMP/pubkeys.asc"
@@ -146,10 +189,10 @@ jobs:
           retention-days: 7
           path: ${{ runner.temp }}/bundle/*.zip
 
-  publish:
-    name: Publish to Maven Central
+  publish-sdk:
+    name: Publish the SDK to Maven Central
     runs-on: ubuntu-latest
-    needs: [build, verify]
+    needs: [build, platform, sdk]
     if: github.event_name == 'release' && github.repository_owner == 'IntelliStream-DataHub'
     environment: release
     timeout-minutes: 60
@@ -171,7 +214,7 @@ jobs:
           api=https://central.sonatype.com/api/v1/publisher
           id=$(curl -sS --fail-with-body -H "Authorization: Bearer $auth" \
                  -F "bundle=@datahub-central-$version.zip" \
-                 "$api/upload?name=datahub-java-sdk-$version&publishingType=AUTOMATIC")
+                 "$api/upload?name=datahub-$version&publishingType=AUTOMATIC")
           echo "deployment $id"
           # Validation plus the push to Central usually takes minutes; allow up to 45.
           for _ in $(seq 1 90); do
@@ -187,3 +230,28 @@ jobs:
           done
           echo "::error::deployment $id did not reach PUBLISHED in time; check the Portal"
           exit 1
+
+  attach-platform:
+    name: Attach the platform jars to the release
+    runs-on: ubuntu-latest
+    # After the SDK is on Central, so a release shows its jars only once all of it went out.
+    needs: publish-sdk
+    if: github.event_name == 'release' && github.repository_owner == 'IntelliStream-DataHub'
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: platform-dist
+          path: dist
+      # Signed provenance tying each file to this workflow run and the tagged commit;
+      # `gh attestation verify <file> --repo IntelliStream-DataHub/datahub-platform` checks it.
+      - uses: actions/attest@v4
+        with:
+          subject-path: 'dist/*'
+      - name: Attach
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY"

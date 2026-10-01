@@ -48,37 +48,48 @@ as the authoritative store, validation before anything goes async, one type labe
 on the frontend, calling datahub-api directly rather than extending the console's
 backend-for-frontend proxy. Read it before adding a feature that touches any of those.
 
-## Releasing the published artifacts
+## Releasing
 
-`datahub-api-model` and `datahub-java-sdk` are the only modules published as Maven coordinates:
-`ai.intellistream:datahub-api-model` and `ai.intellistream:datahub-sdk` (the SDK's artifactId is
-**not** its Gradle project name). They are released in lockstep, because the SDK's POM pins the
-model at the exact version built alongside it. The shared POM, signing and staging setup is the
-`maven-central-conventions` plugin in `buildSrc`. `./gradlew centralBundle` stages both modules
-and zips the Maven Central deployment bundle. **A Central release can never be replaced or
-deleted**. A mistake can only be fixed by releasing a new version.
+The platform and the Java SDK are released **together, at one version**: the `version` in the
+root `gradle.properties`, which Gradle applies to every module (override with `-Pversion=X.Y.Z`).
+A `vX.Y.Z` GitHub Release on the minor version's release branch `release/vX.Y` runs
+`.github/workflows/release.yml`, which publishes:
 
-Each release is signed on the release manager's own machine with their **personal** key; CI
-never holds a signing key. The keys allowed to sign are the primary fingerprints in
+- **the platform:** the five service boot jars (`datahub-api`, `-console`, `-stateless-consumer`,
+  `-analysis`, `-cleanup`) and the Pulsar filter (`datahub-pulsar-filter-X.Y.Z.nar`), attached
+  to the GitHub Release with a `SHA256SUMS` and a build-provenance attestation. The systemd
+  examples install these.
+- **the Java SDK:** `ai.intellistream:datahub-api-model` and `ai.intellistream:datahub-sdk` (the
+  SDK's artifactId is **not** its Gradle project name) on Maven Central. **A Central release can
+  never be replaced or deleted**. A mistake can only be fixed by releasing a new version.
+
+The SDK is signed on the release manager's own machine with their **personal** key; CI never
+holds a signing key. The keys allowed to sign are the primary fingerprints in
 `datahub-java-sdk/RELEASE_SIGNERS`, so adding a release manager is a reviewed change to that file.
+The shared POM, signing and staging setup is the `maven-central-conventions` plugin in
+`buildSrc`; `./gradlew centralBundle` stages both SDK modules and zips the Central bundle.
 
 To release `X.Y.Z`:
 
-1. Set both versions in the root `gradle.properties` (`apiModelVersion`, `javaSdkVersion`) to
-   `X.Y.Z` and merge.
-2. On that merged commit, with no `-P` version overrides, run
+1. On `release/vX.Y` (branched from `main` for a new minor, with fixes cherry-picked for a
+   patch), set `version` in `gradle.properties` to `X.Y.Z`.
+2. On that commit, with no `-P` version override, run
    `./gradlew centralBundle -PsigningUseGpgCommand=true`. It signs through your local gpg agent;
    add `-Psigning.gnupg.keyName=<fingerprint>` if you hold more than one key.
-3. `gh release create vX.Y.Z build/central/datahub-central-X.Y.Z.zip`. Every published GitHub
-   Release runs the release workflow, so `vX.Y.Z` tags and releases belong to the Java SDK.
+3. `gh release create vX.Y.Z --target release/vX.Y build/central/datahub-central-X.Y.Z.zip`.
 
-`.github/workflows/java-sdk-release.yml` then checks the tag against both versions, and builds and
-tests. `scripts/verify-central-bundle.sh` then verifies the attached bundle: it holds exactly the
-expected files, every file is signed by a listed key, and every file is byte-identical to what
-the tagged commit builds. The build is reproducible across JDK vendors, so a bundle built from any
-other commit or version fails. The job then waits in the `release` environment for approval, and
-uploads and publishes the verified bundle to Central. On a pull request that touches the release
-machinery, the workflow rehearses everything except the upload, signing with a throwaway key.
+The workflow:
+1. checks the tag against `version` and that the tagged commit is on `release/vX.Y`;
+2. builds and tests;
+3. builds the platform jars;
+4. verifies the attached SDK bundle with `scripts/verify-central-bundle.sh`. The bundle must hold
+   exactly the expected files, every file must be signed by a listed key, and every file must be
+   byte-identical to what the tagged commit builds; the build is reproducible across JDK vendors;
+5. waits in the `release` environment for approval, then publishes the SDK to Central;
+6. attaches the platform jars to the release.
+
+On a pull request that touches the version or the release machinery, it rehearses everything up
+to the upload, signing the SDK with a throwaway key.
 
 `centralBundle` refuses to build an unsigned bundle. Besides `-PsigningUseGpgCommand=true` it
 takes an in-memory key, `-PsigningKey`/`SIGNING_KEY` with `-PsigningPassword`, which is what the

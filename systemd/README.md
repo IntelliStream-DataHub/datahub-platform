@@ -52,11 +52,18 @@ dnf install temurin-25-jdk          # AlmaLinux   |   apt install temurin-25-jdk
 useradd --system --home-dir /opt/datahub --shell /usr/sbin/nologin datahub
 install -d -o root -g root -m 755 /opt/datahub /etc/datahub
 
-# One jar per service, built with ./gradlew bootJar
+# One jar per service, from the GitHub Release (the files are checked against its SHA256SUMS)
+VERSION=1.0.0                                  # the release this host runs
+base=https://github.com/IntelliStream-DataHub/datahub-platform/releases/download/v$VERSION
+curl -fsSLO "$base/SHA256SUMS"
 for m in api console; do                       # whichever this host runs
+  curl -fsSLO "$base/datahub-$m-$VERSION.jar"
+  grep " datahub-$m-$VERSION.jar\$" SHA256SUMS | sha256sum -c -
   install -d /opt/datahub/$m
-  install -m 644 datahub-$m/build/libs/datahub-$m-0.0.1-SNAPSHOT.jar /opt/datahub/$m/app.jar
+  install -m 644 datahub-$m-$VERSION.jar /opt/datahub/$m/app.jar
 done
+#   (or build from a checkout of the tag: ./gradlew bootJar, then
+#    datahub-$m/build/libs/datahub-$m-$VERSION.jar)
 
 # Unit, placement drop-ins, env, Spring config
 install -m 644 systemd/datahub@.service /etc/systemd/system/

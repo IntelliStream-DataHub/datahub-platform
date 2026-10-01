@@ -5,7 +5,6 @@ plugins {
 }
 
 group = 'ai.intellistream.datahub.rvm'
-version = '0.0.1-SNAPSHOT'
 
 configurations {
 	compileOnly {
