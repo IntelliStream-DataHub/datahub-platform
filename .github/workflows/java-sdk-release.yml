@@ -4,10 +4,15 @@ name: Java SDK release
 # in lockstep. Each release is signed on the release manager's own machine with their personal
 # key; this workflow never holds a signing key. It checks the signed bundle and uploads it.
 #
-# To release: set both versions in gradle.properties to X.Y.Z and merge; on that commit run
+# The SDK is released separately from the platform, on its own version line, but the same way:
+# the platform tags vX.Y.Z on release/vX.Y, the SDK tags sdk-vX.Y.Z on release/sdk-vX.Y.
+#
+# To release: on release/sdk-vX.Y, set both versions in gradle.properties to X.Y.Z; on that
+# commit run
 #   ./gradlew centralBundle -PsigningUseGpgCommand=true
-# then publish a GitHub Release tagged vX.Y.Z with build/central/datahub-central-X.Y.Z.zip attached.
-# Every published release runs this, so vX.Y.Z tags belong to the Java SDK.
+# then publish a GitHub Release tagged sdk-vX.Y.Z, targeting release/sdk-vX.Y, with
+# build/central/datahub-central-X.Y.Z.zip attached. Every published release starts this
+# workflow; a release whose tag is not sdk-v* (a platform release) skips all of it.
 on:
   release:
     types: [published]
@@ -30,10 +35,15 @@ permissions:
 
 jobs:
   versions:
-    name: Tag matches the versions
+    name: Tag matches the versions and its release branch
+    # Platform releases share the release event; every other job needs this one, so they skip too.
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'sdk-v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The release-branch check needs the branches' history, not just the tagged commit.
+          fetch-depth: 0
       - run: |
           set -euo pipefail
           model=$(grep -m1 '^apiModelVersion=' gradle.properties | cut -d= -f2)
@@ -46,12 +56,23 @@ jobs:
           fi
           # Only a release carries a version to check against; a rehearsal has none.
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
-            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-              echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected vX.Y.Z)"
+            if ! printf '%s' "$GITHUB_REF_NAME" | grep -Eq '^sdk-v[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$GITHUB_REF_NAME' is not a release tag (expected sdk-vX.Y.Z)"
               exit 1
             fi
-            if [ "${GITHUB_REF_NAME#v}" != "$sdk" ]; then
+            if [ "${GITHUB_REF_NAME#sdk-v}" != "$sdk" ]; then
               echo "::error::tag $GITHUB_REF_NAME does not match javaSdkVersion $sdk"
+              exit 1
+            fi
+            # Released from the minor version's SDK release branch, as the platform is from its
+            # own: the tagged commit has to be on it, not just anywhere in the repository.
+            branch=release/${GITHUB_REF_NAME%.*}
+            if ! git rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null; then
+              echo "::error::release branch $branch does not exist; tag sdk-vX.Y.Z on release/sdk-vX.Y"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+              echo "::error::$GITHUB_REF_NAME ($GITHUB_SHA) is not on $branch"
               exit 1
             fi
           fi
@@ -87,7 +108,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = release ]; then
-            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+            echo "VERSION=${GITHUB_REF_NAME#sdk-v}" >> "$GITHUB_ENV"
             echo "VERSION_ARGS=" >> "$GITHUB_ENV"
           else
             # A snapshot stages under timestamped file names that differ build to build, so the
@@ -166,7 +187,7 @@ jobs:
           CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
         run: |
           set -euo pipefail
-          version=${GITHUB_REF_NAME#v}
+          version=${GITHUB_REF_NAME#sdk-v}
           auth=$(printf '%s:%s' "$CENTRAL_TOKEN_USER" "$CENTRAL_TOKEN_PASSWORD" | base64 -w0)
           api=https://central.sonatype.com/api/v1/publisher
           id=$(curl -sS --fail-with-body -H "Authorization: Bearer $auth" \

@@ -62,19 +62,25 @@ Each release is signed on the release manager's own machine with their **persona
 never holds a signing key. The keys allowed to sign are the primary fingerprints in
 `datahub-java-sdk/RELEASE_SIGNERS`, so adding a release manager is a reviewed change to that file.
 
-To release `X.Y.Z`:
+The SDK is released **separately from the platform**, on its own version line, but the same way:
+the platform tags `vX.Y.Z` on its minor-version branch `release/vX.Y`, and the SDK tags
+`sdk-vX.Y.Z` on `release/sdk-vX.Y`.
 
-1. Set both versions in the root `gradle.properties` (`apiModelVersion`, `javaSdkVersion`) to
-   `X.Y.Z` and merge.
-2. On that merged commit, with no `-P` version overrides, run
+To release SDK `X.Y.Z`:
+
+1. On `release/sdk-vX.Y` (branched from `main` for a new minor, with fixes cherry-picked for a
+   patch), set both versions in the root `gradle.properties` (`apiModelVersion`,
+   `javaSdkVersion`) to `X.Y.Z`.
+2. On that commit, with no `-P` version overrides, run
    `./gradlew centralBundle -PsigningUseGpgCommand=true`. It signs through your local gpg agent;
    add `-Psigning.gnupg.keyName=<fingerprint>` if you hold more than one key.
-3. `gh release create vX.Y.Z build/central/datahub-central-X.Y.Z.zip`. Every published GitHub
-   Release runs the release workflow, so `vX.Y.Z` tags and releases belong to the Java SDK.
+3. `gh release create sdk-vX.Y.Z --target release/sdk-vX.Y --latest=false build/central/datahub-central-X.Y.Z.zip`.
+   `--latest=false` keeps the repository's "latest release" pointing at the platform.
 
-`.github/workflows/java-sdk-release.yml` then checks the tag against both versions, and builds and
-tests. `scripts/verify-central-bundle.sh` then verifies the attached bundle: it holds exactly the
-expected files, every file is signed by a listed key, and every file is byte-identical to what
+`.github/workflows/java-sdk-release.yml` then checks the tag against both versions and the
+`release/sdk-vX.Y` branch, and builds and tests. A platform release (`vX.Y.Z`) skips the workflow
+entirely. `scripts/verify-central-bundle.sh` then verifies the attached bundle: it holds exactly
+the expected files, every file is signed by a listed key, and every file is byte-identical to what
 the tagged commit builds. The build is reproducible across JDK vendors, so a bundle built from any
 other commit or version fails. The job then waits in the `release` environment for approval, and
 uploads and publishes the verified bundle to Central. On a pull request that touches the release
