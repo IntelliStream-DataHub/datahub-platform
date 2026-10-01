@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.sdk.ingest.IngestOptions;
+import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 
 import java.util.ArrayList;
@@ -15,7 +16,7 @@ import java.util.List;
  * large collections) and runs the batches through {@link BatchExecutor}. Batches are independent,
  * so there is no cross-batch ordering guarantee — which is fine for timestamped data.
  */
-public final class DatapointIngestor {
+final class DatapointIngestor {
 
     private final ApiHttp http;
     private final String path;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.http;
+package ai.intellistream.datahub.sdk.client;
 
-import ai.intellistream.datahub.sdk.auth.TokenProvider;
+import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.type.TypeFactory;
@@ -19,7 +19,7 @@ import java.util.Map;
  * (de)serializes JSON via Jackson, and maps non-2xx responses to {@link DatahubApiException}.
  * Thread-safe and meant to be shared.
  */
-public final class ApiHttp {
+final class ApiHttp {
 
     /**
      * The API answers a failure with {@code application/problem+json} (RFC 9457), a different media

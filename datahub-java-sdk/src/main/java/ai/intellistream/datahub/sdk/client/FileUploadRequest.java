@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 /**
  * A file to upload: the {@code content} bytes plus metadata. {@code path} (the destination) and

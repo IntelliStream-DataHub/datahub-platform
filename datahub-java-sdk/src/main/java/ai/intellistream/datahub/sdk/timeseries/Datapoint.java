@@ -8,7 +8,7 @@ import java.time.Instant;
 /**
  * A single datapoint to ingest — a timestamp and a value. The {@code of(...)} factories build the
  * string value the wire expects; {@link #toDatapointString()} converts to the wire type. Used by
- * {@link ai.intellistream.datahub.sdk.services.TimeseriesService#ingest(java.util.Map)}.
+ * {@link ai.intellistream.datahub.sdk.client.TimeseriesService#ingest(java.util.Map)}.
  */
 public record Datapoint(Instant timestamp, String value) {
 

@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.files.IndexNode;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 
 import java.net.URLEncoder;
@@ -20,7 +19,7 @@ public final class FileService {
     private final ApiHttp http;
     private final JavaType indexNodes; // DataWrapper<IndexNode>
 
-    public FileService(ApiHttp http) {
+    FileService(ApiHttp http) {
         this.http = http;
         this.indexNodes = http.typeFactory().constructParametricType(DataWrapper.class, IndexNode.class);
     }

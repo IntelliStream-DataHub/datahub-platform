@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.auth;
+package ai.intellistream.datahub.sdk.client;
 
-import ai.intellistream.datahub.sdk.client.DatahubConfig;
 import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.json.JsonMapper;
@@ -23,7 +22,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * cached until shortly before it expires; refresh is single-flight — concurrent callers trigger at
  * most one exchange.
  */
-public final class TokenProvider {
+final class TokenProvider {
 
     private static final long EXPIRY_SKEW_SECONDS = 30;
     private static final String JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.graphtransfer.GraphImportResult;
@@ -16,7 +16,6 @@ import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.RelForm;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
@@ -35,7 +34,7 @@ public final class ResourceService {
     private final JavaType resourceNetwork;  // ResourceNetwork
     private final JavaType graphImportResult; // GraphImportResult
 
-    public ResourceService(ApiHttp http) {
+    ResourceService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.nodes = tf.constructParametricType(DataWrapper.class, NodeModel.class);

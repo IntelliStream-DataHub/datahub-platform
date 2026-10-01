@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataCollection;
 import ai.intellistream.datahub.api.responses.DataRetriever;
@@ -13,16 +13,10 @@ import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.api.responses.DatapointString;
-import ai.intellistream.datahub.sdk.ingest.BinaryDatapointIngestor;
-import ai.intellistream.datahub.sdk.ingest.BinaryIngestBuffer;
 import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
-import ai.intellistream.datahub.sdk.ingest.DatapointIngestor;
-import ai.intellistream.datahub.sdk.ingest.DatapointSpool;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
-import ai.intellistream.datahub.sdk.ingest.SeriesResolver;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;
 import ai.intellistream.datahub.timeseries.Timeseries;
 import ai.intellistream.datahub.models.SearchForm;
@@ -62,11 +56,11 @@ public final class TimeseriesService {
     private final JavaType valueTypeHint;    // ValueTypeRecommendation
     private final JavaType aggregatedData;   // DataWrapper<DataCollection<DatapointAggsDTO>>
 
-    public TimeseriesService(ApiHttp http) {
+    TimeseriesService(ApiHttp http) {
         this(http, null);
     }
 
-    public TimeseriesService(ApiHttp http, DatapointSpool spool) {
+    TimeseriesService(ApiHttp http, DatapointSpool spool) {
         this.http = http;
         this.spool = spool;
         this.ingestor = new DatapointIngestor(http, DATA_PATH);
@@ -447,11 +441,6 @@ public final class TimeseriesService {
     public BinaryIngestBuffer binaryBuffer() {
         return binaryBuffer(BinaryIngestOptions.defaults(), BinaryIngestBuffer.DEFAULT_MAX_POINTS,
                 BinaryIngestBuffer.DEFAULT_MAX_AGE, null);
-    }
-
-    /** The series cache the binary path resolves through; exposed so a caller can drop it. */
-    public SeriesResolver seriesResolver() {
-        return seriesResolver;
     }
 
     private static List<DatapointsCollection> toCollections(Map<String, List<Datapoint>> datapointsByExternalId) {

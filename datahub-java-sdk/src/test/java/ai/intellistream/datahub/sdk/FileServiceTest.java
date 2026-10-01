@@ -5,7 +5,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.files.IndexNode;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
-import ai.intellistream.datahub.sdk.services.FileUploadRequest;
+import ai.intellistream.datahub.sdk.client.FileUploadRequest;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 

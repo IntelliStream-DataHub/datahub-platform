@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
-import ai.intellistream.datahub.sdk.services.TimeseriesService;
+import ai.intellistream.datahub.sdk.ingest.IngestResult;
+import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;
 
 import java.time.Duration;
@@ -51,7 +52,7 @@ public final class BinaryIngestBuffer implements AutoCloseable {
     private volatile IngestResult lastResult;
     private volatile boolean closed;
 
-    public BinaryIngestBuffer(TimeseriesService service, BinaryIngestOptions options,
+    BinaryIngestBuffer(TimeseriesService service, BinaryIngestOptions options,
                               int maxPoints, Duration maxAge, Consumer<IngestResult> onFlush) {
         if (maxPoints <= 0) {
             throw new IllegalArgumentException("maxPoints must be > 0");

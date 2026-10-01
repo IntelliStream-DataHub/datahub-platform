@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.ingest;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -17,7 +17,7 @@ import java.util.Map;
  * time/size retention bounds apply per datapoint), with the flattening to and grouping from
  * {@link DatapointsCollection} that the timeseries ingest path needs.
  */
-public final class DatapointSpool {
+final class DatapointSpool {
 
     /** One spooled datapoint: its series external id and the wire timestamp/value (both strings). */
     public record SpoolLine(String externalId, String timestamp, String value) {

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.subscriptions;
+package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.sdk.subscriptions.SubscriptionMessage;
+import ai.intellistream.datahub.sdk.subscriptions.SubscriptionError;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 

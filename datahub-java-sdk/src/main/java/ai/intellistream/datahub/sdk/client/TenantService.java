@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.models.tenant.SettingsPermission;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.type.TypeFactory;
@@ -26,7 +25,7 @@ public final class TenantService {
     private final JavaType permissions; // Map<String, SettingsPermission>
     private final JavaType llmSettings; // TenantLlmSettings
 
-    public TenantService(ApiHttp http) {
+    TenantService(ApiHttp http) {
         this.http = http;
         TypeFactory tf = http.typeFactory();
         this.features = tf.constructType(TenantFeatures.class);

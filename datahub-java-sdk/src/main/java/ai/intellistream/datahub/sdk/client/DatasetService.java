@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.DataSetModel;
@@ -8,7 +8,6 @@ import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.Resource;
 import ai.intellistream.datahub.models.datafilters.DataSetFilter;
 import ai.intellistream.datahub.models.forms.DataSetForm;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import ai.intellistream.datahub.models.SearchBody;
 import tools.jackson.databind.JavaType;
 
@@ -21,7 +20,7 @@ public final class DatasetService {
     private final JavaType datasets;    // DataWrapper<DataSetModel>
     private final JavaType policyNodes; // DataWrapper<Resource>
 
-    public DatasetService(ApiHttp http) {
+    DatasetService(ApiHttp http) {
         this.http = http;
         this.datasets = http.typeFactory().constructParametricType(DataWrapper.class, DataSetModel.class);
         this.policyNodes = http.typeFactory().constructParametricType(DataWrapper.class, Resource.class);

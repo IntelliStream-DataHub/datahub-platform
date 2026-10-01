@@ -5,7 +5,7 @@ import ai.intellistream.datahub.api.responses.DataCollectionString;
 import ai.intellistream.datahub.api.responses.DataWrapperMessage;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
-import ai.intellistream.datahub.sdk.subscriptions.SubscriptionListener;
+import ai.intellistream.datahub.sdk.client.SubscriptionListener;
 import ai.intellistream.datahub.sdk.subscriptions.SubscriptionMessage;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;
 import ai.intellistream.datahub.subscription.Subscription;

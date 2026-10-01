@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
-package ai.intellistream.datahub.sdk.services;
+package ai.intellistream.datahub.sdk.client;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.models.GovernanceTemplateDTO;
-import ai.intellistream.datahub.sdk.http.ApiHttp;
 import tools.jackson.databind.JavaType;
 
 /**
@@ -16,7 +15,7 @@ public final class GovernanceService {
     private final ApiHttp http;
     private final JavaType templates; // DataWrapper<GovernanceTemplateDTO>
 
-    public GovernanceService(ApiHttp http) {
+    GovernanceService(ApiHttp http) {
         this.http = http;
         this.templates = http.typeFactory()
                 .constructParametricType(DataWrapper.class, GovernanceTemplateDTO.class);
