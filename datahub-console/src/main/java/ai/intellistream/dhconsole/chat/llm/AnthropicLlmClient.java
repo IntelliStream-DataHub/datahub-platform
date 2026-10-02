@@ -4,6 +4,9 @@ package ai.intellistream.dhconsole.chat.llm;
 import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
+import com.anthropic.errors.AnthropicIoException;
+import com.anthropic.errors.AnthropicRetryableException;
+import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
@@ -21,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -78,7 +82,21 @@ public class AnthropicLlmClient implements LlmClient {
             params.addMessage(toMessageParam(message));
         }
 
-        Message response = client.messages().create(params.build());
+        Message response;
+        try {
+            response = client.messages().create(params.build());
+        } catch (AnthropicServiceException e) {
+            // Anthropic answered, and said no. The status says who has to act: a 401 is the key, a
+            // 404 the model name, a 400 the request itself (a model that does not take adaptive
+            // thinking or effort, or an account out of credit), a 429 or 5xx Anthropic's side.
+            throw new LlmException(LlmException.Reason.forStatus(e.statusCode()),
+                    "Anthropic answered HTTP " + e.statusCode() + " for model " + settings.model()
+                            + ": " + e.getMessage(), e);
+        } catch (AnthropicIoException | AnthropicRetryableException e) {
+            throw new LlmException(timedOut(e) ? LlmException.Reason.TIMED_OUT
+                    : LlmException.Reason.UNREACHABLE,
+                    "Could not reach Anthropic for model " + settings.model() + ": " + e.getMessage(), e);
+        }
 
         if (response.stopReason().filter(StopReason.REFUSAL::equals).isPresent()) {
             // A safety classifier declined. Content is empty or partial, so don't read it as an
@@ -111,6 +129,16 @@ public class AnthropicLlmClient implements LlmClient {
     @Override
     public String providerId(ChatSettings settings) {
         return "anthropic/" + settings.model();
+    }
+
+    /** A connection that was made and then went quiet, as opposed to one never made at all. */
+    private static boolean timedOut(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SocketTimeoutException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static OutputConfig.Effort toEffort(ChatEffort effort) {

@@ -11,6 +11,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -214,16 +215,24 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             // application is stopping — a restart, a redeploy, or devtools reloading a class.
             throw new IllegalStateException(
                     "Interrupted while waiting for " + endpoint + "; the application is shutting down", e);
+        } catch (HttpConnectTimeoutException e) {
+            // Caught before its parent: no connection within the connect timeout is a server that
+            // is not there, not a slow model.
+            throw new LlmException(LlmException.Reason.UNREACHABLE,
+                    "Could not connect to the model server at " + endpoint, e);
         } catch (HttpTimeoutException e) {
-            throw new IllegalStateException(
+            throw new LlmException(LlmException.Reason.TIMED_OUT,
                     "No response from " + endpoint + " within " + turnTimeout + ". Raise this tenant's "
                             + "llm.turn-timeout if the model is simply slow; note a reverse proxy "
                             + "and the browser each impose their own, lower ceiling.", e);
         } catch (Exception e) {
-            throw new IllegalStateException("Could not reach the model server at " + endpoint, e);
+            throw new LlmException(LlmException.Reason.UNREACHABLE,
+                    "Could not reach the model server at " + endpoint, e);
         }
         if (response.statusCode() != 200) {
-            throw new IllegalStateException(
+            // Ollama answers 404 both for a model it has not pulled and for a path it does not
+            // serve, which is what a base URL without /v1 produces, so NOT_FOUND covers both.
+            throw new LlmException(LlmException.Reason.forStatus(response.statusCode()),
                     "Model server returned HTTP " + response.statusCode() + ": " + response.body());
         }
         return json.readTree(response.body());

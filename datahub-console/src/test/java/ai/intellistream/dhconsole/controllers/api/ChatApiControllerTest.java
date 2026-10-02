@@ -7,6 +7,7 @@ import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
 import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
+import ai.intellistream.dhconsole.chat.llm.LlmException;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
 import ai.intellistream.dhconsole.chat.mcp.McpException;
 import ai.intellistream.dhconsole.chat.state.ChatConversation;
@@ -20,9 +21,14 @@ import org.springframework.mock.web.MockHttpSession;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 
 import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -62,6 +68,8 @@ class ChatApiControllerTest {
         messages.addMessage("chat.error.generic", Locale.ENGLISH, "Something went wrong.");
         messages.addMessage("chat.error.session.expired", Locale.ENGLISH, "Your session expired.");
         messages.addMessage("chat.error.api.unreachable", Locale.ENGLISH, "API unreachable.");
+        messages.addMessage("chat.error.model.credential", Locale.ENGLISH, "Key rejected.");
+        messages.addMessage("chat.error.timeout", Locale.ENGLISH, "Too slow.");
         messages.setUseCodeAsDefaultMessage(true);
 
         ConsoleViews consoleViews = new ConsoleViews(JsonMapper.builder().build());
@@ -211,6 +219,46 @@ class ChatApiControllerTest {
     }
 
     @Test
+    void aModelThatRejectsItsKeySaysSoRatherThanSomethingWentWrong() throws Exception {
+        // The provider's answer is for the log. The user gets the reason, as a fixed sentence
+        // naming where it is fixed, and nothing the provider said.
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
+                .thenThrow(new LlmException(LlmException.Reason.CREDENTIAL_REJECTED,
+                        "Anthropic answered HTTP 401 for model claude-opus-5: invalid x-api-key"));
+
+        mockMvc.perform(post("/api/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hi\"}"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error").value("Key rejected."));
+    }
+
+    @Test
+    void aModelThatRanOutOfTimeIsAGatewayTimeout() throws Exception {
+        when(chatService.send(any(), any(), anyString(), anyString(), any(), any()))
+                .thenThrow(new LlmException(LlmException.Reason.TIMED_OUT, "No response within PT4M"));
+
+        mockMvc.perform(post("/api/chat")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hi\"}"))
+                .andExpect(status().isGatewayTimeout())
+                .andExpect(jsonPath("$.error").value("Too slow."));
+    }
+
+    @Test
+    void everyModelFailureHasItsOwnMessageInBothLanguages() throws Exception {
+        // Read straight from the bundles: a key missing from the Norwegian one would otherwise fall
+        // back to English unnoticed, and one missing from both would show the user the key itself.
+        Properties english = bundle("i18n/messages.properties");
+        Properties norwegian = bundle("i18n/messages_nb.properties");
+        for (LlmException.Reason reason : LlmException.Reason.values()) {
+            String key = ChatApiController.messageKey(reason);
+            assertThat(english.getProperty(key)).as("English %s for %s", key, reason).isNotBlank();
+            assertThat(norwegian.getProperty(key)).as("Norwegian %s for %s", key, reason).isNotBlank();
+        }
+    }
+
+    @Test
     void historyReturnsProseTurnsAndSkipsToolPlumbing() throws Exception {
         ChatConversation conversation = new ChatConversation();
         conversation.append(LlmMessage.user("how many datasets?"));
@@ -307,6 +355,15 @@ class ChatApiControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"hi\"}"))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    private static Properties bundle(String path) throws IOException {
+        Properties properties = new Properties();
+        try (InputStream in = ChatApiControllerTest.class.getClassLoader().getResourceAsStream(path)) {
+            assertThat(in).as(path).isNotNull();
+            properties.load(new InputStreamReader(in, StandardCharsets.UTF_8));
+        }
+        return properties;
     }
 
     private static ai.intellistream.dhconsole.chat.config.ChatSettings withDefaultEffort(

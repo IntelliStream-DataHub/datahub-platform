@@ -9,6 +9,7 @@ import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
 import ai.intellistream.dhconsole.chat.llm.ChatEffort;
 import ai.intellistream.dhconsole.chat.llm.LlmBlock;
+import ai.intellistream.dhconsole.chat.llm.LlmException;
 import ai.intellistream.dhconsole.chat.llm.LlmMessage;
 import ai.intellistream.dhconsole.chat.mcp.McpException;
 import ai.intellistream.dhconsole.chat.state.ChatConversation;
@@ -151,6 +152,18 @@ public class ChatApiController {
             log.warn("Chat turn failed talking to the api after {} ms", elapsedMs(startedAt), e);
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(ChatResponse.error(message("chat.error.api.unreachable", locale)));
+        } catch (LlmException e) {
+            if (wasInterrupted(e)) {
+                return abandoned(startedAt, locale);
+            }
+            // The provider refused or could not be reached. Not this application's fault and not
+            // the user's either, so no stack trace: the provider's own answer, which getMessage()
+            // carries, is what whoever fixes the settings needs.
+            log.warn("Chat turn failed after {} ms: the model could not answer ({}): {}{}",
+                    elapsedMs(startedAt), e.reason(), e.getMessage(), rootCause(e));
+            return ResponseEntity.status(e.reason() == LlmException.Reason.TIMED_OUT
+                            ? HttpStatus.GATEWAY_TIMEOUT : HttpStatus.BAD_GATEWAY)
+                    .body(ChatResponse.error(message(messageKey(e.reason()), locale)));
         } catch (RuntimeException e) {
             if (wasInterrupted(e)) {
                 // Not a fault in the turn: this thread was interrupted, which in practice means the
@@ -158,10 +171,7 @@ public class ChatApiController {
                 // mid-turn. Logged without a stack trace, because 160 frames of servlet plumbing
                 // say nothing that this sentence does not, and reading it as a chat bug costs an
                 // afternoon.
-                log.warn("Chat turn abandoned after {} ms: the thread was interrupted, which normally "
-                        + "means the application is shutting down or restarting", elapsedMs(startedAt));
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                        .body(ChatResponse.error(message("chat.error.generic", locale)));
+                return abandoned(startedAt, locale);
             }
             log.error("Chat turn failed after {} ms", elapsedMs(startedAt), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -264,6 +274,43 @@ public class ChatApiController {
     public ResponseEntity<Void> reset(HttpSession session) {
         session.removeAttribute(CONVERSATION_ATTRIBUTE);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * The innermost cause, for the one-line log above: "could not reach" says little until it says
+     * whether the connection was refused, the host unknown or the certificate rejected.
+     */
+    private static String rootCause(Throwable failure) {
+        Throwable root = failure;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root == failure ? "" : " (" + root.getClass().getSimpleName()
+                + (root.getMessage() == null ? "" : ": " + root.getMessage()) + ")";
+    }
+
+    private ResponseEntity<ChatResponse> abandoned(long startedAt, Locale locale) {
+        log.warn("Chat turn abandoned after {} ms: the thread was interrupted, which normally "
+                + "means the application is shutting down or restarting", elapsedMs(startedAt));
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(ChatResponse.error(message("chat.error.generic", locale)));
+    }
+
+    /**
+     * What the user is told when the model could not answer. Every one of these but a rate limit, a
+     * timeout and a provider outage is fixed in Settings, so those name it; the user asking is
+     * rarely the person who can, so they say who is.
+     */
+    static String messageKey(LlmException.Reason reason) {
+        return switch (reason) {
+            case CREDENTIAL_REJECTED -> "chat.error.model.credential";
+            case NOT_FOUND -> "chat.error.model.notfound";
+            case REQUEST_REJECTED -> "chat.error.model.rejected";
+            case RATE_LIMITED -> "chat.error.model.ratelimited";
+            case PROVIDER_ERROR -> "chat.error.model.provider";
+            case UNREACHABLE -> "chat.error.model.unreachable";
+            case TIMED_OUT -> "chat.error.timeout";
+        };
     }
 
     /**
