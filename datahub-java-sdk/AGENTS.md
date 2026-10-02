@@ -104,8 +104,8 @@ value types a caller names.
   `AnalysisApiClientFactory` builds a per-request `DatahubClient` with the caller's forwarded
   JWT as a static token (the SDK bakes the token into the client, hence per-request wrappers).
   Changes to `DatahubConfig`, `TokenProvider`, or service signatures ripple there.
-- Out-of-tree consumers install the artifact with `publishToMavenLocal`; there is no
-  public Maven release yet. The remote `publish` repository exists only when
+- Released versions are on Maven Central from 1.0.0; out-of-tree consumers of an unreleased
+  build install it with `publishToMavenLocal`. The remote `publish` repository exists only when
   `-PmavenPublishUrl` names one; `centralBundle` (root project) stages to a local directory
   for Maven Central. The version is the platform's, the `version` in the root
   `gradle.properties`, and the Maven artifactId is `datahub-sdk`, not the Gradle project name.

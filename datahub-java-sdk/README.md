@@ -321,15 +321,15 @@ v4 id scatters writes across the keyspace and can badly degrade insert/merge/que
 The SDK builds as part of the platform Gradle build and depends on `datahub-api-model` as a
 sibling project.
 
-There is no public Maven release yet, so an out-of-tree project gets the SDK by building it
-here and installing both artifacts to the local Maven repository:
+From 1.0.0 both artifacts are on Maven Central, so an out-of-tree project depends on
+`ai.intellistream:datahub-sdk:1.0.0`, which brings `datahub-api-model` with it. To use a build
+of your own instead, install both artifacts to the local Maven repository:
 
 ```bash
 ./gradlew :datahub-api-model:publishToMavenLocal :datahub-java-sdk:publishToMavenLocal
 ```
 
-Then add `mavenLocal()` to that project's repositories and depend on
-`ai.intellistream:datahub-sdk:1.0.0-SNAPSHOT` (or whatever `version` you built with).
+Then add `mavenLocal()` to that project's repositories and depend on the `version` you built with.
 
 To also publish to a Maven repository of your own, pass its URL; there is deliberately no default
 (`centralBundle`, for Maven Central, stages to a local directory instead):
