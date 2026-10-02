@@ -71,8 +71,9 @@ The shared POM, signing and staging setup is the `maven-central-conventions` plu
 
 To release `X.Y.Z`:
 
-1. On `release/vX.Y` (branched from `main` for a new minor, with fixes cherry-picked for a
-   patch), set `version` in `gradle.properties` to `X.Y.Z`.
+1. For a new minor, set `version` in `gradle.properties` to `X.Y.0` on `main`, cut
+   `release/vX.Y` from that commit, and only then move `main` to the next `-SNAPSHOT`. For a
+   patch, cherry-pick the fixes onto `release/vX.Y` and set `version` to `X.Y.Z` there.
 2. On that commit, with no `-P` version override, run
    `./gradlew centralBundle -PsigningUseGpgCommand=true`. It signs through your local gpg agent;
    add `-Psigning.gnupg.keyName=<fingerprint>` if you hold more than one key.
