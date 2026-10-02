@@ -144,10 +144,14 @@ JSON
 # should have to look up a uuid to write one.
 #
 # Separate from tenant-resources on purpose. That secret holds every tenant's database credentials,
-# and this is the piece of tenant config a person will eventually edit from the console — Vault
-# cannot narrow a write within a secret, so a write path would have to grant far more than the
-# model settings. Nothing writes it yet; putting it in the right place now means the write is a
-# policy line later rather than a data migration for everyone who configured it early.
+# and this is the piece of tenant config a person edits from the console (Settings → AI assistant,
+# written by datahub-api) — Vault cannot narrow a write within a secret, so a write path would
+# have to grant far more than the model settings. The policy below grants write on tenant-config/*
+# and nothing else.
+#
+# A `kv put` replaces the whole secret, so re-running this resets foo to the values below and
+# discards whatever was saved from the Settings page since. The containerised seed (compose
+# vault-seed) is not passed DATAHUB_CHAT_API_KEY, so there foo always gets the placeholder key.
 #
 # Seeded for foo only. bar deliberately has none, so the dev stack shows both outcomes: foo gets
 # a chat panel and bar does not. There is no deployment-wide model to fall back to — a tenant that
@@ -162,7 +166,7 @@ echo "==> Seeding per-tenant model config (foo only; bar gets no chat panel)"
 vault kv put "$MOUNT/tenant-config/foo" \
   llm.provider=anthropic \
   llm.api-key="${DATAHUB_CHAT_API_KEY:-changeme}" \
-  llm.model="${DATAHUB_CHAT_MODEL:-claude-opus-5}"
+  llm.model="${DATAHUB_CHAT_MODEL:-claude-opus-5-5}"
 
 echo "==> Enabling AppRole auth + datahub policy"
 vault auth enable approle 2>/dev/null || echo "    (already enabled)"

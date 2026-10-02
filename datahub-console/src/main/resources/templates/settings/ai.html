@@ -33,9 +33,29 @@
 			</div>
 
 			<div class="settings-banner settings-banner-warn" data-type="settings-unconfigured" hidden>
-				<i class="fa-solid fa-triangle-exclamation"></i>
+				<i class="fa-solid fa-circle-info"></i>
 				<span th:text="#{settings.ai.unconfigured}"></span>
 			</div>
+
+			<!-- Three steps and the way to the full guide. settings-ai.js opens it when nothing is
+			     configured yet; once there is a model it folds to one line. -->
+			<details class="settings-guide" data-type="setup-guide">
+				<summary>
+					<i class="fa-regular fa-circle-question"></i>
+					<span th:text="#{settings.ai.guide.title}"></span>
+					<i class="fa-solid fa-chevron-up settings-guide-chevron"></i>
+				</summary>
+				<ol>
+					<li><strong th:text="#{settings.ai.guide.step1.title}"></strong>
+						<span th:text="#{settings.ai.guide.step1.text}"></span></li>
+					<li><strong th:text="#{settings.ai.guide.step2.title}"></strong>
+						<span th:text="#{settings.ai.guide.step2.text}"></span></li>
+					<li><strong th:text="#{settings.ai.guide.step3.title}"></strong>
+						<span th:text="#{settings.ai.guide.step3.text}"></span></li>
+				</ol>
+				<a class="settings-guide-more" th:href="#{settings.ai.guide.url}" rel="noopener"
+				   target="_blank"><span th:text="#{settings.ai.guide.full}"></span> →</a>
+			</details>
 
 			<!-- Sections, not fieldsets: a legend cannot be positioned reliably across browsers and
 			     brought its own border that fought the themed surface underneath. -->
@@ -74,6 +94,7 @@
 					<label for="baseUrl" th:text="#{settings.ai.baseurl}"></label>
 					<input id="baseUrl" name="baseUrl" type="text" autocomplete="off"
 					       th:attr="placeholder=#{settings.ai.baseurl.placeholder}"/>
+					<p class="field-help" th:text="#{settings.ai.baseurl.help}"></p>
 					<p class="field-error" data-error-for="baseUrl" hidden></p>
 				</div>
 

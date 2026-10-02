@@ -55,6 +55,13 @@
 	font-size: 13px;
 }
 
+/* The display above outranks the browser's own [hidden] rule, so without this a banner the script
+   hides stays on screen: every writer was told they could only view, and every configured tenant
+   that its assistant was not running. */
+.settings-banner[hidden] {
+	display: none;
+}
+
 .settings-banner-warn {
 	border-color: var(--limit);
 	color: var(--text);
@@ -62,6 +69,76 @@
 
 .settings-banner-warn i {
 	color: var(--limit);
+}
+
+/* The setup steps. The same surface as the banners, so it reads as guidance rather than as part
+   of the form; open while nothing is configured, one line once something is. */
+.settings-guide {
+	margin-bottom: var(--space-xl);
+	border: 1px solid var(--border);
+	border-radius: 7px;
+	background: var(--policy-surface);
+	font-size: 13px;
+}
+
+.settings-guide > summary {
+	display: flex;
+	align-items: center;
+	gap: var(--space);
+	padding: var(--space-lg) var(--space-xl);
+	cursor: pointer;
+	list-style: none;
+	font-weight: 600;
+}
+
+.settings-guide > summary::-webkit-details-marker {
+	display: none;
+}
+
+.settings-guide > summary .fa-circle-question {
+	color: var(--text-muted);
+}
+
+/* Up is the only chevron in the console's icon subset, so it is turned to point down while the
+   guide is folded. */
+.settings-guide-chevron {
+	margin-left: auto;
+	font-size: 11px;
+	color: var(--text-muted);
+	transform: rotate(180deg);
+	transition: transform 0.15s ease;
+}
+
+.settings-guide[open] .settings-guide-chevron {
+	transform: none;
+}
+
+.settings-guide ol {
+	margin: 0;
+	padding: 0 var(--space-xl) 0 calc(var(--space-xl) + 18px);
+	color: var(--text-muted);
+	line-height: 1.5;
+}
+
+.settings-guide li {
+	margin-bottom: var(--space);
+}
+
+.settings-guide li strong {
+	color: var(--text);
+}
+
+/* The accent the dashboard's own "see more" links use: the base link colour is meant for a page
+   background and all but disappears on this recessed surface in the dark theme. */
+.settings-guide-more {
+	display: inline-block;
+	margin: 0 var(--space-xl) var(--space-lg);
+	color: var(--accent);
+	text-decoration: none;
+}
+
+.settings-guide-more:hover {
+	text-decoration: underline;
 }
 
 /* A section rather than a card-in-a-card: the page is already a narrow column, so boxing every
