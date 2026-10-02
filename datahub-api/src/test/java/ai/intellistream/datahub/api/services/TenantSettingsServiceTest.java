@@ -14,7 +14,13 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import tools.jackson.databind.json.JsonMapper;
 
+import com.sun.net.httpserver.HttpServer;
+
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,7 +56,7 @@ class TenantSettingsServiceTest {
         tenantConfigService = mock(TenantConfigService.class);
         when(tenantConfigService.getConfig(anyString())).thenReturn(tenant);
         writer = mock(TenantLlmWriter.class);
-        service = new TenantSettingsService(tenantConfigService, writer);
+        service = new TenantSettingsService(tenantConfigService, writer, JsonMapper.builder().build());
 
         TenantContext.setTenantId(ORG_ID);
     }
@@ -58,6 +64,24 @@ class TenantSettingsServiceTest {
     @AfterEach
     void clearTenant() {
         TenantContext.clear();
+        if (modelServer != null) {
+            modelServer.stop(0);
+        }
+    }
+
+    private HttpServer modelServer;
+
+    /** A model server answering {@code GET /v1/models} with this status and body; returns its base URL. */
+    private String modelServer(int status, String body) throws IOException {
+        modelServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        modelServer.createContext("/v1/models", exchange -> {
+            byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        modelServer.start();
+        return "http://127.0.0.1:" + modelServer.getAddress().getPort() + "/v1";
     }
 
     private static TenantLlm anthropic(String key) {
@@ -160,12 +184,12 @@ class TenantSettingsServiceTest {
         TenantLlm onprem = new TenantLlm();
         onprem.setProvider(LlmProvider.OPENAI_COMPATIBLE);
         onprem.setModel("qwen3-32b");
-        onprem.setBaseUrl("http://vllm:8000/v1");
+        onprem.setBaseUrl("http://127.0.0.1:1/v1");
         onprem.setApiKey("gateway-token");
         tenant.setLlm(onprem);
 
         service.updateLlm(new TenantLlmSettingsForm("openai-compatible", "qwen3-32b", "",
-                "http://vllm:8000/v1", null, null, null, null, null, null));
+                "http://127.0.0.1:1/v1", null, null, null, null, null, null));
 
         assertThat(keptStoredKey()).isTrue();
         assertThat(written()).doesNotContainValue("gateway-token");
@@ -241,5 +265,79 @@ class TenantSettingsServiceTest {
                 .containsEntry("max-iterations", "20")
                 .containsEntry("instructions", "House style.");
         verify(tenantConfigService).refreshCache();
+    }
+
+    /**
+     * Any name saves, listed or not: some hosts are called by names their {@code /models} leaves
+     * out, such as Azure deployment names or gateway aliases.
+     */
+    @Test
+    void aModelTheServerDoesNotListIsStillSaved() throws IOException {
+        tenant.setLlm(null);
+        String baseUrl = modelServer(200, "{\"data\":[{\"id\":\"gpt-4o\"}]}");
+
+        service.updateLlm(new TenantLlmSettingsForm("openai-compatible", "my-azure-deployment",
+                null, baseUrl, null, null, null, null, null, null));
+
+        assertThat(written()).containsEntry("model", "my-azure-deployment");
+    }
+
+    @Test
+    void theServersModelsAreListed() throws IOException {
+        tenant.setLlm(null);
+        String baseUrl = modelServer(200,
+                "{\"object\":\"list\",\"data\":[{\"id\":\"qwen3.8:latest\"},{\"id\":\"nemotron:30b\"}]}");
+
+        assertThat(service.listModels(baseUrl, null)).containsExactly("qwen3.8:latest", "nemotron:30b");
+    }
+
+    /** Nothing from a server that failed reaches the caller, not even that it failed. */
+    @Test
+    void aServerThatCannotBeAskedListsNothing() throws IOException {
+        tenant.setLlm(null);
+
+        assertThat(service.listModels(modelServer(500, "internal detail"), null)).isEmpty();
+        assertThat(service.listModels("http://127.0.0.1:1/v1", null)).isEmpty();
+    }
+
+    @Test
+    void listingNeedsAnHttpUrl() {
+        assertThatThrownBy(() -> service.listModels("file:///etc/passwd", null))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.listModels(null, null))
+                .isInstanceOf(BadRequestException.class);
+    }
+
+    /**
+     * The stored key is sent only to the server it is already sent to. Otherwise anyone who may
+     * edit these settings could read it by listing models from a server of their own.
+     */
+    @Test
+    void theStoredKeyGoesOnlyToTheStoredServer() throws IOException {
+        var authorization = new java.util.concurrent.atomic.AtomicReference<String>();
+        modelServer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        modelServer.createContext("/v1/models", exchange -> {
+            authorization.set(exchange.getRequestHeaders().getFirst("Authorization"));
+            byte[] bytes = "{\"data\":[]}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        modelServer.start();
+        String baseUrl = "http://127.0.0.1:" + modelServer.getAddress().getPort() + "/v1";
+
+        TenantLlm stored = new TenantLlm();
+        stored.setProvider(LlmProvider.OPENAI_COMPATIBLE);
+        stored.setModel("qwen3-32b");
+        stored.setBaseUrl("http://vllm.internal:8000/v1");
+        stored.setApiKey("gateway-token");
+        tenant.setLlm(stored);
+
+        service.listModels(baseUrl, null);
+        assertThat(authorization.get()).isNull();
+
+        stored.setBaseUrl(baseUrl);
+        service.listModels(baseUrl, null);
+        assertThat(authorization.get()).isEqualTo("Bearer gateway-token");
     }
 }

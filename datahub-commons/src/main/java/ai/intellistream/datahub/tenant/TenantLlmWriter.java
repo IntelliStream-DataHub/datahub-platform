@@ -69,26 +69,34 @@ public class TenantLlmWriter {
         Existing existing = read(client, path);
         Map<String, String> merged = merge(existing.data(), section, keepStoredApiKey);
 
+        int status;
         try {
             WriteOptions options = new WriteOptions();
             if (existing.version() != null) {
                 options = options.checkAndSet(existing.version());
             }
-            client.logical().write(path, Map.copyOf(merged), null, options.build());
+            status = client.logical().write(path, Map.copyOf(merged), null, options.build())
+                    .getRestResponse().getStatus();
         } catch (VaultException e) {
-            if (e.getHttpStatusCode() == 403) {
-                throw new IllegalStateException("Vault refused the write to " + path
-                        + ". The AppRole policy needs create and update on this path"
-                        + " (KV v2 writes go to <mount>/data/...). (" + e.getMessage() + ")", e);
-            }
-            if (e.getHttpStatusCode() == 400) {
-                // Vault answers 400, not 409, when a check-and-set fails. Saying "conflict" would
-                // be a guess — a genuinely malformed write lands here too — so name both.
-                throw new IllegalStateException("Vault rejected the write to " + path
-                        + ", which usually means someone else changed these settings first."
-                        + " Reload and try again. (" + e.getMessage() + ")", e);
-            }
             throw new IllegalStateException("Could not write " + path + ": " + e.getMessage(), e);
+        }
+        // The driver returns a 4xx as a response rather than throwing, so a refused write looks
+        // like a successful one unless the status is checked here.
+        if (status == 403) {
+            throw new IllegalStateException("Vault refused the write to " + path
+                    + ". The AppRole policy needs create and update on this path"
+                    + " (KV v2 writes go to <mount>/data/...).");
+        }
+        if (status == 400) {
+            // Vault answers 400, not 409, when a check-and-set fails. Saying "conflict" would be a
+            // guess — a genuinely malformed write lands here too — so name both.
+            throw new IllegalStateException("Vault rejected the write to " + path
+                    + ", which usually means someone else changed these settings first."
+                    + " Reload and try again.");
+        }
+        if (status != 200 && status != 204) {
+            throw new IllegalStateException("Could not write " + path + ": Vault answered HTTP "
+                    + status);
         }
         long llmKeys = merged.keySet().stream().filter(key -> key.startsWith(LLM_PREFIX)).count();
         log.info("Model configuration updated for tenant {} ({} llm keys)", orgName, llmKeys);
@@ -147,6 +155,17 @@ public class TenantLlmWriter {
     private Existing read(Vault client, String path) {
         try {
             LogicalResponse response = client.logical().read(path);
+            int status = response.getRestResponse().getStatus();
+            if (status == 404) {
+                return new Existing(Map.of(), 0L);
+            }
+            if (status != 200) {
+                // A 403 must not pass for "no secret": that would write with cas=0 and fail with a
+                // misleading conflict message, or overwrite under a policy that allows only create.
+                throw new IllegalStateException("Could not read " + path + " before writing it:"
+                        + " Vault answered HTTP " + status
+                        + (status == 403 ? ". The AppRole policy needs read on this path." : ""));
+            }
             Map<String, String> data = response.getData();
             if (data == null || data.isEmpty()) {
                 // Vault answers 200 with an empty body for a soft-deleted secret, so this is
@@ -161,9 +180,6 @@ public class TenantLlmWriter {
             }
             return new Existing(data, version);
         } catch (VaultException e) {
-            if (e.getHttpStatusCode() == 404) {
-                return new Existing(Map.of(), 0L);
-            }
             throw new IllegalStateException("Could not read " + path + " before writing it: "
                     + e.getMessage(), e);
         }

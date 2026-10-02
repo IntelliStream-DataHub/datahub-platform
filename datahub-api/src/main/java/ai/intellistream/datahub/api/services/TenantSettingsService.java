@@ -14,8 +14,17 @@ import ai.intellistream.datahub.tenant.TenantLlmWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Service;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -36,10 +45,19 @@ public class TenantSettingsService {
 
     private final TenantConfigService tenantConfigService;
     private final TenantLlmWriter llmWriter;
+    private final JsonMapper jsonMapper;
+    private final HttpClient http;
 
-    public TenantSettingsService(TenantConfigService tenantConfigService, TenantLlmWriter llmWriter) {
+    public TenantSettingsService(TenantConfigService tenantConfigService, TenantLlmWriter llmWriter,
+                                 JsonMapper jsonMapper) {
         this.tenantConfigService = tenantConfigService;
         this.llmWriter = llmWriter;
+        this.jsonMapper = jsonMapper;
+        // The URL is the tenant's, so no redirects: one hop to where it says, never onwards.
+        this.http = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(2))
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build();
     }
 
     /** Never includes the credential — see {@link TenantLlmSettings#apiKeySet()}. */
@@ -79,6 +97,42 @@ public class TenantSettingsService {
                 section.keepStoredApiKey());
         tenantConfigService.refreshCache();
         return readLlm();
+    }
+
+    /**
+     * The model ids an OpenAI-compatible server lists, as suggestions for the model field.
+     *
+     * <p>Suggestions only, never a check on what may be saved. Hosts differ in what {@code /models}
+     * promises: Azure lists base models but is called by deployment name, and gateways accept
+     * aliases they do not list. So a server that cannot be asked gives an empty list, not an error.
+     *
+     * @param apiKey null to list with the stored key, which is used only against the stored base URL
+     */
+    public List<String> listModels(String baseUrl, String apiKey) {
+        String url = trimmed(baseUrl);
+        URI uri;
+        try {
+            uri = url == null ? null : URI.create(url);
+        } catch (IllegalArgumentException e) {
+            uri = null;
+        }
+        if (uri == null || !("http".equals(uri.getScheme()) || "https".equals(uri.getScheme()))
+                || uri.getHost() == null) {
+            var errors = new FieldErrors();
+            errors.addFieldError("baseUrl", "Not an http(s) URL, e.g. http://localhost:11434/v1");
+            throw new BadRequestException("Cannot list models.", errors);
+        }
+        String key = trimmed(apiKey);
+        if (key == null) {
+            // The stored key goes only where it is already sent. Otherwise anyone who may edit
+            // these settings could read the key by listing models from a server of their own.
+            TenantLlm stored = currentTenant().getLlm();
+            if (stored != null && url.equals(trimmed(stored.getBaseUrl()))) {
+                key = keyOf(stored);
+            }
+        }
+        List<String> served = servedModels(url, key);
+        return served == null ? List.of() : served;
     }
 
     /**
@@ -170,6 +224,53 @@ public class TenantSettingsService {
         section.put("max-iterations", asString(form.maxIterations()));
         section.put("instructions", trimmed(form.instructions()));
         return new LlmSection(section, keepStoredApiKey);
+    }
+
+    /**
+     * The model ids an OpenAI-compatible server lists at {@code <baseUrl>/models}, or null when it
+     * could not be asked.
+     *
+     * <p>Nothing the server returned beyond the ids reaches the caller, not even its status: the URL
+     * is the tenant's own, and this must not become a way to read responses from hosts only the api
+     * can see.
+     */
+    private List<String> servedModels(String baseUrl, String apiKey) {
+        try {
+            String root = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+            HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(root + "/models"))
+                    .timeout(Duration.ofSeconds(3))
+                    .GET();
+            if (apiKey != null) {
+                request.header("Authorization", "Bearer " + apiKey);
+            }
+            HttpResponse<String> response = http.send(request.build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.info("Cannot list models: {}/models answered HTTP {}", root,
+                        response.statusCode());
+                return null;
+            }
+            JsonNode data = jsonMapper.readTree(response.body()).path("data");
+            if (!data.isArray()) {
+                log.info("Cannot list models: {}/models returned no model list", root);
+                return null;
+            }
+            List<String> ids = new ArrayList<>();
+            data.forEach(entry -> {
+                String id = entry.path("id").asString(null);
+                if (id != null) {
+                    ids.add(id);
+                }
+            });
+            return ids;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception e) {
+            log.info("Cannot list models at {}: {}", baseUrl,
+                    e.getMessage());
+            return null;
+        }
     }
 
     /** The section to write, and whether the writer must carry the stored credential across. */
