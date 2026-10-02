@@ -100,7 +100,8 @@ export VAULT_TOKEN=$(docker compose logs vault-init 2>&1 | grep -oE 'hvs\.[A-Za-
 ./scripts/vault-seed.sh               # writes localhost hosts; prints role-id / secret-id
 ```
 
-Copy the printed **role-id** / **secret-id** for step 4. Re-running the seed is safe. After a
+Copy the printed **role-id** / **secret-id** for step 4. Re-running the seed is safe, though it
+resets `foo`'s assistant model (see [The console assistant](#the-console-assistant-ask-ai)). After a
 restart, the next `up` auto-unseals again and the seeded secrets are still there.
 
 > **Hardening Vault for production.** The unseal key is stored next to the data (on the
@@ -490,6 +491,95 @@ Keycloak issuer, reads roles from `realm_access.roles`, and needs the nested
 token, but that token still has to be exchanged for a Keycloak one before `datahub-api`
 will accept it — see [EntraID.md](EntraID.md).
 
+## The console assistant (Ask AI)
+
+The console's **Ask AI** panel is an LLM that answers questions through the platform's own
+MCP tools, read-only, as the signed-in user. It shows only when all three of these hold, and
+`ChatAccess` is the one place that checks them:
+
+| Gate | Where it lives | Dev stack |
+|------|----------------|-----------|
+| The tenant is entitled to chat | `"chat": true` in the tenant's `tenant-config` block of `tenant-resources`. A tenant whose block leaves `chat` out gets the console's `datahub.features.chat`, which defaults to `false` | Seeded for `foo` and `bar` |
+| The tenant has configured a usable model | `tenant-config/<org-name>`: a provider, a model, and an `llm.api-key` (Anthropic) or `llm.base-url` (OpenAI-compatible) | Seeded for `foo` only, with a placeholder key |
+| The user may use it | `DATAHUB_CHAT` realm role | `foo` and `bar` (realm import) |
+
+Who may *change* the model is a fourth thing: the `/settings/llm/read` and
+`/settings/llm/write` organization groups, which `bootstrap-org-groups.sh` gives `foo` and
+`bar`. With them, the model is edited in the console under **Settings → AI assistant** (user
+menu), which calls `PUT /tenant/settings/llm` on datahub-api, which writes
+`tenant-config/<org-name>`. The console's tenant cache picks a change up within five minutes;
+restart `datahub-console` to skip the wait.
+
+**Out of the box, `foo` sees the panel and every question fails.** The seed writes
+`llm.provider=anthropic llm.model=claude-opus-5-5 llm.api-key=changeme` (the key and model come
+from `DATAHUB_CHAT_API_KEY` / `DATAHUB_CHAT_MODEL` when set), which counts as configured, so the
+panel shows, and Anthropic then rejects the key: the console log shows Anthropic answering 401
+`invalid x-api-key` for the failed chat turn. `bar` has no model and no panel, on purpose, so the
+stack shows both outcomes.
+
+To make it answer, pick one of the following.
+
+**A hosted model (Anthropic).** Sign in as `foo`, open **Settings → AI assistant**, paste a real
+key into **API key** and save. In the host/Gradle workflow you can seed it instead:
+
+```bash
+DATAHUB_CHAT_API_KEY=sk-ant-... ./scripts/vault-seed.sh   # optionally DATAHUB_CHAT_MODEL=...
+```
+
+The containerised `vault-seed` does not pass `DATAHUB_CHAT_API_KEY` through, so under
+`scripts/up.sh` use the Settings page.
+
+**A local model (Ollama, no key and no bill).** Pull a model that supports tool calling
+(Ollama's library tags them *tools*), then point `foo` at it from **Settings → AI assistant**:
+provider **OpenAI-compatible**, the model name as `ollama list` prints it, and a base URL that
+depends on where the console runs. Once the base URL is filled in, the page offers the server's
+models as suggestions under **Model**: datahub-api asks `<base-url>/models`, so suggestions
+appearing also means the api can reach the server (the console makes the chat calls, from the
+same network in this stack).
+
+| Console runs | Base URL | Ollama must listen on |
+|--------------|----------|------------------------|
+| On the host (`bootRun`, steps 4–6) | `http://localhost:11434/v1` | the default (`127.0.0.1`) is fine |
+| In a container (`scripts/up.sh`, rootless podman) | `http://host.containers.internal:11434/v1` | `0.0.0.0`: `OLLAMA_HOST=0.0.0.0 ollama serve` |
+
+In the container case `localhost` is the console container itself. The host's LAN IP, the trick
+the stack uses for Keycloak, does **not** work here: under rootless podman with pasta it is
+refused, because Keycloak is reachable on that IP only as a published container port and Ollama
+is not a container. `host.containers.internal` (podman also maps `host.docker.internal`) reaches
+the host, but only services listening beyond loopback. Docker Engine on Linux maps neither name
+unless the service has `extra_hosts: ["host.docker.internal:host-gateway"]`, which
+`docker-compose.apps.yml` does not set today.
+
+For a thinking model also set **Reasoning effort** to `none`, or it spends its budget reasoning,
+and give a model on a CPU a **Turn timeout** of `10m` or more; the default four minutes is sized
+for a hosted model. For scale: on a 32-core workstation with no GPU, `llama3.2:3b` took 8 s and
+4 s for the two model calls of a one-tool turn. A model that small does call the tools, but in that
+run it answered "which data sets do we have?" with `resource_get` rather than `dataset_list` and
+named an internal tool in its reply, so use the largest tool-capable model the machine runs
+comfortably when the answers matter.
+
+**A hosted OpenAI-compatible endpoint that needs a key** (OpenAI itself, vLLM started with
+`--api-key`, a gateway) has no Settings field yet: the page shows **API key** only for
+Anthropic. Save the rest from Settings, then add the key beside it. `patch` keeps the other keys,
+where `put` would replace them, and it needs the secret to exist, which the first save does:
+
+```bash
+vault kv patch intellistream-datahub/tenant-config/foo llm.api-key=<key>
+```
+
+> **Every `scripts/up.sh` resets `foo`'s model.** `vault-seed` re-runs on every `up`, and
+> `vault kv put` replaces the whole `tenant-config/foo` secret with the seeded placeholder, so
+> whatever you saved in Settings is gone after the next bring-up. Re-enter it, or keep the
+> settings in a JSON file and `PUT` them to `/tenant/settings/llm` with a `foo` token
+> ([Getting a token](#getting-a-token)).
+
+**Connecting an MCP client instead.** The same tools are open to any MCP client that can send a
+Bearer header (Claude Code, an IDE, your own agent) at `http://localhost:8081/mcp` and, for
+`analysis_related_series`, `http://localhost:8082/mcp`, with a Bearer token from
+[Getting a token](#getting-a-token). Such a client sees every tool, the mutating ones included,
+limited only by the token's grants. Setup, tool list and the exact `Accept` header a hand-rolled
+client needs are in the SDK docs' *MCP servers* page.
+
 ## Vault contract
 
 What each service reads from Vault (KV-v2 mount `intellistream-datahub`). This is the
@@ -501,7 +591,7 @@ layout the app uses after the master merge — three secrets, written by
 | `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
 | `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
 | `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the chat defaults a tenant lands on when it says nothing (`llm.effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions`). No model and no credential — those are per tenant, and none of these are ceilings. |
-| `tenant-config/<org-name>` | console | One secret per tenant, split into sections by key prefix. Today the only section is `llm.*`: `llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url` name the model, and `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions` say how to run it. Keyed by organization name, as `tenant-resources` is. A tenant without one has no chat panel. |
+| `tenant-config/<org-name>` | console, api (and written by the api for **Settings → AI assistant**) | One secret per tenant, split into sections by key prefix. Today the only section is `llm.*`: `llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url` name the model, and `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions` say how to run it. Keyed by organization name, as `tenant-resources` is. A tenant without one has no chat panel. |
 
 ### The per-tenant model
 
@@ -534,8 +624,8 @@ and works from then on. (Vault will also let a *secret* live at `tenant-config` 
 the folder of the same name. It reads badly; do not put one there.)
 
 **Why a secret each rather than one holding every tenant.** Not isolation, today: there is a single
-AppRole with `read` on the whole mount, nothing writes these, and so nothing is being kept apart
-from anything. The reasons are about what writing them will look like.
+AppRole that reads the whole mount and writes all of `tenant-config/`, so nothing is being kept
+apart from anything. The reasons are about what writing them looks like.
 
 A shared secret makes every write a read-modify-write of the whole blob, so two tenants editing at
 once means one silently overwrites the other unless every writer gets `cas` right, and a bug on
@@ -544,17 +634,18 @@ cannot interact. Splitting later, once customers have written into it, is a data
 shape costs one `put` per tenant to choose now.
 
 It also leaves the door open to Vault enforcing the separation — a policy can name
-`tenant-config/acme` and nothing else. That is not the plan of record: self-service editing is
-expected to go through the console, which checks the caller's `settings/write` organization group
-and writes with the platform's own credential. Under that design the group check is the security
-boundary and the path split is not, so do not lean on the path for correctness.
+`tenant-config/acme` and nothing else. That is not how it works: self-service editing goes through
+the console's **Settings → AI assistant** page to datahub-api (`PUT /tenant/settings/llm`), which
+checks the caller's `/settings/llm/write` organization group and writes with the platform's own
+credential. The group check is the security boundary and the path split is not, so do not lean on
+the path for correctness.
 
 Each tenant's chat runs on its own model, in its own secret keyed by organization name — the same
 key `tenant-resources` uses:
 
 ```
 vault kv put intellistream-datahub/tenant-config/acme \
-  llm.provider=anthropic llm.api-key=sk-ant-... llm.model=claude-opus-5
+  llm.provider=anthropic llm.api-key=sk-ant-... llm.model=claude-opus-5-5
 ```
 
 or, for a tenant running its own:
@@ -590,17 +681,18 @@ back to the default, rather than invalidating the entry. With no model to fall b
 reading would cost a tenant its assistant over a typo in an optional field.
 
 **Why its own secret rather than a block in `tenant-resources`.** That secret holds every tenant's
-database credentials, and this is the piece of tenant configuration a person will eventually edit
-from the console. Vault cannot narrow a write within a secret — ACL policies are path-based, and KV
+database credentials, and this is the piece of tenant configuration a person edits from the
+console. Vault cannot narrow a write within a secret — ACL policies are path-based, and KV
 plugins do not support the `allowed_parameters` family at all — so a write path would have to grant
-far more than model settings. Nothing writes it yet, and reads need no policy change because the
-AppRole already reads the whole mount.
+far more than model settings. datahub-api writes it, so the AppRole policy adds `create`/`update`
+on `tenant-config/*` and nothing else; reads needed no change because the AppRole already reads
+the whole mount.
 
 > **The two are split by who may write them, and the feature flags stay where they are.**
 > `tenant-resources` is operator-owned — connection credentials, and the `tenant-config` block of
 > feature entitlements saying what a tenant has been given. A customer must not be able to grant
 > itself a feature. The `tenant-config/<org-name>` secret is the opposite: the customer's own
-> settings, which it should eventually edit for itself. The shared name is unfortunate; the rule for
+> settings, which it edits for itself. The shared name is unfortunate; the rule for
 > deciding where a new setting goes is not the name but whether the customer may set it.
 
 Host fields in `tenant-resources` are bare (no port) — the code appends each store's

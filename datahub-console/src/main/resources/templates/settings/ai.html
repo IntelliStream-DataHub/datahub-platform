@@ -18,7 +18,11 @@
 	<div class="settings-page pad20">
 		<header class="settings-header">
 			<h2 th:text="#{settings.ai.title}"></h2>
-			<p class="settings-intro" th:text="#{settings.ai.intro}"></p>
+			<p class="settings-intro">
+				<span th:text="#{settings.ai.intro}"></span>
+				<a th:href="#{settings.ai.guide.url}" rel="noopener" target="_blank"
+				   data-type="setup-guide"><span th:text="#{settings.ai.guide.link}"></span> →</a>
+			</p>
 		</header>
 
 		<!-- Everything below is filled in by settings-ai.js from datahub-api. Until it answers,
@@ -34,7 +38,13 @@
 
 			<div class="settings-banner settings-banner-warn" data-type="settings-unconfigured" hidden>
 				<i class="fa-solid fa-triangle-exclamation"></i>
-				<span th:text="#{settings.ai.unconfigured}"></span>
+				<!-- The guide sits here as well as in the intro: this banner is shown to exactly the
+				     person setting the assistant up, at the moment they need it. -->
+				<span>
+					<span th:text="#{settings.ai.unconfigured}"></span>
+					<a th:href="#{settings.ai.guide.url}" rel="noopener" target="_blank"
+					   data-type="setup-guide"><span th:text="#{settings.ai.guide.link}"></span> →</a>
+				</span>
 			</div>
 
 			<!-- Sections, not fieldsets: a legend cannot be positioned reliably across browsers and
@@ -74,6 +84,7 @@
 					<label for="baseUrl" th:text="#{settings.ai.baseurl}"></label>
 					<input id="baseUrl" name="baseUrl" type="text" autocomplete="off"
 					       th:attr="placeholder=#{settings.ai.baseurl.placeholder}"/>
+					<p class="field-help" th:text="#{settings.ai.baseurl.help}"></p>
 					<p class="field-error" data-error-for="baseUrl" hidden></p>
 				</div>
 
