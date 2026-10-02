@@ -511,7 +511,139 @@ body.page-home .tutorial-tile-grid {
     font-size: 1.3rem;
 }
 
+/* --- What's coming: the roadmap card under the greeting ---
+   Three stops on one dashed line, the website's "being built" style. Dots say how much is here:
+   half-filled = partly shipped, hollow = not yet. Navy + neutrals like the rest of the page. */
+.home-roadmap {
+    position: relative;
+    margin-bottom: 28px;
+    animation: home-roadmap-in 0.35s ease-out both;
+}
+.home-roadmap[hidden] { display: none; }   /* the dismissal; explicit so a later display rule can't undo it */
+@keyframes home-roadmap-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .home-roadmap { animation: none; }
+}
+.home-roadmap-close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    padding: 6px;
+    border: 0;
+    background: none;
+    color: var(--text-muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+}
+.home-roadmap-close:hover { color: var(--accent); }
+.home-roadmap-close:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 50%;
+}
+.home-roadmap-eyebrow {
+    margin: 0 0 4px 0;
+    color: var(--accent);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.home-roadmap .home-panel-title {
+    margin-bottom: 22px;
+    padding-right: 36px;                    /* clear of the X */
+}
+
+.roadmap-line {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+/* The line: from the first dot's centre on past the last stop, since the road keeps going. */
+.roadmap-line::before {
+    content: "";
+    position: absolute;
+    top: 6px;                               /* (14px dot - 2px line) / 2 */
+    left: 7px;
+    right: 0;
+    border-top: 2px dashed var(--text-muted);
+    opacity: 0.6;
+}
+.roadmap-stop {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.roadmap-dot {
+    position: relative;                     /* above the line */
+    box-sizing: border-box;
+    width: 14px;
+    height: 14px;
+    margin-bottom: 10px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--menu-bg);             /* hollow: covers the line behind it */
+}
+.roadmap-stop.is-partial .roadmap-dot {
+    background: linear-gradient(90deg, var(--accent) 50%, var(--menu-bg) 50%);
+}
+.roadmap-name {
+    color: var(--text);
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+.roadmap-status {
+    color: var(--accent);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.roadmap-desc {
+    color: var(--text);                     /* full contrast, as .action-desc: muted is dim on dark */
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+.home-roadmap-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 16px;
+    margin-top: 20px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);    /* Hairline */
+}
+.home-roadmap-note {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
 /* --- Responsive --- */
+/* Narrow: the line turns vertical, dots down the left edge. */
+@media (max-width: 700px) {
+    .roadmap-line { grid-template-columns: 1fr; gap: 18px; }
+    .roadmap-line::before {
+        top: 7px;
+        bottom: 0;
+        left: 6px;
+        right: auto;
+        border-top: 0;
+        border-left: 2px dashed var(--text-muted);
+    }
+    .roadmap-stop { padding-left: 28px; }
+    .roadmap-dot { position: absolute; top: 2px; left: 0; margin: 0; }
+}
 @media (max-width: 900px) {
     .home-grid { grid-template-columns: 1fr; }
     .home-quick .tutorial-tile-grid { grid-template-columns: repeat(2, 1fr); }

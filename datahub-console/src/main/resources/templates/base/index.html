@@ -19,6 +19,52 @@
         <p class="home-greeting-sub" th:text="#{home.tagline}">A shared model of your operation.</p>
     </div>
 
+    <!-- What's coming — a dismissible teaser for the roadmap on intellistream.ai, three stops on one
+         line. The statuses mirror the website's (no dates, "half-shipped, not half-promised"), so
+         reword both together. The X is remembered per browser against data-roadmap-version: bump it
+         when the stops change and the card comes back for everyone who dismissed the old one. -->
+    <section class="home-panel home-roadmap" id="home-roadmap" data-roadmap-version="2026-10"
+             aria-labelledby="home-roadmap-title">
+        <button type="button" class="home-roadmap-close" data-type="roadmap-dismiss"
+                th:attr="aria-label=#{home.roadmap.dismiss}">
+            <i class="fa-solid fa-xmark"></i>
+        </button>
+        <p class="home-roadmap-eyebrow" th:text="#{home.roadmap.eyebrow}">Roadmap</p>
+        <h2 class="home-panel-title" id="home-roadmap-title" th:text="#{home.roadmap.title}">What's coming to DataHub</h2>
+
+        <!-- A half-filled dot is partly here today; a hollow one is not here yet. -->
+        <ol class="roadmap-line">
+            <li class="roadmap-stop is-partial">
+                <span class="roadmap-dot" aria-hidden="true"></span>
+                <span class="roadmap-name" th:text="#{home.roadmap.fn.title}">Functions &amp; flows</span>
+                <span class="roadmap-status" th:text="#{home.roadmap.fn.status}">Model today · run next</span>
+                <span class="roadmap-desc" th:text="#{home.roadmap.fn.desc}">Computations and data flows that live in the model and run on a schedule or on live data.</span>
+            </li>
+            <li class="roadmap-stop is-partial">
+                <span class="roadmap-dot" aria-hidden="true"></span>
+                <span class="roadmap-name" th:text="#{home.roadmap.pol.title}">Policies</span>
+                <span class="roadmap-status" th:text="#{home.roadmap.pol.status}">Naming today · more next</span>
+                <span class="roadmap-desc" th:text="#{home.roadmap.pol.desc}">Retention, access and requirements, enforced by the platform rather than only recorded.</span>
+            </li>
+            <li class="roadmap-stop">
+                <span class="roadmap-dot" aria-hidden="true"></span>
+                <span class="roadmap-name" th:text="#{home.roadmap.agents.title}">Agent automation</span>
+                <span class="roadmap-status" th:text="#{home.roadmap.agents.status}">Being built</span>
+                <span class="roadmap-desc" th:text="#{home.roadmap.agents.desc}">Agents that work within your policies, wait for a person's approval and keep a run history.</span>
+            </li>
+        </ol>
+
+        <div class="home-roadmap-foot">
+            <p class="home-roadmap-note" th:text="#{home.roadmap.note}">No dates, just the order we are building in.</p>
+            <a class="home-panel-link" th:href="#{home.roadmap.url}" rel="noopener" target="_blank">
+                <span th:text="#{home.roadmap.link}">See the full roadmap</span> →
+            </a>
+        </div>
+    </section>
+    <!-- Hides a dismissed card before first paint. The dashboard bundle is deferred, so leaving this
+         to it would flash the card and then shift the page up. Same pattern as the dh-theme script. -->
+    <script>(function(){var c=document.getElementById('home-roadmap');try{if(c&&localStorage.getItem('dh-roadmap-dismissed')===c.getAttribute('data-roadmap-version'))c.hidden=true;}catch(e){}}());</script>
+
     <!-- What do you want to do today? — task-framed entry points. Each card links to a section; the
          icons match the status tiles below so each column reads action → current state. The Navy
          "Learn DataHub" bar opens the guided tutorial and only renders when the tutorial is enabled. -->

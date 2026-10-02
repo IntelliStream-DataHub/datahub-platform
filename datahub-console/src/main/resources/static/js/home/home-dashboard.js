@@ -7,7 +7,8 @@
 //   - stats    : GET /stats   (the API caches each metric per-key; poll fast metrics often, slow rarely)
 //   - spotlight: GET /timeseries + POST /timeseries/data/list   (cache-aside in sessionStorage)
 //   - activity : POST /events/filter                            (cache-aside in sessionStorage)
-// Tile navigation lives in tutorials/dashboard.js.
+// Tile navigation lives in tutorials/dashboard.js. The roadmap card is server-rendered; this only
+// wires its dismiss button.
 //
 // "datapoints" is a live, incrementally-maintained Valkey counter on the API side (see
 // DatapointIngestCounter) rather than a recomputed ClickHouse estimate, so it's cheap to poll on its
@@ -34,6 +35,7 @@
         loadSpotlight();
         loadActivity();
         wireLearnTutorial();
+        wireRoadmapDismiss();
         setInterval(function () { loadStats(STATS_FAST); }, FAST_MS);
         setInterval(function () { loadStats(STATS_SLOW); }, SLOW_MS);
     });
@@ -47,6 +49,20 @@
         btn.addEventListener("click", function () {
             var entry = document.querySelector('[data-type="guided-tutorial"]');
             if (entry) entry.click();
+        });
+    }
+
+    // The roadmap card's X. Stored against the card's data-roadmap-version, so it stays dismissed
+    // until the template bumps that version. On later visits the inline script after the card
+    // hides it before first paint; this only handles the click.
+    function wireRoadmapDismiss() {
+        var card = document.getElementById("home-roadmap");
+        var btn = card && card.querySelector('[data-type="roadmap-dismiss"]');
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+            try { localStorage.setItem("dh-roadmap-dismissed", card.getAttribute("data-roadmap-version") || ""); }
+            catch (e) { /* private mode: hidden for this visit only */ }
+            card.hidden = true;
         });
     }
 
