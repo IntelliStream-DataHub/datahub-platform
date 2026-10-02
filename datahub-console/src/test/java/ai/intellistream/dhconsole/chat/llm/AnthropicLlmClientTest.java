@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -184,6 +186,60 @@ class AnthropicLlmClientTest {
         });
     }
 
+    // ---- failures ------------------------------------------------------------------------------
+
+    private static final String ANTHROPIC_ERROR = """
+            {"type":"error","error":{"type":"%s","message":"%s"},"request_id":"req_1"}""";
+
+    @Test
+    void aRejectedKeyIsReportedAsTheKey() throws Exception {
+        LlmException failure = failureFrom(401,
+                ANTHROPIC_ERROR.formatted("authentication_error", "invalid x-api-key"));
+
+        assertThat(failure.reason()).isEqualTo(LlmException.Reason.CREDENTIAL_REJECTED);
+        // The provider's own words stay in the message, which goes to the log, for whoever fixes it.
+        assertThat(failure.getMessage()).contains("401").contains("invalid x-api-key");
+    }
+
+    @Test
+    void anUnknownModelIsReportedAsNotFound() throws Exception {
+        LlmException failure = failureFrom(404,
+                ANTHROPIC_ERROR.formatted("not_found_error", "model: claude-opus-9"));
+
+        assertThat(failure.reason()).isEqualTo(LlmException.Reason.NOT_FOUND);
+    }
+
+    @Test
+    void aRequestTheModelWillNotTakeIsReportedAsRejected() throws Exception {
+        // Anthropic's answer to adaptive thinking on Claude Haiku 4.5 and the other 4.5 models.
+        LlmException failure = failureFrom(400, ANTHROPIC_ERROR.formatted(
+                "invalid_request_error", "adaptive thinking is not supported on this model"));
+
+        assertThat(failure.reason()).isEqualTo(LlmException.Reason.REQUEST_REJECTED);
+    }
+
+    @Test
+    void aBillingProblemIsReportedAsBilling() throws Exception {
+        // The SDK has no class of its own for a 402; it still carries the status.
+        LlmException failure = failureFrom(402, ANTHROPIC_ERROR.formatted(
+                "billing_error", "There's an issue with your billing or payment information."));
+
+        assertThat(failure.reason()).isEqualTo(LlmException.Reason.BILLING);
+    }
+
+    @Test
+    void noConnectionIsReportedAsUnreachable() throws Exception {
+        AnthropicLlmClient client = new AnthropicLlmClient(
+                AnthropicOkHttpClient.builder()
+                        .apiKey("test-key")
+                        .baseUrl("http://127.0.0.1:" + closedPort())
+                        .maxRetries(0)
+                        .build(),
+                JSON);
+
+        assertThat(failureOf(client).reason()).isEqualTo(LlmException.Reason.UNREACHABLE);
+    }
+
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
@@ -220,6 +276,49 @@ class AnthropicLlmClientTest {
             scenario.run(client, anthropic(maxOutputTokens), lastRequest);
         } finally {
             server.stop(0);
+        }
+    }
+
+    /** What the client throws when the stand-in API answers {@code status} with {@code body}. */
+    private LlmException failureFrom(int status, String body) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/messages", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] out = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, out.length);
+            exchange.getResponseBody().write(out);
+            exchange.close();
+        });
+        server.start();
+        try {
+            // No retries: the SDK would otherwise retry a 5xx with backoff, and these assert the
+            // first answer's meaning, not the retry policy.
+            return failureOf(new AnthropicLlmClient(
+                    AnthropicOkHttpClient.builder()
+                            .apiKey("test-key")
+                            .baseUrl("http://127.0.0.1:" + server.getAddress().getPort())
+                            .maxRetries(0)
+                            .build(),
+                    JSON));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static LlmException failureOf(AnthropicLlmClient client) {
+        try {
+            client.send(anthropic(), "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+        } catch (LlmException e) {
+            return e;
+        }
+        throw new AssertionError("expected the call to fail with an LlmException");
+    }
+
+    /** A port nothing listens on: bound once to find a free one, then released. */
+    private static int closedPort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
         }
     }
 }

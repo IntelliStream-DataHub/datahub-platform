@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
+import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
@@ -162,6 +166,65 @@ class OpenAiCompatibleLlmClientTest {
         });
     }
 
+    // ---- failures ------------------------------------------------------------------------------
+
+    @Test
+    void aRejectedKeyIsReportedAsTheKey() throws Exception {
+        LlmException failure = failureFrom(401, "{\"error\":{\"message\":\"Incorrect API key provided\"}}");
+
+        assertThat(failure.reason()).isEqualTo(LlmException.Reason.CREDENTIAL_REJECTED);
+        assertThat(failure.getMessage()).contains("401").contains("Incorrect API key");
+    }
+
+    @Test
+    void aModelTheServerHasNotPulledIsReportedAsNotFound() throws Exception {
+        // Ollama's answer, verbatim. It answers 404 to a base URL missing /v1 as well.
+        LlmException failure = failureFrom(404,
+                "{\"error\":{\"message\":\"model 'nope:1b' not found\",\"type\":\"not_found_error\"}}");
+
+        assertThat(failure.reason()).isEqualTo(LlmException.Reason.NOT_FOUND);
+    }
+
+    @Test
+    void aServerErrorIsReportedAsTheProvidersProblem() throws Exception {
+        assertThat(failureFrom(500, "{}").reason()).isEqualTo(LlmException.Reason.PROVIDER_ERROR);
+    }
+
+    @Test
+    void noConnectionIsReportedAsUnreachable() throws Exception {
+        String baseUrl = "http://127.0.0.1:" + closedPort() + "/v1";
+        OpenAiCompatibleLlmClient client =
+                new OpenAiCompatibleLlmClient(baseUrl, null, JSON, HttpClient.newHttpClient());
+
+        assertThat(failureOf(client, openAiCompatible(baseUrl, null)).reason())
+                .isEqualTo(LlmException.Reason.UNREACHABLE);
+    }
+
+    @Test
+    void aModelThatOutlastsTheTurnIsReportedAsTimedOut() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            try {
+                Thread.sleep(1_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            exchange.close();
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
+            ChatSettings slow = new ChatSettings(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3.5:latest",
+                    baseUrl, null, Duration.ofMillis(200), null, ChatEffort.DEFAULT, 6, null);
+            OpenAiCompatibleLlmClient client =
+                    new OpenAiCompatibleLlmClient(baseUrl, null, JSON, HttpClient.newHttpClient());
+
+            assertThat(failureOf(client, slow).reason()).isEqualTo(LlmException.Reason.TIMED_OUT);
+        } finally {
+            server.stop(0);
+        }
+    }
+
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
@@ -214,6 +277,43 @@ class OpenAiCompatibleLlmClientTest {
                     openAiCompatible(baseUrl, reasoningEffort), lastRequest, authorization);
         } finally {
             server.stop(0);
+        }
+    }
+
+    /** What the client throws when the stand-in server answers {@code status} with {@code body}. */
+    private LlmException failureFrom(int status, String body) throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/chat/completions", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            byte[] out = body.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, out.length);
+            exchange.getResponseBody().write(out);
+            exchange.close();
+        });
+        server.start();
+        try {
+            String baseUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/v1";
+            return failureOf(new OpenAiCompatibleLlmClient(baseUrl, null, JSON, HttpClient.newHttpClient()),
+                    openAiCompatible(baseUrl, null));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    private static LlmException failureOf(OpenAiCompatibleLlmClient client, ChatSettings settings) {
+        try {
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+        } catch (LlmException e) {
+            return e;
+        }
+        throw new AssertionError("expected the call to fail with an LlmException");
+    }
+
+    /** A port nothing listens on: bound once to find a free one, then released. */
+    private static int closedPort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
         }
     }
 }
