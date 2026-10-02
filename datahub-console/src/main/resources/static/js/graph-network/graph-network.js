@@ -143,6 +143,15 @@ class GraphNetwork {
             }
         });
 
+        // Clicking away closes the node's action menu: on the canvas, an edge, or anywhere else
+        // on the page. Capture phase, so a handler that stops propagation cannot keep it open.
+        // A press on another node closes it too, and that node's tap opens its own.
+        document.addEventListener('pointerdown', (event) => {
+            if (this.activeTooltip && !this.activeTooltip.contains(event.target)) {
+                this.removeTooltip();
+            }
+        }, true);
+
         this.cy.on('grab', 'node', (e) => {
             this.removeTooltip();
         });
