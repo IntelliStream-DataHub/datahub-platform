@@ -26,6 +26,12 @@
 	var apiKeyHelp = document.querySelector('[data-type="apikey-help"]');
 	var saveButton = document.querySelector('[data-type="save"]');
 	var providerSelect = form.querySelector('[name="provider"]');
+	var modelOptions = form.querySelector('[data-type="model-options"]');
+
+	// Suggestions need the write grant, as the listing endpoint does; a reader gets a disabled form.
+	var canWrite = false;
+	// Only the newest listing is shown, so a slow answer for an old URL cannot replace a newer one.
+	var listingSeq = 0;
 
 	// Whether the server says a credential is stored. The key itself is never sent here, so this
 	// is the only way to know an empty key field still amounts to a configured provider.
@@ -107,6 +113,39 @@
 		} else {
 			apiKeyHelp.textContent = $L("settings.ai.apikey.none");
 		}
+	}
+
+	/**
+	 * Fills the model field's suggestions from the server at the base URL. Suggestions only: the
+	 * field stays free text, and a server that cannot be asked just leaves the list empty.
+	 */
+	function loadModelOptions() {
+		var seq = ++listingSeq;
+		var baseUrl = trimmedValue("baseUrl");
+		modelOptions.replaceChildren();
+		if (!canWrite || providerSelect.value !== "openai-compatible" || baseUrl === null) {
+			return;
+		}
+		var query = { baseUrl: baseUrl };
+		var typedKey = trimmedValue("apiKey");
+		if (typedKey !== null) {
+			query.apiKey = typedKey;
+		}
+		SettingsApi.post("/tenant/settings/llm/models", query)
+			.then(function (models) {
+				if (seq !== listingSeq || !Array.isArray(models)) {
+					return;
+				}
+				models.forEach(function (id) {
+					var option = document.createElement("option");
+					option.value = id;
+					modelOptions.appendChild(option);
+				});
+			})
+			.catch(function () {
+				// A malformed URL is not worth an error before the user has finished typing it;
+				// saving reports what is wrong with the form.
+			});
 	}
 
 	function render(settings) {
@@ -227,7 +266,9 @@
 	providerSelect.addEventListener("change", function () {
 		applyProviderVisibility();
 		refreshUnconfiguredBanner();
+		loadModelOptions();
 	});
+	field("baseUrl").addEventListener("change", loadModelOptions);
 	form.addEventListener("input", refreshUnconfiguredBanner);
 
 	// Permissions are per scope, keyed by scope name, with wildcard grants already resolved by the
@@ -250,6 +291,8 @@
 			loading.hidden = true;
 			form.hidden = false;
 			setEditable(llm.write === true);
+			canWrite = llm.write === true;
+			loadModelOptions();
 		});
 	}).catch(function (error) {
 		if (error && error.status === 403 && denied) {

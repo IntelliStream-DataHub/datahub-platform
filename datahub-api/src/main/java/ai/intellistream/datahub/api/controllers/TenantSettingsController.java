@@ -5,17 +5,20 @@ import ai.intellistream.datahub.api.datasecurity.SettingsSecurity;
 import ai.intellistream.datahub.api.services.TenantSettingsService;
 import ai.intellistream.datahub.models.tenant.SettingsPermission;
 import ai.intellistream.datahub.models.tenant.SettingsScopes;
+import ai.intellistream.datahub.models.tenant.TenantLlmModelsQuery;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -85,5 +88,19 @@ public class TenantSettingsController {
     public ResponseEntity<TenantLlmSettings> updateLlm(@RequestBody TenantLlmSettingsForm form) {
         settingsSecurity.assertCanWrite(SettingsScopes.LLM);
         return ResponseEntity.ok(settingsService.updateLlm(form));
+    }
+
+    @Operation(summary = "List the models an OpenAI-compatible server offers",
+            description = """
+                    Asks `<baseUrl>/models` and returns the model ids it lists, as suggestions for
+                    the model field. Any name can still be saved: some hosts accept names they do
+                    not list. A server this API cannot reach, or that answers with anything but a
+                    model list, gives an empty list. `apiKey` absent or empty lists with the stored
+                    key. Requires the same grant as changing the configuration.
+                    """)
+    @PostMapping("/llm/models")
+    public ResponseEntity<List<String>> listLlmModels(@RequestBody TenantLlmModelsQuery query) {
+        settingsSecurity.assertCanWrite(SettingsScopes.LLM);
+        return ResponseEntity.ok(settingsService.listModels(query.baseUrl(), query.apiKey()));
     }
 }

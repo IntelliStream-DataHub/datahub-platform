@@ -5,6 +5,7 @@ import ai.intellistream.datahub.config.VaultClientFactory;
 import ai.intellistream.datahub.config.VaultProperties;
 import io.github.jopenlibs.vault.Vault;
 import io.github.jopenlibs.vault.VaultException;
+import io.github.jopenlibs.vault.response.LogicalResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.json.JsonMapper;
@@ -130,12 +131,21 @@ public class TenantLlmStore {
     private TenantLlm read(Vault client, String orgName) {
         String path = vault.secretName() + "/tenant-config/" + orgName;
         try {
-            Map<String, String> section = llmSection(client.logical().read(path).getData());
-            return section.isEmpty() ? null : jsonMapper.convertValue(section, TenantLlm.class);
-        } catch (VaultException e) {
-            if (e.getHttpStatusCode() == 404) {
+            LogicalResponse response = client.logical().read(path);
+            // The driver returns a 4xx as a response rather than throwing it.
+            int status = response.getRestResponse().getStatus();
+            if (status == 404) {
                 return null; // never configured, or deleted
             }
+            if (status != 200) {
+                // Otherwise a 403 reads exactly like a tenant that never configured a model.
+                log.warn("Could not read the model configuration for tenant {}: Vault answered"
+                        + " HTTP {}", orgName, status);
+                return null;
+            }
+            Map<String, String> section = llmSection(response.getData());
+            return section.isEmpty() ? null : jsonMapper.convertValue(section, TenantLlm.class);
+        } catch (VaultException e) {
             log.warn("Could not read the model configuration for tenant {}: {}", orgName, e.getMessage());
             return null;
         } catch (RuntimeException e) {

@@ -84,6 +84,7 @@
 	window.SettingsApi = {
 		get: function (path) { return call("GET", path, null, false); },
 		put: function (path, payload) { return call("PUT", path, payload, false); },
+		post: function (path, payload) { return call("POST", path, payload, false); },
 		ApiError: ApiError
 	};
 })();

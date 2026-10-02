@@ -52,8 +52,13 @@
 
 				<div class="settings-field">
 					<label for="model" th:text="#{settings.ai.model}"></label>
-					<input id="model" name="model" type="text" autocomplete="off"
+					<!-- Free text with suggestions: some hosts are called by names their model list
+					     leaves out, so the list must never restrict what can be typed. -->
+					<input id="model" name="model" type="text" autocomplete="off" list="model-options"
 					       th:attr="placeholder=#{settings.ai.model.placeholder}"/>
+					<datalist id="model-options" data-type="model-options"></datalist>
+					<p class="field-help" data-when-provider="openai-compatible"
+					   th:text="#{settings.ai.model.help}"></p>
 					<p class="field-error" data-error-for="model" hidden></p>
 				</div>
 
