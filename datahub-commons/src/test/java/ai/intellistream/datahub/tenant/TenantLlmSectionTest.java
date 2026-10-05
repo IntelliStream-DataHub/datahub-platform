@@ -52,7 +52,7 @@ class TenantLlmSectionTest {
 
     @Test
     void aSecretWithNoLlmKeysHasNoModelConfiguration() {
-        // Not an error: that tenant uses the deployment default.
+        // Not an error: that tenant has no assistant.
         assertThat(parse(Map.of("retention.events-days", "90"))).isNull();
         assertThat(parse(Map.of())).isNull();
         assertThat(TenantLlmStore.llmSection(null)).isEmpty();

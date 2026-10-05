@@ -23,6 +23,7 @@
 	var denied = document.querySelector('[data-type="settings-denied"]');
 	var readOnlyBanner = document.querySelector('[data-type="settings-readonly"]');
 	var unconfiguredBanner = document.querySelector('[data-type="settings-unconfigured"]');
+	var setupGuide = document.querySelector('[data-type="setup-guide"]');
 	var apiKeyHelp = document.querySelector('[data-type="apikey-help"]');
 	var saveButton = document.querySelector('[data-type="save"]');
 	var providerSelect = form.querySelector('[name="provider"]');
@@ -288,6 +289,12 @@
 		}
 		return SettingsApi.get("/tenant/settings/llm").then(function (settings) {
 			render(settings);
+			// Decided once, on load: open for someone with nothing configured yet, folded for
+			// everyone else. Not re-decided while typing or on save, so it never moves under the
+			// reader, and the step after saving ("ask it something") is still on screen.
+			if (setupGuide) {
+				setupGuide.open = !looksConfigured();
+			}
 			loading.hidden = true;
 			form.hidden = false;
 			setEditable(llm.write === true);

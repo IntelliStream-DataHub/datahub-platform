@@ -23,19 +23,19 @@ import java.util.Map;
  * write it. {@code tenant-resources} is what the operator provisions and a customer must not touch
  * — every tenant's database credentials, and the {@code tenant-config} block of feature
  * entitlements saying what that tenant has been given. This secret is the opposite: the customer's
- * own settings, which it should eventually edit for itself from the console.
+ * own settings, which it edits for itself from the console's Settings page.
  *
  * <p>A secret per tenant rather than one holding them all, though not for isolation as things
- * stand: there is a single AppRole with read on the whole mount and nothing writes these yet. It is
- * about what writing them will look like. One shared secret makes every write a read-modify-write
+ * stand: there is a single AppRole, which reads the whole mount and writes all of
+ * {@code tenant-config/}. It is about what writing them looks like. One shared secret makes every write a read-modify-write
  * of the whole blob, so concurrent edits lose each other without careful {@code cas} and one bug
  * reaches every tenant's credentials; separate secrets cannot interact. Splitting later, after
  * customers have written into it, would be a data migration.
  *
  * <p>It also leaves room for Vault to enforce the split, since a policy can name one path — but
- * that is not assumed. The expectation is that the console checks the caller's
- * {@code settings/write} organization group and writes with the platform's own credential, which
- * makes the group check the boundary and not this path.
+ * that is not assumed. datahub-api checks the caller's {@code /settings/llm/write} organization
+ * group and writes with the platform's own credential ({@link TenantLlmWriter}), which makes the
+ * group check the boundary and not this path.
  *
  * <p>Keyed by organization name, matching how {@code tenant-resources} keys its entries — one
  * convention for tenant configuration rather than two, and an operator writing one of these should
@@ -66,8 +66,8 @@ public class TenantLlmStore {
      * The configuration for each named tenant, omitting those with none. Batched so a refresh costs
      * one AppRole login.
      *
-     * <p>A Vault failure yields an empty map: every tenant falling back to the deployment default
-     * beats a refresh that throws and leaves the whole tenant registry stale.
+     * <p>A Vault failure yields an empty map, so every tenant is without its assistant until the
+     * next refresh. That beats a refresh that throws and leaves the whole tenant registry stale.
      *
      * @param orgNames organization names, as {@code tenant-resources} keys them
      * @return the same names, mapped to the configuration each one has
