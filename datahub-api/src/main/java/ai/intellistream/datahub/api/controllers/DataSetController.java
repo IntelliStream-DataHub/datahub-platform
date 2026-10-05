@@ -365,7 +365,15 @@ public class DataSetController {
                 .filter(Objects::nonNull)
                 .flatMap(Collection::stream)
                 .collect(Collectors.toSet());
-        List<IdCollection> connectedDataSets = dataSetRepository.findAllByIdIn(dataSetIds, IdCollection.class);
+        // Mapped by hand: IdCollection is not a shape Spring Data can project onto (no matching
+        // constructor), and asking it to 500'd every create that named an existing parent.
+        List<IdCollection> connectedDataSets = dataSetRepository.findAllById(dataSetIds).stream()
+                .map(parent -> {
+                    IdCollection ids = IdCollection.createFromId(parent.getId());
+                    ids.setExternalId(parent.getExternalId());
+                    return ids;
+                })
+                .toList();
 
         GraphDataWrapper<NodeModel, RelForm> newDataSets =
                 DataSetTransformer.toGraphForm(dataSets, policies, connectedDataSets);
