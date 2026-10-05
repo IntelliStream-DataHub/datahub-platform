@@ -3,10 +3,14 @@ package ai.intellistream.datahub.api.controllers;
 
 import ai.intellistream.datahub.api.datasecurity.DataSecurity;
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.api.services.DataSetService;
 import ai.intellistream.datahub.api.services.ResourceService;
+import ai.intellistream.datahub.jpa.domains.DatasetEntity;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.DataSetRetreiver;
+import ai.intellistream.datahub.models.NodeModel;
+import ai.intellistream.datahub.models.RelForm;
 import ai.intellistream.datahub.models.datafilters.FilterDefaults;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.PolicyRepository;
@@ -31,8 +35,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Web-layer tests for {@code GET /datasets} — the no-body listing that replaced
- * {@code POST /datasets/list}.
+ * Web-layer tests for {@code GET /datasets}, the no-body listing that replaced
+ * {@code POST /datasets/list}, and for how {@code POST /datasets/create} links a new data set to
+ * its parents.
  *
  * <p>Stand-alone {@link MockMvc} rather than {@code @WebMvcTest}, for the reasons
  * {@link TimeseriesControllerTest} states: booting the context would pull in the OAuth2 resource
@@ -41,16 +46,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class DataSetControllerTest {
 
     private final DataSetService dataSetService = mock(DataSetService.class);
+    private final ResourceService resourceService = mock(ResourceService.class);
+    private final DataSetRepository dataSetRepository = mock(DataSetRepository.class);
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         DataSetController controller = new DataSetController(
                 dataSetService,
-                mock(ResourceService.class),
+                resourceService,
                 mock(DataSecurity.class),
                 mock(Validator.class),
-                mock(DataSetRepository.class),
+                dataSetRepository,
                 mock(PolicyRepository.class));
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
         when(dataSetService.filter(any())).thenReturn(new DataWrapper<DataSetModel>());
@@ -118,6 +125,35 @@ class DataSetControllerTest {
                 .andExpect(status().isMethodNotAllowed());
 
         verifyNoInteractions(dataSetService);
+    }
+
+    /**
+     * {@code connectedDataSets} names parents by id; the edge to each is written by externalId,
+     * parent to child (see {@code DataSetRepository.findDatasetClosure}). The lookup used to ask
+     * Spring Data to project onto {@code IdCollection}, which it cannot, so every create naming an
+     * existing parent was a 500.
+     */
+    @Test
+    void createLinksTheNewDataSetToItsParent() throws Exception {
+        DatasetEntity parent = new DatasetEntity();
+        parent.setId(42L);
+        parent.setExternalId("parent");
+        when(dataSetRepository.findAllById(any())).thenReturn(List.of(parent));
+        when(resourceService.create(any())).thenReturn(new GraphDataWrapper<>());
+
+        mockMvc.perform(post("/datasets/create")
+                        .contentType("application/json")
+                        .content("""
+                                {"items":[{"externalId":"child","connectedDataSets":["42"]}]}"""))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<GraphDataWrapper<NodeModel, RelForm>> captor = ArgumentCaptor.forClass(GraphDataWrapper.class);
+        verify(resourceService).create(captor.capture());
+        RelForm edge = captor.getValue().getRelations().iterator().next();
+        assertEquals(1, captor.getValue().getRelations().size());
+        assertEquals("parent", edge.getFromExternalId());
+        assertEquals("child", edge.getToExternalId());
+        assertEquals("BELONGS_TO", edge.getRelationshipType());
     }
 
     private DataSetRetreiver capturedRetriever() {
