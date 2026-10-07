@@ -187,10 +187,26 @@ retried a configured number of times. A run's result is what its sinks wrote, su
 records: per sink, the targets and how many points or events. Only when the whole run has finished is the source told "done" — the cursor for the next
 scheduled read is advanced.
 
-**Every run covers an explicit time window** `[from, to)`. A scheduled run takes it from the
-schedule; a manual run supplies it or defaults to the last interval. Nothing reads "whatever is new
-since last time" without saying which window that was. This is what makes a run reproducible, and
-what a later backfill ("re-run March") is built from: many runs with given windows.
+**Every run records what input it covers.** In the first version that is always a **window** of
+data time, `[from, to)`, meaning precisely: *the range of data time the run's sinks write, as the
+sources saw it when the run executed.* Two consequences of that wording:
+
+- **Reads may reach further back than the window** (`lookback`, for smoothing and spike removal);
+  only what lies inside the window is written.
+- **A window is as complete as the data was when the run executed.** A point stamped 10:59 that
+  arrives at 11:02 is inside 10:00–11:00 but was not there for a run at 11:00:05. Re-running a
+  window can therefore give a different result; the content hash shows that it changed.
+
+A scheduled run takes its window from the schedule: the tick at *T* covers `[T − window, T)`, and
+the run starts at *T* + `delay`, so that late data has time to arrive (with `delay: PT5M`, the run
+at 11:05 covers 10:00–11:00). Data later than the delay is the late-data add-on's concern. A
+manual run supplies its window or defaults to the last one. Nothing reads "whatever is new since
+last time" without saying which window that was. This is what lets a window be re-run, and what a
+later backfill ("re-run March") is built from: many runs with given windows.
+
+Not every future source has a window. A listener (an add-on) hands the engine a batch of messages,
+and a run over that batch covers *those messages*, recorded by their boundaries (first and last
+message, or offsets). So the window is optional in the model; the first version always sets it.
 
 ### Items
 
@@ -302,7 +318,8 @@ quota is hit.
 A flow version is immutable once saved. A run records:
 
 - the flow version;
-- the values it ran with — the time window, every parameter as resolved; for a secret, which
+- what input it covered — its window (or, later, a listener batch's boundaries) — and the values it
+  ran with: every parameter as resolved; for a secret, which
   secret, never its value;
 - the version of every processor in the flow (built-in processors change with platform releases).
 
@@ -329,7 +346,8 @@ Every instance is identical and runs the same loops. All coordination is rows in
 else is involved.
 
 1. **Sweep.** Every ~10 seconds each instance, for each tenant, in one transaction:
-   - creates a *pending* run for every schedule that is due, and moves the schedule forward —
+   - creates a *pending* run for every schedule that is due (its tick plus its `delay`), with the
+     tick's window, and moves the schedule forward —
      locking the schedule rows it picks (`SELECT … FOR UPDATE SKIP LOCKED`), so no two instances
      create the same run;
    - claims pending runs, oldest first, up to the capacity it has free (`SKIP LOCKED` again, and at
@@ -376,7 +394,7 @@ lease — **creates a DataHub event** in the flow's dataset:
 | Field | Value |
 |---|---|
 | `type` / `subType` | `flow` / `run-failed` |
-| `externalId` | `flow:{flowExternalId}:{windowStart}` — one per flow and window |
+| `externalId` | `flow:{flowExternalId}:{windowStart}` — one per flow and window (for a run without a window, later: its batch's first boundary) |
 | `startTime`, `endTime` | The run's window |
 | `status` | `open` |
 | metadata | flow, flow version, run id, attempts, the error |
@@ -845,7 +863,7 @@ event" cannot be built yet. See *Multiple inputs* under *Add-ons*.
     { "from": "over", "relationship": "alarms",  "to": "ev" }
   ],
   "trigger":   { "type": "schedule", "cron": "0 0 * * * *", "timezone": "Europe/Oslo",
-                 "window": "${parameters.window}" },
+                 "window": "${parameters.window}", "delay": "PT5M" },   // 11:05 covers 10:00–11:00
   "execution": { "maxConcurrentRuns": 1, "maxAttempts": 2, "timeout": "PT15M", "memory": "512MB" }
 }
 ```
@@ -906,8 +924,9 @@ close off:
    attribute; no processor changes.
 2. **The engine records what happened**, so a new processor — including tenant-supplied code — is
    recorded without doing anything.
-3. **Every run has an explicit window**, so backfill and re-evaluating late data are many runs with
-   given windows.
+3. **Every run records what input it covers** — a window in the first version, a listener batch
+   later — so backfill and re-evaluating late data are many runs with given windows, and nothing
+   assumes every run has one.
 4. **Flow versions are immutable and runs record what they ran with**, so later audit and lineage
    have something to point at.
 5. **The processor interface is the only extension point.** A quality checkpoint, a cleaning step
@@ -1008,7 +1027,7 @@ None from the review remain open. New ones go here.
 | `flow_version` | flow, version, definition (jsonb), created by and at; never updated |
 | `deployment` | flow, version, enabled, trigger, execution limits, enabled by and at |
 | `schedule` | deployment, next due, cursor |
-| `run` | deployment, version, status, attempt, max attempts, not before (retry back-off), memory cap, preview flag, failure event owed, owner, lease expires at, window, resolved parameters, processor versions, trigger, triggered by, started/finished at, error, stats |
+| `run` | deployment, version, status, attempt, max attempts, not before (retry back-off), memory cap, preview flag, failure event owed, owner, lease expires at, window (optional; always set in the first version), input boundaries (for listener runs, later), resolved parameters, processor versions, trigger, triggered by, started/finished at, error, stats |
 | `processor_state` | per deployment and processor: a small saved value and its version |
 
 Indexes: a partial index on `run (status) WHERE status = 'RUNNING'`, none on
