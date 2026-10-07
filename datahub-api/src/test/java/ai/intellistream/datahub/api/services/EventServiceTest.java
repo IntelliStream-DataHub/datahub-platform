@@ -92,6 +92,25 @@ class EventServiceTest {
     }
 
     @Test
+    void create_EventsSharingAnExternalId_AreKeptApartByTheirUuids() throws Exception {
+        // An externalId names the logical event; its lifecycle is several records under it.
+        EventModel created = new EventModel();
+        created.setExternalId("order-7");
+        EventModel approved = new EventModel();
+        approved.setExternalId("order-7");
+        DataWrapper<EventModel> input = new DataWrapper<>();
+        input.getItems().add(created);
+        input.getItems().add(approved);
+        when(validator.validate(any())).thenReturn(Collections.emptySet());
+
+        DataWrapper<EventModel> result = eventService.create(input);
+
+        var ids = result.getItems().stream().map(EventModel::getId).collect(java.util.stream.Collectors.toSet());
+        assertEquals(2, ids.size());
+        verify(kvRocksService).saveEvents(any());
+    }
+
+    @Test
     void create_WhenClientSuppliesValidUuid_ShouldPreserveIt() throws Exception {
         // Arrange — a client-supplied UUID id (lets the SDK dedup retries via ReplacingMergeTree).
         EventModel event = new EventModel();

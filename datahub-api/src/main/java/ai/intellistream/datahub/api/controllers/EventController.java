@@ -39,7 +39,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 import java.util.Set;
-import ai.intellistream.datahub.api.controllers.errors.schema.DuplicateProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.ValidationProblem;
 import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 
@@ -344,7 +343,9 @@ public class EventController {
                     something that happened — an alarm, a calibration, a threshold breach.
 
                     Each event needs:
-                    - a unique `externalId` within your tenant,
+                    - an `externalId`. It names the *logical* event, not the record, so it need
+                      not be unique: events that share one are the lifecycle of that event
+                      (created -> approved -> paid), each its own record told apart by `id`,
                     - an `eventTime` (when it happened, epoch ms),
                     - optionally `type` and `subType` for categorization,
                     - optionally `dataSetId` to group with related data,
@@ -352,9 +353,11 @@ public class EventController {
                       concerns. Give each entry an `id`, an `externalId`, or both — the server
                       resolves the missing side and always returns both.
 
-                    ### Servers assigns the id
-                    `id` is a UUID generated on the server. Don't send one — it will be
-                    ignored. The returned event carries the new id.
+                    ### The id is a UUID
+                    Every event gets its own UUID `id`, which is what separates events that
+                    share an `externalId`. Leave it out and the server generates one; send a
+                    valid UUID and it is kept, so a retried create carries the same id rather
+                    than a fresh one. The returned event carries the id.
 
                     ### All-or-nothing
                     If any event in the request fails validation, none are created.
@@ -372,12 +375,6 @@ public class EventController {
             content = @Content(
                     mediaType = "application/problem+json",
                     schema = @Schema(implementation = ValidationProblem.class)
-            ))
-    @ApiResponse(responseCode = "409", description =
-            "An event with one of the `externalId`s already exists. Pick a different one.",
-            content = @Content(
-                    mediaType = "application/problem+json",
-                    schema = @Schema(implementation = DuplicateProblem.class)
             ))
     @PostMapping(
             path = "/create",
