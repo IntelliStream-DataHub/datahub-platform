@@ -59,7 +59,7 @@ Dependency flow: `api`/`consumers`/`console` depend on `infra` and `commons`.
 - **Build:** Gradle 9.4.1+, Java 25 toolchain
 - **Framework:** Spring Boot 4.0.x, Spring Cloud 2025.1.x
 - **Auth:** OAuth2 Resource Server (JWT) with Vault for secrets
-- **Messaging:** Apache Pulsar 4.0.x (OAuth2 auth in production; plaintext for local dev)
+- **Messaging:** Apache Pulsar 5.0.x brokers with 4.0.x clients (OAuth2 auth in production; plaintext for local dev)
 - **Serialization:** Jackson 3.x
 - **DB migrations:** Flyway 11.x (`datahub-api/src/main/resources/db/migration/`)
 - **Tests:** JUnit 5 with Spring Boot Test, Testcontainers

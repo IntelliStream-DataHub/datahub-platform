@@ -118,7 +118,7 @@ class SubscriptionBacklogDoesNotSilenceTenantIT {
     }
 
     private static PulsarContainer createBroker() {
-        String version = System.getProperty("datahub.pulsar.image.version", "4.0.11");
+        String version = System.getProperty("datahub.pulsar.image.version", "5.0.0");
         return new PulsarContainer(DockerImageName.parse("apachepulsar/pulsar:" + version))
                 // Backlog is accounted per closed ledger and checked on a timer. Production's
                 // defaults (10-minute check, 50k-entry ledgers) would make this test take hours.

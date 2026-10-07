@@ -84,7 +84,8 @@ File and class names, not line numbers, because line numbers rot.
 
 | Component | Setting | Value | Source |
 |---|---|---|---|
-| Pulsar | version | 4.0.11 | `gradle.properties` |
+| Pulsar broker | version | 5.0.0 | `gradle.properties` (`pulsarBrokerVersion`) |
+| Pulsar client | version | 4.0.11 | `gradle.properties` (`pulsarVersion`) |
 | Pulsar client | `memoryLimit` | 512 MB (`datahub.pulsar.memory-limit-mb`) | `PulsarConfig` |
 | Pulsar client | `ioThreads` / `listenerThreads` | 8 / 8 | `PulsarConfig` |
 | Pulsar client / admin | service URLs | one `serviceUrl`, one `serviceHttpUrl` | `PulsarConfig` |

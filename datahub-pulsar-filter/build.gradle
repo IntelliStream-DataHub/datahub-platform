@@ -14,7 +14,7 @@ repositories {
 
 dependencies {
     // Interfaces live in pulsar-broker; the broker provides them at runtime, so compileOnly.
-    compileOnly "org.apache.pulsar:pulsar-broker:${pulsarVersion}"
+    compileOnly "org.apache.pulsar:pulsar-broker:${pulsarBrokerVersion}"
 
     // No Spring Boot BOM in this module, so pin the JUnit BOM directly. The shared convention
     // declares junit-jupiter / junit-platform-launcher without a version (Boot modules get them
@@ -22,13 +22,14 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:6.1.3')
 }
 
-// This plugin's classes are loaded by the BROKER's JVM, not ours. Apache Pulsar 4.0.x ships a Java
-// 21 runtime, but the shared toolchain compiles every module with Java 25. Without an explicit
+// This plugin's classes are loaded by the BROKER's JVM, not ours. Pulsar 5.0 runs on Java 21 or newer
+// (bare-metal installs may be on 21), but the shared toolchain compiles every module with Java 25. Without an explicit
 // target the NAR would carry Java 25 bytecode and the broker rejects it on startup with
 // `UnsupportedClassVersionError: ... class file version 69.0 ... only ... up to 65.0`, aborting the
-// whole broker. Target 17 (Pulsar's own plugin baseline) so the NAR loads on any supported broker JVM.
+// whole broker. Target 21: Pulsar 5.0's broker libraries require it, and it is the floor of every
+// supported broker JVM (4.0.x ships 21, 5.0 needs 21+).
 tasks.withType(JavaCompile).configureEach {
-    options.release = 17
+    options.release = 21
 }
 
 // Produce a NAR for Pulsar's plugin loader. Layout:

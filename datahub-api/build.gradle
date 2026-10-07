@@ -126,7 +126,7 @@ tasks.register('integrationTest', Test) {
 	// Pulsar container.
 	def narTask = project(':datahub-pulsar-filter').tasks.named('nar')
 	dependsOn narTask
-	systemProperty 'datahub.pulsar.image.version', project.findProperty('pulsarVersion') ?: '4.0.11'
+	systemProperty 'datahub.pulsar.image.version', project.findProperty('pulsarBrokerVersion') ?: '5.0.0'
 	doFirst {
 		systemProperty 'datahub.pulsar.filter.nar', narTask.get().archiveFile.get().asFile.absolutePath
 	}

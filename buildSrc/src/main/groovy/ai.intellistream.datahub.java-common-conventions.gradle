@@ -16,6 +16,11 @@ java {
     }
 }
 
+// The Spring Boot BOM imports pulsar-bom at its own `pulsar.version`, which would pull
+// pulsar-client-api (a transitive of our pulsar-client) back to Boot's version, leaving the API jar
+// unable to find the client implementation. Point it at ours.
+ext['pulsar.version'] = findProperty('pulsarVersion')
+
 repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()

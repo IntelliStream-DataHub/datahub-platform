@@ -61,7 +61,7 @@ services:
   # One-shot: create the Pulsar tenants + namespaces the apps need (the standalone
   # broker starts empty). Apps wait for these via their entrypoint before launching.
   pulsar-init:
-    image: docker.io/apachepulsar/pulsar:4.0.11
+    image: docker.io/apachepulsar/pulsar:5.0.0
     depends_on: ["pulsar"]
     environment:
       PULSAR_ADMIN_URL: http://pulsar:8080
@@ -80,7 +80,7 @@ services:
   # doc so it runs only once Keycloak has imported the realm. Uses the Pulsar image purely because it
   # already ships curl + python3 (the Keycloak image ships neither); nothing here talks to Pulsar.
   keycloak-bootstrap:
-    image: docker.io/apachepulsar/pulsar:4.0.11
+    image: docker.io/apachepulsar/pulsar:5.0.0
     depends_on: ["keycloak"]
     environment:
       KC_ADMIN_USER: admin

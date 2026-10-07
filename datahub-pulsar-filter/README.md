@@ -44,7 +44,7 @@ META-INF/
     └── datahub-pulsar-filter-<ver>.jar    # classes loaded via the NAR classloader
 ```
 
-The `pulsarVersion` in `gradle.properties` must match the running broker.
+The `pulsarBrokerVersion` in `gradle.properties` must match the running broker.
 
 ## Deploy
 
@@ -105,10 +105,10 @@ that's proof the broker is filtering on this subscription's behalf.
 
 ## Compatibility
 
-- Pulsar 2.11+ (`EntryFilter` API). Tested with 4.0.9.
-- **Java bytecode target: 17.** The broker loads this NAR in its own JVM (Java 21
-  on the Pulsar 4.0.x images), while the repo's shared toolchain compiles with a
-  newer Java. The module pins `options.release = 17` so the broker doesn't reject
+- Pulsar 2.11+ (`EntryFilter` API). Built and tested against 5.0.0.
+- **Java bytecode target: 21.** The broker loads this NAR in its own JVM (Java 21
+  or newer for Pulsar 5.0), while the repo's shared toolchain compiles with a
+  newer Java. The module pins `options.release = 21` so the broker doesn't reject
   the classes with `UnsupportedClassVersionError` on startup. Keep this at or
   below the broker JVM's version when upgrading.
 - `pulsar-broker` artifact is a `compileOnly` dependency; the broker provides

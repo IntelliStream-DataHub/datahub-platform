@@ -142,7 +142,7 @@ Dependency flow: `api`/`consumers`/`console` depend on `infra` and `commons`. `i
 - **Build:** Gradle 9.4.1+, Java 25 toolchain
 - **Framework:** Spring Boot 4.1.0, Spring Cloud 2025.1.1
 - **Auth:** OAuth2 Resource Server (JWT) with Vault for secrets
-- **Messaging:** Apache Pulsar 4.0.11 (OAuth2 auth)
+- **Messaging:** Apache Pulsar 5.0.0 brokers, 4.0.x client libraries (OAuth2 auth)
 - **Serialization:** Jackson 3.x (`jacksonVersion` in `gradle.properties`)
 - **DB migrations:** Flyway 11.x (`datahub-infra/src/main/resources/db/migration/`, shared by datahub-api's on-demand provisioning and datahub-cleanup's self-heal sweep). The `flywayMigrate`/`flywayInfo` Gradle tasks live in datahub-infra alongside the scripts (`./gradlew :datahub-infra:flywayMigrate`).
 - **Tests:** JUnit 5 with Spring Boot Test, Testcontainers
@@ -152,7 +152,8 @@ Dependency flow: `api`/`consumers`/`console` depend on `infra` and `commons`. `i
 All shared versions are centralized in the **root `gradle.properties`** (propagated to every
 subproject) — change a version in one place:
 - Library versions: `pulsarVersion`, `jacksonVersion`, `feignVersion` — referenced in module
-  `build.gradle` as `${pulsarVersion}` etc.
+  `build.gradle` as `${pulsarVersion}` etc. `pulsarVersion` is the client; the broker the filter NAR
+  and the test images target is `pulsarBrokerVersion`.
 - Plugin versions: `springBootVersion`, `dependencyManagementVersion`, `nodeGradleVersion` —
   consumed by `settings.gradle` `pluginManagement`, so modules apply these plugins without a
   version. Do not re-add versions to module plugin blocks.
