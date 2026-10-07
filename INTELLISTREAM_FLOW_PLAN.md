@@ -571,7 +571,8 @@ when `createMissing` is true", "set `min`, `max` or both").
 
 `${…}` substitutes a value into a property: a flow parameter (`${parameters.limit}`), the run's
 window (`${run.window.start}`, `${run.window.end}`), or an attribute of the item being handled
-(`${timeseries.externalId}`). Only substitution — no operators, no functions. Run-level references
+(`${timeseries.externalId}`), or a summary of a `timeseries` item (`${item.last}`, `${item.lastTime}`,
+`${item.min}`, `${item.max}`, `${item.mean}`, `${item.count}`). Only substitution — no operators, no functions. Run-level references
 are resolved once per run, attribute references once per item. A substituted value that does not
 fit the property's type fails the item, not the save.
 
@@ -583,6 +584,16 @@ The processors below agree on two shapes:
   `timeseries.externalId`, `window.start`, `window.end`.
 - **`events`** — one row per event: columns `startTime`, `endTime` (may be null), `value` (may be
   null); the attributes of the item it came from.
+
+### Ending a flow
+
+Every outcome of a processor must either be connected or be listed in the processor's `terminate`
+list, which ends items there (NiFi's *auto-terminate*). Nothing disappears because someone forgot a
+connection: the validator rejects an outcome that is neither.
+
+**Sinks are terminating processors**: they write to DataHub and are where a flow normally ends.
+Their `success` outcome terminates by default — connect it only to carry on after writing. Their
+`failure` outcome is the opposite: left unconnected, a failed write fails the run.
 
 ### Built-in processors in the first version
 
@@ -626,6 +637,8 @@ instead of writing.
 | *dynamic* | string, references | | Key: a metadata key on the event. Value: its value, e.g. `${timeseries.externalId}`. |
 
 Relationships: `success`, `failure`. In preview, reports the events instead of creating them.
+
+Both sinks only write inside the flow's dataset (see *Who a run acts as*).
 
 **`timeseries.scale`** — `value × factor + offset` for every point. Covers unit conversion, adding
 or subtracting a constant, multiplying and dividing.
@@ -764,7 +777,8 @@ event" cannot be built yet. See *Multiple inputs* under *Add-ons*.
                       "createMissing": true, "dataSet": "ds_demo" },
       "retry": { "maxAttempts": 3, "backoff": "PT5S" } },
     { "id": "over", "type": "timeseries.threshold",
-      "properties": { "threshold": "${parameters.limit}", "minDuration": "PT5M" } },
+      "properties": { "threshold": "${parameters.limit}", "minDuration": "PT5M" },
+      "terminate": ["success"] },                                    // only the alarms go on
     { "id": "ev",   "type": "datahub.events.sink",
       "properties": { "type": "temperature", "subType": "over-limit",
                       "series": "${timeseries.externalId}" } }     // dynamic: metadata key
@@ -823,7 +837,7 @@ from MCP. This is the phase that proves the coordination model.
 Contents: flow create/read/update and versions; validation (structure, properties, references,
 cycles — not content kinds); the engine; branching; the sweep, claim, lease and reaper loops;
 `maxAttempts` and per-processor retry; the run record (version, resolved values, processor
-versions); the engine's record of what happened; the twelve built-in processors; preview; service account tokens and the confinement of each run to its flow's dataset; `/flows/read|write` with dataset access on every endpoint; a failure event after repeated failed runs; retention of old runs in
+versions); the engine's record of what happened; the twelve built-in processors; outcomes connected or terminated; preview; service account tokens and the confinement of each run to its flow's dataset; `/flows/read|write` with dataset access on every endpoint; a failure event after repeated failed runs; retention of old runs in
 datahub-cleanup; the console's Flows section (list, definition, deploy, runs, a run's steps and
 records); the MCP tools.
 
@@ -876,6 +890,9 @@ treatment of most of them and is a starting point, not a decision.
      processor upstream of it has finished — well defined, because a run is finite. Pairing items
      (by series, by window) is the processor's job. An addition to the interface and the format,
      not a change.
+- **Updating resources.** A `datahub.resource.update` sink that puts a value, an alarm state or a
+  computed figure on a node in the graph (metadata and description; not labels), confined to the
+  flow's dataset like the other sinks.
 - **Expressions.** A general expression language for computed columns and conditions
   (`record.map`, `filter.records`, routing on conditions). The first draft chose Spring's SpEL in
   its restricted `SimpleEvaluationContext`; CEL is the alternative, type-checked when a flow is
