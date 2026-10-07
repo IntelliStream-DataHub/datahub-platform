@@ -35,7 +35,7 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Flow definitions | JSON or YAML, versioned; old versions kept |
 | Triggers | Manual and schedule |
 | Processing tree | Processors wired by named outcomes; one outcome may feed several processors |
-| Built-in processors | Read and write DataHub timeseries; write events; map, filter, route |
+| Built-in processors | Read and write DataHub timeseries; write events; scale, smooth, remove spikes, interpolate, clip, resample, filter by range, threshold alarms, route |
 | Preview | Run a flow without writing anything |
 | Scale and resilience | Any number of identical instances; a dead instance's run is picked up by another |
 | Record of what happened | Per item, per step, per run — for any kind of data |
@@ -82,8 +82,8 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Type checking between processors | **Deferred.** The first version does not check that connected processors agree on content kind; a mismatch fails at run time and goes to the processor's `failure` outcome. Because items carry their kind and the interface has an optional `accepts` (default: any), checking can be added later without breaking existing processors or flows. | 2026-10-06 |
 | Retries | **`maxAttempts` per flow, naive.** Every failure is retried alike until attempts run out; classifying failures is an add-on. With more than one attempt, a retried run writes its output again; the flow's author decides whether that is acceptable. There is no requirement that sinks be safe to repeat. | 2026-10-06 |
 | Branching | One outcome may be connected to several processors. Each receives its own copy: attributes copied, content shared (it is never modified in place). Recorded as a copy, with the original as parent. | 2026-10-06 |
-| Processor configuration | NiFi's model: declared properties with types, defaults and allowable values; dynamic properties a processor interprets; dynamic relationships. `${…}` is substitution only; logic is an `expression` property. | 2026-10-06 |
-| Expression language | **Open — for confirmation.** Recommendation: **CEL** — no side effects, always terminates, typed and checked on save, Apache-2.0 Java implementation. Rejected: Spring's SpEL (can call arbitrary Java), NiFi's Expression Language (tied to NiFi's runtime). SQL over records is a candidate for a later `query.records`, not a replacement. | 2026-10-06 |
+| Processor configuration | NiFi's model: declared properties with types, defaults and allowable values; dynamic properties a processor interprets; dynamic relationships. | 2026-10-07 |
+| No expressions in the first version | Built-in processors are **small, well-defined units with fixed parameters** — scale, smooth, remove spikes, interpolate, clip, resample, filter by range, threshold alarm — not a general expression language. More capability comes as more processors. `${…}` substitutes values into properties and does nothing else. An expression language (the first draft chose Spring's SpEL in its restricted mode; CEL is the other candidate) is an add-on. | 2026-10-07 |
 | Who may edit and run flows | **Open — for confirmation.** The first draft proposed realm roles (`DATAHUB_FLOW_EDITOR`). Since then the platform has moved to organization groups for access (dataset grants, and per-scope settings grants such as `/settings/llm/read\|write`). Recommendation: organization groups `/flows/read` and `/flows/write`, in the same grammar. | 2026-10-06 |
 
 ## Glossary
@@ -383,7 +383,7 @@ public interface Processor {
   properties, the dynamic properties if it takes any, the relationships (fixed, or one per dynamic
   property), and `accepts`, which defaults to *any* and is not checked in the first version.
   Published in the catalog as JSON schema, which is what the console's forms and an agent read.
-- **`ProcessContext`** — resolved property values and compiled expressions; the run's window and
+- **`ProcessContext`** — resolved property values; the run's window and
   parameters; secrets by name; saved state (a small per-processor value that survives between
   runs, such as a cursor); a DataHub client for the run; whether this is a preview; whether the run
   has been cancelled or its lease lost; and a log that ends up on the run's page.
@@ -392,16 +392,17 @@ public interface Processor {
 
 The interface lives in its own module under Apache-2.0 (`intellistream-flow-api`), for the same
 reason `datahub-api-model` is: a partner's processor, or later a tenant's, must not be forced
-under the AGPL. The engine and service are AGPL — including the expression evaluator, which a
-processor reaches through its context rather than depending on it.
+under the AGPL. The engine and service are AGPL.
 
 Processor names and properties are part of the contract: a rename keeps the old name as an alias,
 and a removal is announced at least one release in advance.
 
 ## Configuring processors
 
-Processors are configured the way NiFi's are: each declares its properties, a flow sets values for
-them, and nothing about a processor's behaviour is written as code in the flow except expressions.
+Processors are configured the way NiFi's are: each declares its properties, and a flow sets values
+for them. There is no code in a flow definition: a processor does one well-defined thing, and what
+it does is chosen by its parameters. More capability comes from more processors, not from a more
+powerful configuration language.
 
 ### Properties
 
@@ -411,109 +412,196 @@ Every property declares:
 |---|---|
 | `name` | Stable key used in the flow definition (`createMissing`) |
 | `displayName`, `description` | For the console's form and the catalog |
-| `type` | `string`, `number`, `boolean`, `duration`, `instant`, `list`, `enum`, `secret`, `expression` |
+| `type` | `string`, `number`, `boolean`, `duration`, `instant`, `list`, `enum`, `secret` |
 | `required`, `default` | A required property without a default must be set |
 | `allowableValues` | For `enum`: the values, each with a description |
 | `references` | Whether `${…}` references are allowed in the value (below) |
 | `sensitive` | Never shown or logged; must be a `secret` reference |
 
-**Dynamic properties** are user-named properties a processor interprets, as in NiFi's
-UpdateRecord and RouteOnAttribute. The processor declares what the key and the value mean — for
-`record.map`, the key is a column name and the value an expression. In the catalog's JSON schema
-they are `additionalProperties`, with that description. A processor may give each dynamic property
-its own relationship (`route.on.attribute` does).
+**Dynamic properties** are user-named properties a processor interprets, as in NiFi. The processor
+declares what the key and the value mean — for `route.on.attribute`, the key is a relationship
+name and the value the attribute value that selects it. In the catalog's JSON schema they are
+`additionalProperties`, with that description. A processor may give each dynamic property its own
+relationship.
 
 **Validation** happens when a flow is saved: types, required properties, allowable values, that
-expressions compile, that secrets and parameters exist, and the processor's own `validate` for
-combinations ("set `dataSet` when `createMissing` is true").
+secrets and parameters exist, and the processor's own `validate` for combinations ("set `dataSet`
+when `createMissing` is true", "set `min`, `max` or both").
 
-### References and expressions — two separate things
+### References
 
-- **`${…}` is a reference**, substituted into a property's value: a flow parameter
-  (`${parameters.window}`), the run's window (`${run.window.start}`, `${run.window.end}`), or an
-  attribute of the item being handled (`${timeseries.externalId}`). No operators, no functions —
-  only substitution. Run-level references are resolved once per run, attribute references once per
-  item.
-- **An expression** is a property of type `expression`, evaluated by the engine — for most
-  processors once per row. It sees the row's columns by name (`value`, `timestamp`), the item's
-  attributes as `attr` (`attr["timeseries.externalId"]`) and the flow's parameters as `params`
-  (`params.limit`). Expressions do not use `${…}`: they read the same values directly, so a value
-  can never change what an expression *means*.
+`${…}` substitutes a value into a property: a flow parameter (`${parameters.limit}`), the run's
+window (`${run.window.start}`, `${run.window.end}`), or an attribute of the item being handled
+(`${timeseries.externalId}`). Only substitution — no operators, no functions. Run-level references
+are resolved once per run, attribute references once per item. A substituted value that does not
+fit the property's type fails the item, not the save.
 
-The expression language is **CEL** (Common Expression Language), proposed for confirmation (see
-*Decisions*): no side effects, guaranteed to terminate, typed and checked when the flow is saved,
-used by Kubernetes and Envoy, with a maintained Java implementation (`cel-java`, Apache-2.0). An
-expression is compiled once per run and evaluated per row.
+### Item shapes
+
+The processors below agree on two shapes:
+
+- **`timeseries`** — one series over one window: columns `timestamp`, `value`; attributes
+  `timeseries.externalId`, `window.start`, `window.end`.
+- **`events`** — one row per event: columns `startTime`, `endTime` (may be null), `value` (may be
+  null); the attributes of the item it came from.
 
 ### Built-in processors in the first version
 
-**`datahub.timeseries.source`** — reads series over a window. Produces one `timeseries` item per
-series (columns `timestamp`, `value`).
+**`datahub.timeseries.source`** — reads series over a window. One `timeseries` item per series.
 
 | Property | Type | Default | |
 |---|---|---|---|
 | `timeseries` | list | — (required) | External ids of the series |
-| `from` | instant | `${run.window.start}` | |
-| `to` | instant | `${run.window.end}` | |
+| `from` | instant, references | `${run.window.start}` | |
+| `to` | instant, references | `${run.window.end}` | |
+| `lookback` | duration | `PT0S` | Also read this much before `from`, as history for smoothing and spike removal |
 | `maxPointsPerItem` | number | 100,000 | A longer series is split into several items |
 | `onMissing` | enum | `fail` | `fail` the run, or `skip` the series |
 
-Relationships: `success`. Sets attributes `timeseries.externalId`, `window.start`, `window.end`.
+Relationships: `success`. With a `lookback`, the item holds points from before `window.start`;
+processors that need history use them, and the sink writes only points from `window.start` on.
 
-**`datahub.timeseries.sink`** — writes datapoints. Accepts a `timeseries` item, or `records` with
-a timestamp and a value column. The item passes on unchanged after it is written.
+**`datahub.timeseries.sink`** — writes a `timeseries` item's datapoints. The item passes on
+unchanged after it is written.
 
 | Property | Type | Default | |
 |---|---|---|---|
 | `target` | string, references | `${timeseries.externalId}` | Series to write to, e.g. `${timeseries.externalId}_f` |
 | `createMissing` | boolean | `false` | Create the series if it does not exist |
 | `dataSet` | string | — | Dataset for created series; required if `createMissing` |
-| `timestampColumn`, `valueColumn` | string | `timestamp`, `value` | |
+
+Only points in `[window.start, window.end)` are written; history read through `lookback` is not.
 
 Relationships: `success`, `failure`. In preview, reports the target and the number of points
 instead of writing.
 
-**`datahub.events.sink`** — creates one DataHub event per row.
+**`datahub.events.sink`** — creates one DataHub event per row of an `events` item, with
+`startTime`, `endTime` and `value` from the row.
 
 | Property | Type | Default | |
 |---|---|---|---|
 | `type` | string, references | — (required) | |
 | `subType` | string, references | — | |
-| `externalId` | expression | — | If unset, the platform assigns one |
+| `externalId` | string, references | — | If unset, the platform assigns one |
 | `dataSet` | string | — | |
-| `startTime` | expression | `timestamp` | |
-| `endTime` | expression | — | |
-| `description` | expression | — | |
-| *dynamic* | expression | | Key: a metadata key on the event. Value: its expression. |
+| *dynamic* | string, references | | Key: a metadata key on the event. Value: its value, e.g. `${timeseries.externalId}`. |
 
 Relationships: `success`, `failure`. In preview, reports the events instead of creating them.
 
-**`record.map`** — computes columns (NiFi's UpdateRecord).
+**`timeseries.scale`** — `value × factor + offset` for every point. Covers unit conversion, adding
+or subtracting a constant, multiplying and dividing.
+
+| Property | Type | Default |
+|---|---|---|
+| `factor` | number, references | 1 |
+| `offset` | number, references | 0 |
+
+Relationships: `success`.
+
+**`timeseries.smooth`** — replaces every point with a smoothed value computed over a time window
+around it (trailing, so a point never depends on later ones). Windows are by time, not by point
+count, so irregular sampling is handled.
 
 | Property | Type | Default | |
 |---|---|---|---|
-| *dynamic* | expression | | Key: a column name, new or existing. Value: its expression. Every expression sees the input row, not each other's results. |
-| `onError` | enum | `fail` | `fail` sends the item to `failure`; `null` sets the column to null for that row |
+| `method` | enum | `median` | `median`: rolling median — removes short spikes, keeps steps sharp. `mean`: rolling mean. `exponential`: exponential smoothing with time constant `window`, weighted by the gap between points |
+| `window` | duration | — (required) | |
 
-Relationships: `success`, `failure`.
+Relationships: `success`. Points earlier than one `window` after the first available point have
+too little history and are passed through unchanged; reading `lookback` ≥ `window` avoids that
+for the run's own window.
 
-**`filter.records`** — splits an item's rows by a condition.
-
-| Property | Type | Default | |
-|---|---|---|---|
-| `condition` | expression | — (required) | Must be boolean |
-
-Relationships: `matched`, `unmatched`, `failure`. Both sides keep the item's attributes; an empty
-side is not emitted.
-
-**`route.on.attribute`** — routes whole items by their attributes (NiFi's RouteOnAttribute).
+**`timeseries.despike`** — finds spikes and removes or replaces them, leaving every other point
+untouched (a Hampel filter). A point is a spike when it is more than `threshold` × the median
+absolute deviation away from the rolling median of the `window` before it.
 
 | Property | Type | Default | |
 |---|---|---|---|
-| *dynamic* | expression | | Key: a relationship name. Value: a boolean expression over `attr` and `params`. |
-| `strategy` | enum | `each` | `each`: to every relationship whose expression is true (one copy each); `all`: to `matched` if all are true; `any`: to `matched` if any is |
+| `window` | duration | — (required) | |
+| `threshold` | number | 3 | In median absolute deviations |
+| `action` | enum | `remove` | `remove` the point, or `replace` it with the rolling median |
 
-Relationships: one per dynamic property (`each`) or `matched` (`all`, `any`); always `unmatched`.
+Relationships: `success`; `spikes` (optional to connect: the spikes found, as a `timeseries`
+item, for alarming or inspection). Sets the attribute `despike.count`.
+
+**`timeseries.interpolate`** — fills gaps between known points. A gap is a stretch longer than
+`interval` with no points; it is filled with points every `interval`. Only gaps between two known
+points are filled — never before the first or after the last, so nothing is extrapolated (a
+`lookback` lets a gap at the start of the window be filled).
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `interval` | duration | — (required) | The series' expected sampling interval |
+| `method` | enum | `linear` | `linear` between the two neighbours, or `previous` (hold the last value) |
+| `maxGap` | duration | — | Leave gaps longer than this unfilled; unset fills every gap |
+
+Relationships: `success`. Sets the attribute `interpolate.count`.
+
+**`timeseries.clip`** — limits values to a range: a value below `min` becomes `min`, one above
+`max` becomes `max`. Unlike `timeseries.filter.range`, every point is kept.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `min` | number, references | — | At least one of `min`, `max` |
+| `max` | number, references | — | |
+
+Relationships: `success`. Sets the attribute `clip.count`.
+
+**`timeseries.resample`** — puts a series on a regular interval: the points in each bucket of
+length `interval` are combined into one point, timestamped at the start of the bucket. Buckets are
+aligned to whole intervals since the epoch (a `PT1H` bucket starts on the hour), so the same
+input gives the same buckets in every run. A bucket with no points produces no point; follow with
+`timeseries.interpolate` to fill it.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `interval` | duration | — (required) | |
+| `aggregate` | enum | `mean` | `mean`, `min`, `max`, `first`, `last`, `sum`, `count` |
+
+Relationships: `success`.
+
+These cleaning processors do one thing each and are not applied in any built-in order: the flow's
+wiring is the order. A typical chain is despike → resample → interpolate → smooth.
+
+**`timeseries.filter.range`** — splits a series' points by whether they lie in a range.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `min` | number, references | — | At least one of `min`, `max` |
+| `max` | number, references | — | |
+| `inclusive` | boolean | `true` | Whether the bounds themselves are in range |
+
+Relationships: `inRange`, `outOfRange`. Both keep the item's attributes; an empty side is not
+emitted.
+
+**`timeseries.threshold`** — finds the periods a series is above (or below) a threshold, and
+produces them as an `events` item: one row per period, with `startTime`, `endTime` (null if still
+ongoing at the end of the window) and `value` (the peak, or the trough for `below`).
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `threshold` | number, references | — (required) | |
+| `direction` | enum | `above` | `above` or `below` |
+| `minDuration` | duration | `PT0S` | Ignore periods shorter than this |
+
+Relationships: `alarms` (emitted only when there is at least one period), `success` (the input
+series, unchanged).
+
+**`route.on.attribute`** — routes whole items by the value of one attribute.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `attribute` | string | — (required) | The attribute to look at |
+| *dynamic* | string | | Key: a relationship name. Value: the attribute value that selects it. |
+
+Relationships: one per dynamic property, and `unmatched`.
+
+### What the first version's processors cannot do
+
+**Combine several inputs.** A processor has one input queue: items from all its incoming
+connections arrive on it, it cannot tell which connection an item came from, and it is not told
+when no more items are coming. So "add series A to series B" or "attach the series' values to each
+event" cannot be built yet. See *Multiple inputs* under *Add-ons*.
 
 ## A flow definition
 
@@ -521,31 +609,31 @@ Relationships: one per dynamic property (`each`) or `matched` (`all`, `any`); al
 {
   "schemaVersion": 1,
   "externalId": "temp_hourly",
-  "name": "Hourly temperature: Fahrenheit series and over-limit events",
+  "name": "Hourly temperature: Fahrenheit series and over-limit alarms",
   "parameters": {
     "window": { "type": "duration", "default": "PT1H" },
     "limit":  { "type": "number",   "default": 140 }
   },
   "processors": [
     { "id": "src",  "type": "datahub.timeseries.source",
-      "properties": { "timeseries": ["ts_out_temp"] } },          // window: the run's, by default
-    { "id": "f",    "type": "record.map",
-      "properties": { "value": "value * 1.8 + 32" } },              // dynamic: column -> expression
+      "properties": { "timeseries": ["ts_out_temp"] } },            // window: the run's, by default
+    { "id": "f",    "type": "timeseries.scale",
+      "properties": { "factor": 1.8, "offset": 32 } },
     { "id": "out",  "type": "datahub.timeseries.sink",
       "properties": { "target": "${timeseries.externalId}_f",
                       "createMissing": true, "dataSet": "ds_demo" },
       "retry": { "maxAttempts": 3, "backoff": "PT5S" } },
-    { "id": "over", "type": "filter.records",
-      "properties": { "condition": "value > params.limit" } },
+    { "id": "over", "type": "timeseries.threshold",
+      "properties": { "threshold": "${parameters.limit}", "minDuration": "PT5M" } },
     { "id": "ev",   "type": "datahub.events.sink",
       "properties": { "type": "temperature", "subType": "over-limit",
-                      "series": "attr['timeseries.externalId']" } }  // dynamic: metadata key -> expression
+                      "series": "${timeseries.externalId}" } }     // dynamic: metadata key
   ],
   "connections": [
     { "from": "src",  "relationship": "success", "to": "f" },
     { "from": "f",    "relationship": "success", "to": "out" },   // the same outcome feeds two
     { "from": "f",    "relationship": "success", "to": "over" },  //   processors: each gets a copy
-    { "from": "over", "relationship": "matched", "to": "ev" }
+    { "from": "over", "relationship": "alarms",  "to": "ev" }
   ],
   "trigger":   { "type": "schedule", "cron": "0 0 * * * *", "timezone": "Europe/Oslo",
                  "window": "${parameters.window}" },
@@ -594,7 +682,7 @@ from MCP. This is the phase that proves the coordination model.
 Contents: flow create/read/update and versions; validation (structure, properties, references,
 cycles — not content kinds); the engine; branching; the sweep, claim, lease and reaper loops;
 `maxAttempts` and per-processor retry; the run record (version, resolved values, processor
-versions); the engine's record of what happened; the six built-in processors; preview; service
+versions); the engine's record of what happened; the twelve built-in processors; preview; service
 account tokens; a failure event after repeated failed runs; retention of old runs in
 datahub-cleanup; the console's Flows section (list, definition, deploy, runs, a run's steps and
 records); the MCP tools.
@@ -636,9 +724,22 @@ treatment of most of them and is a starting point, not a decision.
 - **Data quality and the audit.** Checkpoints that measure completeness, validity, timeliness and
   consistency and classify batches as good, degraded or bad; the audit that answers "was this
   report built on good data for this period?"; sensor calibration tables in the graph.
-- **Cleaning.** A `timeseries.clean` processor (interpolate, despike, clip, resample). The first
-  draft names the operations but not their parameters, their order, how they treat window edges,
-  or what they do with removed values; all of that needs deciding.
+- **Multiple inputs.** Processors that combine items — add two series, compare them, attach a
+  series' values to events. Three ways, from simplest:
+  1. *Combine at the source:* read several series aggregated to a common interval (the API already
+     serves aggregated series) as one item with a column per series, and give processors two
+     columns to work on. No engine change.
+  2. *Look up from inside the processor:* a processor handling events reads the series it needs
+     through its DataHub client. No engine change.
+  3. *Named inputs:* a connection names the input it feeds (`"input": "left"`, default `in`), the
+     session reads per input, and a processor with more than one input is invoked only once every
+     processor upstream of it has finished — well defined, because a run is finite. Pairing items
+     (by series, by window) is the processor's job. An addition to the interface and the format,
+     not a change.
+- **Expressions.** A general expression language for computed columns and conditions
+  (`record.map`, `filter.records`, routing on conditions). The first draft chose Spring's SpEL in
+  its restricted `SimpleEvaluationContext`; CEL is the alternative, type-checked when a flow is
+  saved and available for Go and Python too.
 - **Type checking between processors.** Switch on `accepts`, and check record schemas where they
   are known.
 - **Records at scale.** Move the engine's records from Postgres to ClickHouse when volume calls for
@@ -691,17 +792,16 @@ treatment of most of them and is a starting point, not a decision.
 
 1. **Who may edit and run flows** — organization groups `/flows/read` and `/flows/write`, or
    something else (see *Decisions*).
-2. **Expression language** — CEL, or something else (see *Decisions*).
-3. **A dead attempt leaves no record.** The engine's records are written in the run's final
+2. **A dead attempt leaves no record.** The engine's records are written in the run's final
    transaction, so an attempt whose instance died has none; the run shows the attempt and that its
    lease was lost, but not what it did before. Writing records during the run would fix that at the
    cost of more Postgres writes. Is the attempt row enough?
-4. **Several runs writing one window.** A retry, or a manual run over a window the schedule already
+3. **Several runs writing one window.** A retry, or a manual run over a window the schedule already
    covered, means more than one run wrote the same values. "Which run produced this value?" needs a
    rule — the latest successful run, or all of them listed.
-5. **Long manual runs.** A manual run acts as the person who started it, with their token. A run
+4. **Long manual runs.** A manual run acts as the person who started it, with their token. A run
    longer than the token's lifetime needs either a refresh or to run as the service account.
-6. **Identity.** The service account usually has broader dataset access than the person who wrote
+5. **Identity.** The service account usually has broader dataset access than the person who wrote
    the flow, so someone with `/flows/write` but narrow dataset access can deploy a flow that reads
    more than they can. Per-flow identities are an open question.
 
