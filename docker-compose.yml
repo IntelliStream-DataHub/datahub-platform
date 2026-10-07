@@ -116,7 +116,7 @@ services:
     volumes: ["kvrocksdata:/var/lib/kvrocks"]
 
   pulsar:
-    image: docker.io/apachepulsar/pulsar:4.0.11
+    image: docker.io/apachepulsar/pulsar:5.0.0
     # Plaintext standalone broker — no OAuth2, no TLS. The app must run with
     # datahub.pulsar.tls.enabled=false and the pulsar.service.url overrides
     # documented in GETTING_STARTED.md.

@@ -121,7 +121,7 @@ abstract class AbstractPulsarWebSocketIT {
     }
 
     private static PulsarContainer createBroker() {
-        String version = System.getProperty("datahub.pulsar.image.version", "4.0.11");
+        String version = System.getProperty("datahub.pulsar.image.version", "5.0.0");
         String narPath = System.getProperty("datahub.pulsar.filter.nar");
         if (narPath == null || !Files.exists(Path.of(narPath))) {
             throw new IllegalStateException(
