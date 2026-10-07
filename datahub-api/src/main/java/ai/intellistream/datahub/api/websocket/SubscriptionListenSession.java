@@ -41,11 +41,18 @@ class SubscriptionListenSession {
 
     private static final class Stream {
         final String externalId;
+        // The subscription's stored externalId, which the fan-out keys its messages with. Lookup
+        // is case-insensitive, so it differs from externalId when the client attached in other case.
+        final String filterKey;
         final Consumer<DataWrapperMessage> consumer;
         volatile Future<?> task;
+        // Only this stream's receive loop reads or sets it, so the missing-filter warning is
+        // logged once per stream rather than once per dropped message.
+        boolean warnedForeignKey;
 
-        Stream(String externalId, Consumer<DataWrapperMessage> consumer) {
+        Stream(String externalId, String filterKey, Consumer<DataWrapperMessage> consumer) {
             this.externalId = externalId;
+            this.filterKey = filterKey;
             this.consumer = consumer;
         }
     }
@@ -73,11 +80,12 @@ class SubscriptionListenSession {
     /**
      * Attach a subscription's consumer and start streaming it. Returns false (and does NOT take
      * ownership of the consumer) if the connection is stopping or the subscription is already
-     * attached — the caller must close the redundant consumer in that case.
+     * attached — the caller must close the redundant consumer in that case. {@code externalId} is
+     * the id as the client sent it; {@code filterKey} is the subscription's stored externalId.
      */
-    boolean addStream(String externalId, Consumer<DataWrapperMessage> consumer) {
+    boolean addStream(String externalId, String filterKey, Consumer<DataWrapperMessage> consumer) {
         if (!running.get()) return false;
-        Stream stream = new Stream(externalId, consumer);
+        Stream stream = new Stream(externalId, filterKey, consumer);
         if (streams.putIfAbsent(externalId, stream) != null) return false;
         stream.task = executor.submit(() -> receiveLoop(stream));
         return true;
@@ -164,10 +172,29 @@ class SubscriptionListenSession {
      * registering each message so the client can later ack/nack by wsMessageId. Concurrent sends from
      * sibling streams are made safe by the {@code ConcurrentWebSocketSessionDecorator} wrapping the
      * session.
+     *
+     * <p>Only messages keyed with the subscription's stored externalId are sent. The broker-side
+     * {@code SubscriptionKeyEntryFilter} should already guarantee that, but a broker without it hands
+     * every subscription the tenant's whole fan-out topic, and forwarding that would show the client
+     * datapoints of timeseries outside the one subscription it was authorized to read. Anything else
+     * is acknowledged here, so it neither reaches the socket nor piles up in this subscription's
+     * backlog.
      */
     private void sendBatch(Stream stream, Messages<DataWrapperMessage> batch) {
         List<Map<String, Object>> wireMessages = new ArrayList<>(batch.size());
+        List<MessageId> foreign = new ArrayList<>();
         for (Message<DataWrapperMessage> msg : batch) {
+            if (!stream.filterKey.equals(msg.getKey())) {
+                if (!stream.warnedForeignKey) {
+                    stream.warnedForeignKey = true;
+                    log.warn("Subscription {} dropped a message keyed '{}'. The broker-side "
+                            + "SubscriptionKeyEntryFilter is probably not enabled, so every "
+                            + "subscription of the tenant reads the whole fan-out topic.",
+                            stream.externalId, msg.getKey());
+                }
+                foreign.add(msg.getMessageId());
+                continue;
+            }
             String wsMessageId = encodeMessageId(stream.externalId, msg.getMessageId());
             pending.put(wsMessageId, new Pending(stream.externalId, msg.getMessageId()));
             Map<String, Object> envelope = new LinkedHashMap<>();
@@ -175,6 +202,15 @@ class SubscriptionListenSession {
             envelope.put("payload", msg.getValue());
             wireMessages.add(envelope);
         }
+        if (!foreign.isEmpty()) {
+            try {
+                stream.consumer.acknowledge(foreign);
+            } catch (PulsarClientException e) {
+                log.warn("Failed to ack {} dropped message(s) for subscription {}: {}",
+                        foreign.size(), stream.externalId, e.getMessage());
+            }
+        }
+        if (wireMessages.isEmpty()) return;
         try {
             String json = jsonMapper.writeValueAsString(Map.of(
                     "subscriptionExternalId", stream.externalId,

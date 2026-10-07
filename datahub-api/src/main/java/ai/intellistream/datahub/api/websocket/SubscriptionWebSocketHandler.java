@@ -67,7 +67,10 @@ import java.util.concurrent.*;
  * consumer ({@code BatchedDatapointsListener}) republishes each datapoint once per interested
  * subscription, keyed by externalId and ordered per timeseries. The broker-side
  * {@code SubscriptionKeyEntryFilter} (in datahub-pulsar-filter; {@code filter.key} = externalId) then
- * hands each subscription only its own messages. A single socket multiplexes by
+ * hands each subscription only its own messages. {@link SubscriptionListenSession} checks the key
+ * again before forwarding, so a broker without the filter costs dispatch, never isolation: the read
+ * check in {@code attachSubscription} covers one subscription, and only that subscription's
+ * messages may reach the client. A single socket multiplexes by
  * opening one Pulsar consumer per subscribed externalId, so the Pulsar subscription count scales with
  * the number of subscription entities, not the number of timeseries.
  * <p>
@@ -346,7 +349,7 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
             return;
         }
 
-        if (!listen.addStream(externalId, consumer)) {
+        if (!listen.addStream(externalId, maybe.get().getExternalId(), consumer)) {
             // Lost a race (already attached, or the session is stopping) — don't leak the consumer.
             try {
                 consumer.close();
