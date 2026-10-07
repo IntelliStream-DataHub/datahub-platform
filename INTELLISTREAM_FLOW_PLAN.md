@@ -49,8 +49,8 @@ processor, a new trigger, a new table — not a change to what is already there.
 - **Act as a durable queue.** Items between processors live in memory; the source is the durable
   copy (see *Why the queues are in memory*).
 - **Process streams statefully.** No windowed joins across streams, no exactly-once guarantees.
-- **Run long jobs.** A run must fit in memory on one instance; work that takes days is chunked
-  into windows.
+- **Run long jobs.** A run lasts at most an hour (15 minutes by default) and must fit in memory on
+  one instance; longer work is split into windows.
 - **Alert or draw dashboards.** Failures become ordinary DataHub events; dashboards use the
   existing live-update path.
 - **Connect to external systems, check data quality, run tenant code, or host agents** — not yet.
@@ -73,10 +73,11 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Words | A step is a **processor** (NiFi's own term). The ontology's `FUNCTION` node type keeps its meaning and is not renamed. Other words: `Flow`, `Connection`, `Run`, `Item`. Console section: **Flows**. | 2026-09-08 |
 | Tenant configuration | **All in Vault**, extending the existing `tenant-config/<org>` mechanism with a `flow` section. Flow secrets (HTTP or database credentials) live in the tenant's part of Vault, writable but never readable back. Secrets never go into Postgres, encrypted or not. Feature flags stay operator-owned. | 2026-09-08 |
 | APIs | **REST (with server-sent events for watching a run) and MCP.** gRPC is dropped, not deferred: it had no caller, and would have meant a second security path and a code-generation toolchain. Services stay transport-agnostic, so a gRPC facade can be added if a real caller appears. | 2026-09-08 |
-| ClickHouse schema ownership | Out of scope for this plan. The first version needs no ClickHouse tables. | 2026-10-05 |
+| ClickHouse schema ownership | Out of scope for this plan. | 2026-10-05 |
 | Scope | **Engine first.** The first version is the processing tree and the machinery to run it reliably (Phases 0–1). Quality, cleaning, custom code, continuous sources and connectors, agents and the designer are add-ons, each decided separately. | 2026-10-06 |
 | Item | An item is **content plus attributes**. The content records its kind (`timeseries`, `events`, `records`, `json`, `bytes`). | 2026-10-06 |
-| Record of what happened | The **engine** records what happens to items — not each processor — from the session calls every processor makes anyway. The record is the same for any kind of data; what is specific to timeseries (a series and a time window) is an optional reference the engine stores without interpreting. Kept in Postgres with the run in the first version. | 2026-10-06 |
+| Record of what happened | The **engine** records what happens to items — not each processor — from the session calls every processor makes anyway. The record is the same for any kind of data; what is specific to timeseries (a series and a time window) is an optional reference the engine stores without interpreting. Stored in ClickHouse (see the next row). | 2026-10-06 |
+| Where the records live | **ClickHouse**, one append-only table per tenant database, added by a ClickHouse migration. The data the flows read and write is in ClickHouse anyway, so Postgres would add no availability; ClickHouse fits the volume and keeps the records next to the datapoints they describe. Records are flushed during the run, not only at the end. | 2026-10-07 |
 | Versioning | Flow versions never change. Every run records the flow version, the actual values it ran with (time window, parameters; for a secret, which one, never its value) and the version of every processor it used. | 2026-10-06 |
 | Processor | An interface declaring its properties, its outcomes (relationships), optionally what content it accepts, and what it does. Built-in processors ship with the platform. | 2026-10-06 |
 | Type checking between processors | **Deferred.** The first version does not check that connected processors agree on content kind; a mismatch fails at run time and goes to the processor's `failure` outcome. Because items carry their kind and the interface has an optional `accepts` (default: any), checking can be added later without breaking existing processors or flows. | 2026-10-06 |
@@ -84,7 +85,14 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Branching | One outcome may be connected to several processors. Each receives its own copy: attributes copied, content shared (it is never modified in place). Recorded as a copy, with the original as parent. | 2026-10-06 |
 | Processor configuration | NiFi's model: declared properties with types, defaults and allowable values; dynamic properties a processor interprets; dynamic relationships. | 2026-10-07 |
 | No expressions in the first version | Built-in processors are **small, well-defined units with fixed parameters** — scale, smooth, remove spikes, interpolate, clip, resample, filter by range, threshold alarm — not a general expression language. More capability comes as more processors. `${…}` substitutes values into properties and does nothing else. An expression language (the first draft chose Spring's SpEL in its restricted mode; CEL is the other candidate) is an add-on. | 2026-10-07 |
-| Who may edit and run flows | **Open — for confirmation.** The first draft proposed realm roles (`DATAHUB_FLOW_EDITOR`). Since then the platform has moved to organization groups for access (dataset grants, and per-scope settings grants such as `/settings/llm/read\|write`). Recommendation: organization groups `/flows/read` and `/flows/write`, in the same grammar. | 2026-10-06 |
+| Who may see and change flows | Organization groups **`/flows/read`** and **`/flows/write`**, in the same grammar as the settings grants — and **every flow belongs to one dataset**. Seeing a flow, its runs and its records needs `/flows/read` plus read access to that dataset; creating, changing, deploying or running it needs `/flows/write` plus write access to it. Dataset grants expand down the `BELONGS_TO` hierarchy as they do everywhere else. | 2026-10-07 |
+| What a run may touch | Every run acts as the tenant's service account, **confined to its flow's dataset**: the run's DataHub client refuses to read or write anything outside that dataset and its descendants. Processors reach DataHub only through that client. A flow that spans datasets belongs to a common parent. | 2026-10-07 |
+| Starting runs | **No dispatch topic.** Instances claim runs straight from Postgres (`SKIP LOCKED`): the sweep claims due and pending runs up to its free capacity, and the instance that receives a manual run starts it itself if it can. Pulsar plays no part in running flows. | 2026-10-07 |
+| Memory | Every run has a **memory cap** on its Arrow data, enforced by its own Arrow allocator; going over fails that run alone. Instances take a run only if its cap fits in what they have free. | 2026-10-07 |
+| Failed runs | A run that fails after its last attempt is shown as a **notification in the console's Flows section**, grouped per flow, until someone re-runs its window or dismisses it. | 2026-10-07 |
+| Tenant configuration changes | **No push.** Flows relies on the existing five-minute refresh of tenant configuration (`TenantConfigService`), re-reads Vault at once when Keycloak rejects the service account's credentials, and reads flow secrets from Vault at the start of each run. A notify topic for faster propagation stays a platform improvement, not a Flows prerequisite. With dispatch gone too, **the first version uses no Pulsar at all.** | 2026-10-07 |
+| Run length | Runs are short. Default timeout 15 minutes, tenant maximum 1 hour (set by the operator). Longer work is split into windows. | 2026-10-07 |
+| Which run produced a value | The **latest write** to that series and timestamp, by record time — which is also what ClickHouse keeps. Earlier writes are listed as history. A failed attempt that wrote before failing can be the latest writer, and is shown as such. | 2026-10-07 |
 
 ## Glossary
 
@@ -114,14 +122,17 @@ processor, a new trigger, a new table — not a change to what is already there.
 4. *As an operator, I want to run as many identical instances of the service as I like, on any
    machines, and have a run that was in progress on a dead instance picked up by another within a
    couple of minutes, so that capacity and resilience are a matter of instance count.*
-5. *As an operator, I want a deployment that keeps failing to raise a DataHub event in the
+5. *As a data engineer, I want a failed run to show up as a notification in the Flows section,
+   with a button to re-run its window, so that a missed hour is noticed and filled rather than
+   discovered weeks later.*
+5a. *As an operator, I want a deployment that keeps failing to raise a DataHub event in the
    tenant's own event stream, so that failures show up on dashboards without a separate alerting
    system.*
 6. *As a tenant administrator, I want my flows and runs to be invisible to every other tenant,
    and to switch the feature on per tenant.*
-7. *As a tenant administrator, I want scheduled runs to act under a service account whose dataset
-   access I control through the same organization groups as users, and only people I choose to
-   be able to change flows.*
+7. *As a tenant administrator, I want each flow to belong to a dataset, so that only people with
+   access to that dataset can see or change it, and the flow itself cannot touch data outside it —
+   even though its runs are unattended.*
 8. *As an analyst, I want to find which run produced a value, which flow version and settings it
    used, and what each processor did to it, so that a surprising value can be explained.*
 9. *As a flow author, I want processor names and properties to stay stable across releases, with
@@ -143,12 +154,12 @@ flowchart LR
   end
   subgraph FLOW["intellistream-flow — N identical instances"]
     API["REST :8083 · MCP /mcp<br/>JWT → tenant"]
-    DISP["ScheduleSweeper · DispatchConsumer<br/>RunClaimer · LeaseHeartbeat · RunReaper"]
+    DISP["Sweeper (schedules + claims)<br/>LeaseHeartbeat · RunReaper"]
     ENG["Engine: FlowCompiler · RunExecutor<br/>ProcessSession · in-memory queues"]
     PROC["Built-in processors"]
   end
-  PG[("Tenant Postgres, schema flow<br/>flows · versions · deployments<br/>runs · run events · state")]
-  PUL{{"Pulsar<br/>flow/dispatch"}}
+  PG[("Tenant Postgres, schema flow<br/>flows · versions · deployments<br/>runs · state")]
+  CH[("Tenant ClickHouse<br/>flow_run_event")]
   DH["datahub-api"]
   KC["Keycloak<br/>tenant service account"]
 
@@ -157,8 +168,8 @@ flowchart LR
   Ext --> API
   API --> PG
   DISP <--> PG
-  DISP <--> PUL
   DISP --> ENG --> PROC --> DH
+  ENG -- "records" --> CH
   ENG -. "token for scheduled runs" .-> KC
 ```
 
@@ -215,19 +226,49 @@ from somewhere, sent it somewhere, changed its attributes or content, split it, 
 it to a relationship, dropped it. One record per action:
 
 > run · attempt · processor · action · item id · parent item ids · relationship · content kind ·
-> size · hash · changed attributes · entity reference · duration
+> size · hash · changed attributes · transit URI · duration
 
-The *entity reference* is optional and opaque to the engine. The DataHub timeseries processors set
-it to the series and the time window, so "which run produced this value?" is a lookup by series and
-timestamp. A flow moving files or JSON documents gets the same record without one.
+The **transit URI** says where an item came from or went to, as in NiFi: set by a processor that
+reads from or writes to something outside the flow, absent otherwise. It is the only field for
+this. For DataHub's own data the URI follows a fixed form the platform can parse:
+
+| Data | Transit URI |
+|---|---|
+| Datapoints of a series over a window | `datahub://timeseries/{externalId}?from={instant}&to={instant}` |
+| One event | `datahub://events/{externalId}` |
+| A batch of events | `datahub://events?type={type}&subType={subType}&from={instant}&to={instant}` |
+
+External ids are percent-encoded; the tenant is implicit (the records are in the tenant's own
+database). Other systems use their own URIs — `opc.tcp://plc-07:4840/ns=2;s=Line1.Temp`,
+`https://api.example.com/v1/readings`, `jdbc:postgresql://db01:5432/sales` — and each processor
+documents its form. Credentials and query-string secrets are never put in a URI.
+
+**The content hash** is not a way to find data — the URI is. It records *what the data was* when
+the run touched it, so that it can be checked later:
+
+- **Has the input changed since?** Re-read the URI, hash it, compare. A mismatch means late data
+  or an overwrite since the run — the question an audit asks of a report.
+- **Did two runs see the same data?** Equal hashes for the same URI across a retry or a re-run.
+- **Did a step change the content?** Hash in versus hash out.
+
+It cannot bring back data that has since changed: ClickHouse keeps the latest value per series and
+timestamp, and items between processors are not stored at all. Keeping copies of content is an
+add-on (under *Lineage and export*). For re-reads to give the same hash, it is computed over a canonical
+form — rows sorted by timestamp, a fixed encoding per column type — not over Arrow's in-memory
+bytes. It is xxHash (already used by the platform), which detects change; it is not a
+cryptographic seal against deliberate tampering.
 
 Processors do not report these themselves. Because the engine derives them from the session calls
 every processor makes anyway, a new processor is recorded correctly without doing anything.
 
-In the first version the records are written to Postgres in the run's final transaction, with a
-per-run cap and a *truncated* marker. Flows should keep a batch as one item, so a run produces tens
-or hundreds of records, not millions. When volume calls for it, the records move to ClickHouse
-behind the same interface (see *Add-ons*).
+The records go to a ClickHouse table in the tenant's database (`flow_run_event`, Appendix A). They
+are append-only and never updated, tagged with run and attempt, and flushed in batches **during**
+the run as well as before it finishes, using ClickHouse's asynchronous inserts so a run never
+makes many small inserts. An attempt whose instance dies therefore leaves the records it had
+flushed, marked with its attempt number; the console shows records per attempt, so a retried run's
+history is visible rather than overwritten. A run whose records cannot be written fails, like a
+run whose sink cannot write: ClickHouse being down stops the flows anyway, so there is no spool.
+Flows should keep a batch as one item; a per-run cap with a *truncated* marker bounds the rest.
 
 ### Versioning and reproducibility
 
@@ -258,22 +299,80 @@ point with a Pulsar topic in between. Until then the flag is rejected by the val
 
 ### How many instances share the work
 
-Every instance is identical and runs the same loops. All coordination is rows in Postgres; Pulsar
-only carries "there is work" notifications.
+Every instance is identical and runs the same loops. All coordination is rows in Postgres; nothing
+else is involved.
 
-1. **Schedule sweep.** Every ~10 seconds each instance asks each tenant's database for schedules
-   that are due, locking the rows it picks (`SELECT … FOR UPDATE SKIP LOCKED`). For each, it
-   inserts a *pending* run, moves the schedule forward, and publishes "run X is ready" to Pulsar.
-2. **Claim and execute.** Whoever receives that message tries to claim the run with a single
-   `UPDATE` that only succeeds if the run is still pending. If it succeeds, the run executes on that
-   instance; if not, the message is dropped. Only one instance ever executes a given attempt, so a
-   message delivered twice does not run twice. While running, the instance renews its lease every
-   15 seconds, with an update that only succeeds if it is still the owner. When the run finishes,
-   one transaction writes the result, the records, the saved processor state and the final status
-   — again only if this instance still owns the run.
-3. **Reaper.** Every 30 seconds each instance looks for runs whose lease expired. Those go back to
-   pending for another attempt, or are marked failed when the flow's `maxAttempts` is used up. It
-   also republishes pending runs whose notification got lost.
+1. **Sweep.** Every ~10 seconds each instance, for each tenant, in one transaction:
+   - creates a *pending* run for every schedule that is due, and moves the schedule forward —
+     locking the schedule rows it picks (`SELECT … FOR UPDATE SKIP LOCKED`), so no two instances
+     create the same run;
+   - claims pending runs, oldest first, up to the capacity it has free (`SKIP LOCKED` again, and at
+     most a few per sweep, so the first instance to sweep does not take everything): sets them
+     `RUNNING`, itself as owner, with a lease.
+2. **Manual runs.** The instance that receives the request creates the run and, if it has room,
+   claims and starts it at once. If it is full, the run stays pending and the next sweep on any
+   instance picks it up — within about ten seconds.
+3. **Execute.** While running, the instance renews its lease every 15 seconds, with an update that
+   only succeeds if it is still the owner. When the run finishes, one transaction writes the
+   result, the saved processor state and the final status — again only if this instance still owns
+   the run. Only one instance ever executes a given attempt.
+4. **Reaper.** Every 30 seconds each instance looks for runs whose lease expired. Those go back to
+   pending for another attempt (after a back-off), or are marked failed when the flow's
+   `maxAttempts` is used up.
+
+A scheduled run starts within about ten seconds of being due; a manual run at once when its
+instance has room.
+
+### Memory
+
+A run's batches live in Arrow memory, which sits outside the Java heap and is handed out by
+*allocators* that can be nested with limits. Each run gets its **own child allocator, capped**:
+
+- The cap comes from the flow's `execution.memory` (default 512 MB), up to a tenant maximum the
+  operator sets (default 4 GB).
+- Going over the cap throws an ordinary exception in that run only. The run fails with
+  `MEMORY_LIMIT` and every other run on the instance carries on.
+- Content that is not Arrow (`json`, `bytes`) counts against the same cap when it is held in
+  memory, and spills to a temp file when large.
+- An instance claims a run only if the run's cap fits in its own Arrow budget (configured per
+  instance) minus the caps of the runs it already has. Otherwise it leaves the run for an instance
+  with room.
+
+What the cap cannot cover is the Java heap itself (attributes, processor internals). As a
+backstop, instances run with `-XX:+ExitOnOutOfMemoryError`: an instance that runs out of heap
+exits cleanly instead of limping on, and its runs are picked up as for any dead instance.
+
+### Failed runs
+
+A run that ends `FAILED` after its last attempt — an error, a timeout, a memory cap, or a lost
+lease — becomes a **notification in the console's Flows section**: a count on the section's entry
+and a *Needs attention* list at the top, grouped per flow ("temp_hourly: 3 failed runs since
+10:00"), visible to everyone who can see the flow. Each failed run offers:
+
+- **Re-run** — a new run over the same window, with the flow's currently deployed version.
+- **Dismiss** — clears the notification, recording who dismissed it and when.
+
+A failed scheduled run is how a window gets missed, so this is also how a missed window gets
+noticed and filled. Independently, a deployment that keeps failing raises a DataHub event in the
+tenant's event stream (story 5a), for dashboards and alerting outside the console.
+
+### How changes reach the instances
+
+Nothing is pushed to instances when a flow changes; Postgres is read at the moments that matter,
+and versions never change.
+
+- **Editing a flow** saves a new version. Nothing running is affected.
+- **Deploying a version** updates the deployment row. The next run created — by the next sweep, or
+  the next manual start — uses it. A run in progress finishes on the version it started with.
+- **Changing or disabling a schedule** updates the schedule row. The next sweep, within about ten
+  seconds, sees it; a disabled deployment gets no new runs. Cancelling the runs in progress is a
+  separate, explicit action.
+- **Tenant configuration** — a tenant added or removed, the `flow` feature switched, operator
+  limits changed — reaches every instance at the next five-minute refresh. Rotated service-account
+  credentials are picked up at once: a rejected token request triggers a fresh read from Vault.
+  Flow secrets are read from Vault when a run starts, so they are never stale.
+- **Caching** is safe because a flow version is immutable: an instance compiles version 7 once and
+  keeps it, and never needs telling that it changed, because it cannot.
 
 ### Retries
 
@@ -307,7 +406,7 @@ take over.
 |---|---|---|
 | An instance, mid-run | Its lease stops being renewed (every 15 s; expires after 60 s) | The reaper re-queues the run (attempt + 1) or marks it `FAILED (LEASE_LOST)`; another instance runs it from the start. Within about 90 s. |
 | Postgres, for longer than a lease | Heartbeats fail | **Self-fencing:** an instance that cannot renew its lease by the time it expires treats itself as fenced and aborts the run, so there is never a second live copy when Postgres returns. No new claims; sweeps pause. |
-| Pulsar | Publish or consume errors | Dispatch stalls; pending runs pile up and the reaper republishes them when Pulsar returns. Runs already executing finish normally. |
+| ClickHouse | Record flushes and timeseries reads and writes fail | The run fails, as it would on any failing sink; with attempts left it is retried later. No local spool. |
 | A whole host | Leases expire | As for an instance. |
 
 ### What this costs Postgres
@@ -344,20 +443,31 @@ refers to a dataset by its external id and calls datahub-api over HTTP. Every ru
 through a `flow` flag next to `policy`, `streaming` and `chat` in the operator-owned tenant
 configuration.
 
-### Who a run acts as
+### Who a run acts as, and what it may touch
 
-Today every call between our services carries the *user's* JWT. A scheduled run has no user, so
-it calls datahub-api as the tenant's **service account**: **one per tenant**, shared by all of that
-tenant's flows and runs — never one per flow or per run. Each instance holds one token per tenant
-(client credentials, through the SDK's existing `TokenProvider`), reuses it across runs and renews
-it before it expires. The service account is granted
-dataset access through the same organization groups as a user, so the existing ACLs apply. Its
-credentials are in the tenant's `flow` section in Vault.
+Every flow belongs to **one dataset**, set when it is created. That dataset decides who can see the
+flow and what the flow can reach.
 
-A manual run acts as the person who started it.
+**People.** Seeing a flow, its runs and its records needs `/flows/read` and read access to the
+flow's dataset. Creating, changing, deploying, previewing or starting it needs `/flows/write` and
+write access to the dataset. Grants on a parent dataset cover its descendants, as everywhere else.
+A user without access to the dataset does not see the flow at all — lists are filtered, a direct
+request answers 404.
 
-Because the service account usually has broader dataset access than any one person, changing a
-flow is a separate permission from reading one (see the open row in *Decisions*).
+**Runs.** Every run — scheduled or manual — calls datahub-api as the tenant's **service account**:
+one per tenant, shared by all of that tenant's flows and runs, never one per flow or per run. Each
+instance holds one token per tenant (client credentials, through the SDK's existing
+`TokenProvider`), reuses it across runs and renews it before it expires. Its credentials are in the
+tenant's `flow` section in Vault.
+
+The service account can usually reach more than any one flow should, so the run's DataHub client
+**confines it to the flow's dataset**: a series, event or dataset outside that dataset and its
+descendants is refused before any call is made, and a sink that creates a series or event must put
+it inside. Processors cannot get around this, because the client in their context is their only
+way to DataHub. A flow that needs data from two datasets belongs to a parent of both.
+
+This holds because every processor in the first version is platform code. Tenant-supplied code
+(an add-on) would need the same limit enforced by datahub-api itself, not by the flow service.
 
 ---
 
@@ -609,6 +719,7 @@ event" cannot be built yet. See *Multiple inputs* under *Add-ons*.
 {
   "schemaVersion": 1,
   "externalId": "temp_hourly",
+  "dataSet": "ds_demo",                                            // the flow's dataset: access and reach
   "name": "Hourly temperature: Fahrenheit series and over-limit alarms",
   "parameters": {
     "window": { "type": "duration", "default": "PT1H" },
@@ -637,7 +748,7 @@ event" cannot be built yet. See *Multiple inputs* under *Add-ons*.
   ],
   "trigger":   { "type": "schedule", "cron": "0 0 * * * *", "timezone": "Europe/Oslo",
                  "window": "${parameters.window}" },
-  "execution": { "maxConcurrentRuns": 1, "maxAttempts": 1, "timeout": "PT15M" }
+  "execution": { "maxConcurrentRuns": 1, "maxAttempts": 1, "timeout": "PT15M", "memory": "512MB" }
 }
 ```
 
@@ -647,10 +758,8 @@ event" cannot be built yet. See *Multiple inputs* under *Add-ons*.
 
 ### Before Phase 0
 
-Three small pieces of the tenant configuration work that has already shipped:
+Two small pieces of the tenant configuration work that has already shipped:
 
-- a `registry/notify` Pulsar topic, copying the `subscriptions/notify` pattern, so a configuration
-  change reaches every instance in seconds rather than at the five-minute refresh;
 - a `flow` section in `tenant-config/<org>`, for the service-account credentials and flow secrets;
 - the settings-grant handling (`SettingsGrants`, currently in datahub-api, and `SettingsScopes`)
   made usable outside datahub-api, so the flow service can resolve the same grants.
@@ -666,12 +775,13 @@ Nothing user-visible yet.
 - JWT → organization → `TenantContext`; tenants without the `flow` flag get 404, tenants not yet
   provisioned 503.
 - Flyway V45: the `flow` schema (Appendix A).
-- The compose service, the systemd unit, the `flow/dispatch` topic, Keycloak groups.
+- A ClickHouse migration: the `flow_run_event` table in each tenant's ClickHouse database.
+- The compose service, the systemd unit, Keycloak groups.
 - Metrics follow CONSTRAINTS #5: no tenant or deployment on any Prometheus metric. Management port
   9084, off by default, the same `@Order(1)` chain as the other services.
 
 **Done when** the service boots in the compose stack, answers `GET /catalog/processors` with a
-valid JWT, and the `flow` schema exists in the `foo` and `bar` tenant databases.
+valid JWT, and the `flow` schema and the `flow_run_event` table exist in the `foo` and `bar` tenant databases.
 
 ### Phase 1 — The processing tree
 
@@ -682,14 +792,13 @@ from MCP. This is the phase that proves the coordination model.
 Contents: flow create/read/update and versions; validation (structure, properties, references,
 cycles — not content kinds); the engine; branching; the sweep, claim, lease and reaper loops;
 `maxAttempts` and per-processor retry; the run record (version, resolved values, processor
-versions); the engine's record of what happened; the twelve built-in processors; preview; service
-account tokens; a failure event after repeated failed runs; retention of old runs in
+versions); the engine's record of what happened; the twelve built-in processors; preview; service account tokens and the confinement of each run to its flow's dataset; `/flows/read|write` with dataset access on every endpoint; a failure event after repeated failed runs; retention of old runs in
 datahub-cleanup; the console's Flows section (list, definition, deploy, runs, a run's steps and
 records); the MCP tools.
 
 **Done when:** the example flow above runs hourly on a two-instance stack; killing the instance
 running it mid-run gets it re-run (with `maxAttempts: 2`) or marked failed (with `1`) within two
-minutes; preview writes nothing; and for any value it wrote, the console shows which run, flow
+minutes; preview writes nothing; a failed run shows up under *Needs attention* and re-running it fills its window; a run over its memory cap fails without affecting others on the instance; a flow whose source names a series outside its dataset is refused; and for any value it wrote, the console shows which run, flow
 version, parameter values and processor versions produced it.
 
 ## What stays open for the add-ons
@@ -742,8 +851,7 @@ treatment of most of them and is a starting point, not a decision.
   saved and available for Go and Python too.
 - **Type checking between processors.** Switch on `accepts`, and check record schemas where they
   are known.
-- **Records at scale.** Move the engine's records from Postgres to ClickHouse when volume calls for
-  it; lineage between datasets in the knowledge graph; OpenLineage export; keeping copies of a
+- **Lineage and export.** Lineage between datasets in the knowledge graph; OpenLineage export; keeping copies of a
   step's input and output for debugging.
 - **Backfill and late data.** Re-run a period as many windowed runs without touching the live
   schedule.
@@ -790,20 +898,7 @@ treatment of most of them and is a starting point, not a decision.
 
 ## Open questions
 
-1. **Who may edit and run flows** — organization groups `/flows/read` and `/flows/write`, or
-   something else (see *Decisions*).
-2. **A dead attempt leaves no record.** The engine's records are written in the run's final
-   transaction, so an attempt whose instance died has none; the run shows the attempt and that its
-   lease was lost, but not what it did before. Writing records during the run would fix that at the
-   cost of more Postgres writes. Is the attempt row enough?
-3. **Several runs writing one window.** A retry, or a manual run over a window the schedule already
-   covered, means more than one run wrote the same values. "Which run produced this value?" needs a
-   rule — the latest successful run, or all of them listed.
-4. **Long manual runs.** A manual run acts as the person who started it, with their token. A run
-   longer than the token's lifetime needs either a refresh or to run as the service account.
-5. **Identity.** The service account usually has broader dataset access than the person who wrote
-   the flow, so someone with `/flows/write` but narrow dataset access can deploy a flow that reads
-   more than they can. Per-flow identities are an open question.
+None from the review remain open. New ones go here.
 
 ---
 
@@ -811,44 +906,52 @@ treatment of most of them and is a starting point, not a decision.
 
 | Table | Holds |
 |---|---|
-| `flow` | id, external id, name, current version, created/updated by and at |
+| `flow` | id, external id, dataset, name, current version, created/updated by and at |
 | `flow_version` | flow, version, definition (jsonb), created by and at; never updated |
 | `deployment` | flow, version, enabled, trigger, execution limits, enabled by and at |
 | `schedule` | deployment, next due, cursor |
-| `run` | deployment, version, status, attempt, max attempts, owner, lease expires at, window, resolved parameters, processor versions, trigger, triggered by, started/finished at, error, stats |
+| `run` | deployment, version, status, attempt, max attempts, not before (retry back-off), memory cap, dismissed by and at, owner, lease expires at, window, resolved parameters, processor versions, trigger, triggered by, started/finished at, error, stats |
 | `run_input` | items posted to the API for a run, written before the API answers |
 | `run_output` | items that reached an output port; inline content capped at 1 MB |
-| `run_event` | the engine's records (one per action), written in the run's final transaction, capped per run |
 | `processor_state` | per deployment and processor: a small saved value and its version |
 
 Indexes: a partial index on `run (status) WHERE status = 'RUNNING'`, none on
-`run.lease_expires_at`; `run_event (run_id)` and `run_event (entity_ref, window_start)`.
+`run.lease_expires_at`.
+
+**ClickHouse, per tenant database: `flow_run_event`** — one row per action: event time, run,
+attempt, flow, flow version, processor, action, item id, parent item ids, relationship, content
+kind, size, hash, changed attributes, transit URI, duration. For DataHub URIs, the scheme, entity
+type, external id and window are extracted into `MATERIALIZED` columns when a row is written —
+derived by ClickHouse from the URI, not a second field anyone writes.
+`MergeTree`, partitioned by month, ordered by `(run_id, event_time)` for "what happened in run
+X?", with a projection ordered by those columns (external id, window start) for "which run produced this value?".
+Expires by TTL (default 90 days, set per tenant). Created by a ClickHouse migration; how those
+migrations are run is outside this plan.
 
 ## Appendix B — Run protocol, step by step
 
-1. **Create.** The sweep or a manual call inserts `run` as `PENDING` (with `run_input` rows for
-   posted items) in one transaction.
-2. **Notify.** Publish `{tenantId, runId, deploymentId, attempt}` to
-   `persistent://{internal}/flow/dispatch`; set `dispatched_at`.
-3. **Receive.** Shared subscription. Unknown tenant → acknowledge and warn. Feature off, or no free
-   slot in the instance's or tenant's budget → negative-acknowledge (redelivered later, elsewhere).
-4. **Claim.** In one transaction: lock the deployment row, check `maxConcurrentRuns`, then
+1. **Create.** The sweep (for a due schedule) or a manual call inserts `run` as `PENDING` (with
+   `run_input` rows for posted items) in one transaction.
+2. **Pick.** The sweep, or the instance that received a manual run, selects pending runs:
+   `SELECT … FROM run WHERE status='PENDING' AND not_before <= now() AND NOT cancel_requested
+   ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT :n`, where `:n` is bounded by the instance's
+   free run slots, its free memory budget, and a per-sweep maximum. Tenants with the feature off or
+   not provisioned are skipped.
+3. **Claim.** In the same transaction: check the deployment's `maxConcurrentRuns`, then
    `UPDATE run SET status='RUNNING', owner=:me, lease_expires_at=now()+60s WHERE id=:run AND
-   status='PENDING' AND NOT cancel_requested`. Zero rows → someone else has it → acknowledge and
-   stop.
-5. **Acknowledge** the Pulsar message once the claim commits.
-6. **Execute** under the tenant's context. Every 15 s: `UPDATE run SET lease_expires_at=… WHERE
+   status='PENDING'`. Commit.
+4. **Execute** under the tenant's context. Every 15 s: `UPDATE run SET lease_expires_at=… WHERE
    id=:run AND owner=:me AND status='RUNNING'` returning `cancel_requested`. Zero rows → the lease
    was taken → abort without writing anything. If no heartbeat has succeeded by
    `lease_expires_at`, abort the same way.
-7. **Finish** in one transaction: update `processor_state` where the version matches (a mismatch
-   fails the finish with `STATE_CONFLICT`); insert `run_output` and `run_event`; set `run` to
+5. **Finish.** Flush the remaining records to ClickHouse; then, in one transaction: update `processor_state` where the version matches (a mismatch
+   fails the finish with `STATE_CONFLICT`); insert `run_output`; set `run` to
    `SUCCEEDED` or `FAILED`, only if still the owner. Then advance the schedule's cursor.
-8. **Retry.** A failure with attempts left → back to `PENDING` with backoff; otherwise `FAILED`.
-9. **Reaper**, every 30 s per tenant (`SKIP LOCKED`): expired lease → `PENDING` with attempt + 1, or
-   `FAILED (LEASE_LOST)`; pending but not dispatched for a while → republish; running past its
+6. **Retry.** A failure with attempts left → back to `PENDING` with `not_before` set by back-off; otherwise `FAILED`, which shows under *Needs attention*.
+7. **Reaper**, every 30 s per tenant (`SKIP LOCKED`): expired lease → `PENDING` with attempt + 1, or
+   `FAILED (LEASE_LOST)`; running past its
    timeout → set `cancel_requested`.
-10. **Cancel** sets `cancel_requested`; pending runs become `CANCELLED` at once, running ones at
+8. **Cancel** sets `cancel_requested`; pending runs become `CANCELLED` at once, running ones at
     their next heartbeat.
 
 All locks are transaction-scoped: safe behind pgbouncer in transaction mode, with no advisory locks
@@ -859,15 +962,9 @@ and no `LISTEN/NOTIFY`.
 **REST** (port 8083): `/flows` (create, list, read, update, `/validate`, `/versions`);
 `/flows/{id}/deployment` (`/enable`, `/disable`); `POST /flows/{id}/runs` (with `preview=true` for
 a dry run); `/runs`, `/runs/{id}` (`/cancel`, `/output/{port}`, `/events` as server-sent events,
-`/records`); `/catalog/processors`.
+`/records`, `/rerun`, `/dismiss`); `/runs?status=FAILED&dismissed=false` for *Needs attention*;
+`/catalog/processors`.
 
 **MCP** (`POST /mcp`): `flow_list`, `flow_get`, `flow_validate`, `flow_preview`, `flow_run`,
 `run_status`, `run_result`, `run_list`, `processor_catalog`. An agent may create, validate and
 preview a flow; a person enables its deployment.
-
-## Appendix D — Pulsar topics
-
-| Topic | Partitions | Producer | Subscription | Message |
-|---|---|---|---|---|
-| `persistent://{internal}/flow/dispatch` | 16 | every instance (sweep, manual run, reaper) | `intellistream-flow-dispatch`, Shared | `{tenantId, runId, deploymentId, attempt}` |
-| `persistent://{internal}/registry/notify` | 1 | datahub-api, after a tenant configuration write | one Exclusive subscription per instance of every service | `TenantConfigChanged{tenantId, kind}` |
