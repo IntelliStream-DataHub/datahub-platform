@@ -22,8 +22,8 @@ number of identical copies of, with all shared state in Postgres. So the engine 
 smaller than NiFi's.
 
 The first version is deliberately plain: a working, reliable processing tree with a handful of
-built-in processors. Data quality, user-supplied code, continuous sources and agents are what
-the roadmap builds on it later. The engine is shaped so that each of them is an *addition* — a new
+built-in processors. Connectors to external systems, data quality, user-supplied code and agents
+are what the roadmap builds on it later. The engine is shaped so that each of them is an *addition* — a new
 processor, a new trigger, a new table — not a change to what is already there.
 
 ## Scope
@@ -46,7 +46,6 @@ processor, a new trigger, a new table — not a change to what is already there.
 
 - **Store data.** Flows reads and writes through datahub-api like any other client. Timeseries,
   events and the graph stay where they are; the new tables have no foreign keys to existing ones.
-- **Replace ingest.** Sensors keep posting to the ingest API; a flow picks the data up from there.
 - **Act as a durable queue.** Items between processors live in memory; the source is the durable
   copy (see *Why the queues are in memory*).
 - **Process streams statefully.** No windowed joins across streams, no exactly-once guarantees.
@@ -54,8 +53,11 @@ processor, a new trigger, a new table — not a change to what is already there.
   into windows.
 - **Alert or draw dashboards.** Failures become ordinary DataHub events; dashboards use the
   existing live-update path.
-- **Check data quality, run tenant code, tail databases, or host agents** — not yet. Those are
-  the add-ons listed at the end, each to be designed in its own right.
+- **Connect to external systems, check data quality, run tenant code, or host agents** — not yet.
+  Those are the add-ons listed at the end, each to be designed in its own right. Connectors in
+  particular are a goal, not an exclusion: a flow whose first step listens to an OPC UA server
+  and writes timeseries is where this is heading (see *Continuous sources and connectors*). Until
+  then, data arrives through the ingest API as today, and a flow picks it up from there.
 
 ## Decisions so far
 
@@ -72,7 +74,7 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Tenant configuration | **All in Vault**, extending the existing `tenant-config/<org>` mechanism with a `flow` section. Flow secrets (HTTP or database credentials) live in the tenant's part of Vault, writable but never readable back. Secrets never go into Postgres, encrypted or not. Feature flags stay operator-owned. | 2026-09-08 |
 | APIs | **REST (with server-sent events for watching a run) and MCP.** gRPC is dropped, not deferred: it had no caller, and would have meant a second security path and a code-generation toolchain. Services stay transport-agnostic, so a gRPC facade can be added if a real caller appears. | 2026-09-08 |
 | ClickHouse schema ownership | Out of scope for this plan. The first version needs no ClickHouse tables. | 2026-10-05 |
-| Scope | **Engine first.** The first version is the processing tree and the machinery to run it reliably (Phases 0–1). Quality, cleaning, custom code, continuous sources, agents and the designer are add-ons, each decided separately. | 2026-10-06 |
+| Scope | **Engine first.** The first version is the processing tree and the machinery to run it reliably (Phases 0–1). Quality, cleaning, custom code, continuous sources and connectors, agents and the designer are add-ons, each decided separately. | 2026-10-06 |
 | Item | An item is **content plus attributes**. The content records its kind (`timeseries`, `events`, `records`, `json`, `bytes`). | 2026-10-06 |
 | Record of what happened | The **engine** records what happens to items — not each processor — from the session calls every processor makes anyway. The record is the same for any kind of data; what is specific to timeseries (a series and a time window) is an optional reference the engine stores without interpreting. Kept in Postgres with the run in the first version. | 2026-10-06 |
 | Versioning | Flow versions never change. Every run records the flow version, the actual values it ran with (time window, parameters; for a secret, which one, never its value) and the version of every processor it used. | 2026-10-06 |
@@ -80,6 +82,8 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Type checking between processors | **Deferred.** The first version does not check that connected processors agree on content kind; a mismatch fails at run time and goes to the processor's `failure` outcome. Because items carry their kind and the interface has an optional `accepts` (default: any), checking can be added later without breaking existing processors or flows. | 2026-10-06 |
 | Retries | **`maxAttempts` per flow, naive.** Every failure is retried alike until attempts run out; classifying failures is an add-on. With more than one attempt, a retried run writes its output again; the flow's author decides whether that is acceptable. There is no requirement that sinks be safe to repeat. | 2026-10-06 |
 | Branching | One outcome may be connected to several processors. Each receives its own copy: attributes copied, content shared (it is never modified in place). Recorded as a copy, with the original as parent. | 2026-10-06 |
+| Processor configuration | NiFi's model: declared properties with types, defaults and allowable values; dynamic properties a processor interprets; dynamic relationships. `${…}` is substitution only; logic is an `expression` property. | 2026-10-06 |
+| Expression language | **Open — for confirmation.** Recommendation: **CEL** — no side effects, always terminates, typed and checked on save, Apache-2.0 Java implementation. Rejected: Spring's SpEL (can call arbitrary Java), NiFi's Expression Language (tied to NiFi's runtime). SQL over records is a candidate for a later `query.records`, not a replacement. | 2026-10-06 |
 | Who may edit and run flows | **Open — for confirmation.** The first draft proposed realm roles (`DATAHUB_FLOW_EDITOR`). Since then the platform has moved to organization groups for access (dataset grants, and per-scope settings grants such as `/settings/llm/read\|write`). Recommendation: organization groups `/flows/read` and `/flows/write`, in the same grammar. | 2026-10-06 |
 
 ## Glossary
@@ -343,8 +347,10 @@ configuration.
 ### Who a run acts as
 
 Today every call between our services carries the *user's* JWT. A scheduled run has no user, so
-the service mints a token for the tenant's **service account** (client credentials, through the
-SDK's existing `TokenProvider`) and calls datahub-api with it. The service account is granted
+it calls datahub-api as the tenant's **service account**: **one per tenant**, shared by all of that
+tenant's flows and runs — never one per flow or per run. Each instance holds one token per tenant
+(client credentials, through the SDK's existing `TokenProvider`), reuses it across runs and renews
+it before it expires. The service account is granted
 dataset access through the same organization groups as a user, so the existing ACLs apply. Its
 credentials are in the tenant's `flow` section in Vault.
 
@@ -365,39 +371,149 @@ public interface Processor {
     /** Name, version, properties, relationships, and (optionally) what content it accepts. */
     ProcessorDescriptor describe();
 
+    /** Problems with a combination of property values that no single property can see. */
+    default List<String> validate(PropertyValues properties) { return List.of(); }
+
     /** Take items from the session, produce or change items, transfer each to a relationship. */
     void onTrigger(ProcessContext context, ProcessSession session) throws ProcessException;
 }
 ```
 
 - **`ProcessorDescriptor`** — a stable name (`datahub.timeseries.source`), a version, the
-  properties (name, type, required, default, description — published as JSON schema in the
-  catalog, which is what an agent reads), the relationships, and `accepts`, which defaults to *any*
-  and is not checked in the first version.
-- **`ProcessContext`** — resolved property values, the run's window and parameters, secrets by
-  name, and saved state (a small per-processor value that survives between runs, such as a cursor).
+  properties, the dynamic properties if it takes any, the relationships (fixed, or one per dynamic
+  property), and `accepts`, which defaults to *any* and is not checked in the first version.
+  Published in the catalog as JSON schema, which is what the console's forms and an agent read.
+- **`ProcessContext`** — resolved property values and compiled expressions; the run's window and
+  parameters; secrets by name; saved state (a small per-processor value that survives between
+  runs, such as a cursor); a DataHub client for the run; whether this is a preview; whether the run
+  has been cancelled or its lease lost; and a log that ends up on the run's page.
 - **`ProcessSession`** — `get`, `create`, `putAttribute`, `write`, `transfer(item, relationship)`,
   `remove`. Each call is what the engine records. A processor has no other way to touch items.
 
 The interface lives in its own module under Apache-2.0 (`intellistream-flow-api`), for the same
 reason `datahub-api-model` is: a partner's processor, or later a tenant's, must not be forced
-under the AGPL. The engine and service are AGPL.
+under the AGPL. The engine and service are AGPL — including the expression evaluator, which a
+processor reaches through its context rather than depending on it.
 
 Processor names and properties are part of the contract: a rename keeps the old name as an alias,
 and a removal is announced at least one release in advance.
 
+## Configuring processors
+
+Processors are configured the way NiFi's are: each declares its properties, a flow sets values for
+them, and nothing about a processor's behaviour is written as code in the flow except expressions.
+
+### Properties
+
+Every property declares:
+
+| Field | |
+|---|---|
+| `name` | Stable key used in the flow definition (`createMissing`) |
+| `displayName`, `description` | For the console's form and the catalog |
+| `type` | `string`, `number`, `boolean`, `duration`, `instant`, `list`, `enum`, `secret`, `expression` |
+| `required`, `default` | A required property without a default must be set |
+| `allowableValues` | For `enum`: the values, each with a description |
+| `references` | Whether `${…}` references are allowed in the value (below) |
+| `sensitive` | Never shown or logged; must be a `secret` reference |
+
+**Dynamic properties** are user-named properties a processor interprets, as in NiFi's
+UpdateRecord and RouteOnAttribute. The processor declares what the key and the value mean — for
+`record.map`, the key is a column name and the value an expression. In the catalog's JSON schema
+they are `additionalProperties`, with that description. A processor may give each dynamic property
+its own relationship (`route.on.attribute` does).
+
+**Validation** happens when a flow is saved: types, required properties, allowable values, that
+expressions compile, that secrets and parameters exist, and the processor's own `validate` for
+combinations ("set `dataSet` when `createMissing` is true").
+
+### References and expressions — two separate things
+
+- **`${…}` is a reference**, substituted into a property's value: a flow parameter
+  (`${parameters.window}`), the run's window (`${run.window.start}`, `${run.window.end}`), or an
+  attribute of the item being handled (`${timeseries.externalId}`). No operators, no functions —
+  only substitution. Run-level references are resolved once per run, attribute references once per
+  item.
+- **An expression** is a property of type `expression`, evaluated by the engine — for most
+  processors once per row. It sees the row's columns by name (`value`, `timestamp`), the item's
+  attributes as `attr` (`attr["timeseries.externalId"]`) and the flow's parameters as `params`
+  (`params.limit`). Expressions do not use `${…}`: they read the same values directly, so a value
+  can never change what an expression *means*.
+
+The expression language is **CEL** (Common Expression Language), proposed for confirmation (see
+*Decisions*): no side effects, guaranteed to terminate, typed and checked when the flow is saved,
+used by Kubernetes and Envoy, with a maintained Java implementation (`cel-java`, Apache-2.0). An
+expression is compiled once per run and evaluated per row.
+
 ### Built-in processors in the first version
 
-| Processor | Does |
-|---|---|
-| `datahub.timeseries.source` | Reads one or more series over the run's window; one item per series |
-| `datahub.timeseries.sink` | Writes datapoints to a series |
-| `datahub.events.sink` | Creates DataHub events from items |
-| `record.map` | Computes new columns or attributes from expressions |
-| `filter.records` | Splits each item by an expression: matching rows to `matched`, the rest to `unmatched`; an empty side is not emitted |
-| `route.on.attribute` | Sends items to a relationship by attribute value |
+**`datahub.timeseries.source`** — reads series over a window. Produces one `timeseries` item per
+series (columns `timestamp`, `value`).
 
-In preview mode, every sink reports what it would write instead of writing it.
+| Property | Type | Default | |
+|---|---|---|---|
+| `timeseries` | list | — (required) | External ids of the series |
+| `from` | instant | `${run.window.start}` | |
+| `to` | instant | `${run.window.end}` | |
+| `maxPointsPerItem` | number | 100,000 | A longer series is split into several items |
+| `onMissing` | enum | `fail` | `fail` the run, or `skip` the series |
+
+Relationships: `success`. Sets attributes `timeseries.externalId`, `window.start`, `window.end`.
+
+**`datahub.timeseries.sink`** — writes datapoints. Accepts a `timeseries` item, or `records` with
+a timestamp and a value column. The item passes on unchanged after it is written.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `target` | string, references | `${timeseries.externalId}` | Series to write to, e.g. `${timeseries.externalId}_f` |
+| `createMissing` | boolean | `false` | Create the series if it does not exist |
+| `dataSet` | string | — | Dataset for created series; required if `createMissing` |
+| `timestampColumn`, `valueColumn` | string | `timestamp`, `value` | |
+
+Relationships: `success`, `failure`. In preview, reports the target and the number of points
+instead of writing.
+
+**`datahub.events.sink`** — creates one DataHub event per row.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `type` | string, references | — (required) | |
+| `subType` | string, references | — | |
+| `externalId` | expression | — | If unset, the platform assigns one |
+| `dataSet` | string | — | |
+| `startTime` | expression | `timestamp` | |
+| `endTime` | expression | — | |
+| `description` | expression | — | |
+| *dynamic* | expression | | Key: a metadata key on the event. Value: its expression. |
+
+Relationships: `success`, `failure`. In preview, reports the events instead of creating them.
+
+**`record.map`** — computes columns (NiFi's UpdateRecord).
+
+| Property | Type | Default | |
+|---|---|---|---|
+| *dynamic* | expression | | Key: a column name, new or existing. Value: its expression. Every expression sees the input row, not each other's results. |
+| `onError` | enum | `fail` | `fail` sends the item to `failure`; `null` sets the column to null for that row |
+
+Relationships: `success`, `failure`.
+
+**`filter.records`** — splits an item's rows by a condition.
+
+| Property | Type | Default | |
+|---|---|---|---|
+| `condition` | expression | — (required) | Must be boolean |
+
+Relationships: `matched`, `unmatched`, `failure`. Both sides keep the item's attributes; an empty
+side is not emitted.
+
+**`route.on.attribute`** — routes whole items by their attributes (NiFi's RouteOnAttribute).
+
+| Property | Type | Default | |
+|---|---|---|---|
+| *dynamic* | expression | | Key: a relationship name. Value: a boolean expression over `attr` and `params`. |
+| `strategy` | enum | `each` | `each`: to every relationship whose expression is true (one copy each); `all`: to `matched` if all are true; `any`: to `matched` if any is |
+
+Relationships: one per dynamic property (`each`) or `matched` (`all`, `any`); always `unmatched`.
 
 ## A flow definition
 
@@ -412,16 +528,18 @@ In preview mode, every sink reports what it would write instead of writing it.
   },
   "processors": [
     { "id": "src",  "type": "datahub.timeseries.source",
-      "properties": { "timeseries": ["ts_out_temp"], "window": "${parameters.window}" } },
+      "properties": { "timeseries": ["ts_out_temp"] } },          // window: the run's, by default
     { "id": "f",    "type": "record.map",
-      "properties": { "expressions": { "value": "value * 1.8 + 32" } } },
+      "properties": { "value": "value * 1.8 + 32" } },              // dynamic: column -> expression
     { "id": "out",  "type": "datahub.timeseries.sink",
-      "properties": { "targetSuffix": "_f", "createMissing": true },
+      "properties": { "target": "${timeseries.externalId}_f",
+                      "createMissing": true, "dataSet": "ds_demo" },
       "retry": { "maxAttempts": 3, "backoff": "PT5S" } },
     { "id": "over", "type": "filter.records",
-      "properties": { "expression": "value > ${parameters.limit}" } },
+      "properties": { "condition": "value > params.limit" } },
     { "id": "ev",   "type": "datahub.events.sink",
-      "properties": { "type": "temperature", "subType": "over-limit" } }
+      "properties": { "type": "temperature", "subType": "over-limit",
+                      "series": "attr['timeseries.externalId']" } }  // dynamic: metadata key -> expression
   ],
   "connections": [
     { "from": "src",  "relationship": "success", "to": "f" },
@@ -429,7 +547,8 @@ In preview mode, every sink reports what it would write instead of writing it.
     { "from": "f",    "relationship": "success", "to": "over" },  //   processors: each gets a copy
     { "from": "over", "relationship": "matched", "to": "ev" }
   ],
-  "trigger":   { "type": "schedule", "cron": "0 0 * * * *", "timezone": "Europe/Oslo" },
+  "trigger":   { "type": "schedule", "cron": "0 0 * * * *", "timezone": "Europe/Oslo",
+                 "window": "${parameters.window}" },
   "execution": { "maxConcurrentRuns": 1, "maxAttempts": 1, "timeout": "PT15M" }
 }
 ```
@@ -504,6 +623,10 @@ close off:
    `durable` and later fields can be added.
 7. **Items carry their content kind and processors may declare `accepts`**, so type checking
    between processors can be switched on without breaking anything.
+8. **A source can be long-lived.** The first version's sources read once per run, but nothing in
+   the engine may assume that: a run must be startable with items handed to it by a listener, and
+   the definition's trigger types must be open to a `listener` trigger. That is what connectors
+   (an OPC UA server, for instance) are built on.
 
 ## Add-ons — not designed here
 
@@ -534,8 +657,25 @@ treatment of most of them and is a starting point, not a decision.
   Tenant-supplied Java may never be supported: the JVM cannot contain code running inside it (its
   Security Manager is permanently disabled since JDK 24), so Java loaded into the service would see
   every tenant's data and credentials.
-- **Continuous sources.** React to DataHub datapoints, events or resource changes as they arrive;
-  change-data-capture from customer databases.
+- **Continuous sources and connectors.** A source step that keeps running and listens, rather than
+  reading once per run: an OPC UA subscription, MQTT, a polled Modbus or HTTP endpoint,
+  change-data-capture from a customer database, or DataHub's own datapoints, events and resource
+  changes. This is how Flows becomes an ingest path — e.g. an OPC UA connector writing timeseries.
+  The first draft's outline: one instance hosts each listener under a lease (renewed every few
+  seconds, taken over by another instance if it dies), and incoming data is cut into small runs by
+  time or count, so everything downstream works as in the first version. A listener is a second
+  interface next to `Processor`, not a change to it — roughly `start(context, emitter)` and
+  `stop()`, with the engine deciding where each batch the emitter hands over becomes a run. Points
+  the design must settle:
+  - **Not every source can replay.** The first version relies on the source keeping data until a
+    run finishes. An OPC UA subscription does not: values that arrive while no instance holds the
+    lease, or that were in memory when an instance died, are gone unless the server keeps history
+    (OPC UA Historical Access) to fill the gap from. Each connector has to state what it can
+    recover.
+  - **Batching, not one run per message.** A run costs about five Postgres statements, which is
+    fine per minute and not per value; the listener must cut batches large enough for that.
+  - **Connections and credentials** to customer systems — the outbound allow-list, certificates
+    (OPC UA uses them), secrets in Vault.
 - **Durable connections.** Implement `durable: true`.
 - **Agents.** An `agent.step` processor, building on the agent runtime work.
 - **Designer.** Drag-and-drop flow editing in the console.
@@ -551,16 +691,17 @@ treatment of most of them and is a starting point, not a decision.
 
 1. **Who may edit and run flows** — organization groups `/flows/read` and `/flows/write`, or
    something else (see *Decisions*).
-2. **A dead attempt leaves no record.** The engine's records are written in the run's final
+2. **Expression language** — CEL, or something else (see *Decisions*).
+3. **A dead attempt leaves no record.** The engine's records are written in the run's final
    transaction, so an attempt whose instance died has none; the run shows the attempt and that its
    lease was lost, but not what it did before. Writing records during the run would fix that at the
    cost of more Postgres writes. Is the attempt row enough?
-3. **Several runs writing one window.** A retry, or a manual run over a window the schedule already
+4. **Several runs writing one window.** A retry, or a manual run over a window the schedule already
    covered, means more than one run wrote the same values. "Which run produced this value?" needs a
    rule — the latest successful run, or all of them listed.
-4. **Long manual runs.** A manual run acts as the person who started it, with their token. A run
+5. **Long manual runs.** A manual run acts as the person who started it, with their token. A run
    longer than the token's lifetime needs either a refresh or to run as the service account.
-5. **Identity.** The service account usually has broader dataset access than the person who wrote
+6. **Identity.** The service account usually has broader dataset access than the person who wrote
    the flow, so someone with `/flows/write` but narrow dataset access can deploy a flow that reads
    more than they can. Per-flow identities are an open question.
 
