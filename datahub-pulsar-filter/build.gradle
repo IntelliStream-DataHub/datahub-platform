@@ -15,6 +15,8 @@ repositories {
 dependencies {
     // Interfaces live in pulsar-broker; the broker provides them at runtime, so compileOnly.
     compileOnly "org.apache.pulsar:pulsar-broker:${pulsarVersion}"
+    // The unit tests build real FilterContext/MessageMetadata objects, so they need the classes at runtime.
+    testImplementation "org.apache.pulsar:pulsar-broker:${pulsarVersion}"
 
     // No Spring Boot BOM in this module, so pin the JUnit BOM directly. The shared convention
     // declares junit-jupiter / junit-platform-launcher without a version (Boot modules get them
