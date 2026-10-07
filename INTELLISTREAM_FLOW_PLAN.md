@@ -77,7 +77,8 @@ processor, a new trigger, a new table — not a change to what is already there.
 | Scope | **Engine first.** The first version is the processing tree and the machinery to run it reliably (Phases 0–1). Quality, cleaning, custom code, continuous sources and connectors, agents and the designer are add-ons, each decided separately. | 2026-10-06 |
 | Item | An item is **content plus attributes**. The content records its kind (`timeseries`, `events`, `records`, `json`, `bytes`). | 2026-10-06 |
 | Record of what happened | The **engine** records what happens to items — not each processor — from the session calls every processor makes anyway. The record is the same for any kind of data; what is specific to timeseries (a series and a time window) is an optional reference the engine stores without interpreting. Stored in ClickHouse (see the next row). | 2026-10-06 |
-| Where the records live | **ClickHouse**, one append-only table per tenant database, added by a ClickHouse migration. The data the flows read and write is in ClickHouse anyway, so Postgres would add no availability; ClickHouse fits the volume and keeps the records next to the datapoints they describe. Records are flushed during the run, not only at the end. | 2026-10-07 |
+| Where the records live | **ClickHouse**, one append-only table per tenant database, added by a ClickHouse migration. The data the flows read and write is in ClickHouse anyway, so Postgres would add no availability; ClickHouse fits the volume and keeps the records next to the datapoints they describe. Records travel through a Pulsar topic keyed by run, so a run's records arrive in order and a ClickHouse outage only delays them (next row). | 2026-10-07 |
+| How records reach ClickHouse | **Through Pulsar.** Instances publish a run's records in batches to `flow/records`, keyed by run id; a consumer in the flow service batches them per tenant and inserts them, acknowledging only after the insert. The same pattern as datapoints, through the stateless consumer. | 2026-10-07 |
 | Versioning | Flow versions never change. Every run records the flow version, the actual values it ran with (time window, parameters; for a secret, which one, never its value) and the version of every processor it used. | 2026-10-06 |
 | Processor | An interface declaring its properties, its outcomes (relationships), optionally what content it accepts, and what it does. Built-in processors ship with the platform. | 2026-10-06 |
 | Type checking between processors | **Deferred.** The first version does not check that connected processors agree on content kind; a mismatch fails at run time and goes to the processor's `failure` outcome. Because items carry their kind and the interface has an optional `accepts` (default: any), checking can be added later without breaking existing processors or flows. | 2026-10-06 |
@@ -87,10 +88,10 @@ processor, a new trigger, a new table — not a change to what is already there.
 | No expressions in the first version | Built-in processors are **small, well-defined units with fixed parameters** — scale, smooth, remove spikes, interpolate, clip, resample, filter by range, threshold alarm — not a general expression language. More capability comes as more processors. `${…}` substitutes values into properties and does nothing else. An expression language (the first draft chose Spring's SpEL in its restricted mode; CEL is the other candidate) is an add-on. | 2026-10-07 |
 | Who may see and change flows | Organization groups **`/flows/read`** and **`/flows/write`**, in the same grammar as the settings grants — and **every flow belongs to one dataset**. Seeing a flow, its runs and its records needs `/flows/read` plus read access to that dataset; creating, changing, deploying or running it needs `/flows/write` plus write access to it. Dataset grants expand down the `BELONGS_TO` hierarchy as they do everywhere else. | 2026-10-07 |
 | What a run may touch | Every run acts as the tenant's service account, **confined to its flow's dataset**: the run's DataHub client refuses to read or write anything outside that dataset and its descendants. Processors reach DataHub only through that client. A flow that spans datasets belongs to a common parent. | 2026-10-07 |
-| Starting runs | **No dispatch topic.** Instances claim runs straight from Postgres (`SKIP LOCKED`): the sweep claims due and pending runs up to its free capacity, and the instance that receives a manual run starts it itself if it can. Pulsar plays no part in running flows. | 2026-10-07 |
+| Starting runs | **No dispatch topic.** Instances claim runs straight from Postgres (`SKIP LOCKED`): the sweep claims due and pending runs up to its free capacity, and the instance that receives a manual run starts it itself if it can. Pulsar plays no part in starting runs. | 2026-10-07 |
 | Memory | Every run has a **memory cap** on its Arrow data, enforced by its own Arrow allocator; going over fails that run alone. Instances take a run only if its cap fits in what they have free. | 2026-10-07 |
 | Failed runs | A run that fails after its last attempt is shown as a **notification in the console's Flows section**, grouped per flow, until someone re-runs its window or dismisses it. | 2026-10-07 |
-| Tenant configuration changes | **No push.** Flows relies on the existing five-minute refresh of tenant configuration (`TenantConfigService`), re-reads Vault at once when Keycloak rejects the service account's credentials, and reads flow secrets from Vault at the start of each run. A notify topic for faster propagation stays a platform improvement, not a Flows prerequisite. With dispatch gone too, **the first version uses no Pulsar at all.** | 2026-10-07 |
+| Tenant configuration changes | **No push.** Flows relies on the existing five-minute refresh of tenant configuration (`TenantConfigService`), re-reads Vault at once when Keycloak rejects the service account's credentials, and reads flow secrets from Vault at the start of each run. A notify topic for faster propagation stays a platform improvement, not a Flows prerequisite. With dispatch gone too, Pulsar's only job in the first version is carrying records. | 2026-10-07 |
 | Run length | Runs are short. Default timeout 15 minutes, tenant maximum 1 hour (set by the operator). Longer work is split into windows. | 2026-10-07 |
 | Which run produced a value | The **latest write** to that series and timestamp, by record time — which is also what ClickHouse keeps. Earlier writes are listed as history. A failed attempt that wrote before failing can be the latest writer, and is shown as such. | 2026-10-07 |
 
@@ -169,7 +170,8 @@ flowchart LR
   API --> PG
   DISP <--> PG
   DISP --> ENG --> PROC --> DH
-  ENG -- "records" --> CH
+  PUL{{"Pulsar<br/>flow/records"}}
+  ENG -- "records" --> PUL --> REC["Records consumer"] --> CH
   ENG -. "token for scheduled runs" .-> KC
 ```
 
@@ -261,14 +263,40 @@ cryptographic seal against deliberate tampering.
 Processors do not report these themselves. Because the engine derives them from the session calls
 every processor makes anyway, a new processor is recorded correctly without doing anything.
 
-The records go to a ClickHouse table in the tenant's database (`flow_run_event`, Appendix A). They
-are append-only and never updated, tagged with run and attempt, and flushed in batches **during**
-the run as well as before it finishes, using ClickHouse's asynchronous inserts so a run never
-makes many small inserts. An attempt whose instance dies therefore leaves the records it had
-flushed, marked with its attempt number; the console shows records per attempt, so a retried run's
-history is visible rather than overwritten. A run whose records cannot be written fails, like a
-run whose sink cannot write: ClickHouse being down stops the flows anyway, so there is no spool.
-Flows should keep a batch as one item; a per-run cap with a *truncated* marker bounds the rest.
+The records end up in a ClickHouse table in the tenant's database (`flow_run_event`, Appendix A),
+append-only and never updated. They get there through Pulsar:
+
+1. **Publish during the run.** The engine collects a run's records and publishes them in batches —
+   every 1,000 records or 5 seconds, whichever comes first, and a final batch when the run ends —
+   to `persistent://{internal}/flow/records`. Each message is one batch for one run and attempt,
+   with a sequence number, and its **key is the run id**, so all of a run's batches go to the same
+   partition in the order they were sent.
+2. **Before the run is marked done,** the instance waits for Pulsar to acknowledge the final batch.
+   Once acknowledged, the records are durable: a run is never `SUCCEEDED` with records still only in
+   memory. If Pulsar does not acknowledge within the run's remaining time, the run fails.
+3. **Consume and insert.** Every flow instance also runs a consumer on that topic (subscription
+   `intellistream-flow-records`, **Key_Shared**, so one run's batches are always handled by one
+   consumer, in order). It receives in batches (about 500 ms or a few MB), groups by tenant, inserts
+   into each tenant's ClickHouse, and acknowledges only after the insert succeeded. A failing
+   tenant's messages are negatively acknowledged on their own — one tenant's ClickHouse being down
+   never holds up another's records. After repeated failures a message goes to a dead-letter topic.
+4. **No duplicates on redelivery.** Each insert carries an `insert_deduplication_token` derived from
+   the run, attempt and sequence number, so a batch inserted but not yet acknowledged when a
+   consumer died is not inserted twice.
+
+Order is kept on the way in, and does not have to be relied on afterwards: records are read back
+by run, attempt and sequence number, so a batch that is redelivered late lands in the right place.
+
+What this gives: a run's records arrive in order; an attempt whose instance dies leaves the batches
+it had published, marked with its attempt number, so the console shows what each attempt did; and
+a ClickHouse outage delays records (they wait on the topic) rather than failing runs — though a run
+whose own sinks write to ClickHouse still fails, as it would anyway. With at most a handful of
+processors per flow, a run produces a few messages, not thousands. Flows should keep a batch as one
+item; a per-run cap with a *truncated* marker bounds the rest.
+
+The topic's backlog is bounded (a backlog quota and retention), and consumer lag is a metric — with
+no tenant on it (CONSTRAINTS #5) — because a stalled consumer is otherwise invisible until the
+quota is hit.
 
 ### Versioning and reproducibility
 
@@ -406,7 +434,8 @@ take over.
 |---|---|---|
 | An instance, mid-run | Its lease stops being renewed (every 15 s; expires after 60 s) | The reaper re-queues the run (attempt + 1) or marks it `FAILED (LEASE_LOST)`; another instance runs it from the start. Within about 90 s. |
 | Postgres, for longer than a lease | Heartbeats fail | **Self-fencing:** an instance that cannot renew its lease by the time it expires treats itself as fenced and aborts the run, so there is never a second live copy when Postgres returns. No new claims; sweeps pause. |
-| ClickHouse | Record flushes and timeseries reads and writes fail | The run fails, as it would on any failing sink; with attempts left it is retried later. No local spool. |
+| ClickHouse | Inserts fail | Records wait on the Pulsar topic and arrive when ClickHouse returns. Runs whose sinks read or write ClickHouse fail, as on any failing sink, and are retried or shown under *Needs attention*. |
+| Pulsar | Publishing fails | Runs in progress cannot confirm their records and fail at the end; new runs fail the same way until Pulsar returns. Records already published are safe on the topic. |
 | A whole host | Leases expire | As for an instance. |
 
 ### What this costs Postgres
@@ -776,6 +805,8 @@ Nothing user-visible yet.
   provisioned 503.
 - Flyway V45: the `flow` schema (Appendix A).
 - A ClickHouse migration: the `flow_run_event` table in each tenant's ClickHouse database.
+- The `flow/records` topic (partitioned, with a backlog quota) in the dev stack's Pulsar setup, and
+  the records consumer.
 - The compose service, the systemd unit, Keycloak groups.
 - Metrics follow CONSTRAINTS #5: no tenant or deployment on any Prometheus metric. Management port
   9084, off by default, the same `@Order(1)` chain as the other services.
@@ -944,7 +975,7 @@ migrations are run is outside this plan.
    id=:run AND owner=:me AND status='RUNNING'` returning `cancel_requested`. Zero rows → the lease
    was taken → abort without writing anything. If no heartbeat has succeeded by
    `lease_expires_at`, abort the same way.
-5. **Finish.** Flush the remaining records to ClickHouse; then, in one transaction: update `processor_state` where the version matches (a mismatch
+5. **Finish.** Publish the final batch of records and wait for Pulsar's acknowledgement; then, in one transaction: update `processor_state` where the version matches (a mismatch
    fails the finish with `STATE_CONFLICT`); insert `run_output`; set `run` to
    `SUCCEEDED` or `FAILED`, only if still the owner. Then advance the schedule's cursor.
 6. **Retry.** A failure with attempts left → back to `PENDING` with `not_before` set by back-off; otherwise `FAILED`, which shows under *Needs attention*.
@@ -968,3 +999,9 @@ a dry run); `/runs`, `/runs/{id}` (`/cancel`, `/output/{port}`, `/events` as ser
 **MCP** (`POST /mcp`): `flow_list`, `flow_get`, `flow_validate`, `flow_preview`, `flow_run`,
 `run_status`, `run_result`, `run_list`, `processor_catalog`. An agent may create, validate and
 preview a flow; a person enables its deployment.
+
+## Appendix D — Pulsar topics
+
+| Topic | Partitions | Producer | Subscription | Message |
+|---|---|---|---|---|
+| `persistent://{internal}/flow/records` | 16 | every instance, during and at the end of each run | `intellistream-flow-records`, Key_Shared by run id; acknowledged after the ClickHouse insert; dead-letter topic after repeated failure | `FlowRecordBatch{tenantId, runId, attempt, sequence, records[]}` (Avro) |
