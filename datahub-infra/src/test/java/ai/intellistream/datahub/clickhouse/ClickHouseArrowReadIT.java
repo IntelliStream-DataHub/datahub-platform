@@ -42,11 +42,13 @@ import static org.mockito.Mockito.when;
 
 /**
  * The binary read against a real ClickHouse: what {@link ClickHouseDatapointService#openArrowStream}
- * returns is the canon for every value type and for aggregates, so the API can frame it without
- * decoding a row, and the frames read back as the points that were written. Also pins what the
- * query has to get right on the server's side: a re-sent point read once ({@code FINAL}), a legacy
- * table without a zone on its timestamp, millisecond window bounds, and a series longer than a
- * frame cut into full frames. Needs a container runtime; run with {@code ./gradlew :datahub-infra:integrationTest}.
+ * returns is the canon for every value type and for aggregates, its buffers compressed in-band, so
+ * the API relays it into frames without decoding a row, and the frames read back as the points
+ * that were written, and write back through the consumer's path. Also pins what the query has to
+ * get right on the server's side: a re-sent point read once ({@code FINAL}), a legacy table
+ * without a zone on its timestamp, millisecond window bounds, and a series longer than a frame
+ * answered in blocks that fit one. Needs a container runtime; run with
+ * {@code ./gradlew :datahub-infra:integrationTest}.
  */
 @Tag("integration")
 class ClickHouseArrowReadIT {
@@ -117,16 +119,24 @@ class ClickHouseArrowReadIT {
         return f;
     }
 
-    /** Fetches, checks against the canon and frames the answer the way the API does; a limit of 0 is none. */
-    private static List<DatapointFrame> read(DatapointValueType type, long id, RetrieveFilter f, long limit) throws Exception {
+    /** Fetches and relays the answer into frames the way the API does, as one response body; a limit of 0 is none. */
+    private static byte[] readBody(DatapointValueType type, long id, RetrieveFilter f, long limit) throws Exception {
         boolean aggregates = !f.getAggregates().isEmpty();
         int frameRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         try (InputStream stream = service.openArrowStream("t", series(type, id), f, limit, frameRows)) {
-            DatapointFrameWriter.wrapStream(type, aggregates, id, "s" + id, stream, ZSTD, body);
+            DatapointFrameWriter.relayStream(type, aggregates, id, "s" + id, stream, ZSTD, body);
         }
         body.writeBytes(FrameLimits.END_OF_RESPONSE);
-        return DatapointFrame.parseResponse(body.toByteArray(), ZSTD);
+        return body.toByteArray();
+    }
+
+    private static List<DatapointFrame> read(DatapointValueType type, long id, RetrieveFilter f, long limit) throws Exception {
+        List<DatapointFrame> frames = DatapointFrame.parseResponse(readBody(type, id, f, limit), ZSTD);
+        for (DatapointFrame frame : frames) {
+            assertEquals(FrameLimits.COMPRESSION_ARROW_ZSTD, frame.compression(), "relayed as ClickHouse compressed it");
+        }
+        return frames;
     }
 
     private static List<String> values(List<DatapointFrame> frames) {
@@ -220,8 +230,9 @@ class ClickHouseArrowReadIT {
     }
 
     @Test
-    void aSeriesLongerThanAFrameIsCutIntoFullFrames() throws Exception {
-        // 25 000 text rows against a 10 000-row frame cap, however ClickHouse blocks them.
+    void aSeriesLongerThanAFrameComesInBlocksThatFitOne() throws Exception {
+        // 25 000 text rows against a 10 000-row frame cap: ClickHouse is asked for 8 192-row
+        // blocks, one granule, since 10 000 would come back as 16 384 and have to be cut.
         int rows = 25_000;
         List<DatapointFrame> parts = new ArrayList<>();
         for (int start = 0; start < rows; start += 10_000) {
@@ -236,7 +247,31 @@ class ClickHouseArrowReadIT {
         }
         List<DatapointFrame> frames = read(DatapointValueType.TEXT, 1100, window(null, null), 0);
         assertEquals(rows, timestamps(frames).size());
-        assertEquals(List.of(10_000, 10_000, 5_000), frames.stream().map(DatapointFrame::rowCount).toList());
+        assertTrue(frames.size() >= 3, frames.size() + " frames");
+        for (DatapointFrame frame : frames) {
+            assertTrue(frame.rowCount() <= 10_000, frame.rowCount() + " rows");
+            assertTrue(frame.rowCount() >= 1000, frame.rowCount() + " rows: blocks are packed, not one a frame");
+        }
+        assertEquals("v" + (24_999 % 7), frames.get(frames.size() - 1).valueAsString(frames.get(frames.size() - 1).rowCount() - 1));
+    }
+
+    @Test
+    void aReadsAnswerWritesBackThroughTheConsumersPath() throws Exception {
+        // What the API answers, posted back: ingest's parse takes the body with its end marker, the
+        // consumer merges the frames and inserts them. The rows are deleted in between so the
+        // re-insert is what the second read finds.
+        write(DatapointValueType.MIXED, 1500, "1.5", "FAULT", "2.5");
+        byte[] answer = readBody(DatapointValueType.MIXED, 1500, window(null, null), 0);
+        List<DatapointFrame> frames = DatapointFrame.parseAll(answer, ZSTD);
+        assertEquals(1, frames.size());
+        assertEquals(List.of(1500L), List.of(frames.get(0).runs().get(0).id()));
+
+        ddl("DELETE FROM datapoints_mixed WHERE timeseries_id = 1500");
+        assertTrue(read(DatapointValueType.MIXED, 1500, window(null, null), 0).isEmpty());
+        service.insertArrowStream("t", DatapointValueType.MIXED, FrameMerger.merge(DatapointValueType.MIXED, frames, 1_000_000));
+        List<DatapointFrame> again = read(DatapointValueType.MIXED, 1500, window(null, null), 0);
+        assertEquals(List.of("1.5", "FAULT", "2.5"), values(again));
+        assertEquals(List.of(T0, T0 + 1000, T0 + 2000), timestamps(again));
     }
 
     @Test
@@ -268,7 +303,7 @@ class ClickHouseArrowReadIT {
     }
 
     @Test
-    void aggregatesLongerThanAFrameAreCutIntoFullFrames() throws Exception {
+    void aggregatesLongerThanAFrameComeInFramesUnderTheCap() throws Exception {
         // 60 000 one-second buckets against a 50 000-row aggregate frame cap.
         int rows = 60_000;
         for (int start = 0; start < rows; start += 50_000) {
@@ -284,7 +319,11 @@ class ClickHouseArrowReadIT {
         f.setGranularity("1s");
         List<DatapointFrame> frames = read(DatapointValueType.FLOAT, 1400, f, 0);
         assertEquals(rows, timestamps(frames).size());
-        assertEquals(List.of(50_000, 10_000), frames.stream().map(DatapointFrame::rowCount).toList());
+        assertTrue(frames.size() >= 2, frames.size() + " frames");
+        for (DatapointFrame frame : frames) {
+            assertTrue(frame.rowCount() <= FrameLimits.MAX_AGGREGATE_ROWS, frame.rowCount() + " rows");
+        }
+        assertEquals(T0 + (rows - 1) * 1000L, frames.get(frames.size() - 1).timestamp(frames.get(frames.size() - 1).rowCount() - 1));
     }
 
     @Test

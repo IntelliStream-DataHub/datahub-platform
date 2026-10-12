@@ -27,7 +27,15 @@ public final class FrameLimits {
      * instead of the value type's canon. Only the API writes it; ingest refuses it.
      */
     public static final int CODEC_ARROW_IPC_AGGREGATES = 2;
+    /** The payload is one zstd stream; decompressed, it is an Arrow IPC stream with uncompressed buffers. */
     public static final int COMPRESSION_ZSTD = 1;
+    /**
+     * The payload is an Arrow IPC stream as it is, every record batch compressing its buffers in-band
+     * with zstd (Arrow's body compression, by buffer). What a binary read answers with: ClickHouse
+     * compresses and the API relays the batches without touching them. Ingest takes it as well, so a
+     * read's answer can be written back as it is.
+     */
+    public static final int COMPRESSION_ARROW_ZSTD = 2;
 
     /** Bytes before the series directory. */
     public static final int HEADER_BYTES = 28;

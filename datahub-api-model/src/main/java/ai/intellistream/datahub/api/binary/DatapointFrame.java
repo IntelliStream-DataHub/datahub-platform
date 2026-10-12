@@ -24,7 +24,8 @@ import java.util.List;
  *
  * <p>{@link #parseResponse} reads the frames a binary read answers with. Those may also carry
  * bucketed aggregates instead of values ({@link #aggregates()}), and are not held to the
- * request-level caps.
+ * request-level caps. A read's answer may be posted back as it is: ingest takes its frames and
+ * its end marker, though not its aggregate frames.
  *
  * @see ArrowIpc why this package handles Arrow itself
  */
@@ -43,6 +44,7 @@ public final class DatapointFrame {
     private final int index;
     private final DatapointValueType valueType;
     private final boolean aggregates;
+    private final int compression;
     private final int rowCount;
     private final long[] seriesIds;
     private final String[] externalIds;
@@ -50,13 +52,12 @@ public final class DatapointFrame {
     private final int payloadLength;
     private final int rawLength;
 
-    private byte[] raw;
     private List<Batch> batches;
     private int[] batchStarts;
     private List<Run> runs;
 
     private DatapointFrame(byte[] body, int frameOffset, int frameLength, int index, DatapointValueType valueType,
-                           boolean aggregates, int rowCount, long[] seriesIds, String[] externalIds,
+                           boolean aggregates, int compression, int rowCount, long[] seriesIds, String[] externalIds,
                            int payloadOffset, int payloadLength, int rawLength) {
         this.body = body;
         this.frameOffset = frameOffset;
@@ -64,6 +65,7 @@ public final class DatapointFrame {
         this.index = index;
         this.valueType = valueType;
         this.aggregates = aggregates;
+        this.compression = compression;
         this.rowCount = rowCount;
         this.seriesIds = seriesIds;
         this.externalIds = externalIds;
@@ -72,7 +74,11 @@ public final class DatapointFrame {
         this.rawLength = rawLength;
     }
 
-    /** Envelope and directory of every frame in {@code body}, with the request-level caps applied. */
+    /**
+     * Envelope and directory of every frame in {@code body}, with the request-level caps applied.
+     * The body may end with a read's {@link FrameLimits#END_OF_RESPONSE} marker after its last
+     * frame, so a read's answer can be posted back as it is.
+     */
     public static List<DatapointFrame> parseEnvelopes(byte[] body) {
         if (body == null || body.length == 0) {
             throw new FrameFormatException(Reason.MALFORMED_FRAME, 0, "empty body");
@@ -101,9 +107,12 @@ public final class DatapointFrame {
         boolean ended = false;
         while (pos < body.length) {
             int i = frames.size();
-            if (response && body.length - pos >= 4 && Arrays.equals(body, pos, pos + 4, FrameLimits.END_OF_RESPONSE, 0, 4)) {
+            if (body.length - pos >= 4 && Arrays.equals(body, pos, pos + 4, FrameLimits.END_OF_RESPONSE, 0, 4)) {
                 if (pos + 4 != body.length) {
                     throw new FrameFormatException(Reason.TRAILING_BYTES, i, (body.length - pos - 4) + " bytes after the end marker");
+                }
+                if (!response && frames.isEmpty()) {
+                    throw new FrameFormatException(Reason.MALFORMED_FRAME, i, "no frame before the end marker");
                 }
                 ended = true;
                 break;
@@ -139,7 +148,7 @@ public final class DatapointFrame {
             if (compression == 0) {
                 throw new FrameFormatException(Reason.UNCOMPRESSED_FRAME, i, "frames must be zstd-compressed");
             }
-            if (compression != FrameLimits.COMPRESSION_ZSTD) {
+            if (compression != FrameLimits.COMPRESSION_ZSTD && compression != FrameLimits.COMPRESSION_ARROW_ZSTD) {
                 throw new FrameFormatException(Reason.MALFORMED_FRAME, i, "compression " + compression);
             }
             long rows = buf.getInt(pos + 8) & 0xFFFFFFFFL;
@@ -157,7 +166,9 @@ public final class DatapointFrame {
             if (rawLength < 1 || rawLength > FrameLimits.MAX_FRAME_RAW_BYTES) {
                 throw new FrameFormatException(Reason.FRAME_TOO_LARGE, i, rawLength + " raw bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES);
             }
-            if (payloadLength < 1 || payloadLength > FrameLimits.MAX_FRAME_RAW_BYTES + 1024) {
+            // As carried, a payload can run a little over its raw length: zstd grows bytes it cannot
+            // compress by about 0.4%, and an in-band buffer adds its 8-byte prefix.
+            if (payloadLength < 1 || payloadLength > FrameLimits.MAX_FRAME_RAW_BYTES + 64 * 1024) {
                 throw new FrameFormatException(Reason.MALFORMED_FRAME, i, payloadLength + " payload bytes");
             }
             long total = FrameLimits.HEADER_BYTES + directoryLength + payloadLength;
@@ -175,7 +186,7 @@ public final class DatapointFrame {
             String[] names = new String[(int) seriesCount];
             readDirectory(buf, pos + FrameLimits.HEADER_BYTES, (int) directoryLength, ids, names, i);
             int payloadOffset = pos + FrameLimits.HEADER_BYTES + (int) directoryLength;
-            frames.add(new DatapointFrame(body, pos, (int) total, i, type, aggregates, (int) rows, ids, names,
+            frames.add(new DatapointFrame(body, pos, (int) total, i, type, aggregates, compression, (int) rows, ids, names,
                     payloadOffset, (int) payloadLength, (int) rawLength));
             pos += (int) total;
         }
@@ -225,19 +236,23 @@ public final class DatapointFrame {
 
     /** Decompresses and validates the payload; safe to call once per frame, from any thread. */
     public void decode(PayloadCodec codec) {
-        byte[] compressed = payloadBytes();
-        byte[] decoded;
-        try {
-            decoded = codec.decompress(compressed, rawLength);
-        } catch (IllegalArgumentException e) {
-            throw new FrameFormatException(Reason.PAYLOAD_INVALID, index, e.getMessage());
+        ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(valueType);
+        int maxRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(valueType);
+        List<Batch> parsed;
+        if (compression == FrameLimits.COMPRESSION_ARROW_ZSTD) {
+            parsed = ArrowIpc.readCompressedStream(canon, payloadBytes(), index, maxRows, codec, rawLength);
+        } else {
+            byte[] decoded;
+            try {
+                decoded = codec.decompress(payloadBytes(), rawLength);
+            } catch (IllegalArgumentException e) {
+                throw new FrameFormatException(Reason.PAYLOAD_INVALID, index, e.getMessage());
+            }
+            if (decoded.length != rawLength) {
+                throw new FrameFormatException(Reason.PAYLOAD_INVALID, index, "payload decompressed to " + decoded.length + " bytes, envelope says " + rawLength);
+            }
+            parsed = ArrowIpc.readStream(canon, decoded, index, maxRows);
         }
-        if (decoded.length != rawLength) {
-            throw new FrameFormatException(Reason.PAYLOAD_INVALID, index, "payload decompressed to " + decoded.length + " bytes, envelope says " + rawLength);
-        }
-        List<Batch> parsed = aggregates
-                ? ArrowIpc.readStream(ArrowSchemaCanon.aggregates(), decoded, index, FrameLimits.MAX_AGGREGATE_ROWS)
-                : ArrowIpc.readStream(ArrowSchemaCanon.of(valueType), decoded, index, FrameLimits.maxRows(valueType));
         int[] starts = new int[parsed.size() + 1];
         for (int b = 0; b < parsed.size(); b++) {
             starts[b + 1] = starts[b] + parsed.get(b).rows();
@@ -254,7 +269,6 @@ public final class DatapointFrame {
                 throw new FrameFormatException(Reason.DIRECTORY_INVALID, index, "directory entry " + s + " is series " + seriesIds[s] + ", payload has " + found.get(s).id());
             }
         }
-        this.raw = decoded;
         this.batches = Collections.unmodifiableList(parsed);
         this.batchStarts = starts;
         this.runs = Collections.unmodifiableList(found);
@@ -325,6 +339,11 @@ public final class DatapointFrame {
         return aggregates;
     }
 
+    /** {@link FrameLimits#COMPRESSION_ZSTD} or {@link FrameLimits#COMPRESSION_ARROW_ZSTD}. */
+    public int compression() {
+        return compression;
+    }
+
     public int rowCount() {
         return rowCount;
     }
@@ -345,6 +364,11 @@ public final class DatapointFrame {
         return payloadLength;
     }
 
+    /**
+     * The payload decompressed: its whole length at {@link FrameLimits#COMPRESSION_ZSTD}, or the
+     * record batch bodies' length with every buffer uncompressed at
+     * {@link FrameLimits#COMPRESSION_ARROW_ZSTD}.
+     */
     public int rawLength() {
         return rawLength;
     }

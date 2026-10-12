@@ -474,7 +474,11 @@ public class TimeseriesService {
     public record BinaryRead(TimeseriesEntity series, RetrieveFilter filter, long limit, boolean aggregates, int frameRows) {
     }
 
-    /** Level 1: the read is CPU-bound on this, and level 3 bought 0.5% smaller frames for 20% fewer rows a second. */
+    /**
+     * Only for a record batch the relay cannot pass on as it came: one ClickHouse answered
+     * uncompressed, or one longer than a frame. Level 1, since level 3 bought 0.5% smaller frames
+     * for 20% fewer rows a second when every frame was compressed here.
+     */
     private static final PayloadCodec READ_CODEC = new ZstdPayloadCodec(1);
 
     /**
@@ -564,10 +568,11 @@ public class TimeseriesService {
 
     /**
      * Writes each planned series as frames, in request order: ClickHouse's Arrow stream for it,
-     * checked against the canon and cut into full frames as it arrives, so the response holds one
-     * frame's rows at a time however long the series. Each frame is flushed as it is complete. A
-     * series with no points in its window writes nothing. The end marker comes last and only on
-     * success, so a response that fails partway can never pass for a complete one.
+     * its record batches already compressed, relayed whole into frames as it arrives, so the
+     * response holds one frame's batches at a time however long the series and this service
+     * compresses nothing. Each frame is flushed as it is complete. A series with no points in its
+     * window writes nothing. The end marker comes last and only on success, so a response that
+     * fails partway can never pass for a complete one.
      */
     public void writeFrames(List<BinaryRead> reads, OutputStream out) throws IOException {
         String tenantId = TenantContext.getTenantId();
@@ -575,7 +580,7 @@ public class TimeseriesService {
             TimeseriesEntity series = read.series();
             DatapointValueType type = DatapointValueType.fromId(series.getValueType().getId());
             try (InputStream stream = clickHouseDatapointService.openArrowStream(tenantId, series, read.filter(), read.limit(), read.frameRows())) {
-                DatapointFrameWriter.wrapStream(type, read.aggregates(), series.getId(), series.getExternalId(), stream, READ_CODEC, out);
+                DatapointFrameWriter.relayStream(type, read.aggregates(), series.getId(), series.getExternalId(), stream, READ_CODEC, out);
             } catch (FrameFormatException e) {
                 // Our own query's output, so a mismatch is a server fault, not the caller's.
                 throw new IllegalStateException("ClickHouse answered series " + series.getId() + " outside the canon: " + e.getMessage(), e);

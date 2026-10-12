@@ -53,7 +53,9 @@ class DatapointFrameRejectionTest {
         assertEquals(Reason.UNKNOWN_VALUE_TYPE, reject(tampered(b -> b.put(5, (byte) 8))));
         assertEquals(Reason.UNSUPPORTED_CODEC, reject(tampered(b -> b.put(6, (byte) 0))));
         assertEquals(Reason.UNCOMPRESSED_FRAME, reject(tampered(b -> b.put(7, (byte) 0))));
-        assertEquals(Reason.MALFORMED_FRAME, reject(tampered(b -> b.put(7, (byte) 2))));
+        // Declared in-band compressed, the zstd stream is no IPC stream at all.
+        assertEquals(Reason.PAYLOAD_INVALID, reject(tampered(b -> b.put(7, (byte) 2))));
+        assertEquals(Reason.MALFORMED_FRAME, reject(tampered(b -> b.put(7, (byte) 3))));
         assertEquals(Reason.ROW_COUNT_MISMATCH, reject(tampered(b -> b.putInt(8, 0))));
         assertEquals(Reason.ROW_COUNT_MISMATCH, reject(tampered(b -> b.putInt(8, 100_001))));
         assertEquals(Reason.DIRECTORY_INVALID, reject(tampered(b -> b.putInt(12, 0))));
@@ -154,6 +156,9 @@ class DatapointFrameRejectionTest {
                 new long[]{3, 3, 4}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3)))));
         // Not an IPC stream at all.
         assertEquals(Reason.PAYLOAD_INVALID, reject(withStream(DatapointValueType.FLOAT, 3, new byte[]{1, 2, 3, 4, 5, 6, 7, 8})));
+        // In-band compressed buffers under a whole-payload zstd envelope.
+        assertEquals(Reason.PAYLOAD_INVALID, reject(withStream(DatapointValueType.FLOAT, 3, ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT),
+                List.of(new BatchData(3, new ColumnData[]{longs(3, 3, 9), longs(1000, 2000, 1000), doubles(1, 2, 3)})), ZSTD))));
         // A stream with no end-of-stream marker.
         byte[] stream = stream(DatapointValueType.FLOAT, new long[]{3, 3, 9}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3));
         byte[] cut = java.util.Arrays.copyOf(stream, stream.length - 8);

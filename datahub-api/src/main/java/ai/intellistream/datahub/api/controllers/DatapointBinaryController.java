@@ -62,8 +62,12 @@ public class DatapointBinaryController {
                     documented for other producers.
 
                     Every frame in the request is validated before any is published, so a rejected request
-                    inserts nothing and can be retried as a whole. Compression is mandatory: a frame that
-                    declares none is refused, and no body-level `Content-Encoding` is accepted.
+                    inserts nothing and can be retried as a whole. Compression is mandatory, either of the
+                    whole payload (compression `1`) or of each Arrow buffer in-band (compression `2`, what
+                    a read answers with): a frame that declares none is refused, and no body-level
+                    `Content-Encoding` is accepted. The answer to `POST /timeseries/data/list/binary` is
+                    a valid body as it is, end marker included, as long as it holds no aggregate frame
+                    and stays under the caps below; a longer answer is split at frame boundaries.
 
                     Publishing is not atomic: frames reach the message broker one at a time, so a **5xx**
                     can follow after some of them were published. Retrying the whole request is still
@@ -130,6 +134,11 @@ public class DatapointBinaryController {
                     `Accept: application/vnd.intellistream.datapoint-block, application/problem+json`,
                     so that a refusal can come back as the problem document it is.
 
+                    The frames carry their Arrow record batches as the database compressed them, each
+                    buffer zstd-compressed in-band (frame compression `2`), relayed without being
+                    decoded here; the reader decompresses. The answer can be posted back to
+                    `POST /timeseries/data/binary` as it is.
+
                     Frames come in the order of `items`, and one series' rows may span several
                     consecutive frames. A series with no points in its window sends no frame, so an
                     empty body is a valid answer. Rows are sorted by timestamp, oldest first, and each
@@ -156,7 +165,8 @@ public class DatapointBinaryController {
                     what is left.
 
                     A frame holds at most 100 000 values of a numeric series, 10 000 of a text or mixed
-                    one, or 50 000 aggregate buckets; a longer answer is more frames.
+                    one, or 50 000 aggregate buckets, and as many whole record batches as fit under
+                    that, so most frames hold fewer rows than the cap; a longer answer is more frames.
                     """)
     @ApiResponse(responseCode = "200", description = "Zero or more frames, then the end marker.",
             content = @Content(mediaType = FrameLimits.MEDIA_TYPE))

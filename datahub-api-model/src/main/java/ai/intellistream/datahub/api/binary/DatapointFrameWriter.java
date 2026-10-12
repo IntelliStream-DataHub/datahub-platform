@@ -4,7 +4,9 @@ package ai.intellistream.datahub.api.binary;
 import ai.intellistream.datahub.api.binary.ArrowIpc.Batch;
 import ai.intellistream.datahub.api.binary.ArrowIpc.BatchData;
 import ai.intellistream.datahub.api.binary.ArrowIpc.ColumnData;
+import ai.intellistream.datahub.api.binary.ArrowIpc.RawBatch;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -13,7 +15,6 @@ import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -23,7 +24,8 @@ import java.util.Map;
  * Builds one datapoint frame for one value type: rows in any order in, a sorted, de-duplicated,
  * compressed frame out. The per-type value rules (Decimal scaling and rounding, the Decimal32
  * clamp, the mixed numeric-or-text probe) are the ones the JSON path applies on the server, so
- * the two paths store the same bytes for the same input.
+ * the two paths store the same bytes for the same input. {@link #relayStream} is the other way a
+ * frame is made: around record batches ClickHouse already compressed, for a read.
  *
  * @see ArrowIpc why this package handles Arrow itself
  */
@@ -242,97 +244,138 @@ public final class DatapointFrameWriter {
         }
 
         byte[] raw = ArrowIpc.writeStream(canon, List.of(new BatchData(n, columns(order, n))));
-        return assemble(type, FrameLimits.CODEC_ARROW_IPC, n, directoryIds, externalIds, directoryLength, raw, codec);
-    }
-
-    /**
-     * One frame of one series around record batches already in the canon: the value type's, or
-     * {@link ArrowSchemaCanon#aggregates()} when {@code aggregates}. This is how the API answers a
-     * binary read, from the batches ClickHouse returned. The caller keeps the batches within the
-     * frame's row cap and in timestamp order.
-     */
-    public static byte[] wrap(DatapointValueType type, boolean aggregates, long id, String externalId,
-                              List<BatchData> batches, PayloadCodec codec) {
-        int rows = 0;
-        for (BatchData b : batches) {
-            rows += b.rows();
-        }
-        int maxRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
-        if (rows < 1 || rows > maxRows) {
-            throw new IllegalStateException("frame has " + rows + " rows, allowed 1 to " + maxRows);
-        }
-        byte[] externalIdBytes = externalId.getBytes(StandardCharsets.UTF_8);
-        int directoryLength = 8 + Varint.size(externalIdBytes.length) + externalIdBytes.length;
-        byte[] raw = ArrowIpc.writeStream(aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type), batches);
-        int codecId = aggregates ? FrameLimits.CODEC_ARROW_IPC_AGGREGATES : FrameLimits.CODEC_ARROW_IPC;
-        return assemble(type, codecId, rows, new long[]{id}, new byte[][]{externalIdBytes}, directoryLength, raw, codec);
-    }
-
-    /**
-     * Frames one series' Arrow stream as it is read: every frame but the last holds exactly the
-     * row cap, record batches being cut to fit, and each is written and flushed as soon as it is
-     * full, so the stream is never held whole. This is how the API answers a binary read from
-     * ClickHouse's output, whose record batches are bounded by nothing of ours: one is held to
-     * {@link FrameLimits#MAX_REQUEST_RAW_BYTES}, and any number of rows. A stream with no batch
-     * writes nothing.
-     */
-    public static void wrapStream(DatapointValueType type, boolean aggregates, long id, String externalId,
-                                  InputStream stream, PayloadCodec codec, OutputStream out) throws IOException {
-        ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
-        int cap = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
-        ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, Integer.MAX_VALUE, FrameLimits.MAX_REQUEST_RAW_BYTES);
-        List<BatchData> frame = new ArrayList<>();
-        int rows = 0;
-        for (Batch batch = reader.next(); batch != null; batch = reader.next()) {
-            int from = 0;
-            while (from < batch.rows()) {
-                int take = Math.min(batch.rows() - from, cap - rows);
-                frame.add(batch.slice(canon, from, from + take));
-                rows += take;
-                from += take;
-                if (rows == cap) {
-                    out.write(wrap(type, aggregates, id, externalId, frame, codec));
-                    out.flush();
-                    frame = new ArrayList<>();
-                    rows = 0;
-                }
-            }
-        }
-        if (rows > 0) {
-            out.write(wrap(type, aggregates, id, externalId, frame, codec));
-            out.flush();
-        }
-    }
-
-    private static byte[] assemble(DatapointValueType type, int codecId, int n, long[] directoryIds, byte[][] externalIds,
-                                   int directoryLength, byte[] raw, PayloadCodec codec) {
         if (raw.length > FrameLimits.MAX_FRAME_RAW_BYTES) {
             throw new IllegalStateException("frame payload is " + raw.length + " bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES + "; split it");
         }
-        byte[] compressed = codec.compress(raw);
-        long frameBytes = (long) FrameLimits.HEADER_BYTES + directoryLength + compressed.length;
+        return assemble(type, FrameLimits.CODEC_ARROW_IPC, FrameLimits.COMPRESSION_ZSTD, n, directoryIds, externalIds, directoryLength,
+                codec.compress(raw), raw.length);
+    }
+
+    /**
+     * Frames one series' Arrow stream as it is read, relaying its record batches as they came:
+     * how the API answers a binary read from ClickHouse's output, asked to compress each buffer
+     * in-band, so that the frames are {@link FrameLimits#COMPRESSION_ARROW_ZSTD} and the API
+     * compresses nothing itself. A frame holds as many whole batches as fit under the row cap,
+     * written and flushed as soon as the next would not fit, so the stream is never held whole
+     * and a frame can be well under the cap. Only a batch that came uncompressed, or longer than a
+     * frame, is decoded and written by {@code codec}, cut into pieces of at most the cap. A
+     * stream with no batch writes nothing.
+     */
+    public static void relayStream(DatapointValueType type, boolean aggregates, long id, String externalId,
+                                   InputStream stream, PayloadCodec codec, OutputStream out) throws IOException {
+        ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
+        int cap = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
+        ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, Integer.MAX_VALUE, FrameLimits.MAX_REQUEST_RAW_BYTES, codec);
+        PendingFrame frame = new PendingFrame(type, aggregates, id, externalId, canon, cap, codec, out);
+        for (RawBatch raw = reader.nextRaw(); raw != null; raw = reader.nextRaw()) {
+            if (raw.compressed() && raw.rows() <= cap) {
+                frame.add(raw);
+                continue;
+            }
+            Batch batch = reader.decode(raw);
+            for (int from = 0; from < batch.rows(); ) {
+                int to = Math.min(batch.rows(), from + cap);
+                frame.add(batch.slice(canon, from, to));
+                from = to;
+            }
+        }
+        frame.flush();
+    }
+
+    /** The frame a relay is filling: the record batch messages of its payload so far, their rows and raw bytes. */
+    private static final class PendingFrame {
+        private final DatapointValueType type;
+        private final int codecId;
+        private final long id;
+        private final byte[] externalId;
+        private final ArrowSchemaCanon canon;
+        private final int cap;
+        private final PayloadCodec codec;
+        private final OutputStream out;
+        private final ByteArrayOutputStream batches = new ByteArrayOutputStream();
+        private int rows;
+        private long rawBytes;
+
+        PendingFrame(DatapointValueType type, boolean aggregates, long id, String externalId, ArrowSchemaCanon canon,
+                     int cap, PayloadCodec codec, OutputStream out) {
+            this.type = type;
+            this.codecId = aggregates ? FrameLimits.CODEC_ARROW_IPC_AGGREGATES : FrameLimits.CODEC_ARROW_IPC;
+            this.id = id;
+            this.externalId = externalId.getBytes(StandardCharsets.UTF_8);
+            this.canon = canon;
+            this.cap = cap;
+            this.codec = codec;
+            this.out = out;
+        }
+
+        /** A batch as it came, in-band compressed and no longer than a frame. */
+        void add(RawBatch raw) throws IOException {
+            if (rows + raw.rows() > cap) {
+                flush();
+            }
+            raw.writeTo(batches);
+            rows += raw.rows();
+            rawBytes += raw.rawBodyBytes();
+        }
+
+        /** A piece of a batch the relay had to decode, no longer than a frame, compressed here. */
+        void add(BatchData piece) throws IOException {
+            if (rows + piece.rows() > cap) {
+                flush();
+            }
+            rawBytes += ArrowIpc.writeBatch(canon, piece, batches, codec);
+            rows += piece.rows();
+        }
+
+        void flush() throws IOException {
+            if (rows == 0) {
+                return;
+            }
+            byte[] schema = canon.schemaMessage();
+            ByteBuffer payload = ByteBuffer.allocate(schema.length + batches.size() + END_OF_STREAM.length);
+            payload.put(schema);
+            payload.put(batches.toByteArray());
+            payload.put(END_OF_STREAM);
+            int directoryLength = 8 + Varint.size(externalId.length) + externalId.length;
+            if (rawBytes > FrameLimits.MAX_FRAME_RAW_BYTES) {
+                throw new IllegalStateException("frame buffers are " + rawBytes + " bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES);
+            }
+            out.write(assemble(type, codecId, FrameLimits.COMPRESSION_ARROW_ZSTD, rows, new long[]{id}, new byte[][]{externalId},
+                    directoryLength, payload.array(), (int) rawBytes));
+            out.flush();
+            batches.reset();
+            rows = 0;
+            rawBytes = 0;
+        }
+    }
+
+    private static final byte[] END_OF_STREAM = {(byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, 0, 0, 0, 0};
+
+    /** The frame around a payload: envelope, directory, payload. */
+    private static byte[] assemble(DatapointValueType type, int codecId, int compression, int rows, long[] directoryIds, byte[][] externalIds,
+                                   int directoryLength, byte[] payload, int rawLength) {
+        long frameBytes = (long) FrameLimits.HEADER_BYTES + directoryLength + payload.length;
         if (frameBytes > FrameLimits.MAX_FRAME_BYTES) {
             throw new IllegalStateException("frame is " + frameBytes + " bytes, the cap is " + FrameLimits.MAX_FRAME_BYTES + "; split it");
         }
 
-        ByteBuffer frame = ByteBuffer.allocate(FrameLimits.HEADER_BYTES + directoryLength + compressed.length)
-                .order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer frame = ByteBuffer.allocate((int) frameBytes).order(ByteOrder.LITTLE_ENDIAN);
         frame.put(FrameLimits.MAGIC);
         frame.put((byte) FrameLimits.VERSION);
         frame.put((byte) type.id());
         frame.put((byte) codecId);
-        frame.put((byte) FrameLimits.COMPRESSION_ZSTD);
-        frame.putInt(n);
+        frame.put((byte) compression);
+        frame.putInt(rows);
         frame.putInt(directoryIds.length);
         frame.putInt(directoryLength);
-        frame.putInt(compressed.length);
-        frame.putInt(raw.length);
+        frame.putInt(payload.length);
+        frame.putInt(rawLength);
         for (int i = 0; i < directoryIds.length; i++) {
             frame.putLong(directoryIds[i]);
             Varint.write(frame, externalIds[i].length);
             frame.put(externalIds[i]);
         }
-        frame.put(compressed);
+        frame.put(payload);
         return frame.array();
     }
 

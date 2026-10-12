@@ -2,6 +2,9 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.binary.DatapointFrame;
+import ai.intellistream.datahub.api.binary.FrameLimits;
+import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
+import ai.intellistream.datahub.api.binary.ArrowIpc;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.PayloadCodec;
@@ -32,6 +35,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -109,6 +113,32 @@ class DatapointBinaryIngestServiceTest {
             }
         }
         return w.build(ZSTD);
+    }
+
+    /** The frame a read answers with for the same points: the batches compressed in-band, relayed. */
+    private static byte[] relayed(DatapointValueType type, long id) throws IOException {
+        DatapointFrame built = DatapointFrame.parseAll(frame(type, id), ZSTD).get(0);
+        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.of(type), built.batches().stream().map(ArrowIpc.Batch::toData).toList(), ZSTD);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        DatapointFrameWriter.relayStream(type, false, id, "s" + id, new ByteArrayInputStream(stream), ZSTD, out);
+        out.writeBytes(FrameLimits.END_OF_RESPONSE);
+        return out.toByteArray();
+    }
+
+    @Test
+    void aReadsAnswerIsPublishedAsItCame() throws Exception {
+        series(4, DatapointValueType.TEXT, 20);
+        byte[] answer = relayed(DatapointValueType.TEXT, 4);
+
+        DatapointBinaryIngestService.Summary summary = ingest(service, answer, answer.length);
+
+        assertThat(summary.frames()).isEqualTo(1);
+        assertThat(summary.rows()).isEqualTo(3);
+        ArgumentCaptor<byte[]> sent = ArgumentCaptor.forClass(byte[].class);
+        verify(message).value(sent.capture());
+        assertThat(sent.getValue()).isEqualTo(Arrays.copyOf(answer, answer.length - FrameLimits.END_OF_RESPONSE.length));
+        verify(message).property("compression", "2");
+        verify(latestDatapointCache).update("s4", 1_700_000_002_000L, "v2");
     }
 
     private static DatapointBinaryIngestService.Summary ingest(DatapointBinaryIngestService service, byte[] body, long declared)

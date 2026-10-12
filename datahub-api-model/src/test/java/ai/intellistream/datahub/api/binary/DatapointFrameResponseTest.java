@@ -6,7 +6,10 @@ import ai.intellistream.datahub.api.binary.ArrowIpc.ColumnData;
 import ai.intellistream.datahub.api.binary.FrameFormatException.Reason;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
@@ -19,9 +22,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The frames a binary read answers with: built around record batches the server already has, read
- * back by {@link DatapointFrame#parseResponse}, which also takes aggregate frames and more frames
- * than a request may carry. Ingest must still refuse an aggregate frame.
+ * The frames a binary read answers with: relayed around record batches the server already has,
+ * read back by {@link DatapointFrame#parseResponse}, which also takes aggregate frames and more
+ * frames than a request may carry. Ingest takes the answer back as it is, end marker included,
+ * and must still refuse an aggregate frame.
  */
 class DatapointFrameResponseTest {
 
@@ -43,6 +47,19 @@ class DatapointFrameResponseTest {
         return new ColumnData(null, 0, null, data);
     }
 
+    /** The frames the relay writes around {@code batches}: one, unless they exceed the row cap. */
+    private static byte[] frames(DatapointValueType type, boolean aggregates, long id, String externalId, List<BatchData> batches) {
+        ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try {
+            DatapointFrameWriter.relayStream(type, aggregates, id, externalId,
+                    new ByteArrayInputStream(ArrowIpc.writeStream(canon, batches, ZSTD)), ZSTD, out);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        return out.toByteArray();
+    }
+
     private static byte[] aggregateFrame(long id, long... buckets) {
         double[] avg = new double[buckets.length];
         double[] min = new double[buckets.length];
@@ -59,7 +76,7 @@ class DatapointFrameResponseTest {
         BatchData batch = new BatchData(buckets.length, new ColumnData[]{
                 column(longs(ids)), column(longs(buckets)),
                 column(doubles(avg)), column(doubles(min)), column(doubles(max)), column(doubles(sum))});
-        return DatapointFrameWriter.wrap(DatapointValueType.FLOAT, true, id, "agg" + id, List.of(batch), ZSTD);
+        return frames(DatapointValueType.FLOAT, true, id, "agg" + id, List.of(batch));
     }
 
     private static byte[] response(byte[]... frames) {
@@ -75,11 +92,11 @@ class DatapointFrameResponseTest {
     }
 
     @Test
-    void wrappedValueFramesReadBack() {
+    void relayedValueFramesReadBack() {
         DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.NUMERIC).series(7, "seven");
         w.add(7, 1000, "1.5");
         w.add(7, 2000, "-0.000001");
-        byte[] frame = DatapointFrameWriter.wrap(DatapointValueType.NUMERIC, false, 7, "seven", batchesOf(w.build(ZSTD)), ZSTD);
+        byte[] frame = frames(DatapointValueType.NUMERIC, false, 7, "seven", batchesOf(w.build(ZSTD)));
 
         DatapointFrame read = DatapointFrame.parseResponse(response(frame), ZSTD).get(0);
         assertFalse(read.aggregates());
@@ -88,8 +105,26 @@ class DatapointFrameResponseTest {
         assertEquals("1.500000", read.valueAsString(0));
         assertEquals("-0.000001", read.valueAsString(1));
         assertThrows(IllegalStateException.class, () -> read.avg(0));
-        // A value frame is still a valid ingest frame.
+        assertEquals(FrameLimits.COMPRESSION_ARROW_ZSTD, read.compression());
+        // A value frame is still a valid ingest frame, and so is the whole answer with its marker.
         assertEquals(2, DatapointFrame.parseAll(frame, ZSTD).get(0).rowCount());
+        assertEquals(2, DatapointFrame.parseAll(response(frame), ZSTD).get(0).rowCount());
+    }
+
+    @Test
+    void ingestTakesTheEndMarkerOnlyAfterAFrameAndNothingAfterIt() {
+        assertEquals(Reason.MALFORMED_FRAME, assertThrows(FrameFormatException.class,
+                () -> DatapointFrame.parseEnvelopes(response())).reason());
+        byte[] frame = frames(DatapointValueType.FLOAT, false, 1, "f", batchesOf(floatFrame()));
+        byte[] extended = Arrays.copyOf(response(frame), response(frame).length + 1);
+        assertEquals(Reason.TRAILING_BYTES, assertThrows(FrameFormatException.class,
+                () -> DatapointFrame.parseEnvelopes(extended)).reason());
+    }
+
+    private static byte[] floatFrame() {
+        DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(1, "f");
+        w.add(1, 1000, "1.5");
+        return w.build(ZSTD);
     }
 
     @Test
@@ -101,7 +136,7 @@ class DatapointFrameResponseTest {
         List<BatchData> batches = batchesOf(w.build(ZSTD));
         assertEquals(0, batches.get(0).columns()[2].nullCount());
 
-        byte[] frame = DatapointFrameWriter.wrap(DatapointValueType.MIXED, false, 1, "m", batches, ZSTD);
+        byte[] frame = frames(DatapointValueType.MIXED, false, 1, "m", batches);
         DatapointFrame read = DatapointFrame.parseResponse(response(frame), ZSTD).get(0);
         assertEquals("1.5", read.valueAsString(0));
         assertEquals("2.5", read.valueAsString(1));
@@ -161,9 +196,11 @@ class DatapointFrameResponseTest {
     }
 
     @Test
-    void wrapKeepsAFrameWithinItsRowCap() {
+    void aBatchOverTheRowCapBecomesTwoFrames() {
         long[] buckets = new long[FrameLimits.MAX_AGGREGATE_ROWS + 1];
         for (int i = 0; i < buckets.length; i++) buckets[i] = i;
-        assertThrows(IllegalStateException.class, () -> aggregateFrame(1, buckets));
+        List<DatapointFrame> frames = DatapointFrame.parseResponse(response(aggregateFrame(1, buckets)), ZSTD);
+        assertEquals(List.of(FrameLimits.MAX_AGGREGATE_ROWS, 1), frames.stream().map(DatapointFrame::rowCount).toList());
+        assertEquals(FrameLimits.MAX_AGGREGATE_ROWS, frames.get(1).timestamp(0));
     }
 }

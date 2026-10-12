@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.time.Instant;
@@ -45,9 +46,10 @@ import static org.mockito.Mockito.when;
  * Where a binary read's time goes, stage by stage, against a real ClickHouse holding one float
  * series of four million points in forty parts (what streaming inserts leave behind) and one text
  * series of a million: the query alone with and without {@code FINAL}, over the pool's HTTP LZ4
- * transport, with the native compression the read asks for, and uncompressed; then the Arrow
- * parse, then the framing with zstd; and an Arrow insert of a million points over the pool's
- * transport and uncompressed. Prints a table; run with
+ * transport, with native transport compression, uncompressed, and with the Arrow buffers
+ * compressed in-band as the read asks for; then the relay into frames, which is the production
+ * path and compresses nothing; then what a reader pays to decode them; and an Arrow insert of a
+ * million points over the pool's transport and uncompressed. Prints a table; run with
  * {@code ./gradlew :datahub-infra:performanceTest --tests "*ClickHouseArrowReadPerformanceIT"}.
  */
 @Tag("integration")
@@ -63,19 +65,6 @@ class ClickHouseArrowReadPerformanceIT {
     static final int TINY_ROWS = 100;
     static final long T0_SEC = 1_700_000_000L;
     static final int INSERT_ROWS = 1_000_000;
-
-    /** What a frame would cost with its payload left alone; the format has no such mode. */
-    static final PayloadCodec NONE = new PayloadCodec() {
-        @Override
-        public byte[] compress(byte[] raw) {
-            return raw;
-        }
-
-        @Override
-        public byte[] decompress(byte[] compressed, int rawLength) {
-            return compressed;
-        }
-    };
 
     static Client client;
     static Client plainClient;
@@ -138,25 +127,21 @@ class ClickHouseArrowReadPerformanceIT {
     void whereTheTimeGoes() throws Exception {
         System.out.printf("%n%-52s %8s %12s %10s%n", "stage", "best ms", "Mrows/s", "MB out");
         report("float: query, pool transport (HTTP LZ4)", FLOAT_ROWS, () -> drain(client, query("datapoints_float", FLOAT_ID, true)));
-        report("float: query, native compression (the read's)", FLOAT_ROWS, () -> drainNative(client, query("datapoints_float", FLOAT_ID, true)));
+        report("float: query, native transport compression", FLOAT_ROWS, () -> drainNative(client, query("datapoints_float", FLOAT_ID, true)));
         report("float: query, native, no FINAL", FLOAT_ROWS, () -> drainNative(client, query("datapoints_float", FLOAT_ID, false)));
-        report("float: query, no compression", FLOAT_ROWS, () -> drain(plainClient, query("datapoints_float", FLOAT_ID, true)));
-        report("float: query, Arrow zstd buffers, no transport", FLOAT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_float", FLOAT_ID, true), "zstd"));
-        report("float: query, Arrow lz4 buffers, no transport", FLOAT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_float", FLOAT_ID, true), "lz4_frame"));
-        report("float: + Arrow parse (StreamReader)", FLOAT_ROWS, () -> parse(service, DatapointValueType.FLOAT, FLOAT_ID, FLOAT_ROWS));
-        report("float: + frames, zstd 1 (production)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(1)));
-        report("float: + frames, zstd 3", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(3)));
-        report("float: + frames, zstd 9", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(9)));
-        report("float: + frames, no compression (not in the format)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, NONE));
+        report("float: query, no compression at all", FLOAT_ROWS, () -> drain(plainClient, query("datapoints_float", FLOAT_ID, true)));
+        report("float: query, Arrow zstd buffers (the read's)", FLOAT_ROWS, () -> drainRead(service, DatapointValueType.FLOAT, FLOAT_ID));
+        report("float: query, Arrow lz4 buffers", FLOAT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_float", FLOAT_ID, true), "lz4_frame"));
+        report("float: + relay into frames (production)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID));
+        report("float: + decode the frames (a reader's cost)", FLOAT_ROWS, () -> decode(service, DatapointValueType.FLOAT, FLOAT_ID, FLOAT_ROWS));
+        report("float: Arrow parse here, in-band decoded", FLOAT_ROWS, () -> parse(service, DatapointValueType.FLOAT, FLOAT_ID, FLOAT_ROWS));
         report("text: query, pool transport (HTTP LZ4)", TEXT_ROWS, () -> drain(client, query("datapoints_text", TEXT_ID, true)));
-        report("text: query, native compression (the read's)", TEXT_ROWS, () -> drainNative(client, query("datapoints_text", TEXT_ID, true)));
-        report("text: query, Arrow zstd buffers, no transport", TEXT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_text", TEXT_ID, true), "zstd"));
-        report("text: + Arrow parse (StreamReader)", TEXT_ROWS, () -> parse(service, DatapointValueType.TEXT, TEXT_ID, TEXT_ROWS));
-        report("text: + frames, zstd 1 (production)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, new ZstdPayloadCodec(1)));
-        report("text: + frames, zstd 9", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, new ZstdPayloadCodec(9)));
-        report("text: + frames, no compression (not in the format)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, NONE));
-        report("200 series of 100 rows, framed one by one", (long) TINY_SERIES * TINY_ROWS, () -> tiny(service));
-        report("200 series of 100 rows, no compression", (long) TINY_SERIES * TINY_ROWS, () -> tiny(plainService));
+        report("text: query, native transport compression", TEXT_ROWS, () -> drainNative(client, query("datapoints_text", TEXT_ID, true)));
+        report("text: query, Arrow zstd buffers (the read's)", TEXT_ROWS, () -> drainRead(service, DatapointValueType.TEXT, TEXT_ID));
+        report("text: + relay into frames (production)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID));
+        report("text: + decode the frames (a reader's cost)", TEXT_ROWS, () -> decode(service, DatapointValueType.TEXT, TEXT_ID, TEXT_ROWS));
+        report("text: Arrow parse here, in-band decoded", TEXT_ROWS, () -> parse(service, DatapointValueType.TEXT, TEXT_ID, TEXT_ROWS));
+        report("200 series of 100 rows, relayed one by one", (long) TINY_SERIES * TINY_ROWS, () -> tiny(service));
         byte[] arrow = arrowInsert(INSERT_ROWS);
         report("insert 1M floats as Arrow, pool transport", INSERT_ROWS, () -> insert(service, arrow));
         report("insert 1M floats as Arrow, no compression", INSERT_ROWS, () -> insert(plainService, arrow));
@@ -187,6 +172,19 @@ class ClickHouseArrowReadPerformanceIT {
     static String query(String table, long id, boolean fin) {
         return "SELECT timeseries_id, toDateTime64(timestamp, 3, 'UTC') AS timestamp, value FROM " + table + (fin ? " FINAL" : "")
                 + " WHERE timeseries_id = " + id + " ORDER BY timestamp";
+    }
+
+    /** The read's own query, with the Arrow buffers compressed in-band, drained. */
+    static long drainRead(ClickHouseDatapointService svc, DatapointValueType type, long id) throws Exception {
+        try (InputStream in = svc.openArrowStream("t", series(type, id), window(), 0, FrameLimits.maxRows(type))) {
+            byte[] buf = new byte[1 << 16];
+            long n = 0;
+            int k;
+            while ((k = in.read(buf)) > 0) {
+                n += k;
+            }
+            return n;
+        }
     }
 
     /** As {@link #drain}, asking this one query for ClickHouse's native compression instead of HTTP's. */
@@ -227,10 +225,13 @@ class ClickHouseArrowReadPerformanceIT {
         }
     }
 
+    static final PayloadCodec READ_CODEC = new ZstdPayloadCodec(1);
+
+    /** Every batch decoded here, buffers decompressed: what the API paid before it relayed. */
     static long parse(ClickHouseDatapointService svc, DatapointValueType type, long id, int expected) throws Exception {
         long rows = 0;
         try (InputStream in = svc.openArrowStream("t", series(type, id), window(), 0, FrameLimits.maxRows(type))) {
-            ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(ArrowSchemaCanon.of(type), in, 0, Integer.MAX_VALUE, FrameLimits.MAX_REQUEST_RAW_BYTES);
+            ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(ArrowSchemaCanon.of(type), in, 0, Integer.MAX_VALUE, FrameLimits.MAX_REQUEST_RAW_BYTES, READ_CODEC);
             for (ArrowIpc.Batch b = reader.next(); b != null; b = reader.next()) {
                 rows += b.rows();
             }
@@ -239,7 +240,7 @@ class ClickHouseArrowReadPerformanceIT {
         return 0;
     }
 
-    static long frame(ClickHouseDatapointService svc, DatapointValueType type, long id, PayloadCodec codec) throws Exception {
+    static long frame(ClickHouseDatapointService svc, DatapointValueType type, long id) throws Exception {
         long[] out = new long[1];
         OutputStream counting = new OutputStream() {
             @Override
@@ -253,15 +254,30 @@ class ClickHouseArrowReadPerformanceIT {
             }
         };
         try (InputStream in = svc.openArrowStream("t", series(type, id), window(), 0, FrameLimits.maxRows(type))) {
-            DatapointFrameWriter.wrapStream(type, false, id, "s" + id, in, codec, counting);
+            DatapointFrameWriter.relayStream(type, false, id, "s" + id, in, READ_CODEC, counting);
         }
         return out[0];
+    }
+
+    /** The frames relayed into memory and read back the way an SDK reads an answer. */
+    static long decode(ClickHouseDatapointService svc, DatapointValueType type, long id, int expected) throws Exception {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        try (InputStream in = svc.openArrowStream("t", series(type, id), window(), 0, FrameLimits.maxRows(type))) {
+            DatapointFrameWriter.relayStream(type, false, id, "s" + id, in, READ_CODEC, body);
+        }
+        body.writeBytes(FrameLimits.END_OF_RESPONSE);
+        long rows = 0;
+        for (DatapointFrame f : DatapointFrame.parseResponse(body.toByteArray(), READ_CODEC)) {
+            rows += f.rowCount();
+        }
+        assertEquals(expected, rows);
+        return body.size();
     }
 
     static long tiny(ClickHouseDatapointService svc) throws Exception {
         long out = 0;
         for (int s = 0; s < TINY_SERIES; s++) {
-            out += frame(svc, DatapointValueType.FLOAT, 1000 + s, new ZstdPayloadCodec(1));
+            out += frame(svc, DatapointValueType.FLOAT, 1000 + s);
         }
         return out;
     }

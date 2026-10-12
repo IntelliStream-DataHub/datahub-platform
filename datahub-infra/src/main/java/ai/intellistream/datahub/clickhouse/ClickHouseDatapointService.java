@@ -109,12 +109,15 @@ public class ClickHouseDatapointService extends ClickHouseService{
      * Binary read path: one series' points in a window, or their bucketed aggregates, as
      * ClickHouse's own Arrow stream, handed over as it arrives so a window of any size is never
      * held whole; closing the stream ends the query. The output settings make that stream the
-     * contract's canon, so the API checks it and wraps it in frames without decoding a row;
-     * {@code max_block_size} asks for record batches of about a frame's rows, though a merge can
-     * answer with a larger one, which the framing cuts. {@code FINAL}
-     * because a ReplacingMergeTree holds a re-sent point twice until it merges, and a frame may not
-     * repeat a timestamp. A {@code limit} of 0 is none: the whole window in timestamp order, which
-     * the tables' {@code (timeseries_id, timestamp)} key lets ClickHouse read without a sort.
+     * contract's canon with every record batch's buffers compressed in-band, so the API relays the
+     * batches into frames without decoding or compressing a byte. {@code maxBlockRows} is the frame's
+     * row cap, and the block size asked for is it rounded down to whole granules: ClickHouse reads
+     * {@value #GRANULE_ROWS} rows at a time and answers a block size that is not a multiple of that
+     * with the next multiple up, 16 384 rows for 10 000, which would not fit a frame and would have
+     * to be decoded and cut. {@code FINAL} because a ReplacingMergeTree holds a re-sent point twice
+     * until it merges, and a frame may not repeat a timestamp. A {@code limit} of 0 is none: the
+     * whole window in timestamp order, which the tables' {@code (timeseries_id, timestamp)} key
+     * lets ClickHouse read without a sort.
      */
     public InputStream openArrowStream(String tenantId, TimeseriesEntity node, RetrieveFilter f, long limit, int maxBlockRows) {
         DatapointValueType type = DatapointValueType.fromId(node.getValueType().getId());
@@ -157,14 +160,16 @@ public class ClickHouseDatapointService extends ClickHouseService{
         QuerySettings qs = new QuerySettings()
                 .setQueryId(IdGenerator.getRandomUUID7AsString())
                 .setFormat(ClickHouseFormat.ArrowStream)
-                // ClickHouse's own compressed framing for this answer, not the pool's HTTP form,
-                // whose decoder would cap the read at about a million rows a second. See
-                // ClickHouseClientPool.transport for why the pool itself cannot switch.
-                .setOption(ClientConfigProperties.USE_HTTP_COMPRESSION.getKey(), Boolean.FALSE);
+                // No transport compression on this answer: the Arrow buffers come compressed
+                // already, and the pool's HTTP form would wrap them in a decoder that caps the read
+                // at about a million rows a second. See ClickHouseClientPool.transport for why the
+                // pool itself cannot switch.
+                .setOption(ClientConfigProperties.USE_HTTP_COMPRESSION.getKey(), Boolean.FALSE)
+                .setOption(ClientConfigProperties.COMPRESS_SERVER_RESPONSE.getKey(), Boolean.FALSE);
         qs.serverSetting("output_format_arrow_string_as_string", "1");
         qs.serverSetting("output_format_arrow_low_cardinality_as_dictionary", "0");
-        qs.serverSetting("output_format_arrow_compression_method", "none");
-        qs.serverSetting("max_block_size", Integer.toString(maxBlockRows));
+        qs.serverSetting("output_format_arrow_compression_method", "zstd");
+        qs.serverSetting("max_block_size", Integer.toString(blockRows(maxBlockRows)));
         log.debug("ClickHouse Arrow query {}: {} {}", qs.getQueryId(), query, params);
         QueryResponse response;
         try {
@@ -189,6 +194,14 @@ public class ClickHouseDatapointService extends ClickHouseService{
                 }
             }
         };
+    }
+
+    /** The rows ClickHouse reads at a time, its default {@code index_granularity}. */
+    static final int GRANULE_ROWS = 8192;
+
+    /** The largest whole number of granules under {@code cap}, so a block fits a frame. */
+    static int blockRows(int cap) {
+        return cap >= GRANULE_ROWS ? cap - cap % GRANULE_ROWS : cap;
     }
 
     // One RowBinary row per datapoint: timeseries_id (Int64) + timestamp (DateTime64(3), epoch

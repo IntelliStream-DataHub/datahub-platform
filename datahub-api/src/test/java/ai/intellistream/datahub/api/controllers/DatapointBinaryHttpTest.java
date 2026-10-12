@@ -278,12 +278,12 @@ class DatapointBinaryHttpTest {
     }
 
     @Test
-    void recordBatchesAreCutIntoFullFrames() throws Exception {
+    void recordBatchesArePackedIntoFramesUnderTheCap() throws Exception {
         when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
         TimeseriesEntity text = series(6, "t");
         text.setValueType(new TimeseriesValueType(DatapointValueType.TEXT.id()));
         when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(text));
-        // Three 4 000-row batches against a 10 000-row text frame: the third is cut across two frames.
+        // Three 4 000-row batches against a 10 000-row text frame: two to a frame, the third alone.
         List<ArrowIpc.BatchData> batches = new java.util.ArrayList<>();
         for (int b = 0; b < 3; b++) {
             DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.TEXT).series(6, "t");
@@ -302,10 +302,47 @@ class DatapointBinaryHttpTest {
 
         assertThat(response.statusCode()).isEqualTo(200);
         List<DatapointFrame> frames = DatapointFrame.parseResponse(response.body(), new ZstdPayloadCodec());
-        assertThat(frames).extracting(DatapointFrame::rowCount).containsExactly(10_000, 2000);
-        assertThat(frames.get(0).valueAsString(9999)).isEqualTo("v1999");
-        assertThat(frames.get(1).timestamp(1999)).isEqualTo(1_700_000_000_000L + 11_999);
-        assertThat(frames.get(1).valueAsString(0)).isEqualTo("v2000");
+        assertThat(frames).extracting(DatapointFrame::rowCount).containsExactly(8000, 4000);
+        assertThat(frames.get(0).valueAsString(7999)).isEqualTo("v3999");
+        assertThat(frames.get(1).timestamp(3999)).isEqualTo(1_700_000_000_000L + 11_999);
+        assertThat(frames.get(1).valueAsString(0)).isEqualTo("v0");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aReadsAnswerIsRelayedAsCompressedAndPostsBackAsItIs() throws Exception {
+        when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
+        when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(series(1, "a")));
+        // ClickHouse's answer with its buffers compressed in-band, as the query asks for.
+        byte[] compressed = ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32),
+                DatapointFrame.parseAll(frame(1, "a", 4), new ZstdPayloadCodec(1)).get(0).batches().stream().map(ArrowIpc.Batch::toData).toList(),
+                new ZstdPayloadCodec(1));
+        when(clickHouseDatapointService.openArrowStream(any(), seriesId(1), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(compressed));
+
+        HttpResponse<byte[]> response = read("""
+                {"items": [{"start": 1700000000000, "externalId": "a"}]}
+                """);
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.body()[7]).as("the frame's compression byte").isEqualTo((byte) FrameLimits.COMPRESSION_ARROW_ZSTD);
+        assertThat(DatapointFrame.parseResponse(response.body(), new ZstdPayloadCodec()).get(0).valueAsString(3)).isEqualTo("3.0");
+
+        // The body as answered, end marker and all, is an insert.
+        when(timeseriesRepository.findIngestTargetsByIdIn(anyCollection())).thenReturn(List.of(
+                new IngestTarget(1, "a", DatapointValueType.FLOAT32.id(), 10L)));
+        TypedMessageBuilder<byte[]> message = mock(TypedMessageBuilder.class, Answers.RETURNS_SELF);
+        when(message.send()).thenReturn(mock(MessageId.class));
+        doReturn(message).when(allDatapointBlockProducer).newMessage();
+        HttpResponse<String> posted = HttpClient.newHttpClient().send(HttpRequest.newBuilder()
+                        .uri(URI.create("http://localhost:" + port + "/timeseries/data/binary"))
+                        .header("Authorization", "Bearer " + TOKEN)
+                        .header("Content-Type", FrameLimits.MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(response.body()))
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+        assertThat(posted.statusCode()).as(posted.body()).isEqualTo(204);
+        verify(message).property("compression", "2");
+        verify(ingestQuota).record(IngestQuotaService.QuotaMetric.DATAPOINTS, 4);
     }
 
     @Test
