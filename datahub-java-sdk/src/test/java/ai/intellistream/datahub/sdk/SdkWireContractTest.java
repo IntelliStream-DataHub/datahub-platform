@@ -45,6 +45,7 @@ import ai.intellistream.datahub.resource.RelTypeForm;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
 import ai.intellistream.datahub.sdk.client.FileUploadRequest;
+import ai.intellistream.datahub.sdk.client.MeService;
 import ai.intellistream.datahub.subscription.Subscription;
 import ai.intellistream.datahub.subscription.SubscriptionRetriever;
 import ai.intellistream.datahub.timeseries.Timeseries;
@@ -124,6 +125,10 @@ class SdkWireContractTest {
             {"items":[{"id":42,"externalId":"engine_temperature","unit":"DEG_C",
               "datapoints":[{"timestamp":"2026-09-15T10:00:00Z","value":97.4}]}]}""";
 
+    private static final String ME_GRANTS_RESPONSE = "{\"admin\":false,\"groups\":[\"/flows/read\"]}";
+
+    private static final String ME_DATASETS_RESPONSE = "{\"all\":false,\"ids\":[\"5\"]}";
+
     private static final String FINDINGS_RESPONSE = "{\"findings\":[]}";
 
     private static final String VALUE_TYPE_RESPONSE = """
@@ -160,6 +165,7 @@ class SdkWireContractTest {
     private HttpServer server;
     private final AtomicReference<String> method = new AtomicReference<>();
     private final AtomicReference<String> path = new AtomicReference<>();
+    private final AtomicReference<String> query = new AtomicReference<>();
     private final AtomicReference<String> body = new AtomicReference<>();
     private final AtomicReference<String> stubResponse = new AtomicReference<>(WRAPPER_RESPONSE);
 
@@ -169,6 +175,7 @@ class SdkWireContractTest {
         server.createContext("/", exchange -> {
             method.set(exchange.getRequestMethod());
             path.set(exchange.getRequestURI().getPath());
+            query.set(exchange.getRequestURI().getRawQuery());
             body.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             byte[] out = stubResponse.get().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
@@ -437,6 +444,12 @@ class SdkWireContractTest {
                             "anthropic", "claude-opus-5", null, null, null, null, null, null, null, null)),
                     LLM_SETTINGS_RESPONSE),
 
+            // --- me ----------------------------------------------------------------------
+            new Contract("me.grants", "GET", "/me/grants", null,
+                    c -> c.me().grants(), ME_GRANTS_RESPONSE),
+            new Contract("me.datasets", "GET", "/me/datasets?access=write", null,
+                    c -> c.me().datasets(MeService.Access.WRITE), ME_DATASETS_RESPONSE),
+
             // --- units -------------------------------------------------------------------
             new Contract("units.list", "GET", "/units", null,
                     c -> c.units().list()),
@@ -489,7 +502,10 @@ class SdkWireContractTest {
         for (Contract contract : ALL) {
             reset(contract);
             contract.call().accept(client());
-            String actual = method.get() + " " + path.get();
+            // A row that names a query string is held to it; the rest are checked on the path alone.
+            String sent = contract.path().contains("?") && query.get() != null
+                    ? path.get() + "?" + query.get() : path.get();
+            String actual = method.get() + " " + sent;
             String expected = contract.method() + " " + contract.path();
             if (!expected.equals(actual)) {
                 wrong.add(contract.label() + ": expected " + expected + ", sent " + actual);
@@ -521,6 +537,7 @@ class SdkWireContractTest {
     private void reset(Contract contract) {
         method.set(null);
         path.set(null);
+        query.set(null);
         body.set("");
         stubResponse.set(contract.response());
     }
