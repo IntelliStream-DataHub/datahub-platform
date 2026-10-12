@@ -99,10 +99,11 @@ jobs:
       - run: |
           set -euo pipefail
           ./gradlew :datahub-api:bootJar :datahub-console:bootJar :datahub-stateless-consumer:bootJar \
-                    :datahub-analysis:bootJar :datahub-cleanup:bootJar :datahub-pulsar-filter:nar
+                    :datahub-analysis:bootJar :datahub-cleanup:bootJar :datahub-flow:bootJar \
+                    :datahub-pulsar-filter:nar
           version=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
           mkdir dist
-          for m in api console stateless-consumer analysis cleanup; do
+          for m in api console stateless-consumer analysis cleanup flow; do
             cp "datahub-$m/build/libs/datahub-$m-$version.jar" dist/
           done
           cp datahub-pulsar-filter/build/distributions/datahub-pulsar-filter.nar \
