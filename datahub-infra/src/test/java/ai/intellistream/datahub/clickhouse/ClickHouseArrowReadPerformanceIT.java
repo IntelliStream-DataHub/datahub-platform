@@ -64,6 +64,19 @@ class ClickHouseArrowReadPerformanceIT {
     static final long T0_SEC = 1_700_000_000L;
     static final int INSERT_ROWS = 1_000_000;
 
+    /** What a frame would cost with its payload left alone; the format has no such mode. */
+    static final PayloadCodec NONE = new PayloadCodec() {
+        @Override
+        public byte[] compress(byte[] raw) {
+            return raw;
+        }
+
+        @Override
+        public byte[] decompress(byte[] compressed, int rawLength) {
+            return compressed;
+        }
+    };
+
     static Client client;
     static Client plainClient;
     static ClickHouseDatapointService service;
@@ -128,13 +141,20 @@ class ClickHouseArrowReadPerformanceIT {
         report("float: query, native compression (the read's)", FLOAT_ROWS, () -> drainNative(client, query("datapoints_float", FLOAT_ID, true)));
         report("float: query, native, no FINAL", FLOAT_ROWS, () -> drainNative(client, query("datapoints_float", FLOAT_ID, false)));
         report("float: query, no compression", FLOAT_ROWS, () -> drain(plainClient, query("datapoints_float", FLOAT_ID, true)));
+        report("float: query, Arrow zstd buffers, no transport", FLOAT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_float", FLOAT_ID, true), "zstd"));
+        report("float: query, Arrow lz4 buffers, no transport", FLOAT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_float", FLOAT_ID, true), "lz4_frame"));
         report("float: + Arrow parse (StreamReader)", FLOAT_ROWS, () -> parse(service, DatapointValueType.FLOAT, FLOAT_ID, FLOAT_ROWS));
         report("float: + frames, zstd 1 (production)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(1)));
         report("float: + frames, zstd 3", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(3)));
+        report("float: + frames, zstd 9", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(9)));
+        report("float: + frames, no compression (not in the format)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, NONE));
         report("text: query, pool transport (HTTP LZ4)", TEXT_ROWS, () -> drain(client, query("datapoints_text", TEXT_ID, true)));
         report("text: query, native compression (the read's)", TEXT_ROWS, () -> drainNative(client, query("datapoints_text", TEXT_ID, true)));
+        report("text: query, Arrow zstd buffers, no transport", TEXT_ROWS, () -> drainArrowCompressed(plainClient, query("datapoints_text", TEXT_ID, true), "zstd"));
         report("text: + Arrow parse (StreamReader)", TEXT_ROWS, () -> parse(service, DatapointValueType.TEXT, TEXT_ID, TEXT_ROWS));
         report("text: + frames, zstd 1 (production)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, new ZstdPayloadCodec(1)));
+        report("text: + frames, zstd 9", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, new ZstdPayloadCodec(9)));
+        report("text: + frames, no compression (not in the format)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, NONE));
         report("200 series of 100 rows, framed one by one", (long) TINY_SERIES * TINY_ROWS, () -> tiny(service));
         report("200 series of 100 rows, no compression", (long) TINY_SERIES * TINY_ROWS, () -> tiny(plainService));
         byte[] arrow = arrowInsert(INSERT_ROWS);
@@ -173,18 +193,27 @@ class ClickHouseArrowReadPerformanceIT {
     static long drainNative(Client c, String sql) throws Exception {
         QuerySettings qs = new QuerySettings().setFormat(ClickHouseFormat.ArrowStream)
                 .setOption(ClientConfigProperties.USE_HTTP_COMPRESSION.getKey(), Boolean.FALSE);
+        qs.serverSetting("output_format_arrow_compression_method", "none");
+        return drain(c, sql, qs);
+    }
+
+    /** ClickHouse compressing each Arrow buffer itself, as the IPC format allows and our frames do not. */
+    static long drainArrowCompressed(Client c, String sql, String method) throws Exception {
+        QuerySettings qs = new QuerySettings().setFormat(ClickHouseFormat.ArrowStream);
+        qs.serverSetting("output_format_arrow_compression_method", method);
         return drain(c, sql, qs);
     }
 
     /** The service's query settings, the bytes read and thrown away. */
     static long drain(Client c, String sql) throws Exception {
-        return drain(c, sql, new QuerySettings().setFormat(ClickHouseFormat.ArrowStream));
+        QuerySettings qs = new QuerySettings().setFormat(ClickHouseFormat.ArrowStream);
+        qs.serverSetting("output_format_arrow_compression_method", "none");
+        return drain(c, sql, qs);
     }
 
     static long drain(Client c, String sql, QuerySettings qs) throws Exception {
         qs.serverSetting("output_format_arrow_string_as_string", "1");
         qs.serverSetting("output_format_arrow_low_cardinality_as_dictionary", "0");
-        qs.serverSetting("output_format_arrow_compression_method", "none");
         qs.serverSetting("max_block_size", "100000");
         try (QueryResponse response = c.query(sql, qs).get(30, TimeUnit.SECONDS)) {
             InputStream in = response.getInputStream();
