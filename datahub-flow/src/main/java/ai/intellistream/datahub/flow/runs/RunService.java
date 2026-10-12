@@ -10,8 +10,12 @@ import ai.intellistream.datahub.flow.definition.FlowDefinitions;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.flows.FlowRepository.Deployment;
+import ai.intellistream.datahub.flow.flows.FlowRepository.Identity;
+import ai.intellistream.datahub.flow.flows.FlowRepository.IdentityState;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowService;
+import ai.intellistream.datahub.flow.identity.FlowTokens;
+import ai.intellistream.datahub.flow.identity.RegisteredClients;
 import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
 import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
 import ai.intellistream.datahub.flow.runs.RunView.DeploymentView;
@@ -28,6 +32,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -55,10 +60,12 @@ public class RunService {
     private final FlowCompiler compiler;
     private final TransactionTemplate transaction;
     private final JsonMapper json;
+    private final RegisteredClients clients;
+    private final FlowTokens offlineTokens;
 
     public RunService(FlowService flowService, FlowRepository flows, RunRepository runs,
                       RunCoordinator coordinator, FlowCompiler compiler, TransactionTemplate transaction,
-                      JsonMapper json) {
+                      JsonMapper json, RegisteredClients clients, FlowTokens offlineTokens) {
         this.flowService = flowService;
         this.flows = flows;
         this.runs = runs;
@@ -66,10 +73,20 @@ public class RunService {
         this.compiler = compiler;
         this.transaction = transaction;
         this.json = json;
+        this.clients = clients;
+        this.offlineTokens = offlineTokens;
     }
 
-    /** What a deployment asks for: a version (default the current one) and whether it is on. */
-    public record DeployRequest(Integer version, Boolean enabled) {
+    /**
+     * What a deployment asks for: a version (default the current one), whether it is on, and
+     * optionally a registered client for the runs to act as.
+     */
+    public record DeployRequest(Integer version, Boolean enabled, String runAs) {
+    }
+
+    /** A version made ready to deploy: its trigger and limits, read from its definition. */
+    public record DeploymentPlan(long flowId, String flowExternalId, int version, Schedule schedule,
+                                 int maxConcurrentRuns, int maxAttempts, Duration timeout, long memoryBytes) {
     }
 
     /** What a manual run asks for: a window (default the trigger's latest) and parameter values. */
@@ -85,16 +102,46 @@ public class RunService {
     }
 
     /**
-     * Deploys a version: its trigger and limits take effect for the next run created, and the runs
-     * act as the person deploying. A run in progress finishes on the version it started with.
+     * Changes a deployment: its version, whether it is on, or — with {@code runAs} — the registered
+     * client its runs act as, which takes the superset check. Without {@code runAs} the runs keep
+     * acting as whoever they act as now: changing the version or switching a flow on or off is not a
+     * new authorisation. A flow that has never been deployed has no one to act as yet, and is first
+     * deployed through {@code POST /flows/{id}/deployment/authorize} (as the caller) or with
+     * {@code runAs}. A run in progress finishes on the version it started with.
      */
     public DeploymentView deploy(String externalId, DeployRequest request) {
         Caller caller = flowService.requireWrite();
         StoredFlow flow = writable(caller, externalId);
-        int version = request == null || request.version() == null ? flow.currentVersion() : request.version();
+        DeploymentPlan plan = plan(flow, request == null ? null : request.version());
         boolean enabled = request == null || request.enabled() == null || request.enabled();
-        String body = flows.version(flow.id(), version).orElseThrow(() ->
-                FlowProblems.notFound("Flow " + externalId + " has no version " + version + ".")).definition();
+        String tenantId = TenantContext.getTenantId();
+
+        Optional<IdentityState> current = flows.identity(flow.id());
+        if (request != null && request.runAs() != null) {
+            Identity client = clients.assign(tenantId, request.runAs(), flow.dataSetId());
+            DeploymentView view = apply(plan, enabled, client, caller.subject());
+            if (current.isPresent() && Identity.DEPLOYER.equals(current.get().identity().kind())) {
+                // The runs no longer act as a person: their offline token goes, and is revoked.
+                offlineTokens.remove(tenantId, flow.id());
+            }
+            return view;
+        }
+        if (current.isEmpty()) {
+            throw FlowProblems.conflict("Flow " + externalId + " has no identity for its runs yet. "
+                    + "Deploy it as yourself with POST /flows/" + externalId + "/deployment/authorize, "
+                    + "or name a registered client with runAs.");
+        }
+        return apply(plan, enabled, null, caller.subject());
+    }
+
+    /**
+     * Reads the trigger and limits of version {@code version} of a flow (default its current one),
+     * checking that the version still compiles with the processors this service has now.
+     */
+    public DeploymentPlan plan(StoredFlow flow, Integer version) {
+        int v = version == null ? flow.currentVersion() : version;
+        String body = flows.version(flow.id(), v).orElseThrow(() -> FlowProblems.notFound(
+                "Flow " + flow.externalId() + " has no version " + v + ".")).definition();
         FlowDefinition definition = FlowDefinitions.parse(body);
         // A saved version validated when it was saved; it must still compile with the processors
         // this service has now.
@@ -115,15 +162,25 @@ public class RunService {
                 ? DEFAULT_TIMEOUT : Duration.parse(execution.timeout());
         long memory = execution == null || execution.memory() == null
                 ? DEFAULT_MEMORY : DataSize.parse(execution.memory()).toBytes();
+        return new DeploymentPlan(flow.id(), flow.externalId(), v, schedule, maxConcurrent, maxAttempts,
+                timeout, memory);
+    }
 
+    /**
+     * Writes a deployment: the plan's trigger and limits take effect for the next run created, and,
+     * with an {@code identity}, the runs act as it from now on (without one they keep theirs).
+     */
+    public DeploymentView apply(DeploymentPlan plan, boolean enabled, Identity identity, String by) {
+        Schedule schedule = plan.schedule();
         transaction.executeWithoutResult(status -> {
             Instant nextTick = enabled && schedule.scheduled() ? schedule.nextTick(runs.now()) : null;
-            flows.deploy(flow.id(), version, enabled, schedule.toJson(json), maxConcurrent,
-                    maxAttempts, timeout, memory, caller.subject(), nextTick,
-                    nextTick == null ? null : schedule.dueAt(nextTick));
+            flows.deploy(plan.flowId(), plan.version(), enabled, schedule.toJson(json),
+                    plan.maxConcurrentRuns(), plan.maxAttempts(), plan.timeout(), plan.memoryBytes(),
+                    identity, by, nextTick, nextTick == null ? null : schedule.dueAt(nextTick));
         });
-        log.info("Flow {} deployed at version {} ({})", externalId, version, enabled ? "on" : "off");
-        return DeploymentView.of(flows.deployment(flow.id()).orElseThrow(), json);
+        log.info("Flow {} deployed at version {} ({}){}", plan.flowExternalId(), plan.version(),
+                enabled ? "on" : "off", identity == null ? "" : ", acting as a " + identity.kind());
+        return DeploymentView.of(flows.deployment(plan.flowId()).orElseThrow(), json);
     }
 
     // ---------------------------------------------------------------- runs

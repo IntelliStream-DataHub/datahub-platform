@@ -9,10 +9,14 @@ import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.flows.FlowRepository.Deployment;
+import ai.intellistream.datahub.flow.flows.FlowRepository.Identity;
+import ai.intellistream.datahub.flow.flows.FlowRepository.IdentityState;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredVersion;
 import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.flows.TestFlows;
+import ai.intellistream.datahub.flow.identity.FlowTokens;
+import ai.intellistream.datahub.flow.identity.RegisteredClients;
 import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
 import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
 import ai.intellistream.datahub.flow.web.FlowProblems;
@@ -68,6 +72,8 @@ class RunControllerTest {
     private final RunRepository runs = mock(RunRepository.class);
     private final RunCoordinator coordinator = mock(RunCoordinator.class);
     private final CallerAccess access = mock(CallerAccess.class);
+    private final RegisteredClients clients = mock(RegisteredClients.class);
+    private final FlowTokens offlineTokens = mock(FlowTokens.class);
     private MockMvc mvc;
 
     @BeforeEach
@@ -77,7 +83,7 @@ class RunControllerTest {
         FlowService flowService = new FlowService(flows, access, validator, mock(TenantConfigService.class),
                 mock(TenantConfigWriter.class), transaction, JSON);
         RunService service = new RunService(flowService, flows, runs, coordinator,
-                new FlowCompiler(validator), transaction, JSON);
+                new FlowCompiler(validator), transaction, JSON, clients, offlineTokens);
         mvc = MockMvcBuilders.standaloneSetup(new RunController(service))
                 .setControllerAdvice(new FlowProblems())
                 .build();
@@ -99,22 +105,64 @@ class RunControllerTest {
         deploy("{}").andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
         verify(flows, never()).deploy(anyLong(), anyInt(), anyBoolean(), anyString(), anyInt(), anyInt(),
-                any(), anyLong(), anyString(), any(), any());
+                any(), anyLong(), any(), anyString(), any(), any());
     }
 
     @Test
-    void deployingSwitchesTheVersionOnActingAsTheCaller() throws Exception {
+    void aFlowWithNoIdentityYetIsDeployedThroughTheAuthorizationOrARegisteredClient() throws Exception {
         callerIs(writer());
+        when(flows.identity(FLOW_ID)).thenReturn(Optional.empty());
+
+        deploy("{}").andExpect(status().isConflict());
+        verify(flows, never()).deploy(anyLong(), anyInt(), anyBoolean(), anyString(), anyInt(), anyInt(),
+                any(), anyLong(), any(), anyString(), any(), any());
+    }
+
+    @Test
+    void redeployingSwitchesTheVersionAndKeepsTheIdentity() throws Exception {
+        callerIs(writer());
+        when(flows.identity(FLOW_ID)).thenReturn(Optional.of(
+                new IdentityState(Identity.deployer("user-9"), true, null)));
         when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
 
         deploy("{}").andExpect(status().isOk())
-                .andExpect(jsonPath("$.version").value(1))
-                .andExpect(jsonPath("$.runAs").value("user-1"));
+                .andExpect(jsonPath("$.version").value(1));
 
         ArgumentCaptor<String> trigger = ArgumentCaptor.forClass(String.class);
         verify(flows).deploy(eq(FLOW_ID), eq(1), eq(true), trigger.capture(), eq(1), eq(2),
-                eq(Duration.ofMinutes(15)), eq(512L * 1024 * 1024), eq("user-1"), isNull(), isNull());
+                eq(Duration.ofMinutes(15)), eq(512L * 1024 * 1024), isNull(), eq("user-1"), isNull(),
+                isNull());
         assertThat(trigger.getValue()).isEqualTo("{\"type\":\"manual\"}");
+        verify(offlineTokens, never()).remove(any(), anyLong());
+    }
+
+    @Test
+    void runningAsARegisteredClientTakesTheCheckAndRetiresTheDeployersToken() throws Exception {
+        callerIs(writer());
+        when(flows.identity(FLOW_ID)).thenReturn(Optional.of(
+                new IdentityState(Identity.deployer("user-9"), true, null)));
+        when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
+        when(clients.assign(any(), eq("ingest"), eq(DS_DEMO))).thenReturn(Identity.client("ingest"));
+
+        deploy("{\"runAs\":\"ingest\"}").andExpect(status().isOk());
+
+        verify(flows).deploy(eq(FLOW_ID), eq(1), eq(true), anyString(), eq(1), eq(2), any(), anyLong(),
+                eq(Identity.client("ingest")), eq("user-1"), isNull(), isNull());
+        verify(offlineTokens).remove(any(), eq(FLOW_ID));
+    }
+
+    @Test
+    void aClientTheCallerMayNotAssignLeavesTheDeploymentAlone() throws Exception {
+        callerIs(writer());
+        when(flows.identity(FLOW_ID)).thenReturn(Optional.of(
+                new IdentityState(Identity.deployer("user-9"), true, null)));
+        when(clients.assign(any(), eq("admin-client"), eq(DS_DEMO)))
+                .thenThrow(FlowProblems.forbidden("Client admin-client holds grants you do not"));
+
+        deploy("{\"runAs\":\"admin-client\"}").andExpect(status().isForbidden());
+        verify(flows, never()).deploy(anyLong(), anyInt(), anyBoolean(), anyString(), anyInt(), anyInt(),
+                any(), anyLong(), any(), anyString(), any(), any());
+        verify(offlineTokens, never()).remove(any(), anyLong());
     }
 
     @Test

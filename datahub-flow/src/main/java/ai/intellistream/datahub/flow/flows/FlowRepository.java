@@ -92,7 +92,7 @@ public class FlowRepository {
                 FLOW, externalId).stream().findFirst();
     }
 
-    private Optional<StoredFlow> findById(long id) {
+    public Optional<StoredFlow> findById(long id) {
         return jdbc.query("SELECT " + FLOW_COLUMNS + " FROM flow.flow WHERE id = ?", FLOW, id)
                 .stream().findFirst();
     }
@@ -173,23 +173,94 @@ public class FlowRepository {
     }
 
     /**
-     * Deploys {@code version}: its trigger and limits replace the previous deployment's, and the
-     * runs act as {@code deployer}. The schedule starts afresh at {@code nextTick} (null for a
-     * manual trigger or a disabled deployment): ticks missed while a flow was not deployed are not
-     * caught up, only those missed while the service was down.
+     * Whose access a flow's runs use: the person who deployed it ({@link #DEPLOYER}, by their
+     * {@code sub}, with an offline token kept in Vault) or a registered client ({@link #CLIENT}, by
+     * its name in the tenant's flow settings).
+     */
+    public record Identity(String kind, String subject, String clientName) {
+
+        public static final String DEPLOYER = "deployer";
+        public static final String CLIENT = "client";
+
+        public static Identity deployer(String subject) {
+            return new Identity(DEPLOYER, subject, null);
+        }
+
+        public static Identity client(String name) {
+            return new Identity(CLIENT, null, name);
+        }
+
+        /** What a run records as having acted: the subject or the client's name. */
+        public String runAs() {
+            return DEPLOYER.equals(kind) ? subject : clientName;
+        }
+    }
+
+    /**
+     * Deploys {@code version}: its trigger and limits replace the previous deployment's. With an
+     * {@code identity}, the runs act as it from now on and it starts out usable; without one, the
+     * deployment keeps the identity it has — changing the version or switching a flow on or off is
+     * not a new authorisation. The schedule starts afresh at {@code nextTick} (null for a manual
+     * trigger or a disabled deployment): ticks missed while a flow was not deployed are not caught
+     * up, only those missed while the service was down.
      */
     public void deploy(long flowId, int version, boolean enabled, String trigger, int maxConcurrentRuns,
-                       int maxAttempts, Duration timeout, long memoryBytes, String deployer,
-                       Instant nextTick, Instant nextDueAt) {
+                       int maxAttempts, Duration timeout, long memoryBytes, Identity identity,
+                       String deployedBy, Instant nextTick, Instant nextDueAt) {
+        String identityColumns = identity == null ? ""
+                : "identity_kind = ?, identity_subject = ?, identity_client_name = ?, "
+                + "identity_state = 'ok', identity_state_reason = NULL, ";
+        List<Object> args = new ArrayList<>(List.of(version, enabled, trigger, maxConcurrentRuns,
+                maxAttempts, (double) timeout.toSeconds(), memoryBytes));
+        if (identity != null) {
+            args.add(identity.kind());
+            args.add(identity.subject());
+            args.add(identity.clientName());
+        }
+        args.add(deployedBy);
+        args.add(timestamp(nextTick));
+        args.add(timestamp(nextDueAt));
+        args.add(flowId);
         jdbc.update("UPDATE flow.flow SET deployed_version = ?, enabled = ?, disabled_reason = NULL, "
                         + "trigger = ?::jsonb, max_concurrent_runs = ?, max_attempts = ?, "
                         + "run_timeout = make_interval(secs => ?), memory_bytes = ?, "
-                        + "identity_kind = 'deployer', identity_subject = ?, identity_client_name = NULL, "
-                        + "identity_state = 'ok', identity_state_reason = NULL, deployed_by = ?, "
-                        + "deployed_at = now(), next_tick = ?, next_due_at = ?, last_tick = NULL "
-                        + "WHERE id = ?",
-                version, enabled, trigger, maxConcurrentRuns, maxAttempts, (double) timeout.toSeconds(),
-                memoryBytes, deployer, deployer, timestamp(nextTick), timestamp(nextDueAt), flowId);
+                        + identityColumns
+                        + "deployed_by = ?, deployed_at = now(), next_tick = ?, next_due_at = ?, "
+                        + "last_tick = NULL WHERE id = ?",
+                args.toArray());
+    }
+
+    /**
+     * The identity a deployed flow's runs act as, and whether it is usable; empty for a flow never
+     * deployed.
+     */
+    public Optional<IdentityState> identity(long flowId) {
+        return jdbc.query("SELECT identity_kind, identity_subject, identity_client_name, identity_state, "
+                        + "identity_state_reason FROM flow.flow WHERE id = ? AND identity_kind IS NOT NULL",
+                (rs, n) -> new IdentityState(new Identity(rs.getString("identity_kind"),
+                        rs.getString("identity_subject"), rs.getString("identity_client_name")),
+                        "ok".equals(rs.getString("identity_state")),
+                        rs.getString("identity_state_reason")),
+                flowId).stream().findFirst();
+    }
+
+    /** A deployment's identity and whether Keycloak still accepts it. */
+    public record IdentityState(Identity identity, boolean usable, String reason) {
+    }
+
+    /**
+     * Keycloak refused the identity a flow's runs act as (a revoked offline token, a client whose
+     * secret changed): no more runs are created for it until someone deploys it afresh.
+     */
+    public void needsReauthorisation(long flowId, String reason) {
+        jdbc.update("UPDATE flow.flow SET identity_state = 'needs-reauthorisation', "
+                + "identity_state_reason = ? WHERE id = ? AND identity_state = 'ok'", reason, flowId);
+    }
+
+    /** Switches a flow off on the service's own account, saying why, and stops its schedule. */
+    public void disable(long flowId, String reason) {
+        jdbc.update("UPDATE flow.flow SET enabled = false, disabled_reason = ?, next_tick = NULL, "
+                + "next_due_at = NULL WHERE id = ?", reason, flowId);
     }
 
     private static Timestamp timestamp(Instant instant) {

@@ -114,7 +114,9 @@ public class RunRepository {
         return jdbc.query("SELECT id, deployed_version, trigger::text AS trigger, next_tick, "
                         + "max_attempts, memory_bytes, extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
                         + "coalesce(identity_subject, identity_client_name) AS run_as "
-                        + "FROM flow.flow WHERE enabled AND next_due_at <= now() "
+                        // A deployment whose identity Keycloak refused gets no runs until it is
+                        // deployed afresh: each would only fail the same way.
+                        + "FROM flow.flow WHERE enabled AND next_due_at <= now() AND identity_state = 'ok' "
                         + "ORDER BY next_due_at LIMIT ? FOR UPDATE SKIP LOCKED",
                 (rs, n) -> new DueFlow(rs.getLong("id"), rs.getInt("deployed_version"),
                         rs.getString("trigger"), instant(rs, "next_tick"), rs.getInt("max_attempts"),

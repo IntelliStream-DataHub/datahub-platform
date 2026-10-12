@@ -69,8 +69,15 @@ import java.util.function.LongSupplier;
 @Component
 public class RunCoordinator {
 
-    /** The run has no identity it may act as, or the identity was refused. */
+    /** The run's identity could not be obtained right now (Keycloak unreachable): retried. */
     public static final String AUTH = "AUTH";
+    /**
+     * Keycloak refused the run's identity, or the deployment has none: the deployment needs
+     * re-authorisation, and no attempt will get past it, so the run is not retried.
+     */
+    public static final String IDENTITY_REJECTED = "IDENTITY_REJECTED";
+    /** The flow's dataset was deleted: the flow is switched off and the run ends, not retried. */
+    public static final String DATASET_DELETED = "DATASET_DELETED";
     /** The run went past its timeout. */
     public static final String TIMEOUT = "TIMEOUT";
     /** The flow was switched off before the run could start. */
@@ -299,8 +306,9 @@ public class RunCoordinator {
                     }
                     running.merge(c.flowId(), 1, Integer::sum);
                 }
-                // The dataset check (a flow whose dataset was deleted is switched off, not run)
-                // needs the run's identity and comes with it.
+                // Whether the flow's dataset still exists is checked when the run starts, as the
+                // run's identity (RunExecution): a call to datahub-api has no place inside this
+                // transaction, which holds the flow rows locked.
                 Claimed claimed = runs.claim(c.id(), owner, settings.lease()).orElse(null);
                 if (claimed != null) {
                     out.add(new ActiveRun(tenantId, claimed, sentAt, nanoTime));
@@ -366,9 +374,13 @@ public class RunCoordinator {
                     outcome(result, RunResult.CANCELLED));
         } else if (stop != ActiveRun.Stop.TIMEOUT && result.status() == RunResult.Status.SUCCEEDED) {
             owned = runs.complete(c.id(), owner, c.attempt(), "SUCCEEDED", false, outcome(result, null));
+        } else if (DATASET_DELETED.equals(result.errorCode())) {
+            // Not a failure of the flow: there is nothing left for it to run for. The flow was
+            // switched off; no event, since the dataset an event would go to is gone.
+            owned = runs.complete(c.id(), owner, c.attempt(), "CANCELLED", false, outcome(result, null));
         } else {
             Outcome outcome = outcome(result, stop == ActiveRun.Stop.TIMEOUT ? TIMEOUT : null);
-            if (c.attempt() < c.maxAttempts()) {
+            if (c.attempt() < c.maxAttempts() && !IDENTITY_REJECTED.equals(result.errorCode())) {
                 owned = runs.retry(c.id(), owner, c.attempt(), backoff(c.attempt()), outcome);
             } else {
                 owned = runs.complete(c.id(), owner, c.attempt(), "FAILED", !c.preview(), outcome);
