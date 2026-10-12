@@ -197,6 +197,8 @@ services:
       DATAHUB_FLOW_ARROW_BUDGET: 256MB
       # The console's Flows section calls this service from the browser.
       CORS_ALLOWED_ORIGINS: http://localhost:8080
+      # Asked what a caller may do, and called as the caller.
+      DATAHUB_API_URL: http://datahub-api:8081
       WAIT_FOR_API_URL: http://datahub-api:8081/
     restart: unless-stopped
     ports: ["8084:8084", "9086:9086"]

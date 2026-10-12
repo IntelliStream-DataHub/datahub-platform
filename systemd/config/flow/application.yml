@@ -30,6 +30,10 @@ spring:
     timeout-per-shutdown-phase: 60s
 
 datahub:
+  # datahub-api, asked on every request what the caller may do (GET /me/*) and called as the caller.
+  # Point it at the api's load balancer, or a local api instance.
+  api:
+    url: http://localhost:8081
   flow:
     arrow:
       # Arrow memory every run on this instance shares, each run under its own cap. Must fit under
