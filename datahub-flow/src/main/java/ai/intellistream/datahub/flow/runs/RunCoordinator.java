@@ -96,6 +96,7 @@ public class RunCoordinator {
 
     private final RunRepository runs;
     private final RunExecution execution;
+    private final RunEvents events;
     private final TransactionTemplate transaction;
     private final TenantConfigService tenants;
     private final FlowSchemaCheck schemaCheck;
@@ -123,8 +124,8 @@ public class RunCoordinator {
     }
 
     @Autowired
-    public RunCoordinator(RunRepository runs, RunExecution execution, TransactionTemplate transaction,
-                          TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
+    public RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
+                          TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
                           BufferAllocator rootAllocator,
                           @Value("${datahub.flow.runs.lease:PT60S}") Duration lease,
                           @Value("${datahub.flow.runs.heartbeat-interval:PT15S}") Duration heartbeat,
@@ -134,14 +135,14 @@ public class RunCoordinator {
                           @Value("${datahub.flow.runs.backoff:PT30S}") Duration backoff,
                           @Value("${datahub.flow.runs.max-backoff:PT15M}") Duration maxBackoff,
                           @Value("${datahub.flow.runs.overdue-grace:PT1M}") Duration overdueGrace) {
-        this(runs, execution, transaction, tenants, schemaCheck, json, rootAllocator.getLimit(),
+        this(runs, execution, events, transaction, tenants, schemaCheck, json, rootAllocator.getLimit(),
                 new Settings(lease, heartbeat, maxRunning, claimsPerSweep, catchUp, backoff,
                         maxBackoff, overdueGrace),
                 instanceId(), System::nanoTime);
     }
 
-    RunCoordinator(RunRepository runs, RunExecution execution, TransactionTemplate transaction,
-                   TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
+    RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
+                   TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
                    long memoryBudget, Settings settings, String owner, LongSupplier nanoTime) {
         // Between renewals a lease has at least lease - heartbeat left, and the fence lets a request
         // start only if it can finish inside what is left. So a request must fit in that, or the
@@ -154,6 +155,7 @@ public class RunCoordinator {
         }
         this.runs = runs;
         this.execution = execution;
+        this.events = events;
         this.transaction = transaction;
         this.tenants = tenants;
         this.schemaCheck = schemaCheck;
@@ -235,10 +237,14 @@ public class RunCoordinator {
 
     // ---------------------------------------------------------------- sweep and claim
 
-    /** One sweep of the current tenant: due schedules into pending runs, then claims. */
+    /**
+     * One sweep of the current tenant: due schedules into pending runs, then claims, then the
+     * lifecycle events that earlier runs could not write when they ended.
+     */
     void sweep(String tenantId) {
         createScheduledRuns();
         claim(tenantId, null);
+        events.payOwed(tenantId);
     }
 
     /** Creates the runs of due schedule ticks; returns how many. */
@@ -363,6 +369,7 @@ public class RunCoordinator {
         Claimed c = run.claimed;
         ActiveRun.Stop stop = run.stopReason();
         boolean owned;
+        boolean eventOwed = false;
         if (stop == ActiveRun.Stop.LEASE_LOST) {
             log.warn("Run {} attempt {} lost its lease; another instance or the reaper takes it on",
                     c.id(), c.attempt());
@@ -378,7 +385,11 @@ public class RunCoordinator {
             owned = runs.complete(c.id(), owner, c.attempt(), "CANCELLED", false,
                     outcome(result, RunResult.CANCELLED));
         } else if (stop != ActiveRun.Stop.TIMEOUT && result.status() == RunResult.Status.SUCCEEDED) {
-            owned = runs.complete(c.id(), owner, c.attempt(), "SUCCEEDED", false, outcome(result, null));
+            // A success for a window that failed before owes the check that resolves its lifecycle.
+            eventOwed = !c.preview() && c.flowId() != null && c.window() != null
+                    && runs.failedBefore(c.flowId(), c.window().start());
+            owned = runs.complete(c.id(), owner, c.attempt(), "SUCCEEDED", eventOwed,
+                    outcome(result, null));
         } else if (DATASET_DELETED.equals(result.errorCode())) {
             // Not a failure of the flow: there is nothing left for it to run for. The flow was
             // switched off; no event, since the dataset an event would go to is gone.
@@ -388,7 +399,8 @@ public class RunCoordinator {
             if (c.attempt() < c.maxAttempts() && !IDENTITY_REJECTED.equals(result.errorCode())) {
                 owned = runs.retry(c.id(), owner, c.attempt(), backoff(c.attempt()), outcome);
             } else {
-                owned = runs.complete(c.id(), owner, c.attempt(), "FAILED", !c.preview(), outcome);
+                eventOwed = !c.preview();
+                owned = runs.complete(c.id(), owner, c.attempt(), "FAILED", eventOwed, outcome);
             }
         }
         if (!owned) {
@@ -397,6 +409,10 @@ public class RunCoordinator {
         } else {
             log.info("Run {} attempt {} ended: {} {}", c.id(), c.attempt(), result.status(),
                     result.errorCode() == null ? "" : result.errorCode());
+            if (eventOwed) {
+                // Right away, so Needs attention shows it now; a sweep pays it if this cannot.
+                runs.find(c.id()).ifPresent(stored -> events.pay(run.tenantId, stored));
+            }
         }
     }
 

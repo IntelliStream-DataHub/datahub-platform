@@ -310,6 +310,42 @@ public class RunRepository {
                 (double) grace.toSeconds());
     }
 
+    // ---------------------------------------------------------------- lifecycle events
+
+    /*
+     * failure_event_owed is the ledger of the run-failed lifecycle events (RunEvents): a run that
+     * failed for good owes its "open" event, and a run that succeeded for a window that failed
+     * before owes the check that resolves it. Set when the run ends, cleared once the event is
+     * written.
+     */
+
+    /**
+     * Whether a real run of this flow and window failed for good before: only then can a success
+     * have a lifecycle to resolve, so only then does it ask the events API.
+     */
+    public boolean failedBefore(long flowId, Instant windowStart) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM flow.run "
+                        + "WHERE flow_id = ? AND window_start = ? AND status = 'FAILED' AND NOT preview)",
+                Boolean.class, flowId, timestamp(windowStart)));
+    }
+
+    /**
+     * Runs whose lifecycle event is owed, oldest first. Runs of a flow whose identity Keycloak
+     * refused are left out: they cannot write as that identity until the flow is deployed afresh.
+     */
+    public List<StoredRun> owedEvents(int limit) {
+        return jdbc.query("SELECT " + RUN_COLUMNS + " FROM flow.run r JOIN flow.flow f ON f.id = r.flow_id "
+                        + "WHERE r.failure_event_owed AND r.status IN ('FAILED', 'SUCCEEDED') "
+                        + "AND f.identity_kind IS NOT NULL AND f.identity_state = 'ok' "
+                        + "ORDER BY r.finished_at LIMIT ?",
+                RUN, limit);
+    }
+
+    /** The run's lifecycle event was written, or can never be. */
+    public void eventPaid(UUID id) {
+        jdbc.update("UPDATE flow.run SET failure_event_owed = false WHERE id = ?", id);
+    }
+
     // ---------------------------------------------------------------- reading and cancelling
 
     public Optional<StoredRun> find(UUID id) {
