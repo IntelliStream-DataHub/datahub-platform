@@ -64,6 +64,22 @@ public class SecurityConfig {
         return http.build();
     }
 
+    /**
+     * Where Keycloak sends the browser back after someone authorised a deployment. A browser
+     * navigation carries no bearer token, so this one path is open, and has no tenant filter: the
+     * signed {@code state} it carries names the tenant and is all it trusts (DeployAuthorization).
+     */
+    @Bean
+    @Order(2)
+    SecurityFilterChain deployCallbackFilterChain(HttpSecurity http) throws Exception {
+        http
+                .securityMatcher("/flows/deployment/callback")
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(AbstractHttpConfigurer::disable);
+        return http.build();
+    }
+
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http, TenantConfigService tenantConfigService,
             FlowSchemaCheck schemaCheck, JsonMapper jsonMapper,
