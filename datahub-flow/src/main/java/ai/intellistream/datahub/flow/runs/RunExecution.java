@@ -14,8 +14,10 @@ import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
 import ai.intellistream.datahub.flow.runs.RunRepository.Claimed;
+import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
+import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
@@ -126,9 +128,14 @@ public class RunExecution {
 
         Supplier<String> tokens;
         try {
-            tokens = credentials.tokens(run.tenantId, claimed.runAs());
+            if (claimed.flowId() == null) {
+                throw new RunIdentityException("A preview of an unsaved definition has no deployment "
+                        + "to act as.", true);
+            }
+            tokens = credentials.tokens(run.tenantId, claimed.flowId());
         } catch (RunIdentityException e) {
-            return failed(RunCoordinator.AUTH, e.getMessage());
+            return failed(e.rejected() ? RunCoordinator.IDENTITY_REJECTED : RunCoordinator.AUTH,
+                    e.getMessage());
         }
         Supplier<String> fenced = () -> {
             if (!run.leaseCovers(requestTimeout)) {
@@ -150,6 +157,12 @@ public class RunExecution {
                 secrets.updateAndGet(s -> s != null ? s : tenantSecrets.apply(run.tenantId)), name);
         Long dataSetId = claimed.flowId() == null ? null : jdbc.queryForObject(
                 "SELECT data_set_id FROM flow.flow WHERE id = ?", Long.class, claimed.flowId());
+        if (dataSetId != null && dataSetDeleted(datahub, dataSetId)) {
+            flows.disable(claimed.flowId(), RunCoordinator.DATASET_DELETED);
+            log.warn("Flow {}'s dataset {} is gone: the flow is switched off", claimed.flowId(), dataSetId);
+            return failed(RunCoordinator.DATASET_DELETED, "The flow's dataset no longer exists, so the "
+                    + "flow was switched off. Move it to another dataset or delete it.");
+        }
 
         RunRequest request = new RunRequest(claimed.id(), claimed.attempt(), claimed.window(),
                 parameters(claimed.parameters()), claimed.preview(), claimed.memoryBytes(), secret,
@@ -158,6 +171,22 @@ public class RunExecution {
         // and waits for Pulsar to acknowledge the last batch before the run may finish.
         RecordSink records = record -> { };
         return executor.execute(flow, request, records);
+    }
+
+    /**
+     * Whether the flow's dataset was deleted: one lookup per run, as the run's identity. A deleted
+     * dataset is simply absent (datasets are hard-deleted), and dataset reads are not narrowed by
+     * access, so absence means gone. When the api cannot answer the run goes ahead; its own calls
+     * then fail or succeed on their own terms.
+     */
+    private static boolean dataSetDeleted(DatahubClient datahub, long dataSetId) {
+        try {
+            var items = datahub.datasets().byIds(List.of(IdCollection.createFromId(dataSetId))).getItems();
+            return items == null || items.isEmpty();
+        } catch (DatahubApiException e) {
+            log.warn("Could not check that dataset {} still exists: {}", dataSetId, e.getMessage());
+            return false;
+        }
     }
 
     private CompiledFlow compile(String tenantId, Claimed claimed) {

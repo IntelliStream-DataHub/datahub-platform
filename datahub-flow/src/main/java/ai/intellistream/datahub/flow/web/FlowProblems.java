@@ -87,6 +87,12 @@ public class FlowProblems {
         return new ProblemException(of(HttpStatus.SERVICE_UNAVAILABLE, "permissions-unavailable", detail), 5);
     }
 
+    /** A 503: Keycloak could not be asked, so an identity could not be checked or obtained. */
+    public static ProblemException identityProviderUnavailable(String detail) {
+        return new ProblemException(of(HttpStatus.SERVICE_UNAVAILABLE, "identity-provider-unavailable",
+                detail), 5);
+    }
+
     /** A 400 listing every problem in a definition, each at its JSON Pointer. */
     public static ProblemException invalid(List<ValidationProblem> problems) {
         ProblemDetail problem = of(HttpStatus.BAD_REQUEST, "validation-failed",

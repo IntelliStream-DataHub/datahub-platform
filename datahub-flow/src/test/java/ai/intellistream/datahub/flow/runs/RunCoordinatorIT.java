@@ -82,6 +82,7 @@ class RunCoordinatorIT {
     private RootAllocator allocator;
     private HttpServer datahub;
     private final List<Long> requestArrivals = new CopyOnWriteArrayList<>();
+    private volatile boolean dataSetExists = true;
     private final List<RunCoordinator> coordinators = new ArrayList<>();
     private final Set<RunCoordinator> heartbeating = ConcurrentHashMap.newKeySet();
     private ScheduledExecutorService heartbeats;
@@ -99,8 +100,15 @@ class RunCoordinatorIT {
 
         datahub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         datahub.createContext("/", exchange -> {
-            requestArrivals.add(System.nanoTime());
-            byte[] body = "{\"items\":[]}".getBytes(StandardCharsets.UTF_8);
+            String path = exchange.getRequestURI().getPath();
+            // The check every run makes first, that its flow's dataset still exists.
+            boolean dataSetLookup = path.equals("/datasets/byids");
+            if (!dataSetLookup) {
+                requestArrivals.add(System.nanoTime());
+            }
+            byte[] body = (dataSetLookup && dataSetExists
+                    ? "{\"items\":[{\"id\":\"7\",\"externalId\":\"ds\"}]}"
+                    : "{\"items\":[]}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
@@ -346,6 +354,53 @@ class RunCoordinatorIT {
         assertThat(runs.find(run).orElseThrow().errorCode()).isEqualTo(RunCoordinator.AUTH);
     }
 
+    @Test
+    void aRefusedIdentityFailsTheRunWithoutRetrying() {
+        long flow = deployedFlow("refused", wait(0, "refused"), 1, 3);
+        UUID run = pending(flow, 0);
+        RunCoordinator a = coordinator("a", 1, Duration.ZERO, (tenant, flowId) -> {
+            throw new RunIdentityException("Keycloak refused the flow's identity.", true);
+        });
+
+        a.claim(TENANT, null);
+        await(() -> "FAILED".equals(runs.find(run).orElseThrow().status()));
+        StoredRun failed = runs.find(run).orElseThrow();
+        assertThat(failed.errorCode()).isEqualTo(RunCoordinator.IDENTITY_REJECTED);
+        assertThat(failed.attempt()).isEqualTo(1);
+        assertThat(failed.failureEventOwed()).isTrue();
+    }
+
+    @Test
+    void aFlowWhoseDatasetWasDeletedIsSwitchedOffAndItsRunEnds() {
+        long flow = deployedFlow("orphan", wait(0, "orphan"), 1, 2);
+        UUID run = pending(flow, 0);
+        dataSetExists = false;
+
+        coordinator("a", 1).claim(TENANT, null);
+        await(() -> "CANCELLED".equals(runs.find(run).orElseThrow().status()));
+        StoredRun cancelled = runs.find(run).orElseThrow();
+        assertThat(cancelled.errorCode()).isEqualTo(RunCoordinator.DATASET_DELETED);
+        assertThat(cancelled.failureEventOwed()).isFalse();
+        assertThat(jdbc.queryForObject("SELECT disabled_reason FROM flow.flow WHERE id = ?", String.class,
+                flow)).isEqualTo(RunCoordinator.DATASET_DELETED);
+        assertThat(jdbc.queryForObject("SELECT enabled FROM flow.flow WHERE id = ?", Boolean.class, flow))
+                .isFalse();
+    }
+
+    @Test
+    void aDeploymentThatNeedsReauthorisationGetsNoScheduledRuns() {
+        long flow = deployedFlow("stale", wait(0, "stale"), 1, 1);
+        jdbc.update("UPDATE flow.flow SET trigger = '{\"type\":\"schedule\",\"cron\":\"0 * * * * *\","
+                + "\"timezone\":\"UTC\",\"window\":\"PT1M\"}'::jsonb, "
+                + "next_tick = now() - interval '1 minute', next_due_at = now() - interval '1 minute' "
+                + "WHERE id = ?", flow);
+        flows.needsReauthorisation(flow, "invalid_grant");
+
+        assertThat(coordinator("a", 1).createScheduledRuns()).isZero();
+        jdbc.update("UPDATE flow.flow SET identity_state = 'ok' WHERE id = ?", flow);
+        assertThat(coordinator("b", 1).createScheduledRuns()).isPositive();
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private RunCoordinator coordinator(String name, int maxRunning) {
@@ -390,7 +445,8 @@ class RunCoordinatorIT {
         return transaction.execute(s -> {
             long id = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
             flows.deploy(id, 1, true, new Schedule(Schedule.MANUAL, null, null, null, null).toJson(JSON),
-                    maxConcurrent, maxAttempts, Duration.ofMinutes(15), 1 << 20, "user-1", null, null);
+                    maxConcurrent, maxAttempts, Duration.ofMinutes(15), 1 << 20,
+                    FlowRepository.Identity.deployer("user-1"), "user-1", null, null);
             return id;
         });
     }
