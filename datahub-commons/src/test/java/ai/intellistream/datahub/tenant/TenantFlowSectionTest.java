@@ -77,6 +77,16 @@ class TenantFlowSectionTest {
     }
 
     @Test
+    void aRunReadsASecretsValueByItsName() {
+        Map<String, String> secret = TenantFlowSection.putSecret("api-token", "t0k3n").apply(existing());
+
+        assertThat(TenantFlowSection.secretValue(secret, "api-token")).isEqualTo("t0k3n");
+        assertThat(TenantFlowSection.secretValue(secret, "missing")).isNull();
+        // A client's credential is not a secret a flow can name.
+        assertThat(TenantFlowSection.secretValue(secret, "ingest.client-secret")).isNull();
+    }
+
+    @Test
     void aNameCannotReachIntoAnotherKey() {
         for (String name : new String[]{"", "Upper", "a.b", "../llm", "-leading", "a".repeat(64), null}) {
             assertThatThrownBy(() -> TenantFlowSection.putSecret(name, "v"))

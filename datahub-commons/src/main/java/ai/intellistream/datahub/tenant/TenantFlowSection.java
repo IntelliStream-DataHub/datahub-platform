@@ -104,6 +104,14 @@ public final class TenantFlowSection {
         return names;
     }
 
+    /**
+     * The value of the secret {@code name}, or null when there is none. For the flow service, which
+     * hands it to the run that refers to it; never for anything a caller reads back.
+     */
+    public static String secretValue(Map<String, String> secret, String name) {
+        return secret.get(SECRET + name);
+    }
+
     /** Each registered client's name and client id, sorted by name. Never the client secret. */
     public static TreeMap<String, String> clientIds(Map<String, String> secret) {
         TreeMap<String, String> clients = new TreeMap<>();

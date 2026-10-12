@@ -8,6 +8,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -136,6 +137,63 @@ public class FlowRepository {
                 (rs, n) -> new StoredVersion(rs.getInt("version"), null, rs.getString("created_by"),
                         instant(rs.getTimestamp("created_at"))),
                 flowId);
+    }
+
+    /**
+     * A flow's deployment: the version switched on, its trigger and limits, whose access its runs
+     * use, and where its schedule stands.
+     *
+     * @param trigger the trigger as deployed ({@code Schedule#toJson})
+     */
+    public record Deployment(int version, boolean enabled, String disabledReason, String trigger,
+                             int maxConcurrentRuns, int maxAttempts, Duration timeout, long memoryBytes,
+                             String identityKind, String identitySubject, String identityClientName,
+                             String identityState, String identityStateReason, String deployedBy,
+                             Instant deployedAt, Instant nextTick, Instant nextDueAt, Instant lastTick) {
+    }
+
+    /** The flow's deployment; empty when it has never been deployed. */
+    public Optional<Deployment> deployment(long flowId) {
+        return jdbc.query("SELECT deployed_version, enabled, disabled_reason, trigger::text AS trigger, "
+                        + "max_concurrent_runs, max_attempts, "
+                        + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, memory_bytes, "
+                        + "identity_kind, identity_subject, identity_client_name, identity_state, "
+                        + "identity_state_reason, deployed_by, deployed_at, next_tick, next_due_at, "
+                        + "last_tick FROM flow.flow WHERE id = ? AND deployed_version IS NOT NULL",
+                (rs, n) -> new Deployment(rs.getInt("deployed_version"), rs.getBoolean("enabled"),
+                        rs.getString("disabled_reason"), rs.getString("trigger"),
+                        rs.getInt("max_concurrent_runs"), rs.getInt("max_attempts"),
+                        Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getLong("memory_bytes"),
+                        rs.getString("identity_kind"), rs.getString("identity_subject"),
+                        rs.getString("identity_client_name"), rs.getString("identity_state"),
+                        rs.getString("identity_state_reason"), rs.getString("deployed_by"),
+                        instant(rs.getTimestamp("deployed_at")), instant(rs.getTimestamp("next_tick")),
+                        instant(rs.getTimestamp("next_due_at")), instant(rs.getTimestamp("last_tick"))),
+                flowId).stream().findFirst();
+    }
+
+    /**
+     * Deploys {@code version}: its trigger and limits replace the previous deployment's, and the
+     * runs act as {@code deployer}. The schedule starts afresh at {@code nextTick} (null for a
+     * manual trigger or a disabled deployment): ticks missed while a flow was not deployed are not
+     * caught up, only those missed while the service was down.
+     */
+    public void deploy(long flowId, int version, boolean enabled, String trigger, int maxConcurrentRuns,
+                       int maxAttempts, Duration timeout, long memoryBytes, String deployer,
+                       Instant nextTick, Instant nextDueAt) {
+        jdbc.update("UPDATE flow.flow SET deployed_version = ?, enabled = ?, disabled_reason = NULL, "
+                        + "trigger = ?::jsonb, max_concurrent_runs = ?, max_attempts = ?, "
+                        + "run_timeout = make_interval(secs => ?), memory_bytes = ?, "
+                        + "identity_kind = 'deployer', identity_subject = ?, identity_client_name = NULL, "
+                        + "identity_state = 'ok', identity_state_reason = NULL, deployed_by = ?, "
+                        + "deployed_at = now(), next_tick = ?, next_due_at = ?, last_tick = NULL "
+                        + "WHERE id = ?",
+                version, enabled, trigger, maxConcurrentRuns, maxAttempts, (double) timeout.toSeconds(),
+                memoryBytes, deployer, deployer, timestamp(nextTick), timestamp(nextDueAt), flowId);
+    }
+
+    private static Timestamp timestamp(Instant instant) {
+        return instant == null ? null : Timestamp.from(instant);
     }
 
     private void insertVersion(long flowId, int version, String definition, String by) {
