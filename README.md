@@ -310,6 +310,8 @@ Stateless: no database, no messaging. It validates the caller's own JWT and forw
 
 The console's Analyze tab and its "related series" panel call this service **directly from the browser**, so it has to be reachable from wherever the console is opened, not only from inside the network.
 
+It also converts AVEVA RVM models to glTF for the console's 3D viewer (`GET /models/gltf`), by running the static `rvm-converter` binary from [tools/rvm-converter](tools/rvm-converter). Install that binary on every analysis host (`rvm.converter.binary`, default `/opt/datahub/bin/rvm-converter`); without it every other endpoint works and a conversion answers 422.
+
 ### datahub-cleanup
 
 Run **one instance**: two janitors deleting concurrently is wasteful and racy.

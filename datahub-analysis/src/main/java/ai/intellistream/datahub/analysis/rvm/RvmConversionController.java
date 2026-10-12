@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.rvm.web;
+package ai.intellistream.datahub.analysis.rvm;
 
-import ai.intellistream.datahub.rvm.RvmConversion;
-import ai.intellistream.datahub.rvm.RvmConversionException;
-import ai.intellistream.datahub.rvm.RvmConverter;
-import ai.intellistream.datahub.rvm.config.RvmApiClientFactory;
+import ai.intellistream.datahub.analysis.config.AnalysisApiClientFactory;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -32,12 +29,12 @@ import java.util.Optional;
 @RestController
 @RequestMapping("/models")
 @Slf4j
-public class ConversionController {
+public class RvmConversionController {
 
-    private final RvmApiClientFactory clients;
+    private final AnalysisApiClientFactory clients;
     private final RvmConverter converter;
 
-    public ConversionController(RvmApiClientFactory clients, RvmConverter converter) {
+    public RvmConversionController(AnalysisApiClientFactory clients, RvmConverter converter) {
         this.clients = clients;
         this.converter = converter;
     }
