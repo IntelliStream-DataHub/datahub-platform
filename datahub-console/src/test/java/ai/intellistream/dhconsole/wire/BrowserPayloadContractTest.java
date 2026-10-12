@@ -18,6 +18,7 @@ import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateRelForm;
 import ai.intellistream.datahub.models.UpdateResourceForm;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.forms.AnalysisForm;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
@@ -350,6 +351,22 @@ class BrowserPayloadContractTest {
                         {"items":[{"id":"9223372036854775806"}]}""",
                         new TypeReference<DataWrapper<IdCollection>>() {},
                         "static/js/right-form-content/base_form_abstract.js"),
+
+                // The Flows section's Needs-attention list and the count on its header entry: the
+                // run-failed lifecycles whose latest event is open.
+                new Payload("POST /events/latest (flows needing attention)", """
+                        {"filter":{"type":["flow"],"subType":["run-failed"]},"status":["open"],
+                        "limit":100,"cursor":"1755000000000_0190a5d2-0000-7000-8000-000000000001"}""",
+                        new TypeReference<LatestEventsQuery>() {},
+                        "static/js/flows/attention-badge.js"),
+
+                // Dismissing a failed flow run: a dismissed event in the same lifecycle.
+                new Payload("POST /events/create (dismiss a failed flow run)", """
+                        {"items":[{"externalId":"flow:temp_hourly:2026-08-13T10:00:00Z","type":"flow",
+                        "subType":"run-failed","status":"dismissed","eventTime":1755000000000,
+                        "dataSetId":"9223372036854775806","metadata":{"dismissedBy":"ada"}}]}""",
+                        new TypeReference<DataWrapper<EventModel>>() {},
+                        "static/js/flows/flows-attention.js"),
 
                 // Not datahub-api: the Analyze tab posts this straight to datahub-analysis.
                 new Payload("POST /analysis", """
