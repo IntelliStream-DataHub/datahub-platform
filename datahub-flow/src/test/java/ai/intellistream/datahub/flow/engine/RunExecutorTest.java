@@ -72,7 +72,7 @@ class RunExecutorTest {
     }
 
     private static RunRequest request(Map<String, Object> parameters) {
-        return new RunRequest(UUID.randomUUID(), 1, WINDOW, parameters, false, 64 * MB, null, null);
+        return new RunRequest(UUID.randomUUID(), 1, WINDOW, parameters, false, 64 * MB, null, null, null, null);
     }
 
     /** A source reading one series, feeding {@code middle}, which feeds the sink. */
@@ -214,7 +214,7 @@ class RunExecutorTest {
                 }
                 """;
         RunResult failed = run(compile(hog, new FakeProcessors.Hog()),
-                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false, MB, null, null));
+                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false, MB, null, null, null, null));
 
         assertThat(failed.status()).isEqualTo(Status.FAILED);
         assertThat(failed.errorCode()).isEqualTo(RunResult.MEMORY_LIMIT);
@@ -245,7 +245,7 @@ class RunExecutorTest {
                 }
                 """;
         RunResult result = run(compile(flow),
-                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false, 8 * MB, null, null));
+                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false, 8 * MB, null, null, null, null));
 
         assertThat(result.errorCode()).isEqualTo(RunResult.MEMORY_LIMIT);
         assertThat(result.failedProcessor()).isEqualTo("over");
@@ -298,7 +298,7 @@ class RunExecutorTest {
     @Test
     void aWindowReferenceNeedsARunWithAWindow() {
         RunResult result = run(compile(ExampleFlow.DEFINITION),
-                new RunRequest(UUID.randomUUID(), 1, null, Map.of(), false, 64 * MB, null, null));
+                new RunRequest(UUID.randomUUID(), 1, null, Map.of(), false, 64 * MB, null, null, null, null));
 
         assertThat(result.errorCode()).isEqualTo(RunResult.INVALID_PARAMETERS);
         assertThat(result.error()).contains("${run.window.start}");
@@ -311,7 +311,7 @@ class RunExecutorTest {
                 ", \"properties\": { \"password\": \"${secrets.db}\" }"), secretive);
 
         RunResult ok = run(flow, new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false,
-                64 * MB, Map.of("db", "s3cret")::get, null));
+                64 * MB, Map.of("db", "s3cret")::get, null, null, null));
         assertThat(ok.status()).isEqualTo(Status.SUCCEEDED);
         assertThat(secretive.seen).containsExactly("s3cret");
         assertThat(ok.secretsUsed()).containsExactly("db");
@@ -324,7 +324,7 @@ class RunExecutorTest {
     @Test
     void aStoppedRunEndsCancelled() {
         RunResult result = run(compile(ExampleFlow.DEFINITION),
-                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false, 64 * MB, null, () -> true));
+                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), false, 64 * MB, null, () -> true, null, null));
 
         assertThat(result.status()).isEqualTo(Status.CANCELLED);
         assertThat(result.errorCode()).isEqualTo(RunResult.CANCELLED);
@@ -334,7 +334,7 @@ class RunExecutorTest {
     @Test
     void aPreviewRunsEverythingButTheSinksWrite() {
         RunResult result = run(compile(ExampleFlow.DEFINITION),
-                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), true, 64 * MB, null, null));
+                new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), true, 64 * MB, null, null, null, null));
 
         assertThat(result.status()).isEqualTo(Status.SUCCEEDED);
         assertThat(sink.written).isEmpty();

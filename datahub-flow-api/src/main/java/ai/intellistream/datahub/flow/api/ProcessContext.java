@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.flow.api;
 
+import ai.intellistream.datahub.sdk.client.DatahubClient;
+
 import java.util.Map;
 import java.util.Optional;
 
@@ -28,6 +30,22 @@ public interface ProcessContext extends PropertyValues {
      * put it in a transit URI.
      */
     String secret(String name);
+
+    /**
+     * The flow's dataset: what decides who sees the flow, and where sinks write when they are not
+     * told otherwise. Null only for a run of a definition that names none.
+     */
+    Long dataSetId();
+
+    /**
+     * The run's way into DataHub, acting as the run's identity: datahub-api applies that identity's
+     * dataset access to every call, as for any other caller. Every call is bounded in time, and
+     * once the run has lost its lease the client refuses to send anything, so a write never lands
+     * after another instance has taken the run over.
+     *
+     * @throws ProcessException for a run that was given no client
+     */
+    DatahubClient datahub();
 
     /** A preview: sinks report what they would write instead of writing it. */
     boolean isPreview();
