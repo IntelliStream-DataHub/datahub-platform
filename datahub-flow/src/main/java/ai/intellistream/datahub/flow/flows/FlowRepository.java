@@ -25,16 +25,24 @@ import java.util.Optional;
 @Repository
 public class FlowRepository {
 
+    /**
+     * Why the service switched a flow off when its dataset was deleted. Such a flow is
+     * <em>orphaned</em>: nobody sees it through dataset grants any more, so it is shown to whoever
+     * may write every dataset, to move it to another dataset or delete it.
+     */
+    public static final String DATASET_DELETED = "DATASET_DELETED";
+
     private static final String FLOW_COLUMNS = "id, external_id, data_set_id, data_set_external_id, "
             + "name, current_version, deployed_version, enabled, created_by, created_at, updated_by, "
-            + "updated_at";
+            + "updated_at, disabled_reason";
 
     private static final RowMapper<StoredFlow> FLOW = (rs, n) -> new StoredFlow(
             rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
             rs.getString("data_set_external_id"), rs.getString("name"), rs.getInt("current_version"),
             (Integer) rs.getObject("deployed_version"), rs.getBoolean("enabled"),
             rs.getString("created_by"), instant(rs.getTimestamp("created_at")),
-            rs.getString("updated_by"), instant(rs.getTimestamp("updated_at")));
+            rs.getString("updated_by"), instant(rs.getTimestamp("updated_at")),
+            rs.getString("disabled_reason"));
 
     private final JdbcTemplate jdbc;
 
@@ -42,10 +50,20 @@ public class FlowRepository {
         this.jdbc = jdbc;
     }
 
-    /** A flow as stored, without its definition. */
+    /**
+     * A flow as stored, without its definition.
+     *
+     * @param disabledReason why the service switched it off, or null
+     */
     public record StoredFlow(long id, String externalId, long dataSetId, String dataSetExternalId,
                              String name, int currentVersion, Integer deployedVersion, boolean enabled,
-                             String createdBy, Instant createdAt, String updatedBy, Instant updatedAt) {
+                             String createdBy, Instant createdAt, String updatedBy, Instant updatedAt,
+                             String disabledReason) {
+
+        /** Its dataset was deleted: see {@link #DATASET_DELETED}. */
+        public boolean orphaned() {
+            return DATASET_DELETED.equals(disabledReason);
+        }
     }
 
     /** A saved version. */
@@ -71,15 +89,20 @@ public class FlowRepository {
 
     /**
      * Saves {@code definition} as the flow's next version, provided the current version is still
-     * {@code expectedVersion}; empty when someone else saved first.
+     * {@code expectedVersion}; empty when someone else saved first. An orphaned flow saved into
+     * another dataset is no longer orphaned; it stays switched off until someone deploys it.
      */
     public Optional<StoredFlow> addVersion(long flowId, int expectedVersion, long dataSetId,
                                            String dataSetExternalId, String name, String definition,
                                            String by) {
+        // Every expression in SET reads the row as it was, so data_set_id here is the old dataset.
         int updated = jdbc.update("UPDATE flow.flow SET current_version = current_version + 1, "
+                        + "disabled_reason = CASE WHEN disabled_reason = ? AND data_set_id <> ? "
+                        + "THEN NULL ELSE disabled_reason END, "
                         + "data_set_id = ?, data_set_external_id = ?, name = ?, updated_by = ?, "
                         + "updated_at = now() WHERE id = ? AND current_version = ?",
-                dataSetId, dataSetExternalId, name, by, flowId, expectedVersion);
+                DATASET_DELETED, dataSetId, dataSetId, dataSetExternalId, name, by, flowId,
+                expectedVersion);
         if (updated == 0) {
             return Optional.empty();
         }
@@ -98,19 +121,24 @@ public class FlowRepository {
     }
 
     /**
-     * A page of the flows in {@code readable} datasets, by external id, starting after
-     * {@code afterExternalId} (null for the first page).
+     * A page of the flows in {@code readable} datasets — and the orphaned ones too, when
+     * {@code orphans} — by external id, starting after {@code afterExternalId} (null for the first
+     * page).
      */
-    public List<StoredFlow> list(DataSets readable, String afterExternalId, int limit) {
-        if (!readable.all() && readable.ids().isEmpty()) {
+    public List<StoredFlow> list(DataSets readable, boolean orphans, String afterExternalId, int limit) {
+        if (!readable.all() && readable.ids().isEmpty() && !orphans) {
             return List.of();
         }
         StringBuilder sql = new StringBuilder("SELECT " + FLOW_COLUMNS + " FROM flow.flow WHERE true");
         List<Object> args = new ArrayList<>();
         if (!readable.all()) {
-            sql.append(" AND data_set_id = ANY (?)");
             // The driver binds a Long[] as a bigint[].
+            sql.append(orphans ? " AND (data_set_id = ANY (?) OR disabled_reason = ?)"
+                    : " AND data_set_id = ANY (?)");
             args.add(readable.ids().toArray(Long[]::new));
+            if (orphans) {
+                args.add(DATASET_DELETED);
+            }
         }
         if (afterExternalId != null) {
             sql.append(" AND external_id > ?");
@@ -255,6 +283,11 @@ public class FlowRepository {
     public void needsReauthorisation(long flowId, String reason) {
         jdbc.update("UPDATE flow.flow SET identity_state = 'needs-reauthorisation', "
                 + "identity_state_reason = ? WHERE id = ? AND identity_state = 'ok'", reason, flowId);
+    }
+
+    /** Deletes a flow with its versions and runs. */
+    public void delete(long flowId) {
+        jdbc.update("DELETE FROM flow.flow WHERE id = ?", flowId);
     }
 
     /** Switches a flow off on the service's own account, saying why, and stops its schedule. */

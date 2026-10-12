@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.flow.runs;
 
 import ai.intellistream.datahub.flow.engine.RunResult;
+import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.runs.RunRepository.Candidate;
 import ai.intellistream.datahub.flow.runs.RunRepository.Claimed;
@@ -77,7 +78,7 @@ public class RunCoordinator {
      */
     public static final String IDENTITY_REJECTED = "IDENTITY_REJECTED";
     /** The flow's dataset was deleted: the flow is switched off and the run ends, not retried. */
-    public static final String DATASET_DELETED = "DATASET_DELETED";
+    public static final String DATASET_DELETED = FlowRepository.DATASET_DELETED;
     /** The run went past its timeout. */
     public static final String TIMEOUT = "TIMEOUT";
     /** The flow was switched off before the run could start. */

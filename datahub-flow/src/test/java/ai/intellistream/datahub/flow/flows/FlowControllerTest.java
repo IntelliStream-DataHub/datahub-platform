@@ -8,6 +8,7 @@ import ai.intellistream.datahub.flow.access.CallerAccess;
 import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredVersion;
+import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
@@ -44,6 +45,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -59,12 +61,14 @@ class FlowControllerTest {
 
     private static final long DS_DEMO = 11;
     private static final long DS_OTHER = 22;
+    private static final long DS_GONE = 33;
 
     private final FlowRepository repository = mock(FlowRepository.class);
     private final CallerAccess access = mock(CallerAccess.class);
     private final DatahubClient api = mock(DatahubClient.class);
     private final DatasetService datasets = mock(DatasetService.class);
     private final TimeseriesService timeseries = mock(TimeseriesService.class);
+    private final FlowTokens offlineTokens = mock(FlowTokens.class);
     private MockMvc mvc;
 
     @BeforeEach
@@ -86,7 +90,7 @@ class FlowControllerTest {
         FlowService service = new FlowService(repository, access,
                 new FlowValidator(TestFlows.builtIns(), FlowValidator.Limits.DEFAULTS), tenants,
                 tenantConfig, new TransactionTemplate(mock(PlatformTransactionManager.class)),
-                JsonMapper.builder().build());
+                JsonMapper.builder().build(), offlineTokens);
         mvc = MockMvcBuilders.standaloneSetup(new FlowController(service))
                 .setControllerAdvice(new FlowProblems())
                 .build();
@@ -161,7 +165,7 @@ class FlowControllerTest {
 
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(reader(readable));
-        when(repository.list(readable, null, FlowService.DEFAULT_LIMIT))
+        when(repository.list(readable, false, null, FlowService.DEFAULT_LIMIT))
                 .thenReturn(List.of(stored("temp_hourly", DS_DEMO, 2)));
         mvc.perform(get("/flows")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].externalId").value("temp_hourly"))
@@ -173,14 +177,14 @@ class FlowControllerTest {
     @Test
     void aFullPageCarriesACursorThatContinuesAfterItsLastFlow() throws Exception {
         callerIs(reader(DataSets.ALL));
-        when(repository.list(DataSets.ALL, null, 1)).thenReturn(List.of(stored("a", DS_DEMO, 1)));
+        when(repository.list(DataSets.ALL, false, null, 1)).thenReturn(List.of(stored("a", DS_DEMO, 1)));
         String body = mvc.perform(get("/flows").param("limit", "1")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String cursor = JsonMapper.builder().build().readTree(body).get("nextCursor").asString();
 
-        when(repository.list(DataSets.ALL, "a", 1)).thenReturn(List.of());
+        when(repository.list(DataSets.ALL, false, "a", 1)).thenReturn(List.of());
         mvc.perform(get("/flows").param("limit", "1").param("cursor", cursor)).andExpect(status().isOk());
-        verify(repository).list(DataSets.ALL, "a", 1);
+        verify(repository).list(DataSets.ALL, false, "a", 1);
 
         mvc.perform(get("/flows").param("cursor", "not-a-cursor")).andExpect(status().isBadRequest());
         mvc.perform(get("/flows").param("limit", "1001")).andExpect(status().isBadRequest());
@@ -271,9 +275,86 @@ class FlowControllerTest {
     }
 
     @Test
+    void aFlowWhoseDatasetWasDeletedIsSeenOnlyByWhoeverMayWriteEveryDataset() throws Exception {
+        when(repository.find("orphaned")).thenReturn(Optional.of(orphan("orphaned")));
+        when(repository.version(7, 1)).thenReturn(Optional.of(new StoredVersion(1, TestFlows.EXAMPLE,
+                "user-1", Instant.EPOCH)));
+
+        // Read access to the datasets that still exist does not reach it.
+        callerIs(writer(new DataSets(false, Set.of(DS_DEMO))));
+        mvc.perform(get("/flows/orphaned")).andExpect(status().isNotFound());
+
+        callerIs(new Caller("user-1", false, true, false, new DataSets(false, Set.of(DS_DEMO)),
+                DataSets.ALL));
+        mvc.perform(get("/flows/orphaned")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.disabledReason").value("DATASET_DELETED"))
+                .andExpect(jsonPath("$.enabled").value(false));
+
+        DataSets readable = new DataSets(false, Set.of(DS_DEMO));
+        when(repository.list(readable, true, null, FlowService.DEFAULT_LIMIT))
+                .thenReturn(List.of(orphan("orphaned")));
+        mvc.perform(get("/flows")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].externalId").value("orphaned"));
+    }
+
+    @Test
+    void anOrphanIsMovedBySavingItIntoAnotherDataset() throws Exception {
+        when(repository.find("temp_hourly")).thenReturn(Optional.of(orphan("temp_hourly")));
+        when(repository.addVersion(eq(7L), eq(1), eq(DS_DEMO), eq("ds_demo"), anyString(), anyString(),
+                eq("user-1"))).thenReturn(Optional.of(stored("temp_hourly", DS_DEMO, 2)));
+
+        callerIs(writer(new DataSets(false, Set.of(DS_DEMO))));
+        update(TestFlows.EXAMPLE).andExpect(status().isNotFound());
+
+        callerIs(new Caller("user-1", false, true, true, new DataSets(false, Set.of(DS_DEMO)),
+                DataSets.ALL));
+        update(TestFlows.EXAMPLE).andExpect(status().isOk())
+                .andExpect(jsonPath("$.dataSetId").value(String.valueOf(DS_DEMO)))
+                .andExpect(jsonPath("$.disabledReason").doesNotExist());
+    }
+
+    @Test
+    void deletingTakesWriteAccessToTheFlowsDatasetAndRemovesTheDeployersToken() throws Exception {
+        when(repository.find("temp_hourly")).thenReturn(Optional.of(stored("temp_hourly", DS_DEMO, 1)));
+        when(repository.identity(7)).thenReturn(Optional.of(new FlowRepository.IdentityState(
+                FlowRepository.Identity.deployer("user-1"), true, null)));
+
+        callerIs(reader(DataSets.ALL));
+        mvc.perform(delete("/flows/temp_hourly")).andExpect(status().isForbidden());
+        callerIs(writer(new DataSets(false, Set.of(DS_OTHER))));
+        mvc.perform(delete("/flows/temp_hourly")).andExpect(status().isNotFound());
+        callerIs(new Caller("user-1", false, true, true, DataSets.ALL, new DataSets(false, Set.of(DS_OTHER))));
+        mvc.perform(delete("/flows/temp_hourly")).andExpect(status().isForbidden());
+        verify(repository, never()).delete(anyLong());
+        verify(offlineTokens, never()).remove(any(), anyLong());
+
+        callerIs(writer(new DataSets(false, Set.of(DS_DEMO))));
+        mvc.perform(delete("/flows/temp_hourly")).andExpect(status().isNoContent());
+        verify(offlineTokens).remove(any(), eq(7L));
+        verify(repository).delete(7);
+    }
+
+    @Test
+    void anOrphanIsDeletedByWhoeverMayWriteEveryDataset() throws Exception {
+        when(repository.find("orphaned")).thenReturn(Optional.of(orphan("orphaned")));
+        when(repository.identity(7)).thenReturn(Optional.of(new FlowRepository.IdentityState(
+                FlowRepository.Identity.client("ingest"), true, null)));
+
+        callerIs(writer(new DataSets(false, Set.of(DS_DEMO))));
+        mvc.perform(delete("/flows/orphaned")).andExpect(status().isNotFound());
+
+        callerIs(new Caller("user-1", false, true, true, new DataSets(false, Set.of(DS_DEMO)),
+                DataSets.ALL));
+        mvc.perform(delete("/flows/orphaned")).andExpect(status().isNoContent());
+        verify(repository).delete(7);
+        // A registered client's credentials are the tenant's, not the flow's: nothing to remove.
+        verify(offlineTokens, never()).remove(any(), anyLong());
+    }
+
+    @Test
     void anAdminMayDoEverything() throws Exception {
         callerIs(new Caller("admin-1", true, false, false, DataSets.ALL, DataSets.ALL));
-        when(repository.list(DataSets.ALL, null, FlowService.DEFAULT_LIMIT)).thenReturn(List.of());
+        when(repository.list(DataSets.ALL, true, null, FlowService.DEFAULT_LIMIT)).thenReturn(List.of());
 
         mvc.perform(get("/flows")).andExpect(status().isOk());
         mvc.perform(post("/flows/validate").contentType(MediaType.APPLICATION_JSON).content(TestFlows.EXAMPLE))
@@ -302,7 +383,13 @@ class FlowControllerTest {
 
     private static StoredFlow stored(String externalId, long dataSetId, int version) {
         return new StoredFlow(7, externalId, dataSetId, "ds_demo", "Hourly temperature", version, null,
-                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH);
+                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, null);
+    }
+
+    /** A flow whose dataset was deleted, so the service switched it off. */
+    private static StoredFlow orphan(String externalId) {
+        return new StoredFlow(7, externalId, DS_GONE, "ds_gone", "Hourly temperature", 1, 1,
+                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, FlowRepository.DATASET_DELETED);
     }
 
     private static DataSetModel dataSet(long id, String externalId) {

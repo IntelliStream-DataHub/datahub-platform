@@ -14,20 +14,22 @@ import java.util.List;
  * @param version         the current (latest saved) version
  * @param deployedVersion the version that is deployed, or null
  * @param definition      the current version's definition; left out of lists
+ * @param disabledReason  why the service switched the flow off, such as {@code DATASET_DELETED}
+ *                        when its dataset is gone; absent otherwise
  * @param createdSeries   the series this save created for sinks with {@code create}; only on a save
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record FlowView(String externalId, String name, String dataSet, String dataSetId, int version,
-                       Integer deployedVersion, boolean enabled, String createdBy, Instant createdAt,
-                       String updatedBy, Instant updatedAt, JsonNode definition,
-                       List<String> createdSeries) {
+                       Integer deployedVersion, boolean enabled, String disabledReason,
+                       String createdBy, Instant createdAt, String updatedBy, Instant updatedAt,
+                       JsonNode definition, List<String> createdSeries) {
 
     static FlowView of(StoredFlow flow, JsonNode definition, List<String> createdSeries) {
         return new FlowView(flow.externalId(), flow.name(), flow.dataSetExternalId(),
                 // Ids go out as strings, like every node id on the wire: they are beyond 2^53.
                 String.valueOf(flow.dataSetId()), flow.currentVersion(), flow.deployedVersion(),
-                flow.enabled(), flow.createdBy(), flow.createdAt(), flow.updatedBy(), flow.updatedAt(),
-                definition, createdSeries);
+                flow.enabled(), flow.disabledReason(), flow.createdBy(), flow.createdAt(),
+                flow.updatedBy(), flow.updatedAt(), definition, createdSeries);
     }
 
     /** A saved version. */

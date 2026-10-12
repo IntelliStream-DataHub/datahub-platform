@@ -27,6 +27,15 @@ public record Caller(String subject, boolean admin, boolean flowsRead, boolean f
         return admin || (flowsWrite && write.contains(dataSetId));
     }
 
+    /**
+     * Whether the caller sees the flows whose dataset was deleted: nobody can through a grant on a
+     * dataset that is gone, so they are shown to whoever may write every dataset, to move them to
+     * another dataset or delete them.
+     */
+    public boolean seesOrphans() {
+        return admin || (flowsRead && write.all());
+    }
+
     /** The datasets the caller has one kind of access to: all of them, or these. */
     public record DataSets(boolean all, Set<Long> ids) {
 
