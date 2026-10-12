@@ -226,6 +226,14 @@ public class RunService {
         return RunView.of(visibleRun(flowService.requireRead(), runId), json);
     }
 
+    /**
+     * The run, for a caller who may see its flow; otherwise a 404. What reading anything of a run —
+     * its records, its live view — takes.
+     */
+    public StoredRun readable(UUID runId) {
+        return visibleRun(flowService.requireRead(), runId);
+    }
+
     /** Runs the caller may see, newest first, optionally of one flow, in pages. */
     public DataWrapper<RunView> list(String flowExternalId, String cursor, Integer limit) {
         Caller caller = flowService.requireRead();
