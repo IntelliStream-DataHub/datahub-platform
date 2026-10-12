@@ -30,6 +30,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -90,6 +91,12 @@ class RunCoordinatorIT {
     private ScheduledExecutorService heartbeats;
     private final List<FlowRecordBatch> published = new CopyOnWriteArrayList<>();
     private volatile boolean failPublishing;
+    /** The events POST /events/create received, and the bodies of POST /events/latest. */
+    private final List<JsonNode> createdEvents = new CopyOnWriteArrayList<>();
+    private final List<JsonNode> latestQueries = new CopyOnWriteArrayList<>();
+    /** What /events/create answers, and whether /events/latest finds an open lifecycle. */
+    private volatile int eventsStatus = 200;
+    private volatile boolean lifecycleOpen = true;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -105,16 +112,36 @@ class RunCoordinatorIT {
         datahub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         datahub.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
-            // The check every run makes first, that its flow's dataset still exists.
-            boolean dataSetLookup = path.equals("/datasets/byids");
-            if (!dataSetLookup) {
+            int status = 200;
+            String answer = "{\"items\":[]}";
+            if (path.equals("/datasets/byids")) {
+                // The check every run makes first, that its flow's dataset still exists.
+                if (dataSetExists) {
+                    answer = "{\"items\":[{\"id\":\"7\",\"externalId\":\"ds\"}]}";
+                }
+            } else if (path.equals("/events/create")) {
+                JsonNode request = JSON.readTree(exchange.getRequestBody().readAllBytes());
+                status = eventsStatus;
+                if (status == 200) {
+                    createdEvents.add(request.get("items").get(0));
+                    answer = JSON.writeValueAsString(request);
+                } else {
+                    answer = "{\"type\":\"about:blank\",\"status\":" + status + "}";
+                }
+            } else if (path.equals("/events/latest")) {
+                latestQueries.add(JSON.readTree(exchange.getRequestBody().readAllBytes()));
+                if (lifecycleOpen) {
+                    answer = "{\"items\":[{\"id\":\"0190b4c2-0000-7000-8000-000000000000\","
+                            + "\"externalId\":\"flow:x\",\"type\":\"flow\",\"status\":\"open\","
+                            + "\"eventTime\":\"2026-10-12T10:00:00Z\"}]}";
+                }
+            } else {
                 requestArrivals.add(System.nanoTime());
             }
-            byte[] body = (dataSetLookup && dataSetExists
-                    ? "{\"items\":[{\"id\":\"7\",\"externalId\":\"ds\"}]}"
-                    : "{\"items\":[]}").getBytes(StandardCharsets.UTF_8);
-            exchange.getResponseHeaders().add("Content-Type", "application/json");
-            exchange.sendResponseHeaders(200, body.length);
+            byte[] body = answer.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", status == 200 ? "application/json"
+                    : "application/problem+json");
+            exchange.sendResponseHeaders(status, body.length);
             exchange.getResponseBody().write(body);
             exchange.close();
         });
@@ -324,8 +351,115 @@ class RunCoordinatorIT {
         await(() -> "FAILED".equals(runs.find(run).orElseThrow().status()));
         StoredRun failed = runs.find(run).orElseThrow();
         assertThat(failed.attempt()).isEqualTo(2);
-        assertThat(failed.failureEventOwed()).isTrue();
         assertThat(failed.finishedAt()).isNotNull();
+
+        // The run-failed event is written as soon as the run ends, and the debt cleared.
+        await(() -> !runs.find(run).orElseThrow().failureEventOwed());
+        assertThat(createdEvents).singleElement().satisfies(event -> {
+            assertThat(event.get("externalId").asString())
+                    .isEqualTo("flow:failing:" + failed.window().start());
+            assertThat(event.get("type").asString()).isEqualTo("flow");
+            assertThat(event.get("subType").asString()).isEqualTo("run-failed");
+            assertThat(event.get("status").asString()).isEqualTo("open");
+            assertThat(event.get("dataSetId").asString()).isEqualTo("7");
+            assertThat(Instant.parse(event.get("eventTime").asString()).toEpochMilli())
+                    .isEqualTo(failed.finishedAt().toEpochMilli());
+            assertThat(event.get("metadata").get("runId").asString()).isEqualTo(run.toString());
+            assertThat(event.get("metadata").get("attempts").asString()).isEqualTo("2");
+            assertThat(event.get("metadata").get("errorCode").asString()).isEqualTo("PROCESSOR_FAILED");
+            assertThat(event.get("metadata").get("windowStart").asString())
+                    .isEqualTo(failed.window().start().toString());
+        });
+    }
+
+    @Test
+    void aFailureEventTheApiCannotTakeIsOwedUntilASweepWritesIt() {
+        long flow = deployedFlow("unreported", fail(), 1, 1);
+        UUID run = pending(flow, 0);
+        RunCoordinator a = coordinator("a", 1);
+        eventsStatus = 503;
+
+        a.claim(TENANT, null);
+        await(() -> "FAILED".equals(runs.find(run).orElseThrow().status()));
+        assertThat(runs.find(run).orElseThrow().failureEventOwed()).isTrue();
+        assertThat(createdEvents).isEmpty();
+
+        a.sweep(TENANT);
+        assertThat(runs.find(run).orElseThrow().failureEventOwed()).isTrue();
+
+        eventsStatus = 200;
+        coordinator("b", 1).sweep(TENANT);
+        assertThat(runs.find(run).orElseThrow().failureEventOwed()).isFalse();
+        assertThat(createdEvents).singleElement()
+                .satisfies(event -> assertThat(event.get("status").asString()).isEqualTo("open"));
+
+        // Paid once: a later sweep writes nothing more.
+        a.sweep(TENANT);
+        assertThat(createdEvents).hasSize(1);
+    }
+
+    @Test
+    void aFailureEventTheApiRefusesForGoodIsNotRetried() {
+        long flow = deployedFlow("refused-event", fail(), 1, 1);
+        UUID run = pending(flow, 0);
+        eventsStatus = 400;
+
+        coordinator("a", 1).claim(TENANT, null);
+        await(() -> "FAILED".equals(runs.find(run).orElseThrow().status()));
+        await(() -> !runs.find(run).orElseThrow().failureEventOwed());
+        assertThat(createdEvents).isEmpty();
+    }
+
+    @Test
+    void aSuccessForAWindowThatFailedResolvesItsOpenLifecycle() {
+        long flow = deployedFlow("recovering", wait(0, "recovering"), 1, 1);
+        UUID failed = pending(flow, 0);
+        jdbc.update("UPDATE flow.run SET status = 'FAILED', finished_at = now() WHERE id = ?", failed);
+        UUID rerun = pending(flow, 0);
+
+        coordinator("a", 1).claim(TENANT, rerun);
+        await(() -> "SUCCEEDED".equals(runs.find(rerun).orElseThrow().status()));
+        await(() -> !runs.find(rerun).orElseThrow().failureEventOwed());
+
+        StoredRun succeeded = runs.find(rerun).orElseThrow();
+        String lifecycle = "flow:recovering:" + succeeded.window().start();
+        assertThat(latestQueries).singleElement().satisfies(query -> {
+            assertThat(query.get("filter").get("externalId").get(0).asString()).isEqualTo(lifecycle);
+            assertThat(query.get("filter").get("subType").get(0).asString()).isEqualTo("run-failed");
+            assertThat(query.get("status").get(0).asString()).isEqualTo("open");
+        });
+        assertThat(createdEvents).singleElement().satisfies(event -> {
+            assertThat(event.get("externalId").asString()).isEqualTo(lifecycle);
+            assertThat(event.get("status").asString()).isEqualTo("resolved");
+            assertThat(event.get("metadata").get("runId").asString()).isEqualTo(rerun.toString());
+        });
+    }
+
+    @Test
+    void aSuccessLeavesALifecycleThatIsNoLongerOpenAlone() {
+        long flow = deployedFlow("dismissed", wait(0, "dismissed"), 1, 1);
+        UUID failed = pending(flow, 0);
+        jdbc.update("UPDATE flow.run SET status = 'FAILED', finished_at = now() WHERE id = ?", failed);
+        UUID rerun = pending(flow, 0);
+        lifecycleOpen = false;
+
+        coordinator("a", 1).claim(TENANT, rerun);
+        await(() -> "SUCCEEDED".equals(runs.find(rerun).orElseThrow().status()));
+        await(() -> !runs.find(rerun).orElseThrow().failureEventOwed());
+        assertThat(latestQueries).hasSize(1);
+        assertThat(createdEvents).isEmpty();
+    }
+
+    @Test
+    void aSuccessForAWindowThatNeverFailedAsksNothing() {
+        long flow = deployedFlow("healthy", wait(0, "healthy"), 1, 1);
+        UUID run = pending(flow, 0);
+
+        coordinator("a", 1).claim(TENANT, null);
+        await(() -> "SUCCEEDED".equals(runs.find(run).orElseThrow().status()));
+        assertThat(runs.find(run).orElseThrow().failureEventOwed()).isFalse();
+        assertThat(latestQueries).isEmpty();
+        assertThat(createdEvents).isEmpty();
     }
 
     @Test
@@ -397,7 +531,13 @@ class RunCoordinatorIT {
         StoredRun failed = runs.find(run).orElseThrow();
         assertThat(failed.errorCode()).isEqualTo(RunCoordinator.IDENTITY_REJECTED);
         assertThat(failed.attempt()).isEqualTo(1);
+        // The refused identity cannot write its own failure event: it waits, owed, for the flow
+        // to be deployed afresh, and sweeps leave it alone until then.
         assertThat(failed.failureEventOwed()).isTrue();
+        flows.needsReauthorisation(flow, "invalid_grant");
+        a.sweep(TENANT);
+        assertThat(runs.find(run).orElseThrow().failureEventOwed()).isTrue();
+        assertThat(createdEvents).isEmpty();
     }
 
     @Test
@@ -457,7 +597,9 @@ class RunCoordinatorIT {
                             published.add(batch);
                             return java.util.concurrent.CompletableFuture.completedFuture(null);
                         }), Duration.ofSeconds(5));
-        RunCoordinator c = new RunCoordinator(runs, execution, transaction, null, null, JSON,
+        RunEvents events = new RunEvents(runs, credentials,
+                "http://127.0.0.1:" + datahub.getAddress().getPort(), REQUEST_TIMEOUT, 20);
+        RunCoordinator c = new RunCoordinator(runs, execution, events, transaction, null, null, JSON,
                 Long.MAX_VALUE, new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 4, 24,
                 backoff, backoff.isZero() ? Duration.ZERO : Duration.ofHours(6), Duration.ofSeconds(1)),
                 name, System::nanoTime);
