@@ -106,6 +106,16 @@ datahub:
       stale-age: 7d
       min-backlog-messages: 1000
       cron: "0 0 */6 * * *"
+  flow:
+    # How long intellistream-flow keeps what a run leaves behind: finished run rows in each
+    # tenant's Postgres (flow.run), deleted in batches, and the records in its ClickHouse
+    # (flow_run_event), by the table's TTL, which is altered only when it differs. One period for
+    # every tenant with the flow feature; whole days. A run still owing its failure event is kept.
+    retention: P90D
+    retention-batch-size: 1000
+    # Daily at 04:30 (6-field Spring cron). retention-enabled: false switches the job off.
+    retention-cron: "0 30 4 * * *"
+    retention-enabled: true
 
 logging:
   level:
