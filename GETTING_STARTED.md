@@ -377,9 +377,9 @@ already exist). It provisions:
   Deploying a flow takes an offline token for the deployer, which needs that role. A user
   whose realm roles are listed explicitly, as these are, does not inherit it from
   `default-roles-datahub`;
-- the **`intellistream-flow`** confidential client (secret `changeme-flow`, PKCE `S256`,
-  callback `http://localhost:8084/*`). The flow service uses it to send a deployer to Keycloak
-  and receive the offline token its runs act with. It keeps Keycloak's default client scopes,
+- the **`intellistream-flow`** confidential client (secret `changeme-flow`, callback
+  `http://localhost:8084/*`). The flow service uses it to send a deployer to Keycloak and
+  receive the offline token its runs act with. It keeps Keycloak's default client scopes,
   which include the optional `offline_access` and `organization`;
 - two client-credentials clients for the SDKs, **`datahub-service-foo`** /
   `changeme-foo` and **`datahub-service-bar`** / `changeme-bar`, one per demo tenant

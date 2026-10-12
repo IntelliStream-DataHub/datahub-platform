@@ -140,7 +140,7 @@
     {
       "clientId": "intellistream-flow",
       "name": "intellistream-flow deploy authorization",
-      "description": "Authorization-code client (PKCE) for the flow service. Deploying a flow grants it an offline token (offline_access, organization:<alias>) that the deployment's runs act with. No scope lists of its own: the defaults apply.",
+      "description": "Authorization-code client for the flow service. Deploying a flow grants it an offline token (offline_access, organization:<alias>) that the deployment's runs act with. No scope lists of its own: the defaults apply.",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -154,10 +154,7 @@
       ],
       "webOrigins": [
         "+"
-      ],
-      "attributes": {
-        "pkce.code.challenge.method": "S256"
-      }
+      ]
     },
     {
       "clientId": "datahub-service-foo",
