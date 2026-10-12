@@ -129,12 +129,12 @@ class ClickHouseArrowReadPerformanceIT {
         report("float: query, native, no FINAL", FLOAT_ROWS, () -> drainNative(client, query("datapoints_float", FLOAT_ID, false)));
         report("float: query, no compression", FLOAT_ROWS, () -> drain(plainClient, query("datapoints_float", FLOAT_ID, true)));
         report("float: + Arrow parse (StreamReader)", FLOAT_ROWS, () -> parse(service, DatapointValueType.FLOAT, FLOAT_ID, FLOAT_ROWS));
-        report("float: + frames, zstd 3 (production)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(3)));
-        report("float: + frames, zstd 1", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(1)));
+        report("float: + frames, zstd 1 (production)", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(1)));
+        report("float: + frames, zstd 3", FLOAT_ROWS, () -> frame(service, DatapointValueType.FLOAT, FLOAT_ID, new ZstdPayloadCodec(3)));
         report("text: query, pool transport (HTTP LZ4)", TEXT_ROWS, () -> drain(client, query("datapoints_text", TEXT_ID, true)));
         report("text: query, native compression (the read's)", TEXT_ROWS, () -> drainNative(client, query("datapoints_text", TEXT_ID, true)));
         report("text: + Arrow parse (StreamReader)", TEXT_ROWS, () -> parse(service, DatapointValueType.TEXT, TEXT_ID, TEXT_ROWS));
-        report("text: + frames, zstd 3 (production)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, new ZstdPayloadCodec(3)));
+        report("text: + frames, zstd 1 (production)", TEXT_ROWS, () -> frame(service, DatapointValueType.TEXT, TEXT_ID, new ZstdPayloadCodec(1)));
         report("200 series of 100 rows, framed one by one", (long) TINY_SERIES * TINY_ROWS, () -> tiny(service));
         report("200 series of 100 rows, no compression", (long) TINY_SERIES * TINY_ROWS, () -> tiny(plainService));
         byte[] arrow = arrowInsert(INSERT_ROWS);
@@ -232,7 +232,7 @@ class ClickHouseArrowReadPerformanceIT {
     static long tiny(ClickHouseDatapointService svc) throws Exception {
         long out = 0;
         for (int s = 0; s < TINY_SERIES; s++) {
-            out += frame(svc, DatapointValueType.FLOAT, 1000 + s, new ZstdPayloadCodec(3));
+            out += frame(svc, DatapointValueType.FLOAT, 1000 + s, new ZstdPayloadCodec(1));
         }
         return out;
     }

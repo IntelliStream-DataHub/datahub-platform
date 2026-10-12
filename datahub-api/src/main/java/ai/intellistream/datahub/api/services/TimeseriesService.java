@@ -474,7 +474,8 @@ public class TimeseriesService {
     public record BinaryRead(TimeseriesEntity series, RetrieveFilter filter, long limit, boolean aggregates, int frameRows) {
     }
 
-    private static final PayloadCodec READ_CODEC = new ZstdPayloadCodec(3);
+    /** Level 1: the read is CPU-bound on this, and level 3 bought 0.5% smaller frames for 20% fewer rows a second. */
+    private static final PayloadCodec READ_CODEC = new ZstdPayloadCodec(1);
 
     /**
      * Checks a binary read and resolves its series, before a byte of the answer is written, so
