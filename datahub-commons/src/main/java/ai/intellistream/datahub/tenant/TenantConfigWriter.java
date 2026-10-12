@@ -12,27 +12,31 @@ import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /**
- * Writes the {@code llm.*} section of a tenant's {@code <mount>/tenant-config/<org-name>} secret.
+ * Writes a tenant's {@code <mount>/tenant-config/<org-name>} secret, one section at a time.
  *
- * <p>The counterpart to {@link TenantLlmStore}, and the first thing in the platform that writes to
+ * <p>The counterpart to {@link TenantLlmStore}, and the only thing in the platform that writes to
  * Vault at all. Everything else reads.
  *
- * <h2>Only this section</h2>
- * A KV v2 write replaces the whole secret, so writing one section means read, merge, write. Keys
- * outside the {@code llm.} prefix are carried across untouched: another section arriving later must
- * not be erased by someone saving their model settings.
+ * <h2>Sections</h2>
+ * The secret holds several sections told apart by a flat key prefix: {@code llm.*} for the model
+ * configuration, {@code flow.*} for the credentials flows use ({@link TenantFlowSection}). A KV v2
+ * write replaces the whole secret, so writing one section means read, change, write, and every
+ * change carries the keys it does not own across untouched — otherwise saving one section would
+ * erase another.
  *
  * <h2>Compare-and-set</h2>
  * That read-modify-write is exactly where two savers lose each other's changes, so the write
- * carries the version the merge was based on and Vault rejects it if anything landed in between.
+ * carries the version the change was based on and Vault rejects it if anything landed in between.
  * A lost update here is somebody's credential silently reverting, which nothing downstream would
- * report — the assistant would simply start failing.
+ * report — the assistant, or a flow, would simply start failing.
  *
- * <p>Which is why {@code keepStoredApiKey} is a flag rather than a value the caller passes in: the
- * credential it preserves is read here, inside the window compare-and-set guards. A caller holding
- * its own copy would be writing back something read before that window opened.
+ * <p>Which is why a change is a function of what is stored rather than a map the caller passes in:
+ * {@link #update} applies it to the secret as read inside the window compare-and-set guards. A
+ * caller holding its own copy would be writing back something read before that window opened. The
+ * same reasoning makes {@code keepStoredApiKey} a flag rather than a value.
  *
  * <p>The caller is expected to have checked that this tenant may be written by whoever asked; this
  * class enforces nothing about identity. It holds the platform's own Vault credential, so it must
@@ -40,14 +44,14 @@ import java.util.Map;
  */
 @Slf4j
 @Service
-public class TenantLlmWriter {
+public class TenantConfigWriter {
 
     private static final String LLM_PREFIX = "llm.";
     private static final String API_KEY = "api-key";
 
     private final VaultProperties vault;
 
-    public TenantLlmWriter(VaultProperties vault) {
+    public TenantConfigWriter(VaultProperties vault) {
         this.vault = vault;
     }
 
@@ -63,11 +67,44 @@ public class TenantLlmWriter {
      *                               this change was being prepared
      */
     public void writeLlmSection(String orgName, Map<String, String> section, boolean keepStoredApiKey) {
-        Vault client = VaultClientFactory.login(vault);
-        String path = vault.secretName() + "/tenant-config/" + orgName;
+        Map<String, String> written = update(orgName,
+                existing -> merge(existing, section, keepStoredApiKey));
+        long llmKeys = written.keySet().stream().filter(key -> key.startsWith(LLM_PREFIX)).count();
+        log.info("Model configuration updated for tenant {} ({} llm keys)", orgName, llmKeys);
+    }
 
-        Existing existing = read(client, path);
-        Map<String, String> merged = merge(existing.data(), section, keepStoredApiKey);
+    /**
+     * What this tenant's secret holds now, read from Vault rather than from any cache, so that a
+     * section reads back as it was just written. Empty when there is no secret.
+     *
+     * @throws IllegalStateException if Vault is unreachable or refuses
+     */
+    public Map<String, String> current(String orgName) {
+        Vault client = VaultClientFactory.login(vault);
+        return Map.copyOf(readExisting(client, pathOf(orgName)).data());
+    }
+
+    /**
+     * Applies {@code change} to the secret as it stands and writes the result under
+     * compare-and-set. A change that leaves the secret as it was writes nothing, so removing an
+     * entry that is not there adds no version.
+     *
+     * @param orgName organization name, as {@code tenant-resources} keys it
+     * @param change  receives every key in the secret and returns every key the secret should hold,
+     *                so it must carry the keys of other sections across
+     * @return what the secret holds after the write
+     * @throws IllegalStateException if Vault is unreachable, refuses, or the secret changed while
+     *                               this change was being prepared
+     */
+    public Map<String, String> update(String orgName, UnaryOperator<Map<String, String>> change) {
+        Vault client = VaultClientFactory.login(vault);
+        String path = pathOf(orgName);
+
+        Existing existing = readExisting(client, path);
+        Map<String, String> changed = Map.copyOf(change.apply(existing.data()));
+        if (changed.equals(existing.data())) {
+            return changed;
+        }
 
         int status;
         try {
@@ -75,7 +112,8 @@ public class TenantLlmWriter {
             if (existing.version() != null) {
                 options = options.checkAndSet(existing.version());
             }
-            status = client.logical().write(path, Map.copyOf(merged), null, options.build())
+            status = client.logical()
+                    .write(path, Map.<String, Object>copyOf(changed), null, options.build())
                     .getRestResponse().getStatus();
         } catch (VaultException e) {
             throw new IllegalStateException("Could not write " + path + ": " + e.getMessage(), e);
@@ -98,8 +136,7 @@ public class TenantLlmWriter {
             throw new IllegalStateException("Could not write " + path + ": Vault answered HTTP "
                     + status);
         }
-        long llmKeys = merged.keySet().stream().filter(key -> key.startsWith(LLM_PREFIX)).count();
-        log.info("Model configuration updated for tenant {} ({} llm keys)", orgName, llmKeys);
+        return changed;
     }
 
     /**
@@ -152,7 +189,7 @@ public class TenantLlmWriter {
      *       the secret does not exist and so fails every single time against one that does.</li>
      * </ul>
      */
-    private Existing read(Vault client, String path) {
+    private Existing readExisting(Vault client, String path) {
         try {
             LogicalResponse response = client.logical().read(path);
             int status = response.getRestResponse().getStatus();
@@ -162,7 +199,7 @@ public class TenantLlmWriter {
             if (status != 200) {
                 // A 403 must not pass for "no secret": that would write with cas=0 and fail with a
                 // misleading conflict message, or overwrite under a policy that allows only create.
-                throw new IllegalStateException("Could not read " + path + " before writing it:"
+                throw new IllegalStateException("Could not read " + path + ":"
                         + " Vault answered HTTP " + status
                         + (status == 403 ? ". The AppRole policy needs read on this path." : ""));
             }
@@ -180,12 +217,16 @@ public class TenantLlmWriter {
             }
             return new Existing(data, version);
         } catch (VaultException e) {
-            throw new IllegalStateException("Could not read " + path + " before writing it: "
+            throw new IllegalStateException("Could not read " + path + ": "
                     + e.getMessage(), e);
         }
     }
 
-    /** @param version null when the secret exists but its version is unknown — see {@link #read} */
+    private String pathOf(String orgName) {
+        return vault.secretName() + "/tenant-config/" + orgName;
+    }
+
+    /** @param version null when the secret exists but its version is unknown — see {@link #readExisting} */
     private record Existing(Map<String, String> data, Long version) {
     }
 }

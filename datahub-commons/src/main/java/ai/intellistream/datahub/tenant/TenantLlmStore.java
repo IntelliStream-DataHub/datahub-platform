@@ -34,7 +34,7 @@ import java.util.Map;
  *
  * <p>It also leaves room for Vault to enforce the split, since a policy can name one path — but
  * that is not assumed. datahub-api checks the caller's {@code /settings/llm/write} organization
- * group and writes with the platform's own credential ({@link TenantLlmWriter}), which makes the
+ * group and writes with the platform's own credential ({@link TenantConfigWriter}), which makes the
  * group check the boundary and not this path.
  *
  * <p>Keyed by organization name, matching how {@code tenant-resources} keys its entries — one
