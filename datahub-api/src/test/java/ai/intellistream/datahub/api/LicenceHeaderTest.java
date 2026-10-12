@@ -17,9 +17,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Every source file states its licence, and states the right one.
  *
- * <p>The platform is AGPL-3.0-or-later, with two exceptions: {@code datahub-api-model} and
+ * <p>The platform is AGPL-3.0-or-later, with three exceptions: {@code datahub-api-model} and
  * {@code datahub-java-sdk} are Apache-2.0 because they are linked into other people's applications,
- * which copyleft would prevent. A file carrying the wrong header — or none — is the kind of thing
+ * which copyleft would prevent, and {@code datahub-flow-api} because a flow processor someone else
+ * writes implements it. A file carrying the wrong header — or none — is the kind of thing
  * nobody notices until it matters, and by then it has been shipped.
  *
  * <p>Twelve files had no header at all: the whole graph-transfer feature plus the user-info
@@ -34,8 +35,9 @@ class LicenceHeaderTest {
     private static final String AGPL = "// SPDX-License-Identifier: AGPL-3.0-or-later";
     private static final String APACHE = "// SPDX-License-Identifier: Apache-2.0";
 
-    /** Linked into other people's applications, so deliberately not copyleft. */
-    private static final Set<String> APACHE_MODULES = Set.of("datahub-api-model", "datahub-java-sdk");
+    /** Linked into other people's applications, or implemented by them, so deliberately not copyleft. */
+    private static final Set<String> APACHE_MODULES =
+            Set.of("datahub-api-model", "datahub-java-sdk", "datahub-flow-api");
 
     private static Path repositoryRoot() {
         // Gradle runs tests with the module directory as the working directory.
@@ -90,7 +92,7 @@ class LicenceHeaderTest {
         }
         assertThat(wrong)
                 .as("AGPL-3.0-or-later everywhere except %s, which are Apache-2.0 because they are "
-                        + "linked into other people's applications: %s", APACHE_MODULES, wrong)
+                        + "linked into or implemented by other people's code: %s", APACHE_MODULES, wrong)
                 .isEmpty();
     }
 }
