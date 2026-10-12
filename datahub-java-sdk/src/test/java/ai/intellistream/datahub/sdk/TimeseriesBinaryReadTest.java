@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
+import ai.intellistream.datahub.api.binary.ArrowIpc;
+import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointFrame;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -27,15 +30,19 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@code retrieveBinary} against a stand-in server: the request is the JSON retrieve body with the
- * frame media type asked for, the frames come back decoded, and a refusal or a response cut short
- * surfaces as a {@link DatahubApiException} rather than as fewer points.
+ * frame media type asked for, the frames come back decoded, whether compressed whole or in-band
+ * as the server relays them, a refusal or a response cut short surfaces as a
+ * {@link DatahubApiException} rather than as fewer points, and {@code ingestFrames} posts them
+ * back as they are.
  */
 class TimeseriesBinaryReadTest {
 
@@ -44,6 +51,7 @@ class TimeseriesBinaryReadTest {
     volatile byte[] answer;
     volatile JsonNode lastRequest;
     volatile String lastAccept;
+    final List<byte[]> posted = new CopyOnWriteArrayList<>();
     HttpServer server;
     DatahubClient client;
 
@@ -54,6 +62,11 @@ class TimeseriesBinaryReadTest {
             lastAccept = exchange.getRequestHeaders().getFirst("Accept");
             lastRequest = json.readTree(exchange.getRequestBody().readAllBytes());
             reply(exchange, status, status == 200 ? FrameLimits.MEDIA_TYPE : "application/problem+json", answer);
+        });
+        server.createContext("/timeseries/data/binary", exchange -> {
+            posted.add(exchange.getRequestBody().readAllBytes());
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
         });
         server.start();
         client = DatahubClient.create(DatahubConfig.builder()
@@ -81,6 +94,16 @@ class TimeseriesBinaryReadTest {
             w.addFloat(id, 1_700_000_000_000L + r * 1000L, r * 1.5);
         }
         return w.build(new ZstdPayloadCodec(1));
+    }
+
+    /** The frame the server relays for the same points: the batches compressed in-band. */
+    private static byte[] relayedFrame(long id, String externalId, int rows) throws IOException {
+        DatapointFrame built = DatapointFrame.parseAll(frame(id, externalId, rows), new ZstdPayloadCodec(1)).get(0);
+        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT),
+                built.batches().stream().map(ArrowIpc.Batch::toData).toList(), new ZstdPayloadCodec(1));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        DatapointFrameWriter.relayStream(DatapointValueType.FLOAT, false, id, externalId, new ByteArrayInputStream(stream), new ZstdPayloadCodec(1), out);
+        return out.toByteArray();
     }
 
     private static byte[] response(byte[]... frames) {
@@ -118,6 +141,43 @@ class TimeseriesBinaryReadTest {
         assertTrue(lastAccept.contains("application/problem+json"), lastAccept);
         assertEquals("b", lastRequest.path("items").get(0).path("externalId").asString());
         assertEquals(1000, lastRequest.path("items").get(0).path("limit").asInt());
+    }
+
+    @Test
+    void relayedFramesComeBackDecodedAndPostBackAsTheyAre() throws Exception {
+        byte[] a = relayedFrame(1, "a", 3);
+        byte[] b = relayedFrame(2, "b", 2);
+        answer = response(a, b);
+
+        List<DatapointFrame> frames = client.timeseries().retrieveBinary(request("a", "b"));
+        assertEquals(2, frames.size());
+        assertEquals(FrameLimits.COMPRESSION_ARROW_ZSTD, frames.get(0).compression());
+        assertEquals("3.0", frames.get(0).valueAsString(2));
+        assertEquals("1.5", frames.get(1).valueAsString(1));
+
+        client.timeseries().ingestFrames(frames);
+        assertEquals(1, posted.size());
+        ByteArrayOutputStream expected = new ByteArrayOutputStream();
+        expected.writeBytes(a);
+        expected.writeBytes(b);
+        assertArrayEquals(expected.toByteArray(), posted.get(0));
+        assertEquals(2, DatapointFrame.parseAll(posted.get(0), new ZstdPayloadCodec()).size());
+    }
+
+    @Test
+    void framesArePostedInAsManyRequestsAsTheCapsNeed() throws Exception {
+        byte[][] many = new byte[FrameLimits.MAX_FRAMES_PER_REQUEST + 1][];
+        for (int i = 0; i < many.length; i++) {
+            many[i] = relayedFrame(1, "a", 1);
+        }
+        answer = response(many);
+        List<DatapointFrame> frames = client.timeseries().retrieveBinary(request("a"));
+        assertEquals(many.length, frames.size());
+
+        client.timeseries().ingestFrames(frames);
+        assertEquals(2, posted.size());
+        assertEquals(FrameLimits.MAX_FRAMES_PER_REQUEST, DatapointFrame.parseAll(posted.get(0), new ZstdPayloadCodec()).size());
+        assertEquals(1, DatapointFrame.parseAll(posted.get(1), new ZstdPayloadCodec()).size());
     }
 
     @Test

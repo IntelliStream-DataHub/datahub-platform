@@ -238,6 +238,16 @@ request again with `start` one millisecond past the last timestamp you got. An i
 carrying `avg`, `min`, `max` and `sum` together. A response the server could not finish throws a
 `DatahubApiException` with status 0 rather than returning fewer points, and is safe to send again.
 
+The frames hold the Arrow record batches as the database compressed them, each buffer zstd in-band
+(frame compression `2`): the server relays them without decoding a point, the client decompresses.
+A frame holds as many whole batches as fit under its row cap, so most hold fewer rows than the cap.
+The frames write back as they are, to the same or another instance:
+
+```java
+List<DatapointFrame> frames = source.timeseries().retrieveBinary(request);
+target.timeseries().ingestFrames(frames);   // as many requests as the caps need; aggregate frames are refused
+```
+
 ## Errors
 
 Every refusal comes back as a `DatahubApiException` carrying an RFC 9457

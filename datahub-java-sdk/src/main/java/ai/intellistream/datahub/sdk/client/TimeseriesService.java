@@ -37,6 +37,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -270,6 +271,11 @@ public final class TimeseriesService {
      * with {@code start} one millisecond past the last timestamp received. An item with
      * {@code aggregates} and a {@code granularity} always carries all four aggregates.
      *
+     * <p>The frames carry the record batches as the database compressed them, each buffer zstd
+     * in-band, relayed by the server untouched and decompressed here; a frame holds as many whole
+     * batches as fit under its row cap, so most hold fewer rows than it. The frames can be written
+     * back as they are with {@link #ingestFrames}.
+     *
      * <p>A response the server could not finish throws {@link DatahubApiException} with status 0;
      * sending the request again is safe.
      */
@@ -436,6 +442,35 @@ public final class TimeseriesService {
     }
 
     // --- Binary ingest -----------------------------------------------------------------------------
+
+    /**
+     * Posts frames to {@code POST /timeseries/data/binary} as they are: what {@link #retrieveBinary}
+     * returned, from this or another instance, written without decoding a point. The server refuses
+     * an aggregate frame. Frames go in order, as many to a request as the request caps allow
+     * ({@value FrameLimits#MAX_FRAMES_PER_REQUEST} frames, {@value FrameLimits#MAX_REQUEST_RAW_BYTES}
+     * decompressed bytes), one request after another. A refusal throws {@link DatahubApiException}
+     * and the requests before it stand; sending the same frames again is safe, since a point is
+     * stored once per series and timestamp however often it arrives.
+     */
+    public void ingestFrames(List<DatapointFrame> frames) {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        int count = 0;
+        long raw = 0;
+        for (DatapointFrame frame : frames) {
+            if (count == FrameLimits.MAX_FRAMES_PER_REQUEST || raw + frame.rawLength() > FrameLimits.MAX_REQUEST_RAW_BYTES) {
+                http.postBytes(BinaryDatapointIngestor.PATH, body.toByteArray(), FrameLimits.MEDIA_TYPE, Map.of());
+                body.reset();
+                count = 0;
+                raw = 0;
+            }
+            body.writeBytes(frame.frameBytes());
+            count++;
+            raw += frame.rawLength();
+        }
+        if (count > 0) {
+            http.postBytes(BinaryDatapointIngestor.PATH, body.toByteArray(), FrameLimits.MEDIA_TYPE, Map.of());
+        }
+    }
 
     /**
      * Ingest datapoints through {@code POST /timeseries/data/binary} with the default
