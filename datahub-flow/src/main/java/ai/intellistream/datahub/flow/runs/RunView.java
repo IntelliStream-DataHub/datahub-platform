@@ -31,7 +31,7 @@ public record RunView(UUID id, String flow, Integer version, String status, int 
     public record Window(Instant start, Instant end) {
     }
 
-    static RunView of(StoredRun run, JsonMapper json) {
+    public static RunView of(StoredRun run, JsonMapper json) {
         TimeWindow w = run.window();
         return new RunView(run.id(), run.flowExternalId(), run.version(), run.status(), run.attempt(),
                 run.maxAttempts(), run.trigger(), run.triggeredBy(), run.runAs(), run.preview(),
