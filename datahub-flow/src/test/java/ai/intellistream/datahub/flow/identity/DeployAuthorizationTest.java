@@ -55,7 +55,7 @@ class DeployAuthorizationTest {
     private static final Instant NOW = Instant.parse("2026-10-12T12:00:00Z");
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final StoredFlow FLOW = new StoredFlow(FLOW_ID, "temp_hourly", DATASET, "ds_demo",
-            "Hourly", 3, null, false, "user-1", NOW, "user-1", NOW);
+            "Hourly", 3, null, false, "user-1", NOW, "user-1", NOW, null);
     private static final DeploymentPlan PLAN = new DeploymentPlan(FLOW_ID, "temp_hourly", 3,
             new Schedule(Schedule.MANUAL, null, null, null, null), 1, 2, Duration.ofMinutes(15), 1 << 20);
 

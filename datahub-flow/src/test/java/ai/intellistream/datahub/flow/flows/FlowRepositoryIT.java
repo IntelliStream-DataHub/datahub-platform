@@ -76,11 +76,55 @@ class FlowRepositoryIT {
         create("list_b", 200);
         create("list_c", 100);
 
-        assertThat(repository.list(new DataSets(false, Set.of(100L)), "list_", 10))
+        assertThat(repository.list(new DataSets(false, Set.of(100L)), false, "list_", 10))
                 .extracting(StoredFlow::externalId).containsExactly("list_a", "list_c");
-        assertThat(repository.list(new DataSets(false, Set.of()), null, 10)).isEmpty();
-        assertThat(repository.list(DataSets.ALL, "list_a", 1))
+        assertThat(repository.list(new DataSets(false, Set.of()), false, "list_", 10)).isEmpty();
+        assertThat(repository.list(DataSets.ALL, false, "list_a", 1))
                 .extracting(StoredFlow::externalId).containsExactly("list_b");
+    }
+
+    @Test
+    void anOrphanIsListedForThoseWhoSeeOrphansAndMovingItEndsThat() {
+        StoredFlow orphan = create("orphan_a", 300);
+        create("orphan_b", 400);
+        repository.disable(orphan.id(), FlowRepository.DATASET_DELETED);
+
+        DataSets none = new DataSets(false, Set.of(400L));
+        assertThat(repository.list(none, false, "orphan_", 10)).extracting(StoredFlow::externalId)
+                .containsExactly("orphan_b");
+        assertThat(repository.list(none, true, "orphan_", 10)).extracting(StoredFlow::externalId)
+                .containsExactly("orphan_a", "orphan_b");
+        assertThat(repository.list(new DataSets(false, Set.of()), true, "orphan_", 10))
+                .extracting(StoredFlow::externalId).containsExactly("orphan_a");
+        assertThat(repository.find("orphan_a")).get().satisfies(f -> {
+            assertThat(f.orphaned()).isTrue();
+            assertThat(f.enabled()).isFalse();
+        });
+
+        // A save into the same, deleted dataset could not happen (it is not found); one into
+        // another dataset moves it: no longer orphaned, still off.
+        StoredFlow moved = transaction.execute(s -> repository.addVersion(orphan.id(), 1, 400, "ds_400",
+                "moved", definition("orphan_a"), "admin-1")).orElseThrow();
+        assertThat(moved.orphaned()).isFalse();
+        assertThat(moved.disabledReason()).isNull();
+        assertThat(moved.enabled()).isFalse();
+        assertThat(moved.dataSetId()).isEqualTo(400);
+    }
+
+    @Test
+    void deletingAFlowTakesItsVersionsAndRunsWithIt() {
+        StoredFlow flow = create("deleted", 500);
+        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, max_attempts, memory_bytes, "
+                + "run_timeout, trigger) VALUES (gen_random_uuid(), ?, 1, 'SUCCEEDED', 1, 1, "
+                + "interval '1 minute', 'manual')", flow.id());
+
+        transaction.executeWithoutResult(s -> repository.delete(flow.id()));
+
+        assertThat(repository.find("deleted")).isEmpty();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow_version WHERE flow_id = ?",
+                Integer.class, flow.id())).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE flow_id = ?",
+                Integer.class, flow.id())).isZero();
     }
 
     private static StoredFlow create(String externalId, long dataSetId) {

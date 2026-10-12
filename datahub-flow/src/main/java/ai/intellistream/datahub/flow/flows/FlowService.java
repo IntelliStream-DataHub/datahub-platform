@@ -11,6 +11,7 @@ import ai.intellistream.datahub.flow.definition.InvalidFlowException;
 import ai.intellistream.datahub.flow.definition.ValidationProblem;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredVersion;
+import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.IdCollection;
@@ -65,10 +66,11 @@ public class FlowService {
     private final TenantConfigWriter tenantConfig;
     private final TransactionTemplate transaction;
     private final JsonMapper json;
+    private final FlowTokens offlineTokens;
 
     public FlowService(FlowRepository repository, CallerAccess access, FlowValidator validator,
                        TenantConfigService tenants, TenantConfigWriter tenantConfig,
-                       TransactionTemplate transaction, JsonMapper json) {
+                       TransactionTemplate transaction, JsonMapper json, FlowTokens offlineTokens) {
         this.repository = repository;
         this.access = access;
         this.validator = validator;
@@ -76,6 +78,7 @@ public class FlowService {
         this.tenantConfig = tenantConfig;
         this.transaction = transaction;
         this.json = json;
+        this.offlineTokens = offlineTokens;
     }
 
     public FlowView create(String body) {
@@ -125,6 +128,36 @@ public class FlowService {
         return FlowView.of(flow, parseJson(body), created);
     }
 
+    /**
+     * Deletes a flow, its versions and its runs. Takes {@code /flows/write} and write access to the
+     * flow's dataset — for a flow whose dataset was deleted, write access to every dataset. The
+     * offline token its runs acted with is removed and revoked first, so a flow never disappears
+     * while a person's delegation to it lives on; its records expire with the tenant's retention,
+     * and its lifecycle events stay, as events do.
+     */
+    public void delete(String externalId) {
+        Caller caller = requireWrite();
+        StoredFlow flow = visible(caller, externalId);
+        if (!caller.canWrite(flow.dataSetId())) {
+            throw FlowProblems.datasetForbidden("You may not delete flows in dataset "
+                    + flow.dataSetExternalId() + ".");
+        }
+        boolean deployer = repository.identity(flow.id())
+                .map(state -> FlowRepository.Identity.DEPLOYER.equals(state.identity().kind()))
+                .orElse(false);
+        if (deployer) {
+            try {
+                offlineTokens.remove(TenantContext.getTenantId(), flow.id());
+            } catch (IllegalStateException e) {
+                log.warn("Could not remove flow {}'s offline token: {}", externalId, e.getMessage());
+                throw FlowProblems.apiUnavailable("The flow's stored credential could not be removed: "
+                        + "the configuration store did not answer. Retry shortly.");
+            }
+        }
+        transaction.executeWithoutResult(status -> repository.delete(flow.id()));
+        log.info("Flow {} deleted", externalId);
+    }
+
     /** Everything wrong with a definition, without saving it; and which series a save would create. */
     public FlowView.Validation validate(String body) {
         Caller caller = requireWrite();
@@ -161,7 +194,8 @@ public class FlowService {
             throw FlowProblems.badRequest("The cursor belongs to another listing.");
         }
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredFlow> page = repository.list(readable, after == null ? null : after.value(), pageSize);
+        List<StoredFlow> page = repository.list(readable, caller.seesOrphans(),
+                after == null ? null : after.value(), pageSize);
         DataWrapper<FlowView> out = new DataWrapper<>();
         out.setItems(page.stream().map(flow -> FlowView.of(flow, null, null)).toList());
         if (page.size() == pageSize) {
@@ -319,10 +353,14 @@ public class FlowService {
         return caller;
     }
 
-    /** The flow, if the caller may see it; otherwise a 404, as if it did not exist. */
+    /**
+     * The flow, if the caller may see it — by its dataset, or as an orphan whose dataset is gone —
+     * otherwise a 404, as if it did not exist.
+     */
     public StoredFlow visible(Caller caller, String externalId) {
         return repository.find(externalId)
-                .filter(flow -> caller.canRead(flow.dataSetId()))
+                .filter(flow -> caller.canRead(flow.dataSetId())
+                        || (flow.orphaned() && caller.seesOrphans()))
                 .orElseThrow(() -> FlowProblems.notFound("No flow " + externalId + "."));
     }
 
