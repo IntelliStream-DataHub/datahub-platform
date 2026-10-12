@@ -18,7 +18,7 @@ import java.io.IOException;
  * <p>Tomcat reuses worker threads, so anything left behind is read by whichever request lands on
  * that thread next. Both values cleared here are set during authentication and are caller-specific:
  * <ul>
- *   <li>{@link TenantContext} — set by {@code SecurityConfig.OrganizationValidator} from the JWT.
+ *   <li>{@link TenantContext} — set by {@code OrganizationValidator} from the JWT.
  *       Leaking it would point a request at another tenant's database.</li>
  *   <li>The memoised {@code DatasetPermissions} — resolved once per request by
  *       {@link DatasetPermissionsResolver}. Leaking it would hand one caller another caller's

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.config;
+package ai.intellistream.datahub.tenant;
 
-import ai.intellistream.datahub.tenant.TenantContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.core.OAuth2TokenValidatorResult;
@@ -22,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class OrganizationValidatorTest {
 
-    private final SecurityConfig.OrganizationValidator validator = new SecurityConfig.OrganizationValidator();
+    private final OrganizationValidator validator = new OrganizationValidator();
 
     @AfterEach
     void clear() {
