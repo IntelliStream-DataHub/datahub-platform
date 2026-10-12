@@ -52,6 +52,9 @@ dependencies {
 		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
 	}
 
+	// XXH3 for the content hash in a run's records, the platform's hash function (IdGenerator).
+	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
+
 	// Fetches the JWT issuer-uri from Vault at startup, from the shared "datahub-platform" secret.
 	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
 
