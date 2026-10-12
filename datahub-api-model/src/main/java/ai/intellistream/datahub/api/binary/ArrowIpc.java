@@ -86,6 +86,52 @@ public final class ArrowIpc {
             }
             return new BatchData(rows, data);
         }
+
+        /**
+         * Rows {@code from} inclusive to {@code to} exclusive, to write into another stream: how a
+         * record batch longer than a frame is cut. Fixed-width and text bytes are views into this
+         * batch; text offsets are rebased and a validity bitmap re-packed, since neither can be
+         * sliced in place.
+         */
+        public BatchData slice(ArrowSchemaCanon canon, int from, int to) {
+            if (from == 0 && to == rows) {
+                return toData();
+            }
+            if (from < 0 || to > rows || from >= to) {
+                throw new IllegalArgumentException("rows " + from + " to " + to + " of " + rows);
+            }
+            int n = to - from;
+            ColumnData[] data = new ColumnData[columns.length];
+            for (int i = 0; i < columns.length; i++) {
+                ColumnView c = columns[i];
+                ByteBuffer validity = null;
+                int nullCount = 0;
+                if (c.nullCount() > 0) {
+                    validity = ByteBuffer.allocate((n + 7) >>> 3);
+                    for (int r = 0; r < n; r++) {
+                        if (c.isSet(from + r)) {
+                            validity.put(r >>> 3, (byte) (validity.get(r >>> 3) | (1 << (r & 7))));
+                        } else {
+                            nullCount++;
+                        }
+                    }
+                }
+                Kind kind = canon.columns().get(i).kind();
+                if (kind == Kind.UTF8) {
+                    int base = c.offsetAt(from);
+                    ByteBuffer offsets = ByteBuffer.allocate((n + 1) * 4).order(ByteOrder.LITTLE_ENDIAN);
+                    for (int r = 0; r <= n; r++) {
+                        offsets.putInt(r * 4, c.offsetAt(from + r) - base);
+                    }
+                    ByteBuffer text = c.data().slice(base, c.offsetAt(to) - base).order(ByteOrder.LITTLE_ENDIAN);
+                    data[i] = new ColumnData(validity, nullCount, offsets, text);
+                } else {
+                    int width = kind.width();
+                    data[i] = new ColumnData(validity, nullCount, null, c.data().slice(from * width, n * width).order(ByteOrder.LITTLE_ENDIAN));
+                }
+            }
+            return new BatchData(n, data);
+        }
     }
 
     /** The bytes of one column to write: the same shape as a view, from any source. */
@@ -312,9 +358,9 @@ public final class ArrowIpc {
      * however many points the window holds. {@link #next()} returns the batches in order, checked
      * like {@link #readStream}, and {@code null} once the end-of-stream marker has been read and
      * nothing follows it; a stream of only a schema yields no batch. With no total length to check
-     * a message against, its declared sizes are held to what the canon can carry: metadata over
-     * {@value #MAX_METADATA_BYTES} bytes or a body over {@link FrameLimits#MAX_FRAME_RAW_BYTES} is
-     * rejected before a byte of it is read.
+     * a message against, its declared sizes are held to what the caller will have: metadata over
+     * {@value #MAX_METADATA_BYTES} bytes or a body over {@code maxBodyBytes} is rejected before a
+     * byte of it is read, and a batch over {@code maxRows} as in {@link #readStream}.
      */
     public static final class StreamReader {
 
@@ -327,15 +373,17 @@ public final class ArrowIpc {
         private final InputStream in;
         private final int frameIndex;
         private final int maxRows;
+        private final long maxBodyBytes;
         private boolean schemaSeen;
         private boolean ended;
         private int messages;
 
-        public StreamReader(ArrowSchemaCanon canon, InputStream in, int frameIndex, int maxRows) {
+        public StreamReader(ArrowSchemaCanon canon, InputStream in, int frameIndex, int maxRows, long maxBodyBytes) {
             this.canon = canon;
             this.in = in;
             this.frameIndex = frameIndex;
             this.maxRows = maxRows;
+            this.maxBodyBytes = maxBodyBytes;
         }
 
         /** The next record batch, or {@code null} at the end of the stream. */
@@ -362,7 +410,7 @@ public final class ArrowIpc {
                 }
                 Message message = readMessage(ByteBuffer.wrap(read(metaLen)).order(ByteOrder.LITTLE_ENDIAN), frameIndex, "message " + messages);
                 long bodyLength = message.bodyLength();
-                if (bodyLength < 0 || bodyLength > FrameLimits.MAX_FRAME_RAW_BYTES) {
+                if (bodyLength < 0 || bodyLength > maxBodyBytes) {
                     throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message " + messages + " declares " + bodyLength + " body bytes");
                 }
                 byte[] body = bodyLength == 0 ? NO_BODY : read((int) bodyLength);

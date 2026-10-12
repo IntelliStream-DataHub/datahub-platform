@@ -109,7 +109,8 @@ public class ClickHouseDatapointService extends ClickHouseService{
      * ClickHouse's own Arrow stream, handed over as it arrives so a window of any size is never
      * held whole; closing the stream ends the query. The output settings make that stream the
      * contract's canon, so the API checks it and wraps it in frames without decoding a row;
-     * {@code max_block_size} keeps each record batch within a frame's row cap. {@code FINAL}
+     * {@code max_block_size} asks for record batches of about a frame's rows, though a merge can
+     * answer with a larger one, which the framing cuts. {@code FINAL}
      * because a ReplacingMergeTree holds a re-sent point twice until it merges, and a frame may not
      * repeat a timestamp. A {@code limit} of 0 is none: the whole window in timestamp order, which
      * the tables' {@code (timeseries_id, timestamp)} key lets ClickHouse read without a sort.

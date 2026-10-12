@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
-import ai.intellistream.datahub.api.binary.ArrowIpc;
-import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.FrameFormatException;
@@ -513,7 +511,7 @@ public class TimeseriesService {
                     throw new BadRequestException("`granularity` is not a number and a unit, such as `1h`.", "granularity", f.getGranularity());
                 }
             }
-            if (f.getLimit() != null && f.getLimit() > 0) {
+            if (f.hasLimit()) {
                 explicitRows += f.getLimit();
             } else {
                 unlimited++;
@@ -552,7 +550,7 @@ public class TimeseriesService {
                 throw new BadRequestException("Series " + node.get().getExternalId() + " holds text, which has no aggregates.",
                         "aggregates", String.join(",", f.getAggregates()));
             }
-            long limit = f.getLimit() != null && f.getLimit() > 0 ? f.getLimit() : share;
+            long limit = f.hasLimit() ? f.getLimit() : share;
             int frameRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
             reads.add(new BinaryRead(node.get(), f, limit, aggregates, frameRows));
         }
@@ -565,38 +563,21 @@ public class TimeseriesService {
 
     /**
      * Writes each planned series as frames, in request order: ClickHouse's Arrow stream for it,
-     * checked against the canon and cut into frames at record-batch boundaries as it arrives, so
-     * the response holds one frame's rows at a time however long the series. Each frame is flushed
-     * as it is complete. A series with no points in its window writes nothing. The end marker comes
-     * last and only on success, so a response that fails partway can never pass for a complete one.
+     * checked against the canon and cut into full frames as it arrives, so the response holds one
+     * frame's rows at a time however long the series. Each frame is flushed as it is complete. A
+     * series with no points in its window writes nothing. The end marker comes last and only on
+     * success, so a response that fails partway can never pass for a complete one.
      */
     public void writeFrames(List<BinaryRead> reads, OutputStream out) throws IOException {
         String tenantId = TenantContext.getTenantId();
         for (BinaryRead read : reads) {
             TimeseriesEntity series = read.series();
             DatapointValueType type = DatapointValueType.fromId(series.getValueType().getId());
-            ArrowSchemaCanon canon = read.aggregates() ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
-            List<ArrowIpc.BatchData> frame = new ArrayList<>();
-            int frameRows = 0;
             try (InputStream stream = clickHouseDatapointService.openArrowStream(tenantId, series, read.filter(), read.limit(), read.frameRows())) {
-                ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, read.frameRows());
-                for (ArrowIpc.Batch batch = reader.next(); batch != null; batch = reader.next()) {
-                    if (frameRows + batch.rows() > read.frameRows()) {
-                        out.write(DatapointFrameWriter.wrap(type, read.aggregates(), series.getId(), series.getExternalId(), frame, READ_CODEC));
-                        out.flush();
-                        frame = new ArrayList<>();
-                        frameRows = 0;
-                    }
-                    frame.add(batch.toData());
-                    frameRows += batch.rows();
-                }
+                DatapointFrameWriter.wrapStream(type, read.aggregates(), series.getId(), series.getExternalId(), stream, READ_CODEC, out);
             } catch (FrameFormatException e) {
                 // Our own query's output, so a mismatch is a server fault, not the caller's.
                 throw new IllegalStateException("ClickHouse answered series " + series.getId() + " outside the canon: " + e.getMessage(), e);
-            }
-            if (!frame.isEmpty()) {
-                out.write(DatapointFrameWriter.wrap(type, read.aggregates(), series.getId(), series.getExternalId(), frame, READ_CODEC));
-                out.flush();
             }
         }
         out.write(FrameLimits.END_OF_RESPONSE);

@@ -151,7 +151,7 @@ public class DatapointBinaryController {
                     Rows are not budgeted. An item without a `limit` returns every point in its window,
                     however many, so bound a long series with `end`. An item's `limit` caps it at that
                     many rows, at most 100 000 (the retrieve body's own ceiling); to read more than that
-                    of one series, leave it out. A request-level `limit`, if given, is the request's
+                    of one series, leave it out or send `null`. A request-level `limit`, if given, is the request's
                     total: the items' limits may not add up to more, and the items without one share
                     what is left.
 

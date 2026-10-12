@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.api.binary;
 
+import ai.intellistream.datahub.api.binary.ArrowIpc.Batch;
 import ai.intellistream.datahub.api.binary.ArrowIpc.BatchData;
 import ai.intellistream.datahub.api.binary.ArrowIpc.ColumnData;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -261,6 +266,42 @@ public final class DatapointFrameWriter {
         byte[] raw = ArrowIpc.writeStream(aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type), batches);
         int codecId = aggregates ? FrameLimits.CODEC_ARROW_IPC_AGGREGATES : FrameLimits.CODEC_ARROW_IPC;
         return assemble(type, codecId, rows, new long[]{id}, new byte[][]{externalIdBytes}, directoryLength, raw, codec);
+    }
+
+    /**
+     * Frames one series' Arrow stream as it is read: every frame but the last holds exactly the
+     * row cap, record batches being cut to fit, and each is written and flushed as soon as it is
+     * full, so the stream is never held whole. This is how the API answers a binary read from
+     * ClickHouse's output, whose record batches are bounded by nothing of ours: one is held to
+     * {@link FrameLimits#MAX_REQUEST_RAW_BYTES}, and any number of rows. A stream with no batch
+     * writes nothing.
+     */
+    public static void wrapStream(DatapointValueType type, boolean aggregates, long id, String externalId,
+                                  InputStream stream, PayloadCodec codec, OutputStream out) throws IOException {
+        ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
+        int cap = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
+        ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, Integer.MAX_VALUE, FrameLimits.MAX_REQUEST_RAW_BYTES);
+        List<BatchData> frame = new ArrayList<>();
+        int rows = 0;
+        for (Batch batch = reader.next(); batch != null; batch = reader.next()) {
+            int from = 0;
+            while (from < batch.rows()) {
+                int take = Math.min(batch.rows() - from, cap - rows);
+                frame.add(batch.slice(canon, from, from + take));
+                rows += take;
+                from += take;
+                if (rows == cap) {
+                    out.write(wrap(type, aggregates, id, externalId, frame, codec));
+                    out.flush();
+                    frame = new ArrayList<>();
+                    rows = 0;
+                }
+            }
+        }
+        if (rows > 0) {
+            out.write(wrap(type, aggregates, id, externalId, frame, codec));
+            out.flush();
+        }
     }
 
     private static byte[] assemble(DatapointValueType type, int codecId, int n, long[] directoryIds, byte[][] externalIds,

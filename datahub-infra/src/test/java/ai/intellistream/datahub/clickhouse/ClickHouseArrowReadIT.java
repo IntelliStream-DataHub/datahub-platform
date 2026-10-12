@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse;
 
-import ai.intellistream.datahub.api.binary.ArrowIpc;
-import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointFrame;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
@@ -47,8 +45,8 @@ import static org.mockito.Mockito.when;
  * returns is the canon for every value type and for aggregates, so the API can frame it without
  * decoding a row, and the frames read back as the points that were written. Also pins what the
  * query has to get right on the server's side: a re-sent point read once ({@code FINAL}), a legacy
- * table without a zone on its timestamp, millisecond window bounds, and record batches that never
- * outgrow a frame. Needs a container runtime; run with {@code ./gradlew :datahub-infra:integrationTest}.
+ * table without a zone on its timestamp, millisecond window bounds, and a series longer than a
+ * frame cut into full frames. Needs a container runtime; run with {@code ./gradlew :datahub-infra:integrationTest}.
  */
 @Tag("integration")
 class ClickHouseArrowReadIT {
@@ -127,13 +125,9 @@ class ClickHouseArrowReadIT {
     private static List<DatapointFrame> read(DatapointValueType type, long id, RetrieveFilter f, long limit) throws Exception {
         boolean aggregates = !f.getAggregates().isEmpty();
         int frameRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
-        ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         try (InputStream stream = service.openArrowStream("t", series(type, id), f, limit, frameRows)) {
-            ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, frameRows);
-            for (ArrowIpc.Batch batch = reader.next(); batch != null; batch = reader.next()) {
-                body.writeBytes(DatapointFrameWriter.wrap(type, aggregates, id, "s" + id, List.of(batch.toData()), ZSTD));
-            }
+            DatapointFrameWriter.wrapStream(type, aggregates, id, "s" + id, stream, ZSTD, body);
         }
         body.writeBytes(FrameLimits.END_OF_RESPONSE);
         return DatapointFrame.parseResponse(body.toByteArray(), ZSTD);
@@ -230,8 +224,8 @@ class ClickHouseArrowReadIT {
     }
 
     @Test
-    void recordBatchesStayWithinTheFrameRowCap() throws Exception {
-        // 25 000 text rows against a 10 000-row frame cap: read() refuses any batch over the cap.
+    void aSeriesLongerThanAFrameIsCutIntoFullFrames() throws Exception {
+        // 25 000 text rows against a 10 000-row frame cap, however ClickHouse blocks them.
         int rows = 25_000;
         List<DatapointFrame> parts = new ArrayList<>();
         for (int start = 0; start < rows; start += 10_000) {
@@ -246,7 +240,7 @@ class ClickHouseArrowReadIT {
         }
         List<DatapointFrame> frames = read(DatapointValueType.TEXT, 1100, window(null, null), 0);
         assertEquals(rows, timestamps(frames).size());
-        assertTrue(frames.size() >= 3, "frames: " + frames.size());
+        assertEquals(List.of(10_000, 10_000, 5_000), frames.stream().map(DatapointFrame::rowCount).toList());
     }
 
     @Test
@@ -278,7 +272,7 @@ class ClickHouseArrowReadIT {
     }
 
     @Test
-    void aggregateBatchesStayWithinTheFrameRowCap() throws Exception {
+    void aggregatesLongerThanAFrameAreCutIntoFullFrames() throws Exception {
         // 60 000 one-second buckets against a 50 000-row aggregate frame cap.
         int rows = 60_000;
         for (int start = 0; start < rows; start += 50_000) {
@@ -294,7 +288,7 @@ class ClickHouseArrowReadIT {
         f.setGranularity("1s");
         List<DatapointFrame> frames = read(DatapointValueType.FLOAT, 1400, f, 0);
         assertEquals(rows, timestamps(frames).size());
-        assertTrue(frames.size() >= 2, "frames: " + frames.size());
+        assertEquals(List.of(50_000, 10_000), frames.stream().map(DatapointFrame::rowCount).toList());
     }
 
     @Test

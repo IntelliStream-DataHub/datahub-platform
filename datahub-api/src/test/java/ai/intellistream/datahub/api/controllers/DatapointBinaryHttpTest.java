@@ -259,7 +259,7 @@ class DatapointBinaryHttpTest {
                 .thenAnswer(i -> new ByteArrayInputStream(arrowStream(3, "c", 2)));
 
         HttpResponse<byte[]> response = read("""
-                {"items": [{"start": 1700000000000, "externalId": "c"}, {"start": 1700000000000, "externalId": "b"}, {"start": 1700000000000, "id": 1, "limit": 500}]}
+                {"items": [{"start": 1700000000000, "externalId": "c", "limit": null}, {"start": 1700000000000, "externalId": "b"}, {"start": 1700000000000, "id": 1, "limit": 500}]}
                 """);
 
         assertThat(response.statusCode()).isEqualTo(200);
@@ -270,19 +270,20 @@ class DatapointBinaryHttpTest {
         assertThat(frames).extracting(f -> f.externalIds()[0]).containsExactly("c", "a");
         assertThat(frames).extracting(DatapointFrame::rowCount).containsExactly(2, 3);
         assertThat(frames.get(1).valueAsString(2)).isEqualTo("2.0");
-        // An explicit limit is kept; an item without one reads its whole window.
+        // An explicit limit is kept; an item without one, sent as null the way the other SDKs do
+        // or left out, reads its whole window.
         verify(clickHouseDatapointService).openArrowStream(any(), seriesId(1), any(), eq(500L),
                 eq(FrameLimits.maxRows(DatapointValueType.FLOAT32)));
         verify(clickHouseDatapointService).openArrowStream(any(), seriesId(3), any(), eq(0L), anyInt());
     }
 
     @Test
-    void recordBatchesArePackedIntoFramesUpToTheRowCap() throws Exception {
+    void recordBatchesAreCutIntoFullFrames() throws Exception {
         when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
         TimeseriesEntity text = series(6, "t");
         text.setValueType(new TimeseriesValueType(DatapointValueType.TEXT.id()));
         when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(text));
-        // Three 4 000-row batches against a 10 000-row text frame: two fit in the first frame.
+        // Three 4 000-row batches against a 10 000-row text frame: the third is cut across two frames.
         List<ArrowIpc.BatchData> batches = new java.util.ArrayList<>();
         for (int b = 0; b < 3; b++) {
             DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.TEXT).series(6, "t");
@@ -301,8 +302,10 @@ class DatapointBinaryHttpTest {
 
         assertThat(response.statusCode()).isEqualTo(200);
         List<DatapointFrame> frames = DatapointFrame.parseResponse(response.body(), new ZstdPayloadCodec());
-        assertThat(frames).extracting(DatapointFrame::rowCount).containsExactly(8000, 4000);
-        assertThat(frames.get(1).timestamp(3999)).isEqualTo(1_700_000_000_000L + 11_999);
+        assertThat(frames).extracting(DatapointFrame::rowCount).containsExactly(10_000, 2000);
+        assertThat(frames.get(0).valueAsString(9999)).isEqualTo("v1999");
+        assertThat(frames.get(1).timestamp(1999)).isEqualTo(1_700_000_000_000L + 11_999);
+        assertThat(frames.get(1).valueAsString(0)).isEqualTo("v2000");
     }
 
     @Test

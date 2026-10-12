@@ -48,7 +48,7 @@ class ArrowIpcStreamReaderTest {
     }
 
     private static List<Batch> readAll(byte[] stream, int maxRows) throws IOException {
-        ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(CANON, new ByteArrayInputStream(stream), 0, maxRows);
+        ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(CANON, new ByteArrayInputStream(stream), 0, maxRows, FrameLimits.MAX_FRAME_RAW_BYTES);
         List<Batch> out = new ArrayList<>();
         for (Batch b = reader.next(); b != null; b = reader.next()) {
             out.add(b);
