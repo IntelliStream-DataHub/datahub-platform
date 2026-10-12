@@ -52,6 +52,10 @@ dependencies {
 		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
 	}
 
+	// The run records go into each tenant's ClickHouse (flow_run_event) and are read back from it.
+	// infra pools the clients, but keeps the client library to itself.
+	implementation 'com.clickhouse:client-v2:0.10.0'
+
 	// XXH3 for the content hash in a run's records, the platform's hash function (IdGenerator).
 	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
 
@@ -66,6 +70,7 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
 	testImplementation 'org.testcontainers:pulsar:1.21.4'
+	testImplementation 'org.testcontainers:clickhouse:1.21.4'
 	// SharedPostgres: one migrated Postgres container, a database per test class (FlowRepositoryIT).
 	testImplementation testFixtures(project(':datahub-infra'))
 }

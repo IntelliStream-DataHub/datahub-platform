@@ -6,12 +6,12 @@ import ai.intellistream.datahub.flow.definition.FlowDefinitions;
 import ai.intellistream.datahub.flow.definition.InvalidFlowException;
 import ai.intellistream.datahub.flow.engine.CompiledFlow;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
-import ai.intellistream.datahub.flow.engine.RecordSink;
 import ai.intellistream.datahub.flow.engine.RunExecutor;
 import ai.intellistream.datahub.flow.engine.RunRequest;
 import ai.intellistream.datahub.flow.engine.RunResult;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
+import ai.intellistream.datahub.flow.records.RunRecords;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
 import ai.intellistream.datahub.flow.runs.RunRepository.Claimed;
 import ai.intellistream.datahub.models.IdCollection;
@@ -34,6 +34,7 @@ import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,6 +55,12 @@ import java.util.function.Supplier;
  * SDK's ingest makes on its own threads — and sends nothing once the lease is lost or has less left
  * than the request could take ({@code datahub.flow.runs.request-timeout}, which is also every
  * request's timeout). So nothing a fenced run does afterwards reaches DataHub.
+ *
+ * <p><b>The records.</b> What the engine records goes to the tenant's records topic as the run goes
+ * ({@link RunRecords}), and the attempt is not finished until Pulsar has acknowledged all of it: a
+ * run is never {@code SUCCEEDED} with records only in memory. The wait is the run's remaining time,
+ * but at least {@code datahub.flow.records.ack-wait}, so a run that used its time up still gets its
+ * records out; one whose records cannot be published fails with {@code RECORDS_UNPUBLISHED}.
  */
 @Slf4j
 @Component
@@ -72,6 +79,8 @@ public class RunExecution {
     private final String apiBaseUrl;
     private final Duration requestTimeout;
     private final JsonMapper json;
+    private final RunRecords.Opener records;
+    private final Duration ackWait;
     private final HttpClient http = HttpClient.newHttpClient();
 
     /** Compiled versions by tenant, flow and version; a definition is never compiled twice. */
@@ -89,17 +98,19 @@ public class RunExecution {
                         TenantConfigWriter tenantConfig,
                         @Value("${datahub.api.url:http://localhost:8081}") String apiBaseUrl,
                         @Value("${datahub.flow.runs.request-timeout:PT30S}") Duration requestTimeout,
-                        JsonMapper json) {
+                        JsonMapper json, RunRecords.Opener records,
+                        @Value("${datahub.flow.records.ack-wait:PT30S}") Duration ackWait) {
         this(compiler, executor, flows, jdbc, credentials, tenantId -> {
             // Read when the run starts, never cached: a secret changed a moment ago is the one used.
             Tenant tenant = tenants.getConfig(tenantId);
             return tenantConfig.current(tenant.getOrganizationName());
-        }, apiBaseUrl, requestTimeout, json);
+        }, apiBaseUrl, requestTimeout, json, records, ackWait);
     }
 
     RunExecution(FlowCompiler compiler, RunExecutor executor, FlowRepository flows, JdbcTemplate jdbc,
                  RunCredentials credentials, Function<String, Map<String, String>> tenantSecrets,
-                 String apiBaseUrl, Duration requestTimeout, JsonMapper json) {
+                 String apiBaseUrl, Duration requestTimeout, JsonMapper json, RunRecords.Opener records,
+                 Duration ackWait) {
         this.compiler = compiler;
         this.executor = executor;
         this.flows = flows;
@@ -109,6 +120,8 @@ public class RunExecution {
         this.apiBaseUrl = apiBaseUrl;
         this.requestTimeout = requestTimeout;
         this.json = json;
+        this.records = records;
+        this.ackWait = ackWait;
     }
 
     Duration requestTimeout() {
@@ -155,8 +168,16 @@ public class RunExecution {
         AtomicReference<Map<String, String>> secrets = new AtomicReference<>();
         Function<String, String> secret = name -> TenantFlowSection.secretValue(
                 secrets.updateAndGet(s -> s != null ? s : tenantSecrets.apply(run.tenantId)), name);
-        Long dataSetId = claimed.flowId() == null ? null : jdbc.queryForObject(
-                "SELECT data_set_id FROM flow.flow WHERE id = ?", Long.class, claimed.flowId());
+        Long dataSetId = null;
+        String flowExternalId;
+        if (claimed.flowId() == null) {
+            flowExternalId = FlowDefinitions.parse(claimed.definition()).externalId();
+        } else {
+            Map<String, Object> row = jdbc.queryForMap(
+                    "SELECT data_set_id, external_id FROM flow.flow WHERE id = ?", claimed.flowId());
+            dataSetId = (Long) row.get("data_set_id");
+            flowExternalId = (String) row.get("external_id");
+        }
         if (dataSetId != null && dataSetDeleted(datahub, dataSetId)) {
             flows.disable(claimed.flowId(), RunCoordinator.DATASET_DELETED);
             log.warn("Flow {}'s dataset {} is gone: the flow is switched off", claimed.flowId(), dataSetId);
@@ -167,10 +188,32 @@ public class RunExecution {
         RunRequest request = new RunRequest(claimed.id(), claimed.attempt(), claimed.window(),
                 parameters(claimed.parameters()), claimed.preview(), claimed.memoryBytes(), secret,
                 run::shouldStop, dataSetId, datahub);
-        // The records go nowhere yet: the next slice publishes them to the tenant's records topic
-        // and waits for Pulsar to acknowledge the last batch before the run may finish.
-        RecordSink records = record -> { };
-        return executor.execute(flow, request, records);
+        RunRecords sink = records.open(run.tenantId, claimed.id(), claimed.attempt(),
+                flowExternalId == null ? "" : flowExternalId,
+                claimed.version() == null ? 0 : claimed.version());
+        RunResult result = executor.execute(flow, request, sink);
+        Duration left = run.timeLeft();
+        try {
+            sink.finish(left.compareTo(ackWait) > 0 ? left : ackWait);
+        } catch (RunRecords.UnpublishedException e) {
+            log.warn("Run {} attempt {}: {}", claimed.id(), claimed.attempt(), e.getMessage());
+            return unpublished(result, e.getMessage());
+        }
+        return result;
+    }
+
+    /**
+     * A run whose records did not reach Pulsar: failed, keeping what it ran with. A run that had
+     * already failed keeps its own error, with the records' failure added to its log.
+     */
+    private static RunResult unpublished(RunResult result, String error) {
+        List<LogLine> log = new ArrayList<>(result.log());
+        log.add(new LogLine(Instant.now(Clock.systemUTC()), null, "ERROR", error));
+        boolean succeeded = result.status() == RunResult.Status.SUCCEEDED;
+        return new RunResult(succeeded ? RunResult.Status.FAILED : result.status(),
+                succeeded ? RunCoordinator.RECORDS_UNPUBLISHED : result.errorCode(),
+                succeeded ? error : result.error(), result.failedProcessor(), result.parameters(),
+                result.secretsUsed(), result.processorVersions(), List.copyOf(log), result.records());
     }
 
     /**

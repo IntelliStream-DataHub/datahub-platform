@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow;
 
+import ai.intellistream.datahub.clickhouse.ClickHouseClientPool;
 import ai.intellistream.datahub.config.BaseConfig;
 import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
 import ai.intellistream.datahub.config.PulsarConfig;
@@ -24,14 +25,15 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * ({@code TenantConfigService}, and {@code TenantLlmStore} which it is built with) and the
  * {@code VaultProperties} bean, imported one by one, with {@code TenantConfigWriter} for reading the
  * tenant's flow settings (the names of its secrets), and from infra the Pulsar client and admin
- * ({@code PulsarConfig}); infra's configuration package is not scanned, so its JPA, Neo4j and Valkey
- * wiring stays off. Scheduling is enabled for the registry's
- * five-minute refresh, which is also what announces a tenant added while the service runs.
+ * ({@code PulsarConfig}) and the per-tenant ClickHouse clients the run records are stored and read
+ * with ({@code ClickHouseClientPool}); infra's configuration package is not scanned, so its JPA,
+ * Neo4j and Valkey wiring stays off. Scheduling is enabled for the registry's five-minute refresh,
+ * which is also what announces a tenant added while the service runs.
  */
 @SpringBootApplication
 @EnableScheduling
 @Import({BaseConfig.class, TenantConfigService.class, TenantLlmStore.class, TenantConfigWriter.class,
-		PulsarConfig.class})
+		PulsarConfig.class, ClickHouseClientPool.class})
 public class DatahubFlowApplication {
 
 	public static void main(String[] args) {

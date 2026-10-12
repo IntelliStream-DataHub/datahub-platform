@@ -80,6 +80,11 @@ final class ActiveRun {
         return stop.get() != null;
     }
 
+    /** How long the run has left before its timeout; negative once it is past it. */
+    Duration timeLeft() {
+        return Duration.ofNanos(timeoutDeadline - nanoTime.getAsLong());
+    }
+
     /**
      * Whether the lease will still be held when a call taking up to {@code callTimeout} finishes.
      * The fence: the run's DataHub client asks this before every request and sends nothing when the
