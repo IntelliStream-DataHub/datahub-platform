@@ -1,0 +1,31 @@
+// datahub-flow-api — the interface every flow processor implements.
+//
+// Apache-2.0, like datahub-api-model and the Java SDK, and for the same reason: a partner's
+// processor, or later a tenant's, is written against this module and must not be forced under the
+// AGPL. So it may depend only on Apache-licensed code — never on datahub-commons or datahub-infra.
+//
+// It carries arrow-vector, because a timeseries item's content is an Arrow batch. Whoever
+// implements a processor therefore inherits Arrow's jars and the JVM flags Arrow needs on Java 25
+// (see datahub-flow's build.gradle). That is accepted here, where it was not for datahub-api-model
+// (ArrowIpc's javadoc): a processor runs inside the flow service, which controls its own JVM, not
+// inside someone else's application.
+//
+// The Spring Boot plugins are applied only for dependency-version management, as in
+// datahub-api-model. Not published to Maven Central yet.
+
+plugins {
+    id 'ai.intellistream.datahub.java-library-conventions'
+    id 'org.springframework.boot'
+    id 'io.spring.dependency-management'
+}
+
+dependencies {
+    api "org.apache.arrow:arrow-vector:${arrowVersion}"
+    // The allocation manager arrow-memory-core looks up at runtime. The Unsafe one rather than the
+    // Netty one: it adds no jars of its own.
+    runtimeOnly "org.apache.arrow:arrow-memory-unsafe:${arrowVersion}"
+}
+
+// Library module: no main class, so don't build an executable boot jar.
+bootJar { enabled = false }
+jar { enabled = true; archiveClassifier = '' }

@@ -1,0 +1,70 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+}
+
+group = 'ai.intellistream.datahub.flow'
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// The processor interface (Apache-2.0), and with it arrow-vector.
+	implementation project(':datahub-flow-api')
+
+	// TenantConfigService (the tenant registry and its feature flags) from commons; from infra the
+	// multi-tenant routing datasource and the OrganizationValidator the api resolves tenants with.
+	// Infra brings JPA, Neo4j, Valkey and ClickHouse clients too; none are scanned or configured
+	// here (see DatahubFlowApplication and application.properties).
+	implementation project(':datahub-commons')
+	implementation project(':datahub-infra')
+
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+	// JdbcTemplate and a plain DataSourceTransactionManager over the routing datasource. No JPA:
+	// the flow tables are small and their statements are hand-written (SKIP LOCKED claims).
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// Fetches the JWT issuer-uri from Vault at startup, from the shared "datahub-platform" secret.
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// What Arrow needs from the JVM on Java 25, found by starting the service without flags:
+//  - its IPC path wraps Arrow memory in NIO buffers through a private java.nio constructor; without
+//    the opens, ArrowMemoryConfig's startup check fails with "sun.misc.Unsafe or
+//    java.nio.DirectByteBuffer.<init>(long, int) not available". On the classpath Arrow is in the
+//    unnamed module, so ALL-UNNAMED is the target (naming org.apache.arrow.memory.core only warns
+//    "Unknown module");
+//  - it allocates through sun.misc.Unsafe, whose memory methods JDK 25 warns about on first use and
+//    a later JDK will refuse by default. This allows them explicitly.
+// The same flags go into the service's compose JAVA_TOOL_OPTIONS and systemd/env/flow.env.
+def arrowJvmFlags = ['--add-opens=java.base/java.nio=ALL-UNNAMED', '--sun-misc-unsafe-memory-access=allow']
+
+tasks.named('test') {
+	useJUnitPlatform()
+	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=1g']
+}
+
+tasks.named('bootRun') {
+	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=1g']
+}

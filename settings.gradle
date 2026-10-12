@@ -29,4 +29,6 @@ include(
         'datahub-pulsar-filter',
         'datahub-cleanup',
         'datahub-e2e',
+        'datahub-flow-api',
+        'datahub-flow',
 )
