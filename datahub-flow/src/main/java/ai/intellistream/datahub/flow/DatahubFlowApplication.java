@@ -8,6 +8,7 @@ import ai.intellistream.datahub.config.PulsarVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import ai.intellistream.datahub.flow.config.FlowVaultSecrets;
 import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import ai.intellistream.datahub.tenant.TenantLlmStore;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -21,14 +22,16 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  *
  * <p>Component scanning stays inside this module. From commons it takes only the tenant registry
  * ({@code TenantConfigService}, and {@code TenantLlmStore} which it is built with) and the
- * {@code VaultProperties} bean, imported one by one, and from infra the Pulsar client and admin
+ * {@code VaultProperties} bean, imported one by one, with {@code TenantConfigWriter} for reading the
+ * tenant's flow settings (the names of its secrets), and from infra the Pulsar client and admin
  * ({@code PulsarConfig}); infra's configuration package is not scanned, so its JPA, Neo4j and Valkey
  * wiring stays off. Scheduling is enabled for the registry's
  * five-minute refresh, which is also what announces a tenant added while the service runs.
  */
 @SpringBootApplication
 @EnableScheduling
-@Import({BaseConfig.class, TenantConfigService.class, TenantLlmStore.class, PulsarConfig.class})
+@Import({BaseConfig.class, TenantConfigService.class, TenantLlmStore.class, TenantConfigWriter.class,
+		PulsarConfig.class})
 public class DatahubFlowApplication {
 
 	public static void main(String[] args) {
