@@ -264,9 +264,11 @@ public final class TimeseriesService {
      * {@link DatapointFrame#avg} and its siblings when {@link DatapointFrame#aggregates()}.
      *
      * <p>Each item needs a {@code start} or an {@code end}, and returns its {@code limit} oldest
-     * points from there (an even share of one million when it has none). There is no cursor: to
-     * read further, ask again with {@code start} one millisecond past the last timestamp received.
-     * An item with {@code aggregates} and a {@code granularity} always carries all four aggregates.
+     * points from there, or every point in its window when it has none. The whole answer is held
+     * in memory before the first frame is returned, so bound a long series with {@code end} or a
+     * {@code limit} and read it in several requests. There is no cursor: to read further, ask again
+     * with {@code start} one millisecond past the last timestamp received. An item with
+     * {@code aggregates} and a {@code granularity} always carries all four aggregates.
      *
      * <p>A response the server could not finish throws {@link DatahubApiException} with status 0;
      * sending the request again is safe.

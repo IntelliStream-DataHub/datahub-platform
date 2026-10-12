@@ -230,9 +230,11 @@ for (DatapointFrame frame : client.timeseries().retrieveBinary(request)) {
 }
 ```
 
-Each item returns its `limit` oldest points from `start`, up to a million rows per request in all.
-There is no cursor: to read on, send the request again with `start` one millisecond past the last
-timestamp you got. An item with `aggregates` and a `granularity` comes back as aggregate frames
+Each item returns its `limit` oldest points from `start`, or every point in its window when it has
+none. The whole answer is held in memory before the first frame is returned, so bound a long series
+with `end` or a `limit` and read it in several requests. There is no cursor: to read on, send the
+request again with `start` one millisecond past the last timestamp you got. An item with
+`aggregates` and a `granularity` comes back as aggregate frames
 carrying `avg`, `min`, `max` and `sum` together. A response the server could not finish throws a
 `DatahubApiException` with status 0 rather than returning fewer points, and is safe to send again.
 

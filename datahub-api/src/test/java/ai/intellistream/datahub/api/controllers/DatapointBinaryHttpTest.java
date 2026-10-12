@@ -40,6 +40,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -57,6 +58,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -248,13 +250,13 @@ class DatapointBinaryHttpTest {
         TimeseriesEntity b = series(2, "b");
         TimeseriesEntity c = series(3, "c");
         when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(a, b, c));
-        when(clickHouseDatapointService.fetchArrowStream(any(), seriesId(1), any(), anyLong(), anyInt()))
-                .thenReturn(arrowStream(1, "a", 3));
+        when(clickHouseDatapointService.openArrowStream(any(), seriesId(1), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(arrowStream(1, "a", 3)));
         // b has no points in the window: ClickHouse answers with a schema and no batch.
-        when(clickHouseDatapointService.fetchArrowStream(any(), seriesId(2), any(), anyLong(), anyInt()))
-                .thenReturn(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), List.of()));
-        when(clickHouseDatapointService.fetchArrowStream(any(), seriesId(3), any(), anyLong(), anyInt()))
-                .thenReturn(arrowStream(3, "c", 2));
+        when(clickHouseDatapointService.openArrowStream(any(), seriesId(2), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), List.of())));
+        when(clickHouseDatapointService.openArrowStream(any(), seriesId(3), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(arrowStream(3, "c", 2)));
 
         HttpResponse<byte[]> response = read("""
                 {"items": [{"start": 1700000000000, "externalId": "c"}, {"start": 1700000000000, "externalId": "b"}, {"start": 1700000000000, "id": 1, "limit": 500}]}
@@ -268,10 +270,10 @@ class DatapointBinaryHttpTest {
         assertThat(frames).extracting(f -> f.externalIds()[0]).containsExactly("c", "a");
         assertThat(frames).extracting(DatapointFrame::rowCount).containsExactly(2, 3);
         assertThat(frames.get(1).valueAsString(2)).isEqualTo("2.0");
-        // An explicit limit is kept; the others share what is left of the million.
-        verify(clickHouseDatapointService).fetchArrowStream(any(), seriesId(1), any(), eq(500L),
+        // An explicit limit is kept; an item without one reads its whole window.
+        verify(clickHouseDatapointService).openArrowStream(any(), seriesId(1), any(), eq(500L),
                 eq(FrameLimits.maxRows(DatapointValueType.FLOAT32)));
-        verify(clickHouseDatapointService).fetchArrowStream(any(), seriesId(3), any(), eq(100_000L), anyInt());
+        verify(clickHouseDatapointService).openArrowStream(any(), seriesId(3), any(), eq(0L), anyInt());
     }
 
     @Test
@@ -290,8 +292,8 @@ class DatapointBinaryHttpTest {
             batches.add(DatapointFrame.parseAll(w.build(new ZstdPayloadCodec(1)), new ZstdPayloadCodec(1))
                     .get(0).batches().get(0).toData());
         }
-        when(clickHouseDatapointService.fetchArrowStream(any(), any(), any(), anyLong(), anyInt()))
-                .thenReturn(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.TEXT), batches));
+        when(clickHouseDatapointService.openArrowStream(any(), any(), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.TEXT), batches)));
 
         HttpResponse<byte[]> response = read("""
                 {"items": [{"start": 1700000000000, "externalId": "t"}]}
@@ -326,10 +328,10 @@ class DatapointBinaryHttpTest {
                 """);
         assertThat(unknown.statusCode()).isEqualTo(400);
         assertThat(new String(unknown.body(), StandardCharsets.UTF_8)).contains("nope");
-        verify(clickHouseDatapointService, never()).fetchArrowStream(any(), any(), any(), anyLong(), anyInt());
+        verify(clickHouseDatapointService, never()).openArrowStream(any(), any(), any(), anyLong(), anyInt());
 
-        when(clickHouseDatapointService.fetchArrowStream(any(), any(), any(), anyLong(), anyInt()))
-                .thenReturn(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), List.of()));
+        when(clickHouseDatapointService.openArrowStream(any(), any(), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), List.of())));
         HttpResponse<byte[]> ignored = read("""
                 {"items": [{"start": 1700000000000, "externalId": "a"}, {"start": 1700000000000, "externalId": "nope"}], "ignoreUnknownIds": true}
                 """);
@@ -341,7 +343,7 @@ class DatapointBinaryHttpTest {
     void aClickHouseFailureBeforeTheFirstFrameIsAServerErrorNotAnEmptyAnswer() throws Exception {
         when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
         when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(series(1, "a")));
-        when(clickHouseDatapointService.fetchArrowStream(any(), any(), any(), anyLong(), anyInt()))
+        when(clickHouseDatapointService.openArrowStream(any(), any(), any(), anyLong(), anyInt()))
                 .thenThrow(new RuntimeException("ClickHouse went away"));
 
         HttpResponse<byte[]> response = read("""
@@ -351,6 +353,24 @@ class DatapointBinaryHttpTest {
         assertThat(response.statusCode()).isEqualTo(500);
         assertThat(response.headers().firstValue("Content-Type"))
                 .hasValueSatisfying(t -> assertThat(t).startsWith("application/problem+json"));
+    }
+
+    @Test
+    void aFailureAfterTheFirstFrameAbortsTheResponseRatherThanEndingIt() throws Exception {
+        when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
+        when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(series(1, "a"), series(2, "b")));
+        when(clickHouseDatapointService.openArrowStream(any(), seriesId(1), any(), anyLong(), anyInt()))
+                .thenAnswer(i -> new ByteArrayInputStream(arrowStream(1, "a", 3)));
+        when(clickHouseDatapointService.openArrowStream(any(), seriesId(2), any(), anyLong(), anyInt()))
+                .thenThrow(new RuntimeException("ClickHouse went away"));
+
+        // The first frame was flushed, so the 200 and the frame are out. The container then drops
+        // the connection without the last chunk: a client sees a transport error, and one that kept
+        // what arrived holds a body without the end marker. Either way, never a complete answer.
+        assertThatThrownBy(() -> read("""
+                {"items": [{"start": 1700000000000, "externalId": "a"}, {"start": 1700000000000, "externalId": "b"}]}
+                """)).isInstanceOf(IOException.class);
+        verify(clickHouseDatapointService).openArrowStream(any(), seriesId(2), any(), anyLong(), anyInt());
     }
 
     @Test

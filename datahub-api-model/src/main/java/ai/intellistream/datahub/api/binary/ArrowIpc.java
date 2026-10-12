@@ -14,6 +14,8 @@ import org.apache.arrow.flatbuf.RecordBatch;
 import org.apache.arrow.flatbuf.Schema;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.CharBuffer;
@@ -238,17 +240,8 @@ public final class ArrowIpc {
             if (metaLen < 0 || (long) pos + 8 + metaLen > payload.length) {
                 throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message at " + pos + " declares " + metaLen + " metadata bytes");
             }
-            Message message;
-            long bodyLength;
-            try {
-                message = Message.getRootAsMessage(buf.slice(pos + 8, metaLen).order(ByteOrder.LITTLE_ENDIAN));
-                bodyLength = message.bodyLength();
-            } catch (RuntimeException e) {
-                throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message at " + pos + " is not a readable FlatBuffer");
-            }
-            if (message.version() < MetadataVersion.V4) {
-                throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "metadata version " + message.version() + " is older than V4");
-            }
+            Message message = readMessage(buf.slice(pos + 8, metaLen).order(ByteOrder.LITTLE_ENDIAN), frameIndex, "message at " + pos);
+            long bodyLength = message.bodyLength();
             int bodyStart = pos + 8 + metaLen;
             if (bodyLength < 0 || bodyStart + bodyLength > payload.length) {
                 throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message at " + pos + " declares " + bodyLength + " body bytes");
@@ -258,20 +251,7 @@ public final class ArrowIpc {
                 if (schemaSeen) {
                     throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "more than one schema message");
                 }
-                if (bodyLength != 0) {
-                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "schema message carries a body");
-                }
-                Schema schema;
-                String mismatch;
-                try {
-                    schema = (Schema) message.header(new Schema());
-                    mismatch = schema == null ? "schema message has no schema" : canon.mismatch(schema);
-                } catch (RuntimeException e) {
-                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "schema is not a readable FlatBuffer");
-                }
-                if (mismatch != null) {
-                    throw new FrameFormatException(Reason.SCHEMA_MISMATCH, frameIndex, mismatch);
-                }
+                checkSchema(canon, message, bodyLength, frameIndex);
                 schemaSeen = true;
             } else if (headerType == MessageHeader.RecordBatch) {
                 if (!schemaSeen) {
@@ -293,6 +273,128 @@ public final class ArrowIpc {
             throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "no record batch");
         }
         return batches;
+    }
+
+    private static Message readMessage(ByteBuffer metadata, int frameIndex, String which) {
+        Message message;
+        try {
+            message = Message.getRootAsMessage(metadata);
+            message.bodyLength();
+        } catch (RuntimeException e) {
+            throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, which + " is not a readable FlatBuffer");
+        }
+        if (message.version() < MetadataVersion.V4) {
+            throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "metadata version " + message.version() + " is older than V4");
+        }
+        return message;
+    }
+
+    private static void checkSchema(ArrowSchemaCanon canon, Message message, long bodyLength, int frameIndex) {
+        if (bodyLength != 0) {
+            throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "schema message carries a body");
+        }
+        Schema schema;
+        String mismatch;
+        try {
+            schema = (Schema) message.header(new Schema());
+            mismatch = schema == null ? "schema message has no schema" : canon.mismatch(schema);
+        } catch (RuntimeException e) {
+            throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "schema is not a readable FlatBuffer");
+        }
+        if (mismatch != null) {
+            throw new FrameFormatException(Reason.SCHEMA_MISMATCH, frameIndex, mismatch);
+        }
+    }
+
+    /**
+     * Reads a stream of any length from an {@link InputStream} one message at a time, holding one
+     * record batch at a time: how the API frames ClickHouse's answer to a binary read as it arrives,
+     * however many points the window holds. {@link #next()} returns the batches in order, checked
+     * like {@link #readStream}, and {@code null} once the end-of-stream marker has been read and
+     * nothing follows it; a stream of only a schema yields no batch. With no total length to check
+     * a message against, its declared sizes are held to what the canon can carry: metadata over
+     * {@value #MAX_METADATA_BYTES} bytes or a body over {@link FrameLimits#MAX_FRAME_RAW_BYTES} is
+     * rejected before a byte of it is read.
+     */
+    public static final class StreamReader {
+
+        /** A schema or record-batch message of the canon is well under a kilobyte. */
+        public static final int MAX_METADATA_BYTES = 1024 * 1024;
+
+        private static final byte[] NO_BODY = new byte[0];
+
+        private final ArrowSchemaCanon canon;
+        private final InputStream in;
+        private final int frameIndex;
+        private final int maxRows;
+        private boolean schemaSeen;
+        private boolean ended;
+        private int messages;
+
+        public StreamReader(ArrowSchemaCanon canon, InputStream in, int frameIndex, int maxRows) {
+            this.canon = canon;
+            this.in = in;
+            this.frameIndex = frameIndex;
+            this.maxRows = maxRows;
+        }
+
+        /** The next record batch, or {@code null} at the end of the stream. */
+        public Batch next() throws IOException {
+            while (!ended) {
+                byte[] prefix = in.readNBytes(8);
+                if (prefix.length < 8) {
+                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "stream ends without an end-of-stream marker");
+                }
+                ByteBuffer p = ByteBuffer.wrap(prefix).order(ByteOrder.LITTLE_ENDIAN);
+                if (p.getInt(0) != CONTINUATION) {
+                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message " + messages + " lacks the continuation marker");
+                }
+                int metaLen = p.getInt(4);
+                if (metaLen == 0) {
+                    ended = true;
+                    if (in.read() != -1) {
+                        throw new FrameFormatException(Reason.TRAILING_BYTES, frameIndex, "bytes after the end-of-stream marker");
+                    }
+                    return null;
+                }
+                if (metaLen < 0 || metaLen > MAX_METADATA_BYTES) {
+                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message " + messages + " declares " + metaLen + " metadata bytes");
+                }
+                Message message = readMessage(ByteBuffer.wrap(read(metaLen)).order(ByteOrder.LITTLE_ENDIAN), frameIndex, "message " + messages);
+                long bodyLength = message.bodyLength();
+                if (bodyLength < 0 || bodyLength > FrameLimits.MAX_FRAME_RAW_BYTES) {
+                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "message " + messages + " declares " + bodyLength + " body bytes");
+                }
+                byte[] body = bodyLength == 0 ? NO_BODY : read((int) bodyLength);
+                messages++;
+                byte headerType = message.headerType();
+                if (headerType == MessageHeader.Schema) {
+                    if (schemaSeen) {
+                        throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "more than one schema message");
+                    }
+                    checkSchema(canon, message, bodyLength, frameIndex);
+                    schemaSeen = true;
+                } else if (headerType == MessageHeader.RecordBatch) {
+                    if (!schemaSeen) {
+                        throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "record batch before the schema");
+                    }
+                    return readBatch(canon, message, ByteBuffer.wrap(body).order(ByteOrder.LITTLE_ENDIAN), frameIndex, maxRows);
+                } else if (headerType == MessageHeader.DictionaryBatch) {
+                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "dictionary batches are not allowed");
+                } else {
+                    throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "unexpected message type " + headerType);
+                }
+            }
+            return null;
+        }
+
+        private byte[] read(int length) throws IOException {
+            byte[] bytes = in.readNBytes(length);
+            if (bytes.length < length) {
+                throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "stream ends inside message " + messages);
+            }
+            return bytes;
+        }
     }
 
     private static Batch readBatch(ArrowSchemaCanon canon, Message message, ByteBuffer body, int frameIndex, int maxRows) {

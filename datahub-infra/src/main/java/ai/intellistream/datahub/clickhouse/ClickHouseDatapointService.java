@@ -106,18 +106,24 @@ public class ClickHouseDatapointService extends ClickHouseService{
 
     /**
      * Binary read path: one series' points in a window, or their bucketed aggregates, as
-     * ClickHouse's own Arrow stream. The output settings make that stream the contract's canon, so
-     * the API checks it and wraps it in frames without decoding a row; {@code max_block_size} keeps
-     * each record batch within a frame's row cap. {@code FINAL} because a ReplacingMergeTree holds a
-     * re-sent point twice until it merges, and a frame may not repeat a timestamp.
+     * ClickHouse's own Arrow stream, handed over as it arrives so a window of any size is never
+     * held whole; closing the stream ends the query. The output settings make that stream the
+     * contract's canon, so the API checks it and wraps it in frames without decoding a row;
+     * {@code max_block_size} keeps each record batch within a frame's row cap. {@code FINAL}
+     * because a ReplacingMergeTree holds a re-sent point twice until it merges, and a frame may not
+     * repeat a timestamp. A {@code limit} of 0 is none: the whole window in timestamp order, which
+     * the tables' {@code (timeseries_id, timestamp)} key lets ClickHouse read without a sort.
      */
-    public byte[] fetchArrowStream(String tenantId, TimeseriesEntity node, RetrieveFilter f, long limit, int maxBlockRows) {
+    public InputStream openArrowStream(String tenantId, TimeseriesEntity node, RetrieveFilter f, long limit, int maxBlockRows) {
         DatapointValueType type = DatapointValueType.fromId(node.getValueType().getId());
         boolean aggregates = f.getAggregates() != null && !f.getAggregates().isEmpty();
+        boolean limited = limit > 0;
         StringBuilder where = new StringBuilder("WHERE timeseries_id = {timeseriesId:Int64}");
         Map<String, Object> params = new HashMap<>();
         params.put("timeseriesId", node.getId());
-        params.put("limit", limit);
+        if (limited) {
+            params.put("limit", limit);
+        }
         if (f.getStart() != null) {
             where.append(" AND timestamp >= {startTime:DateTime64(3, 'UTC')}");
             params.put("startTime", toChDateTime(f.getStart()));
@@ -133,7 +139,7 @@ public class ClickHouseDatapointService extends ClickHouseService{
                 where.append(" AND value_numeric IS NOT NULL");
             }
             String inner = buildAggregateQuery(ALL_AGGREGATES_SQL, TimeseriesValueType.aggregateValueSql(type.id()),
-                    createCHGranularity(f.getGranularity()), table, where.toString(), true);
+                    createCHGranularity(f.getGranularity()), table, where.toString(), limited);
             // A mixed series aggregates its Nullable value_numeric; the text rows are filtered out
             // above, so the aggregates are never null, but their type still says they may be.
             query = "SELECT {timeseriesId:Int64} AS timeseries_id, toDateTime64(timestamp_g, 3, 'UTC') AS timestamp, "
@@ -144,7 +150,7 @@ public class ClickHouseDatapointService extends ClickHouseService{
             // hold a bare DateTime64(3), which Arrow would label with the session's zone instead.
             List<String> values = ArrowSchemaCanon.of(type).columns().stream().skip(2).map(ArrowSchemaCanon.Column::name).toList();
             query = "SELECT timeseries_id, toDateTime64(timestamp, 3, 'UTC') AS timestamp, " + String.join(", ", values)
-                    + " FROM " + table + " " + where + " ORDER BY timestamp LIMIT {limit:Int64}";
+                    + " FROM " + table + " " + where + " ORDER BY timestamp" + (limited ? " LIMIT {limit:Int64}" : "");
         }
         QuerySettings qs = new QuerySettings()
                 .setQueryId(IdGenerator.getRandomUUID7AsString())
@@ -154,14 +160,29 @@ public class ClickHouseDatapointService extends ClickHouseService{
         qs.serverSetting("output_format_arrow_compression_method", "none");
         qs.serverSetting("max_block_size", Integer.toString(maxBlockRows));
         log.debug("ClickHouse Arrow query {}: {} {}", qs.getQueryId(), query, params);
-        try (QueryResponse response = getClickhouseClient(tenantId).query(query, params, qs).get(30, TimeUnit.SECONDS)) {
-            return response.getInputStream().readAllBytes();
+        QueryResponse response;
+        try {
+            response = getClickhouseClient(tenantId).query(query, params, qs).get(30, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException("Interrupted reading datapoints of series " + node.getId(), e);
         } catch (Exception e) {
             throw new RuntimeException("ClickHouse Arrow read of series " + node.getId() + " failed", e);
         }
+        return new FilterInputStream(response.getInputStream()) {
+            @Override
+            public void close() throws IOException {
+                try {
+                    super.close();
+                } finally {
+                    try {
+                        response.close();
+                    } catch (Exception e) {
+                        log.warn("Closing the ClickHouse Arrow read of series {} failed: {}", node.getId(), e.getMessage());
+                    }
+                }
+            }
+        };
     }
 
     // One RowBinary row per datapoint: timeseries_id (Int64) + timestamp (DateTime64(3), epoch

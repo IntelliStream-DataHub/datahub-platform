@@ -28,6 +28,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -42,7 +43,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * The binary read against a real ClickHouse: what {@link ClickHouseDatapointService#fetchArrowStream}
+ * The binary read against a real ClickHouse: what {@link ClickHouseDatapointService#openArrowStream}
  * returns is the canon for every value type and for aggregates, so the API can frame it without
  * decoding a row, and the frames read back as the points that were written. Also pins what the
  * query has to get right on the server's side: a re-sent point read once ({@code FINAL}), a legacy
@@ -59,7 +60,11 @@ class ClickHouseArrowReadIT {
 
     @BeforeAll
     static void setUp() throws Exception {
-        client = SharedClickHouse.newClient("arrow_read_it");
+        // Compressed responses, as the production pool asks for them: the read streams through that decoder.
+        client = SharedClickHouse.clientBuilder("arrow_read_it")
+                .useHttpCompression(true)
+                .compressServerResponse(true)
+                .build();
         String engine = " ENGINE=ReplacingMergeTree ORDER BY (timeseries_id, timestamp)";
         // Bare DateTime64(3), as tables created before clickhouse.sql named the zone still are.
         ddl("CREATE TABLE datapoints_bigint (timeseries_id Int64, timestamp DateTime64(3), value Int64)" + engine);
@@ -118,16 +123,17 @@ class ClickHouseArrowReadIT {
         return f;
     }
 
-    /** Fetches, checks against the canon and frames the answer the way the API does. */
-    private static List<DatapointFrame> read(DatapointValueType type, long id, RetrieveFilter f, long limit) {
+    /** Fetches, checks against the canon and frames the answer the way the API does; a limit of 0 is none. */
+    private static List<DatapointFrame> read(DatapointValueType type, long id, RetrieveFilter f, long limit) throws Exception {
         boolean aggregates = !f.getAggregates().isEmpty();
         int frameRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
-        byte[] stream = service.fetchArrowStream("t", series(type, id), f, limit, frameRows);
         ArrowSchemaCanon canon = aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
-        List<ArrowIpc.Batch> batches = ArrowIpc.readStream(canon, stream, 0, frameRows, true);
         ByteArrayOutputStream body = new ByteArrayOutputStream();
-        for (ArrowIpc.Batch batch : batches) {
-            body.writeBytes(DatapointFrameWriter.wrap(type, aggregates, id, "s" + id, List.of(batch.toData()), ZSTD));
+        try (InputStream stream = service.openArrowStream("t", series(type, id), f, limit, frameRows)) {
+            ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, frameRows);
+            for (ArrowIpc.Batch batch = reader.next(); batch != null; batch = reader.next()) {
+                body.writeBytes(DatapointFrameWriter.wrap(type, aggregates, id, "s" + id, List.of(batch.toData()), ZSTD));
+            }
         }
         body.writeBytes(FrameLimits.END_OF_RESPONSE);
         return DatapointFrame.parseResponse(body.toByteArray(), ZSTD);
@@ -210,6 +216,8 @@ class ClickHouseArrowReadIT {
         // start inclusive, end exclusive, both one millisecond off a point.
         assertEquals(List.of(T0 + 2000, T0 + 3000), timestamps(read(DatapointValueType.FLOAT, 900, window(T0 + 1001, T0 + 3001), 1000)));
         assertEquals(List.of(T0, T0 + 1000), timestamps(read(DatapointValueType.FLOAT, 900, window(null, null), 2)));
+        // No limit: the whole window.
+        assertEquals(5, timestamps(read(DatapointValueType.FLOAT, 900, window(null, null), 0)).size());
         // Paging: start one past the last timestamp read.
         assertEquals(List.of(T0 + 2000, T0 + 3000), timestamps(read(DatapointValueType.FLOAT, 900, window(T0 + 1001, null), 2)));
     }
@@ -236,7 +244,7 @@ class ClickHouseArrowReadIT {
         for (DatapointFrame part : parts) {
             insert(DatapointValueType.TEXT, FrameMerger.merge(DatapointValueType.TEXT, List.of(part), 1_000_000));
         }
-        List<DatapointFrame> frames = read(DatapointValueType.TEXT, 1100, window(null, null), rows);
+        List<DatapointFrame> frames = read(DatapointValueType.TEXT, 1100, window(null, null), 0);
         assertEquals(rows, timestamps(frames).size());
         assertTrue(frames.size() >= 3, "frames: " + frames.size());
     }
@@ -284,7 +292,7 @@ class ClickHouseArrowReadIT {
         RetrieveFilter f = window(T0, T0 + rows * 1000L);
         f.setAggregates(List.of("avg"));
         f.setGranularity("1s");
-        List<DatapointFrame> frames = read(DatapointValueType.FLOAT, 1400, f, rows);
+        List<DatapointFrame> frames = read(DatapointValueType.FLOAT, 1400, f, 0);
         assertEquals(rows, timestamps(frames).size());
         assertTrue(frames.size() >= 2, "frames: " + frames.size());
     }

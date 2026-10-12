@@ -81,6 +81,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
@@ -471,7 +472,7 @@ public class TimeseriesService {
                 : timeseriesRepository.findAllByIdOrExternalIdAndDataSetIdIn(idSet, externalIdSet, allowed);
     }
 
-    /** One series of a binary read: what to fetch, how many rows at most, and the frame row cap. */
+    /** One series of a binary read: what to fetch, how many rows at most (0 for all), and the frame row cap. */
     public record BinaryRead(TimeseriesEntity series, RetrieveFilter filter, long limit, boolean aggregates, int frameRows) {
     }
 
@@ -479,10 +480,10 @@ public class TimeseriesService {
 
     /**
      * Checks a binary read and resolves its series, before a byte of the answer is written, so
-     * every refusal is still a plain problem response. Rows are budgeted across the request:
-     * {@link FrameLimits#MAX_ROWS_PER_READ} (or the request's own {@code limit}) in all, an item
-     * without a limit taking an even share of what the others leave, capped at the JSON path's
-     * per-series maximum.
+     * every refusal is still a plain problem response. Rows are not budgeted: an item without a
+     * {@code limit} reads its whole window, however long, which {@link #writeFrames} streams. A
+     * request-level {@code limit}, when given, is the request's total: the items' own limits may
+     * not add up to more, and the items without one share what they leave.
      */
     public List<BinaryRead> planBinaryRead(DataRetriever<RetrieveFilter> request) {
         validateRetriever(request);
@@ -518,15 +519,20 @@ public class TimeseriesService {
                 unlimited++;
             }
         }
-        long budget = request.getLimit() != null && request.getLimit() > 0 ? request.getLimit() : FrameLimits.MAX_ROWS_PER_READ;
-        if (explicitRows > budget) {
-            throw new BadRequestException("The items' limits add up to " + explicitRows + " rows; one binary read returns at most " + budget + ".",
-                    "limit", Long.toString(explicitRows));
-        }
-        long share = unlimited == 0 ? 0 : Math.min(FieldLimits.DATAPOINTS_PER_COLLECTION_MAX, (budget - explicitRows) / unlimited);
-        if (unlimited > 0 && share < 1) {
-            throw new BadRequestException("No rows are left for the items without a `limit`; give them one, or ask for fewer series.",
-                    "limit", "0");
+        long budget = request.getLimit() != null && request.getLimit() > 0 ? request.getLimit() : 0;
+        long share = 0;
+        if (budget > 0) {
+            if (explicitRows > budget) {
+                throw new BadRequestException("The items' limits add up to " + explicitRows + " rows; the request's `limit` is " + budget + ".",
+                        "limit", Long.toString(explicitRows));
+            }
+            if (unlimited > 0) {
+                share = (budget - explicitRows) / unlimited;
+                if (share < 1) {
+                    throw new BadRequestException("No rows are left for the items without a `limit`; give them one, or ask for fewer series.",
+                            "limit", "0");
+                }
+            }
         }
 
         List<TimeseriesEntity> nodes = readableSeries(idSet, externalIdSet);
@@ -559,40 +565,42 @@ public class TimeseriesService {
 
     /**
      * Writes each planned series as frames, in request order: ClickHouse's Arrow stream for it,
-     * checked against the canon and cut into frames at record-batch boundaries. A series with no
-     * points in its window writes nothing. The end marker comes last and only on success, so a
-     * response that fails partway can never pass for a complete one.
+     * checked against the canon and cut into frames at record-batch boundaries as it arrives, so
+     * the response holds one frame's rows at a time however long the series. Each frame is flushed
+     * as it is complete. A series with no points in its window writes nothing. The end marker comes
+     * last and only on success, so a response that fails partway can never pass for a complete one.
      */
     public void writeFrames(List<BinaryRead> reads, OutputStream out) throws IOException {
         String tenantId = TenantContext.getTenantId();
         for (BinaryRead read : reads) {
             TimeseriesEntity series = read.series();
             DatapointValueType type = DatapointValueType.fromId(series.getValueType().getId());
-            byte[] stream = clickHouseDatapointService.fetchArrowStream(tenantId, series, read.filter(), read.limit(), read.frameRows());
             ArrowSchemaCanon canon = read.aggregates() ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type);
-            List<ArrowIpc.Batch> batches;
-            try {
-                batches = ArrowIpc.readStream(canon, stream, 0, read.frameRows(), true);
+            List<ArrowIpc.BatchData> frame = new ArrayList<>();
+            int frameRows = 0;
+            try (InputStream stream = clickHouseDatapointService.openArrowStream(tenantId, series, read.filter(), read.limit(), read.frameRows())) {
+                ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(canon, stream, 0, read.frameRows());
+                for (ArrowIpc.Batch batch = reader.next(); batch != null; batch = reader.next()) {
+                    if (frameRows + batch.rows() > read.frameRows()) {
+                        out.write(DatapointFrameWriter.wrap(type, read.aggregates(), series.getId(), series.getExternalId(), frame, READ_CODEC));
+                        out.flush();
+                        frame = new ArrayList<>();
+                        frameRows = 0;
+                    }
+                    frame.add(batch.toData());
+                    frameRows += batch.rows();
+                }
             } catch (FrameFormatException e) {
                 // Our own query's output, so a mismatch is a server fault, not the caller's.
                 throw new IllegalStateException("ClickHouse answered series " + series.getId() + " outside the canon: " + e.getMessage(), e);
             }
-            List<ArrowIpc.BatchData> frame = new ArrayList<>();
-            int frameRows = 0;
-            for (ArrowIpc.Batch batch : batches) {
-                if (frameRows + batch.rows() > read.frameRows()) {
-                    out.write(DatapointFrameWriter.wrap(type, read.aggregates(), series.getId(), series.getExternalId(), frame, READ_CODEC));
-                    frame = new ArrayList<>();
-                    frameRows = 0;
-                }
-                frame.add(batch.toData());
-                frameRows += batch.rows();
-            }
             if (!frame.isEmpty()) {
                 out.write(DatapointFrameWriter.wrap(type, read.aggregates(), series.getId(), series.getExternalId(), frame, READ_CODEC));
+                out.flush();
             }
         }
         out.write(FrameLimits.END_OF_RESPONSE);
+        out.flush();
     }
 
     /**

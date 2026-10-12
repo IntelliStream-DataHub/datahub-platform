@@ -61,9 +61,6 @@ public final class FrameLimits {
      */
     public static final int MAX_AGGREGATE_ROWS = 50_000;
 
-    /** Rows one binary read may return, all its series together. */
-    public static final int MAX_ROWS_PER_READ = 1_000_000;
-
     /** Rows per frame: the JSON path's per-collection caps, numeric and text alike. */
     public static int maxRows(DatapointValueType type) {
         return type.carriesText()

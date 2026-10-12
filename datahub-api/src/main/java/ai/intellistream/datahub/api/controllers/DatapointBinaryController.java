@@ -148,15 +148,19 @@ public class DatapointBinaryController {
                     between two, and the request can be sent again.
 
                     ### Limits
-                    - 1 000 000 rows per request, all series together, or the request's own `limit` if
-                      it is lower. An item without a `limit` gets an even share of what the others
-                      leave, at most 100 000 rows.
-                    - 100 000 values per numeric frame, 10 000 per text or mixed frame, 50 000 buckets
-                      per aggregate frame.
+                    Rows are not budgeted. An item without a `limit` returns every point in its window,
+                    however many, so bound a long series with `end`. An item's `limit` caps it at that
+                    many rows, at most 100 000 (the retrieve body's own ceiling); to read more than that
+                    of one series, leave it out. A request-level `limit`, if given, is the request's
+                    total: the items' limits may not add up to more, and the items without one share
+                    what is left.
+
+                    A frame holds at most 100 000 values of a numeric series, 10 000 of a text or mixed
+                    one, or 50 000 aggregate buckets; a longer answer is more frames.
                     """)
     @ApiResponse(responseCode = "200", description = "Zero or more frames, then the end marker.",
             content = @Content(mediaType = FrameLimits.MEDIA_TYPE))
-    @ApiResponse(responseCode = "400", description = "The filter is invalid, the limits exceed the budget, a `cursor` was sent, "
+    @ApiResponse(responseCode = "400", description = "The filter is invalid, the items' limits add up to more than the request's `limit`, a `cursor` was sent, "
             + "a text series was asked for aggregates, or a named series does not exist or is in a dataset the caller cannot read "
             + "(unless `ignoreUnknownIds`).",
             content = @Content(mediaType = MediaType.APPLICATION_PROBLEM_JSON_VALUE,
