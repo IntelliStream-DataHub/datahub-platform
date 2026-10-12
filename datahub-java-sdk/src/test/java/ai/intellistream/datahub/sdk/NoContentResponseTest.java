@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
+import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
+import ai.intellistream.datahub.api.binary.DatapointValueType;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.models.DeleteDatapoint;
 import ai.intellistream.datahub.models.IdCollection;
@@ -73,6 +76,9 @@ class NoContentResponseTest {
         List<IdCollection> ids = List.of(IdCollection.createFromExternalId("x"));
         DatapointsCollection points = new DatapointsCollection();
         points.setExternalId("x");
+        DatapointFrameWriter frame = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(1, "x");
+        frame.addFloat(1, 1_700_000_000_000L, 1.0);
+        byte[] frameBytes = frame.build(new ZstdPayloadCodec());
 
         assertAll(
                 () -> assertDoesNotThrow(() -> c.resources().delete(ids)),
@@ -84,9 +90,10 @@ class NoContentResponseTest {
                         List.of(UUIDAndExternalIdCollection.createFromExternalId("e")))),
                 () -> assertDoesNotThrow(() -> c.subscriptions().delete(ids)),
                 () -> assertDoesNotThrow(() -> c.files().delete(ids)),
-                () -> assertDoesNotThrow(() -> c.edges().delete(ids)));
+                () -> assertDoesNotThrow(() -> c.edges().delete(ids)),
+                () -> assertDoesNotThrow(() -> c.timeseries().ingestFrames(List.of(frameBytes))));
 
-        assertEquals(9, calls.get(), "every call should have reached the server");
+        assertEquals(10, calls.get(), "every call should have reached the server");
     }
 
     /**
@@ -106,7 +113,8 @@ class NoContentResponseTest {
                 new Call(ai.intellistream.datahub.sdk.client.EventService.class, "delete", List.class),
                 new Call(ai.intellistream.datahub.sdk.client.SubscriptionService.class, "delete", List.class),
                 new Call(ai.intellistream.datahub.sdk.client.FileService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.client.EdgeService.class, "delete", List.class));
+                new Call(ai.intellistream.datahub.sdk.client.EdgeService.class, "delete", List.class),
+                new Call(ai.intellistream.datahub.sdk.client.TimeseriesService.class, "ingestFrames", List.class));
 
         List<String> wrongly = new ArrayList<>();
         for (Call call : noBody) {

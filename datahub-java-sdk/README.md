@@ -93,6 +93,23 @@ Against Keycloak neither is needed — see [GETTING_STARTED.md](../GETTING_START
 Note that a token minted straight from Entra is **not** accepted by `datahub-api`, which trusts a
 single Keycloak issuer; see [EntraID.md](../EntraID.md) for the bridge.
 
+A service that holds a credential the SDK has no grant for — acting for a user, say, whose access
+token it keeps current by refreshing it itself — gives the client a supplier instead. It is called
+for every request, so it must be thread-safe and cheap (cache inside it), and it stands alone: it
+cannot be combined with `TOKEN` or the client-credentials triple.
+
+```java
+DatahubConfig.builder()
+    .baseUrl("https://api.intellistream.ai")
+    .tokenSupplier(session::currentAccessToken)
+    .requestTimeout(Duration.ofSeconds(30))   // optional, any credential: give up on a silent request
+    .build();
+```
+
+`requestTimeout` bounds each request, from sending it to the response's headers; a request that
+times out fails with a `DatahubApiException` of status 0. Unset, a request waits as long as the
+connection stays open.
+
 ## Filtering
 
 Four endpoints answer structured queries — `datasets().filter(...)`, `resources().filter(...)`,
@@ -199,6 +216,19 @@ client.timeseries().ingestBinary(byExternalId, BinaryIngestOptions.builder().zst
 A series that does not exist, or a value that does not fit its type, is reported in the result
 without a request. A request the server refuses because a series was renamed or removed is
 rebuilt once after re-resolving it. The durable spool below applies to the JSON path only.
+
+A caller that already holds its points in columns can build the frames itself with
+`DatapointFrameWriter` (api-model) and send them as they are, in one request, with no series
+resolution and no retry. The request-level limits (32 frames, the size caps) are checked before
+anything is sent; the server accepts or refuses the request whole, and a refusal is a
+`DatahubApiException` whose problem says why — `unknown-timeseries` before anything was written,
+for instance.
+
+```java
+DatapointFrameWriter frame = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(id, "engine.temp");
+frame.addFloat(id, Instant.now().toEpochMilli(), 81.5);
+client.timeseries().ingestFrames(List.of(frame.build(new ZstdPayloadCodec())));
+```
 
 For many small inserts, a buffer batches them into frames:
 
