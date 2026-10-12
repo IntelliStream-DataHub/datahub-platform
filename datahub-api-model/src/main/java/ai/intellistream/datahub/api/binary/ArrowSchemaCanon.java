@@ -71,9 +71,22 @@ public final class ArrowSchemaCanon {
     public static final String VALUE_COLUMN = "value";
     public static final String VALUE_NUMERIC_COLUMN = "value_numeric";
     public static final String VALUE_TEXT_COLUMN = "value_text";
+    public static final String AVG_COLUMN = "avg";
+    public static final String MIN_COLUMN = "min";
+    public static final String MAX_COLUMN = "max";
+    public static final String SUM_COLUMN = "sum";
     public static final String TIMEZONE = "UTC";
 
     private static final Map<DatapointValueType, ArrowSchemaCanon> CANONS = new EnumMap<>(DatapointValueType.class);
+
+    /** Bucketed aggregates, the same for every value type: the bucket start and four Float64s. */
+    private static final ArrowSchemaCanon AGGREGATES = new ArrowSchemaCanon(null, List.of(
+            new Column(ID_COLUMN, Kind.INT64, false),
+            new Column(TIMESTAMP_COLUMN, Kind.TIMESTAMP_MS_UTC, false),
+            new Column(AVG_COLUMN, Kind.FLOAT64, false),
+            new Column(MIN_COLUMN, Kind.FLOAT64, false),
+            new Column(MAX_COLUMN, Kind.FLOAT64, false),
+            new Column(SUM_COLUMN, Kind.FLOAT64, false)));
 
     static {
         for (DatapointValueType t : DatapointValueType.values()) {
@@ -95,6 +108,11 @@ public final class ArrowSchemaCanon {
         return CANONS.get(type);
     }
 
+    /** The schema of an aggregate frame, {@link FrameLimits#CODEC_ARROW_IPC_AGGREGATES}. */
+    public static ArrowSchemaCanon aggregates() {
+        return AGGREGATES;
+    }
+
     private static List<Column> columnsFor(DatapointValueType t) {
         Column id = new Column(ID_COLUMN, Kind.INT64, false);
         Column ts = new Column(TIMESTAMP_COLUMN, Kind.TIMESTAMP_MS_UTC, false);
@@ -111,6 +129,7 @@ public final class ArrowSchemaCanon {
         };
     }
 
+    /** The value type this is the canon of, or null for {@link #aggregates()}. */
     public DatapointValueType valueType() {
         return valueType;
     }

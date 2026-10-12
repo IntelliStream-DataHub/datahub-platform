@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.api.binary.DatapointFrame;
+import ai.intellistream.datahub.api.binary.FrameFormatException;
+import ai.intellistream.datahub.api.binary.FrameLimits;
+import ai.intellistream.datahub.api.binary.PayloadCodec;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DataCollection;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -14,6 +19,7 @@ import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.api.responses.DatapointString;
+import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
@@ -44,6 +50,9 @@ public final class TimeseriesService {
     private static final Logger log = LoggerFactory.getLogger(TimeseriesService.class);
 
     private static final String DATA_PATH = "/timeseries/data";
+    private static final String BINARY_READ_PATH = "/timeseries/data/list/binary";
+    /** Decompression only, so the level is irrelevant. */
+    private static final PayloadCodec FRAME_CODEC = new ZstdPayloadCodec();
 
     private final ApiHttp http;
     private final DatapointIngestor ingestor;
@@ -244,6 +253,31 @@ public final class TimeseriesService {
      */
     public DataWrapper<DataCollection<DatapointAggsDTO>> retrieveAggregated(DataRetriever<RetrieveFilter> request) {
         return http.post("/timeseries/data/list", request, aggregatedData);
+    }
+
+    /**
+     * POST /timeseries/data/list/binary — the request {@link #retrieve} takes, answered as datapoint
+     * frames instead of JSON: the format {@link #ingestBinary} sends, read back without a Jackson
+     * object per point. Frames come in the order of the request's items, and one series' rows may
+     * span several; {@link DatapointFrame#externalIds()} names the series, and rows are read with
+     * {@link DatapointFrame#timestamp} and {@link DatapointFrame#valueAsString}, or with
+     * {@link DatapointFrame#avg} and its siblings when {@link DatapointFrame#aggregates()}.
+     *
+     * <p>Each item needs a {@code start} or an {@code end}, and returns its {@code limit} oldest
+     * points from there (an even share of one million when it has none). There is no cursor: to
+     * read further, ask again with {@code start} one millisecond past the last timestamp received.
+     * An item with {@code aggregates} and a {@code granularity} always carries all four aggregates.
+     *
+     * <p>A response the server could not finish throws {@link DatahubApiException} with status 0;
+     * sending the request again is safe.
+     */
+    public List<DatapointFrame> retrieveBinary(DataRetriever<RetrieveFilter> request) {
+        byte[] body = http.postForBytes(BINARY_READ_PATH, request, FrameLimits.MEDIA_TYPE);
+        try {
+            return DatapointFrame.parseResponse(body, FRAME_CODEC);
+        } catch (FrameFormatException e) {
+            throw new DatahubApiException(0, "POST " + BINARY_READ_PATH + " returned an unreadable answer: " + e.getMessage(), null);
+        }
     }
 
     /**

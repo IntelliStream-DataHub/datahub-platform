@@ -139,6 +139,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
         int lastSlash = uri.lastIndexOf('/');
         String segment = lastSlash < 0 ? uri : uri.substring(lastSlash + 1);
+        // A binary variant is shaped like what it is the binary form of: /data/list/binary is a
+        // read, /data/binary an insert.
+        if ("binary".equalsIgnoreCase(segment) && lastSlash > 0) {
+            int previousSlash = uri.lastIndexOf('/', lastSlash - 1);
+            segment = uri.substring(previousSlash + 1, lastSlash);
+        }
         return READ_SHAPED_POST_SEGMENTS.contains(segment.toLowerCase());
     }
 

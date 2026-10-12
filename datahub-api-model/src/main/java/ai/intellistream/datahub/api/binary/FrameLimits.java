@@ -15,8 +15,18 @@ public final class FrameLimits {
     public static final String MEDIA_TYPE = "application/vnd.intellistream.datapoint-block";
 
     public static final byte[] MAGIC = {'D', 'H', 'D', 'P'};
+    /**
+     * Ends a binary read's response, after the last frame. A response without it was cut short,
+     * whether inside a frame or between two, and is not to be taken as complete.
+     */
+    public static final byte[] END_OF_RESPONSE = {'D', 'H', 'D', 'E'};
     public static final int VERSION = 1;
     public static final int CODEC_ARROW_IPC = 1;
+    /**
+     * A response frame whose payload holds bucketed aggregates in {@link ArrowSchemaCanon#aggregates()}
+     * instead of the value type's canon. Only the API writes it; ingest refuses it.
+     */
+    public static final int CODEC_ARROW_IPC_AGGREGATES = 2;
     public static final int COMPRESSION_ZSTD = 1;
 
     /** Bytes before the series directory. */
@@ -44,6 +54,15 @@ public final class FrameLimits {
 
     /** Below this the server's per-block cost dominates; the SDKs merge smaller tails. */
     public static final int MIN_ROWS_PER_FRAME_HINT = 1_000;
+
+    /**
+     * Rows per aggregate frame, whatever the series' type. A row is six 8-byte columns, so this
+     * keeps the payload near 2.4 MB, well inside {@link #MAX_FRAME_RAW_BYTES}.
+     */
+    public static final int MAX_AGGREGATE_ROWS = 50_000;
+
+    /** Rows one binary read may return, all its series together. */
+    public static final int MAX_ROWS_PER_READ = 1_000_000;
 
     /** Rows per frame: the JSON path's per-collection caps, numeric and text alike. */
     public static int maxRows(DatapointValueType type) {

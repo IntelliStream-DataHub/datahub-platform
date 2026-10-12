@@ -237,6 +237,34 @@ public final class DatapointFrameWriter {
         }
 
         byte[] raw = ArrowIpc.writeStream(canon, List.of(new BatchData(n, columns(order, n))));
+        return assemble(type, FrameLimits.CODEC_ARROW_IPC, n, directoryIds, externalIds, directoryLength, raw, codec);
+    }
+
+    /**
+     * One frame of one series around record batches already in the canon: the value type's, or
+     * {@link ArrowSchemaCanon#aggregates()} when {@code aggregates}. This is how the API answers a
+     * binary read, from the batches ClickHouse returned. The caller keeps the batches within the
+     * frame's row cap and in timestamp order.
+     */
+    public static byte[] wrap(DatapointValueType type, boolean aggregates, long id, String externalId,
+                              List<BatchData> batches, PayloadCodec codec) {
+        int rows = 0;
+        for (BatchData b : batches) {
+            rows += b.rows();
+        }
+        int maxRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
+        if (rows < 1 || rows > maxRows) {
+            throw new IllegalStateException("frame has " + rows + " rows, allowed 1 to " + maxRows);
+        }
+        byte[] externalIdBytes = externalId.getBytes(StandardCharsets.UTF_8);
+        int directoryLength = 8 + Varint.size(externalIdBytes.length) + externalIdBytes.length;
+        byte[] raw = ArrowIpc.writeStream(aggregates ? ArrowSchemaCanon.aggregates() : ArrowSchemaCanon.of(type), batches);
+        int codecId = aggregates ? FrameLimits.CODEC_ARROW_IPC_AGGREGATES : FrameLimits.CODEC_ARROW_IPC;
+        return assemble(type, codecId, rows, new long[]{id}, new byte[][]{externalIdBytes}, directoryLength, raw, codec);
+    }
+
+    private static byte[] assemble(DatapointValueType type, int codecId, int n, long[] directoryIds, byte[][] externalIds,
+                                   int directoryLength, byte[] raw, PayloadCodec codec) {
         if (raw.length > FrameLimits.MAX_FRAME_RAW_BYTES) {
             throw new IllegalStateException("frame payload is " + raw.length + " bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES + "; split it");
         }
@@ -251,7 +279,7 @@ public final class DatapointFrameWriter {
         frame.put(FrameLimits.MAGIC);
         frame.put((byte) FrameLimits.VERSION);
         frame.put((byte) type.id());
-        frame.put((byte) FrameLimits.CODEC_ARROW_IPC);
+        frame.put((byte) codecId);
         frame.put((byte) FrameLimits.COMPRESSION_ZSTD);
         frame.putInt(n);
         frame.putInt(directoryIds.length);

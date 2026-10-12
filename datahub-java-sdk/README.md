@@ -207,6 +207,35 @@ try (BinaryIngestBuffer buffer = client.timeseries().binaryBuffer()) {   // 10 0
 }   // close flushes what is left
 ```
 
+## Binary read
+
+`retrieveBinary` takes the request `retrieve` takes and gets the same frames back from
+`POST /timeseries/data/list/binary`, so a large read costs no JSON and no object per point.
+Frames come in the order of the request's items, and one series may span several:
+
+```java
+RetrieveFilter f = new RetrieveFilter();
+f.setExternalId("engine.temp");
+f.setStart(ZonedDateTime.parse("2026-10-01T00:00:00Z"));
+f.setLimit(100_000);
+DataRetriever<RetrieveFilter> request = new DataRetriever<>();
+request.getItems().add(f);
+
+for (DatapointFrame frame : client.timeseries().retrieveBinary(request)) {
+    String series = frame.externalIds()[0];
+    for (int row = 0; row < frame.rowCount(); row++) {
+        long timestamp = frame.timestamp(row);
+        String value = frame.valueAsString(row);   // frame.avg(row) etc. when frame.aggregates()
+    }
+}
+```
+
+Each item returns its `limit` oldest points from `start`, up to a million rows per request in all.
+There is no cursor: to read on, send the request again with `start` one millisecond past the last
+timestamp you got. An item with `aggregates` and a `granularity` comes back as aggregate frames
+carrying `avg`, `min`, `max` and `sum` together. A response the server could not finish throws a
+`DatahubApiException` with status 0 rather than returning fewer points, and is safe to send again.
+
 ## Errors
 
 Every refusal comes back as a `DatahubApiException` carrying an RFC 9457

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse;
 
+import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.responses.DataCollectionBin;
 import ai.intellistream.datahub.api.responses.DatapointBin;
@@ -103,6 +104,66 @@ public class ClickHouseDatapointService extends ClickHouseService{
         }
     }
 
+    /**
+     * Binary read path: one series' points in a window, or their bucketed aggregates, as
+     * ClickHouse's own Arrow stream. The output settings make that stream the contract's canon, so
+     * the API checks it and wraps it in frames without decoding a row; {@code max_block_size} keeps
+     * each record batch within a frame's row cap. {@code FINAL} because a ReplacingMergeTree holds a
+     * re-sent point twice until it merges, and a frame may not repeat a timestamp.
+     */
+    public byte[] fetchArrowStream(String tenantId, TimeseriesEntity node, RetrieveFilter f, long limit, int maxBlockRows) {
+        DatapointValueType type = DatapointValueType.fromId(node.getValueType().getId());
+        boolean aggregates = f.getAggregates() != null && !f.getAggregates().isEmpty();
+        StringBuilder where = new StringBuilder("WHERE timeseries_id = {timeseriesId:Int64}");
+        Map<String, Object> params = new HashMap<>();
+        params.put("timeseriesId", node.getId());
+        params.put("limit", limit);
+        if (f.getStart() != null) {
+            where.append(" AND timestamp >= {startTime:DateTime64(3, 'UTC')}");
+            params.put("startTime", toChDateTime(f.getStart()));
+        }
+        if (f.getEnd() != null) {
+            where.append(" AND timestamp < {endTime:DateTime64(3, 'UTC')}");
+            params.put("endTime", toChDateTime(f.getEnd()));
+        }
+        String table = type.tableName() + " FINAL";
+        String query;
+        if (aggregates) {
+            if (type == DatapointValueType.MIXED) {
+                where.append(" AND value_numeric IS NOT NULL");
+            }
+            String inner = buildAggregateQuery(ALL_AGGREGATES_SQL, TimeseriesValueType.aggregateValueSql(type.id()),
+                    createCHGranularity(f.getGranularity()), table, where.toString(), true);
+            // A mixed series aggregates its Nullable value_numeric; the text rows are filtered out
+            // above, so the aggregates are never null, but their type still says they may be.
+            query = "SELECT {timeseriesId:Int64} AS timeseries_id, toDateTime64(timestamp_g, 3, 'UTC') AS timestamp, "
+                    + "assumeNotNull(avg) AS avg, assumeNotNull(min) AS min, assumeNotNull(max) AS max, "
+                    + "assumeNotNull(sum) AS sum FROM (" + inner + ") ORDER BY timestamp";
+        } else {
+            // The timestamp is converted because tables created before clickhouse.sql said 'UTC'
+            // hold a bare DateTime64(3), which Arrow would label with the session's zone instead.
+            List<String> values = ArrowSchemaCanon.of(type).columns().stream().skip(2).map(ArrowSchemaCanon.Column::name).toList();
+            query = "SELECT timeseries_id, toDateTime64(timestamp, 3, 'UTC') AS timestamp, " + String.join(", ", values)
+                    + " FROM " + table + " " + where + " ORDER BY timestamp LIMIT {limit:Int64}";
+        }
+        QuerySettings qs = new QuerySettings()
+                .setQueryId(IdGenerator.getRandomUUID7AsString())
+                .setFormat(ClickHouseFormat.ArrowStream);
+        qs.serverSetting("output_format_arrow_string_as_string", "1");
+        qs.serverSetting("output_format_arrow_low_cardinality_as_dictionary", "0");
+        qs.serverSetting("output_format_arrow_compression_method", "none");
+        qs.serverSetting("max_block_size", Integer.toString(maxBlockRows));
+        log.debug("ClickHouse Arrow query {}: {} {}", qs.getQueryId(), query, params);
+        try (QueryResponse response = getClickhouseClient(tenantId).query(query, params, qs).get(30, TimeUnit.SECONDS)) {
+            return response.getInputStream().readAllBytes();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted reading datapoints of series " + node.getId(), e);
+        } catch (Exception e) {
+            throw new RuntimeException("ClickHouse Arrow read of series " + node.getId() + " failed", e);
+        }
+    }
+
     // One RowBinary row per datapoint: timeseries_id (Int64) + timestamp (DateTime64(3), epoch
     // millis) + the pre-encoded value bytes. The value bytes already carry whatever columns the type
     // needs (e.g. MIXED's two nullable columns), so this is value-type agnostic.
@@ -182,21 +243,29 @@ public class ClickHouseDatapointService extends ClickHouseService{
         }
     }
 
+    /** Every aggregate at once, in the binary canon's column order: an aggregate frame carries all four. */
+    private static final String ALL_AGGREGATES_SQL = String.join(",",
+            aggregateSql(Aggregates.AVG), aggregateSql(Aggregates.MIN), aggregateSql(Aggregates.MAX), aggregateSql(Aggregates.SUM));
+
     public String handleAggregates(RetrieveFilter f) {
         List<String> aggregates = new ArrayList<>();
         f.getAggregates().forEach( aText -> {
             Aggregates a = Aggregates.findByDescription(aText);
             if(a != null){
-                switch (a) {
-                    case SUM -> aggregates.add("sumIf(contrib_value, contrib_kind = 'sample') as sum ");
-                    case AVG -> aggregates.add("avgWeighted(contrib_value, contrib_weight) AS avg ");
-                    case MIN -> aggregates.add("min(contrib_value) as min ");
-                    case MAX -> aggregates.add("max(contrib_value) as max ");
-                }
+                aggregates.add(aggregateSql(a));
             }
         });
         if(aggregates.isEmpty()) return null;
         return String.join(",", aggregates);
+    }
+
+    private static String aggregateSql(Aggregates a) {
+        return switch (a) {
+            case SUM -> "sumIf(contrib_value, contrib_kind = 'sample') as sum ";
+            case AVG -> "avgWeighted(contrib_value, contrib_weight) AS avg ";
+            case MIN -> "min(contrib_value) as min ";
+            case MAX -> "max(contrib_value) as max ";
+        };
     }
 
     public DatapointString findLatestDatapointInClickhouse(TimeseriesEntity ts){

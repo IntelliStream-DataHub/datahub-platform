@@ -74,6 +74,16 @@ public final class ArrowIpc {
 
     /** One record batch of the canon: {@code rows} rows and one view per column. */
     public record Batch(int rows, ColumnView[] columns) {
+
+        /** The same buffers, to write into another stream. */
+        public BatchData toData() {
+            ColumnData[] data = new ColumnData[columns.length];
+            for (int i = 0; i < columns.length; i++) {
+                ColumnView c = columns[i];
+                data[i] = new ColumnData(c.validity(), c.nullCount(), c.offsets(), c.data());
+            }
+            return new BatchData(rows, data);
+        }
     }
 
     /** The bytes of one column to write: the same shape as a view, from any source. */
@@ -132,7 +142,8 @@ public final class ArrowIpc {
         for (int i = 0; i < columns.size(); i++) {
             Column c = columns.get(i);
             ColumnData d = batch.columns()[i];
-            ByteBuffer validity = c.nullable() ? requireNonNull(d.validity(), c.name() + " validity") : null;
+            // Arrow lets a column with no nulls leave its validity bitmap out.
+            ByteBuffer validity = c.nullable() && d.nullCount() > 0 ? requireNonNull(d.validity(), c.name() + " validity") : null;
             position = place(validity, position, offsets, lengths, slices, b++);
             if (c.kind() == Kind.UTF8) {
                 position = place(requireNonNull(d.offsets(), c.name() + " offsets"), position, offsets, lengths, slices, b++);
@@ -197,6 +208,15 @@ public final class ArrowIpc {
      * contract's list lands here, as a {@link FrameFormatException} naming the frame.
      */
     public static List<Batch> readStream(ArrowSchemaCanon canon, byte[] payload, int frameIndex, int maxRows) {
+        return readStream(canon, payload, frameIndex, maxRows, false);
+    }
+
+    /**
+     * As {@link #readStream(ArrowSchemaCanon, byte[], int, int)}, but a stream of only a schema is
+     * an empty list rather than a rejection when {@code allowEmpty}: how ClickHouse answers a query
+     * that matched no rows.
+     */
+    public static List<Batch> readStream(ArrowSchemaCanon canon, byte[] payload, int frameIndex, int maxRows, boolean allowEmpty) {
         ByteBuffer buf = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
         List<Batch> batches = new ArrayList<>();
         boolean schemaSeen = false;
@@ -269,7 +289,7 @@ public final class ArrowIpc {
         if (pos != payload.length) {
             throw new FrameFormatException(Reason.TRAILING_BYTES, frameIndex, (payload.length - pos) + " bytes after the end-of-stream marker");
         }
-        if (batches.isEmpty()) {
+        if (batches.isEmpty() && !allowEmpty) {
             throw new FrameFormatException(Reason.PAYLOAD_INVALID, frameIndex, "no record batch");
         }
         return batches;
