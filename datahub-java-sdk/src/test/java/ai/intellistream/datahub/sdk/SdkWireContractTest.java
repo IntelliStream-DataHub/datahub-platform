@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
+import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
+import ai.intellistream.datahub.api.binary.DatapointValueType;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -205,6 +208,13 @@ class SdkWireContractTest {
         return List.of(IdCollection.createFromExternalId("x"));
     }
 
+    /** One float frame of one point, as {@code DatapointFrameWriter} builds it for {@code ingestFrames}. */
+    private static byte[] frame() {
+        DatapointFrameWriter writer = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(11, "engine.temp");
+        writer.addFloat(11, 1_700_000_000_000L, 1.5);
+        return writer.build(new ZstdPayloadCodec());
+    }
+
     private static Asset asset() {
         Asset a = new Asset();
         a.setExternalId("pump_1");
@@ -337,6 +347,8 @@ class SdkWireContractTest {
             new Contract("timeseries.deleteDatapoints", "POST", "/timeseries/data/delete",
                     retriever(DeleteDatapoint.class),
                     c -> c.timeseries().deleteDatapoints("x", Instant.EPOCH, Instant.EPOCH)),
+            new Contract("timeseries.ingestFrames", "POST", "/timeseries/data/binary", null,
+                    c -> c.timeseries().ingestFrames(List.of(frame()))),
 
             // --- datasets ----------------------------------------------------------------
             new Contract("datasets.getById", "GET", "/datasets/1", null,

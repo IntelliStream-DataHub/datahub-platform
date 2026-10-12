@@ -12,11 +12,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 
 /**
- * The shared HTTP request core every service goes through: attaches the bearer token,
- * (de)serializes JSON via Jackson, and maps non-2xx responses to {@link DatahubApiException}.
+ * The shared HTTP request core every service goes through: attaches the bearer token and the
+ * configured request timeout, (de)serializes JSON via Jackson, and maps non-2xx responses to
+ * {@link DatahubApiException}.
  * Thread-safe and meant to be shared.
  */
 final class ApiHttp {
@@ -32,12 +34,15 @@ final class ApiHttp {
     private final HttpClient http;
     private final JsonMapper mapper;
     private final TokenProvider tokenProvider;
+    private final Duration requestTimeout;   // nullable: no limit
 
-    public ApiHttp(String baseUrl, HttpClient http, JsonMapper mapper, TokenProvider tokenProvider) {
+    public ApiHttp(String baseUrl, HttpClient http, JsonMapper mapper, TokenProvider tokenProvider,
+                   Duration requestTimeout) {
         this.baseUrl = baseUrl;
         this.http = http;
         this.mapper = mapper;
         this.tokenProvider = tokenProvider;
+        this.requestTimeout = requestTimeout;
     }
 
     /** Jackson type factory, for services to build parametric types like {@code DataWrapper<Resource>}. */
@@ -88,8 +93,7 @@ final class ApiHttp {
      * back into {@code /resources/import}, which consumes {@code application/octet-stream}.
      */
     public <T> T postBytes(String path, byte[] body, String contentType, JavaType responseType) {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Authorization", "Bearer " + tokenProvider.getToken())
+        HttpRequest request = newRequest(path)
                 .header("Accept", ACCEPT)
                 .header("Content-Type", contentType)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
@@ -99,8 +103,7 @@ final class ApiHttp {
 
     /** GET returning the raw response body — e.g. a file download. */
     public byte[] getBytes(String path) {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Authorization", "Bearer " + tokenProvider.getToken())
+        HttpRequest request = newRequest(path)
                 .GET()
                 .build();
         return sendForBytes(request, "GET", path);
@@ -108,8 +111,7 @@ final class ApiHttp {
 
     /** POST with a JSON body, returning the raw response body of type {@code accept} — e.g. datapoint frames. */
     public byte[] postForBytes(String path, Object body, String accept) {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Authorization", "Bearer " + tokenProvider.getToken())
+        HttpRequest request = newRequest(path)
                 .header("Accept", accept + ", application/problem+json")
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
@@ -137,8 +139,7 @@ final class ApiHttp {
 
     /** PUT with a raw byte body and extra headers — e.g. a file upload (metadata travels in headers). */
     public <T> T put(String path, byte[] body, Map<String, String> headers, JavaType responseType) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Authorization", "Bearer " + tokenProvider.getToken())
+        HttpRequest.Builder builder = newRequest(path)
                 .header("Accept", ACCEPT)
                 .PUT(HttpRequest.BodyPublishers.ofByteArray(body));
         headers.forEach(builder::header);
@@ -147,8 +148,7 @@ final class ApiHttp {
 
     /** POST with a raw byte body under an explicit media type; the response body is ignored. */
     public void postBytes(String path, byte[] body, String contentType, Map<String, String> headers) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Authorization", "Bearer " + tokenProvider.getToken())
+        HttpRequest.Builder builder = newRequest(path)
                 .header("Accept", ACCEPT)
                 .header("Content-Type", contentType)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
@@ -157,8 +157,7 @@ final class ApiHttp {
     }
 
     private <T> T exchange(String method, String path, Object body, JavaType responseType) {
-        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .header("Authorization", "Bearer " + tokenProvider.getToken())
+        HttpRequest.Builder builder = newRequest(path)
                 .header("Accept", ACCEPT);
         if (body != null) {
             builder.header("Content-Type", "application/json")
@@ -167,6 +166,16 @@ final class ApiHttp {
             builder.method(method, HttpRequest.BodyPublishers.noBody());
         }
         return parse(sendString(builder.build(), method, path), responseType, method, path);
+    }
+
+    /** A request to {@code path} carrying the bearer token and, when one is configured, the timeout. */
+    private HttpRequest.Builder newRequest(String path) {
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Authorization", "Bearer " + tokenProvider.getToken());
+        if (requestTimeout != null) {
+            builder.timeout(requestTimeout);
+        }
+        return builder;
     }
 
     private HttpResponse<String> sendString(HttpRequest request, String method, String path) {

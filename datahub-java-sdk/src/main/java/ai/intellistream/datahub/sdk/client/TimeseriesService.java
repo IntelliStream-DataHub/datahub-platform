@@ -32,6 +32,7 @@ import tools.jackson.databind.type.TypeFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.ByteArrayOutputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -496,6 +497,34 @@ public final class TimeseriesService {
 
     public IngestResult ingestBinary(Map<String, List<Datapoint>> datapointsByExternalId, BinaryIngestOptions options) {
         return binaryIngestor.ingest(toCollections(datapointsByExternalId), options);
+    }
+
+    /**
+     * Send frames the caller built, as one {@code POST /timeseries/data/binary} request: for a
+     * caller that already holds its points in columns (with {@code DatapointFrameWriter}) and would
+     * lose the point of the binary path by turning them into {@link Datapoint} strings for
+     * {@link #ingestBinary(List)}. The frames go as they are, in order, concatenated into one
+     * body — no series resolution, no splitting, no retry: the frames must already name each series
+     * by its id and external id, at its value type.
+     *
+     * <p>The request-level limits ({@link FrameLimits#MAX_FRAMES_PER_REQUEST} frames, the frame and
+     * raw-size caps) are checked here before anything is sent, so a body the server would refuse
+     * whole fails without a round-trip. The server accepts or refuses the request as a whole: a
+     * refusal is a {@code DatahubApiException} whose problem {@code type} says why — for instance
+     * {@code unknown-timeseries}, naming the series that do not exist, before anything was written.
+     *
+     * @throws FrameFormatException if the frames break a request-level limit or are not frames
+     * @throws ai.intellistream.datahub.sdk.http.DatahubApiException if the server refuses the
+     *         request, or it got no answer (status 0)
+     */
+    public void ingestFrames(List<byte[]> frames) {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        for (byte[] frame : frames) {
+            body.writeBytes(frame);
+        }
+        byte[] bytes = body.toByteArray();
+        DatapointFrame.parseEnvelopes(bytes);
+        http.postBytes(BinaryDatapointIngestor.PATH, bytes, FrameLimits.MEDIA_TYPE, Map.of());
     }
 
     /**
