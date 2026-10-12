@@ -105,6 +105,19 @@ public final class SharedPostgres {
         return urlFor(database);
     }
 
+    /**
+     * An empty database, for a test of the migrations themselves rather than of the schema they
+     * leave: it gets none of the template's tables or history.
+     *
+     * @param database name unique to the calling class
+     * @return its JDBC URL
+     */
+    public static String newEmptyDatabase(String database) {
+        execute("DROP DATABASE IF EXISTS " + database);
+        execute("CREATE DATABASE " + database);
+        return urlFor(database);
+    }
+
     public static String username() {
         return CONTAINER.getUsername();
     }

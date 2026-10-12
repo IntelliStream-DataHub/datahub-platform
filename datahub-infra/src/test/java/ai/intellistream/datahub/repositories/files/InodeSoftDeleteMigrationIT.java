@@ -82,8 +82,11 @@ class InodeSoftDeleteMigrationIT {
         ds.setUrl(SharedPostgres.newDatabase("inode_soft_delete_it"));
         ds.setUser(SharedPostgres.username());
         ds.setPassword(SharedPostgres.password());
-        // The clone is already fully migrated; start over so Flyway can stop short of V45.
+        // The clone is already fully migrated; start over so Flyway can stop short of V45. Every
+        // schema a migration creates goes too: Flyway's history lives in public, so a surviving
+        // one would be created again on top of itself.
         try (Connection c = ds.getConnection(); Statement st = c.createStatement()) {
+            st.execute("DROP SCHEMA IF EXISTS flow CASCADE");
             st.execute("DROP SCHEMA public CASCADE");
             st.execute("CREATE SCHEMA public");
         }
