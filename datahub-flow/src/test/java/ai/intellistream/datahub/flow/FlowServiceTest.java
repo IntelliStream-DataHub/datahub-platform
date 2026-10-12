@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow;
 
+import ai.intellistream.datahub.flow.records.RecordsTopicProvisioner;
 import ai.intellistream.datahub.flow.tenant.FlowSchemaCheck;
 import ai.intellistream.datahub.tenant.OrganizationValidator;
 import ai.intellistream.datahub.tenant.Tenant;
@@ -8,6 +9,8 @@ import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import org.apache.arrow.memory.BufferAllocator;
+import org.apache.pulsar.client.admin.PulsarAdmin;
+import org.apache.pulsar.client.api.PulsarClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,7 +47,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.test/realms/datahub",
         "datahub.flow.arrow.budget=64MB",
         // Only resolved, never called: the tenant registry that would use it is mocked.
-        "vault.address=http://vault.test", "vault.role-id=test", "vault.secret-id=test"
+        "vault.address=http://vault.test", "vault.role-id=test", "vault.secret-id=test",
+        // Read by PulsarConfig, whose client and admin beans are mocked below.
+        "pulsar.service.url=pulsar://pulsar.test:6650", "pulsar.service.httpUrl=http://pulsar.test:8080",
+        "pulsar.client-id=test"
 })
 class FlowServiceTest {
 
@@ -67,6 +73,16 @@ class FlowServiceTest {
 
     @MockitoBean
     private FlowSchemaCheck schemaCheck;
+
+    // No broker here; RecordsTopicProvisionerIT covers provisioning against a real one.
+    @MockitoBean
+    private PulsarClient pulsarClient;
+
+    @MockitoBean
+    private PulsarAdmin pulsarAdmin;
+
+    @MockitoBean
+    private RecordsTopicProvisioner recordsTopicProvisioner;
 
     private MockMvc mvc;
 
