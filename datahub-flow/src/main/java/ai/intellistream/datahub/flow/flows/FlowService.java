@@ -301,7 +301,8 @@ public class FlowService {
         }
     }
 
-    private Caller requireRead() {
+    /** The caller, if they hold {@code /flows/read}; otherwise a 403. */
+    public Caller requireRead() {
         Caller caller = access.current();
         if (!caller.admin() && !caller.flowsRead()) {
             throw FlowProblems.forbidden("Seeing flows takes the " + Caller.FLOWS_READ + " grant.");
@@ -309,7 +310,8 @@ public class FlowService {
         return caller;
     }
 
-    private Caller requireWrite() {
+    /** The caller, if they hold {@code /flows/write}; otherwise a 403. */
+    public Caller requireWrite() {
         Caller caller = access.current();
         if (!caller.admin() && !caller.flowsWrite()) {
             throw FlowProblems.forbidden("Changing flows takes the " + Caller.FLOWS_WRITE + " grant.");
@@ -318,7 +320,7 @@ public class FlowService {
     }
 
     /** The flow, if the caller may see it; otherwise a 404, as if it did not exist. */
-    private StoredFlow visible(Caller caller, String externalId) {
+    public StoredFlow visible(Caller caller, String externalId) {
         return repository.find(externalId)
                 .filter(flow -> caller.canRead(flow.dataSetId()))
                 .orElseThrow(() -> FlowProblems.notFound("No flow " + externalId + "."));
