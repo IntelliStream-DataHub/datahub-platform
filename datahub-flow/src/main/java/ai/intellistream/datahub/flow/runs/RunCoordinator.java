@@ -84,6 +84,11 @@ public class RunCoordinator {
     public static final String FLOW_DISABLED = "FLOW_DISABLED";
     /** Something in the service itself failed the run. */
     public static final String INTERNAL = "INTERNAL";
+    /**
+     * Pulsar did not acknowledge the run's records in time: they are not durable, so the run is not
+     * finished as succeeded. Retried like any failure.
+     */
+    public static final String RECORDS_UNPUBLISHED = "RECORDS_UNPUBLISHED";
 
     private static final int SCHEDULE_BATCH = 50;
     private static final int REAP_BATCH = 100;

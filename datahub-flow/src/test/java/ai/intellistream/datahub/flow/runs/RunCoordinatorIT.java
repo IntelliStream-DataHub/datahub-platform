@@ -14,6 +14,8 @@ import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
 import ai.intellistream.datahub.flow.engine.RunExecutor;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
+import ai.intellistream.datahub.flow.records.FlowRecordBatch;
+import ai.intellistream.datahub.flow.records.RunRecords;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
 import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
 import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
@@ -86,6 +88,8 @@ class RunCoordinatorIT {
     private final List<RunCoordinator> coordinators = new ArrayList<>();
     private final Set<RunCoordinator> heartbeating = ConcurrentHashMap.newKeySet();
     private ScheduledExecutorService heartbeats;
+    private final List<FlowRecordBatch> published = new CopyOnWriteArrayList<>();
+    private volatile boolean failPublishing;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -240,6 +244,32 @@ class RunCoordinatorIT {
         StoredRun done = runs.find(run).orElseThrow();
         assertThat(done.attempt()).isEqualTo(2);
         assertThat(done.status()).isEqualTo("SUCCEEDED");
+    }
+
+    @Test
+    void aRunIsFinishedOnlyOnceItsRecordsArePublished() {
+        long flow = deployedFlow("recorded", wait(0, "recorded"), 1, 2);
+        UUID run = pending(flow, 0);
+        RunCoordinator a = coordinator("a", 1);
+
+        a.claim(TENANT, null);
+        await(() -> "SUCCEEDED".equals(runs.find(run).orElseThrow().status()));
+        assertThat(published).singleElement().satisfies(batch -> {
+            assertThat(batch.getRunId()).isEqualTo(run.toString());
+            assertThat(batch.getAttempt()).isEqualTo(1);
+            assertThat(batch.getSequence()).isZero();
+            assertThat(batch.getFlowExternalId()).isEqualTo("recorded");
+            assertThat(batch.getFlowVersion()).isEqualTo(1);
+            assertThat(batch.getRecords()).extracting(FlowRecordBatch.Row::getAction)
+                    .containsExactly("create", "route", "drop");
+        });
+
+        // Records Pulsar does not take are not durable: the attempt fails, and is retried.
+        failPublishing = true;
+        UUID second = pending(flow, 1);
+        a.claim(TENANT, null);
+        await(() -> runs.find(second).orElseThrow().attempt() == 2);
+        assertThat(runs.find(second).orElseThrow().errorCode()).isEqualTo(RunCoordinator.RECORDS_UNPUBLISHED);
     }
 
     @Test
@@ -418,7 +448,15 @@ class RunCoordinatorIT {
         RunExecution execution = new RunExecution(compiler,
                 new RunExecutor(allocator, java.time.Clock.systemUTC(), d -> { }), flows, jdbc,
                 credentials, tenant -> Map.of(), "http://127.0.0.1:" + datahub.getAddress().getPort(),
-                REQUEST_TIMEOUT, JSON);
+                REQUEST_TIMEOUT, JSON, (tenant, run, attempt, flow, version) -> new RunRecords(run,
+                        attempt, flow, version, 100_000, java.time.Clock.systemUTC(), batch -> {
+                            if (failPublishing) {
+                                return java.util.concurrent.CompletableFuture.failedFuture(
+                                        new IllegalStateException("Pulsar is down"));
+                            }
+                            published.add(batch);
+                            return java.util.concurrent.CompletableFuture.completedFuture(null);
+                        }), Duration.ofSeconds(5));
         RunCoordinator c = new RunCoordinator(runs, execution, transaction, null, null, JSON,
                 Long.MAX_VALUE, new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 4, 24,
                 backoff, backoff.isZero() ? Duration.ZERO : Duration.ofHours(6), Duration.ofSeconds(1)),
@@ -511,7 +549,10 @@ class RunCoordinatorIT {
 
     // ---------------------------------------------------------------- processors
 
-    /** Waits {@code millis}, stopping early when the run is stopped; counts runs at once per key. */
+    /**
+     * Waits {@code millis}, stopping early when the run is stopped; counts runs at once per key. Then
+     * makes one item and ends it, so the run has records.
+     */
     static final class Wait implements Processor {
         @Override
         public ProcessorDescriptor describe() {
@@ -532,6 +573,7 @@ class RunCoordinatorIT {
             } finally {
                 RUNNING.get(key).decrementAndGet();
             }
+            session.transfer(session.create(), "success");
         }
     }
 

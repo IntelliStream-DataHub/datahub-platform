@@ -186,7 +186,7 @@ services:
       dockerfile: deploy/app/Dockerfile
       args:
         MODULE: datahub-flow
-    depends_on: ["postgres", "pulsar", "keycloak", "datahub-api"]
+    depends_on: ["postgres", "clickhouse", "pulsar", "keycloak", "datahub-api"]
     environment:
       <<: *app-env
       # Its own JVM settings, not the shared 128 MB of direct memory: runs hold their data in Arrow

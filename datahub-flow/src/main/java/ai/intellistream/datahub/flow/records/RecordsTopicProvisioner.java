@@ -80,6 +80,19 @@ public class RecordsTopicProvisioner {
     /** Organization ids whose topic this instance has provisioned since it started. */
     private final Set<String> provisioned = ConcurrentHashMap.newKeySet();
 
+    /** A tenant's records topic, by its Pulsar tenant. */
+    public static String topic(String pulsarTenant) {
+        return "persistent://" + pulsarTenant + "/" + NAMESPACE + "/" + TOPIC;
+    }
+
+    /**
+     * The organization ids whose records topic this instance has provisioned. The records consumers
+     * start a consumer for each, so they never subscribe to a topic that is not ready.
+     */
+    public Set<String> provisioned() {
+        return Set.copyOf(provisioned);
+    }
+
     public RecordsTopicProvisioner(
             PulsarAdmin admin,
             TenantConfigService tenantConfigService,
@@ -133,7 +146,7 @@ public class RecordsTopicProvisioner {
             return;
         }
         String namespace = tenant.getPulsarTenant().getTenant() + "/" + NAMESPACE;
-        String topic = "persistent://" + namespace + "/" + TOPIC;
+        String topic = topic(tenant.getPulsarTenant().getTenant());
         try {
             ensureNamespace(namespace);
             applyNamespacePolicies(namespace);

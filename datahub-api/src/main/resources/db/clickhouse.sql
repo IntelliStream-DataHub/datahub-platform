@@ -153,14 +153,17 @@ CREATE OR REPLACE TABLE flow_run_event (
     event_time           DateTime64(3, 'UTC')   CODEC(DoubleDelta, ZSTD(9)),
     run_id               UUID,
     attempt              UInt16,
-    -- The batch within the run attempt this row was published in.
+    -- The batch within the run attempt this row was published in, and the row's position in it:
+    -- records of one invocation share their time, so (attempt, sequence, ordinal) orders a run.
     sequence             UInt32,
+    ordinal              UInt32,
     flow_external_id     LowCardinality(String),
     flow_version         UInt32,
     -- The processor's id in the definition, and its type.
     processor            LowCardinality(String),
     processor_type       LowCardinality(String),
-    -- create, read, send, modify, split, copy, route, drop.
+    -- create, fork, receive, send, attributes_modified, content_modified, route, clone, drop; and
+    -- truncated for the marker row that ends an attempt which hit the per-run record cap.
     action               LowCardinality(String),
     item_id              UUID,
     parent_item_ids      Array(UUID),
@@ -173,7 +176,7 @@ CREATE OR REPLACE TABLE flow_run_event (
     changed_attributes   Map(String, String),
     transit_uri          String,
     duration_ms          UInt32,
-    -- Set on the last row of a run attempt that hit the per-run record cap.
+    -- Set on the marker row (action truncated) of a run attempt that hit the per-run record cap.
     truncated            Bool DEFAULT false,
 
     transit_scheme       LowCardinality(String) MATERIALIZED protocol(transit_uri),
