@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.nav.lookup}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('lookup')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* Which run produced a value: GET {flow}/records/lookup, filled by flows/flows-lookup.js.
+	       ?timeseries=<externalId>&at=<ISO instant> fills the form and asks at once, so another page
+	       can link here. */-->
+	<div th:if="${!featureDisabled}" class="flows-page settings-page pad20" data-type="lookup-page">
+		<header class="flows-header">
+			<div>
+				<h2 th:text="#{flows.nav.lookup}"></h2>
+				<p class="flows-intro" th:text="#{flows.lookup.intro}"></p>
+			</div>
+		</header>
+
+		<form class="datahub-form-fields lookup-form" data-type="lookup-form">
+			<label for="lookup-timeseries" th:text="#{flows.lookup.timeseries}"></label>
+			<input id="lookup-timeseries" name="timeseries" type="text" required/>
+			<label for="lookup-at" th:text="#{flows.lookup.at}"></label>
+			<input id="lookup-at" name="at" type="datetime-local" step="1" required/>
+			<div class="flows-actions">
+				<button type="submit" class="dh-btn primary" th:text="#{flows.lookup.ask}"></button>
+			</div>
+		</form>
+
+		<p class="flows-empty" data-type="lookup-none" hidden th:text="#{flows.lookup.none}"></p>
+		<p class="flows-hint" th:text="#{flows.lookup.caveat}"></p>
+
+		<section data-type="lookup-result" hidden>
+			<h3 th:text="#{flows.lookup.latest}"></h3>
+			<dl class="run-facts" data-type="lookup-latest"></dl>
+			<h3 th:text="#{flows.lookup.history}"></h3>
+			<table class="listing slim pointer w100" data-type="lookup-history">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.time}"></th>
+						<th th:text="#{flows.column.flow}"></th>
+						<th th:text="#{flows.column.version}"></th>
+						<th th:text="#{flows.column.processor}"></th>
+						<th th:text="#{flows.column.window}"></th>
+						<th th:text="#{flows.column.status}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</section>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>
