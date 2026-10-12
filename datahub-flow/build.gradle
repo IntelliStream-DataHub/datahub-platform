@@ -66,6 +66,8 @@ dependencies {
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
 	testImplementation 'org.testcontainers:pulsar:1.21.4'
+	// SharedPostgres: one migrated Postgres container, a database per test class (FlowRepositoryIT).
+	testImplementation testFixtures(project(':datahub-infra'))
 }
 
 // What Arrow needs from the JVM on Java 25, found by starting the service without flags:
