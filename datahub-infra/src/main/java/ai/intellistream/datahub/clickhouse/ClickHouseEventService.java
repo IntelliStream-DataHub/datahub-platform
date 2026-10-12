@@ -844,6 +844,67 @@ public class ClickHouseEventService extends ClickHouseService {
     }
 
     /**
+     * The latest event of each lifecycle — every externalId the filter matches — kept only when
+     * that latest event's status is one of {@code latestStatus}. Newest first by event time.
+     *
+     * <p>The status test runs <em>after</em> the latest event is chosen, which is the whole point:
+     * "lifecycles that are still open" is not "events whose status is open", since every lifecycle
+     * that was ever opened has one of those. So {@code filter} must not carry a status of its own;
+     * the caller rejects that before getting here.
+     *
+     * <p>The filter and the dataset ACL narrow the candidates before the choice, so the latest event
+     * is the latest one the caller can see. {@code LIMIT 1 BY} also collapses rows the
+     * {@code ReplacingMergeTree} has not merged yet, which would otherwise repeat an event.
+     *
+     * @param latestStatus statuses (patterns, like {@code EventFilter.status}) the latest event must
+     *                     have, or empty for any
+     * @param after        where the previous page stopped, in {@code (eventTime desc, id desc)}
+     *                     order, or null for the first page
+     */
+    public List<EventModel> latestPerExternalId(EventFilter filter, List<String> latestStatus, int limit,
+                                                PageCursor after, Collection<Long> allowedDataSetIds) {
+        List<EventModel> results = new ArrayList<>();
+        List<SqlField> criterias = new ArrayList<>();
+        Map<String, Object> params = new HashMap<>();
+        if (!collectFilterCriteria(filter, params, criterias)) {
+            return results;
+        }
+        String inner = "SELECT %s FROM events e".formatted(String.join(", ", EVENT_COLUMNS))
+                + renderWhere(criterias, datasetAclCondition(allowedDataSetIds, "data_set_id", params))
+                + " ORDER BY external_id, event_time DESC, id DESC LIMIT 1 BY external_id";
+
+        List<String> outer = new ArrayList<>();
+        String statusCondition = anyOf(null, FilterPatterns.allPatterns(latestStatus), null,
+                "status", "latest_status", params);
+        if (statusCondition != null) {
+            outer.add(statusCondition);
+        }
+        if (after != null) {
+            params.put("afterValue", cursorParamValue("event_time", after.value()));
+            params.put("afterId", UUID.fromString(after.id()));
+            outer.add("(event_time < {afterValue:DateTime64(3)}"
+                    + " OR (event_time = {afterValue:DateTime64(3)} AND id < {afterId:UUID}))");
+        }
+        String query = "SELECT * FROM (" + inner + ")"
+                + (outer.isEmpty() ? "" : " WHERE " + String.join(" AND ", outer))
+                + " ORDER BY event_time DESC, id DESC LIMIT " + limit;
+        log.debug("ClickHouse latest-event query: {} {}", query, params);
+
+        Client client = getReadOnlyClickhouseClient();
+        try (QueryResponse response = client.query(query, params).get(30, TimeUnit.SECONDS)) {
+            var reader = client.newBinaryFormatReader(response);
+            while (reader.hasNext()) {
+                results.add(createEventModel(reader.next(), reader));
+            }
+        } catch (Exception e) {
+            // A 5xx, not an empty page: an empty "needs attention" list reads as "all clear".
+            log.error("Failed to retrieve the latest events from ClickHouse", e);
+            throw new RuntimeException("Failed to retrieve the latest events from ClickHouse", e);
+        }
+        return results;
+    }
+
+    /**
      * The {@code ORDER BY} for a filter query.
      *
      * <p>Defaults to {@code (event_time, id)} — the order the keyset below already pages in.

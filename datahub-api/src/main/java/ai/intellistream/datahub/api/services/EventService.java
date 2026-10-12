@@ -17,6 +17,7 @@ import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.models.events.EventQueryResult;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.models.events.LeanEvent;
 import ai.intellistream.datahub.models.validation.EventFields;
 import ai.intellistream.datahub.pulsar.EventAction;
@@ -143,6 +144,36 @@ public class EventService {
         List<EventModel> events = clickHouseEventService.filter(retreiver, readAclOrNull());
         data.setItems(events);
         data.setNextCursor(nextCursor(events, retreiver.getLimit(), sort));
+        return data;
+    }
+
+    /** The order {@link #latest} pages in, and the only one its cursors are valid for. */
+    private static final ClickHouseEventService.EventSortSpec LATEST_ORDER =
+            new ClickHouseEventService.EventSortSpec("eventTime", "event_time", true);
+
+    /**
+     * The latest event of each lifecycle the filter matches, among the events the caller may read,
+     * kept when that latest event's status is one of {@code query.status}. Newest first.
+     */
+    public DataWrapper<EventModel> latest(LatestEventsQuery query) {
+        EventFilter filter = query.getFilter() == null ? new EventFilter() : query.getFilter();
+        if (filter.getStatus() != null && !filter.getStatus().isEmpty()) {
+            // Refused rather than honoured: it would pick the latest *open* event of every
+            // lifecycle that was ever open, which looks exactly like the answer and is not it.
+            throw new BadRequestException(
+                    "filter.status would select the latest event with that status, not lifecycles "
+                            + "whose latest event has it. Use the top-level status instead.",
+                    "filter.status", "not allowed here; use status");
+        }
+        assertCursorIsUsable(query.getCursor(), LATEST_ORDER);
+
+        resolveDataSetIds(filter);
+        List<EventModel> events = clickHouseEventService.latestPerExternalId(filter,
+                query.getStatus(), query.getLimit(), PageCursor.decode(query.getCursor()),
+                readAclOrNull());
+        DataWrapper<EventModel> data = new DataWrapper<>();
+        data.setItems(events);
+        data.setNextCursor(nextCursor(events, query.getLimit(), LATEST_ORDER));
         return data;
     }
 
