@@ -1,0 +1,11 @@
+<nav class="sub-nav" th:fragment="navbar (pageSelected)">
+	<a th:href="@{/flows}" th:classappend="${pageSelected} == 'list' ? 'selected' : ''">
+		<span th:text="#{flows.nav.list}"></span>
+	</a>
+	<a th:href="@{/flows(tab='attention')}" th:classappend="${pageSelected} == 'attention' ? 'selected' : ''">
+		<span th:text="#{flows.nav.attention}"></span>
+	</a>
+	<a th:href="@{/flows(tab='lookup')}" th:classappend="${pageSelected} == 'lookup' ? 'selected' : ''">
+		<span th:text="#{flows.nav.lookup}"></span>
+	</a>
+</nav>

@@ -10,6 +10,9 @@
 // bundle and by the ad-hoc file/upload error paths, so it belongs here rather than in either.
 // datahub-problem.js reads every api error body and uses both, so it comes straight after.
 //
+// flows/attention-badge.js fills the Needs-attention count on the Flows entry in the header, which
+// every page carries; it does nothing where the entry is not rendered.
+//
 //= require application.js
 //= require limit-errors.js
 //= require datahub-problem.js
@@ -18,3 +21,4 @@
 //= require context-menu.js
 //= require resource-list.js
 //= require policy/naming-policy.js
+//= require flows/attention-badge.js

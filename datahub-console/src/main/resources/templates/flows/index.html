@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('list')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* Filled by flows/flows-list.js from datahub-flow: GET /flows, a page at a time. */-->
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="flows-list-page">
+		<header class="flows-header">
+			<div>
+				<h2 th:text="#{flows}"></h2>
+				<p class="flows-intro" th:text="#{flows.list.intro}"></p>
+			</div>
+			<form class="flows-create datahub-form-fields" data-type="flows-create">
+				<label for="flows-create-id" th:text="#{flows.create.label}"></label>
+				<div class="flows-create-row">
+					<input id="flows-create-id" name="externalId" type="text" required
+						   pattern="[A-Za-z0-9._:+=\-]{3,256}" th:placeholder="#{flows.create.placeholder}"/>
+					<button type="submit" class="dh-btn primary" th:text="#{flows.create}"></button>
+				</div>
+			</form>
+		</header>
+
+		<table class="listing slim pointer w100" data-type="flows-table">
+			<thead>
+				<tr>
+					<th th:text="#{flows.column.name}"></th>
+					<th th:text="#{flows.column.dataset}"></th>
+					<th th:text="#{flows.column.version}"></th>
+					<th th:text="#{flows.column.deployment}"></th>
+					<th th:text="#{flows.column.updated}"></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="flows-empty" hidden th:text="#{flows.list.empty}"></p>
+		<div class="flows-actions">
+			<button type="button" class="dh-btn secondary" data-type="flows-load-more" hidden
+					th:text="#{flows.load.more}"></button>
+		</div>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

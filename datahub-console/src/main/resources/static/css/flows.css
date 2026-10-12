@@ -1,0 +1,233 @@
+/* The Flows section: the flows list, a flow's processing tree and its runs. Built from the
+   console's shared tokens (all.css), so it follows the light and dark themes like every page. */
+
+.flows-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: var(--space-xl);
+	margin-bottom: var(--space-xl);
+}
+
+.flows-header h2 {
+	margin-bottom: 4px;
+}
+
+.flows-header h2 a {
+	color: inherit;
+}
+
+.flows-intro,
+.flows-hint,
+.flows-empty {
+	color: var(--text-muted);
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.flows-warn {
+	color: var(--flash-warning-bg);
+}
+
+.flows-actions {
+	margin-top: var(--space-lg);
+}
+
+.flows-create-row {
+	display: flex;
+	gap: var(--space);
+}
+
+.flows-check {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--space-xs);
+	margin-right: var(--space-lg);
+}
+
+.flows-banner {
+	display: flex;
+	gap: var(--space);
+	align-items: center;
+	padding: var(--space) var(--space-lg);
+	margin-bottom: var(--space-lg);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	color: var(--text-muted);
+}
+
+/* The count of open failures on the Flows entry in the header. */
+.nav-count {
+	display: inline-block;
+	min-width: 18px;
+	margin-left: var(--space-xs);
+	padding: 0 5px;
+	border-radius: 9px;
+	background: var(--flash-error-bg);
+	color: #fff;
+	font-size: 11px;
+	line-height: 18px;
+	text-align: center;
+}
+
+.flow-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-sm);
+	justify-content: flex-end;
+}
+
+.flow-new {
+	display: flex;
+	gap: var(--space-xl);
+	margin-bottom: var(--space-lg);
+}
+
+.flow-new > div {
+	flex: 1;
+}
+
+.flow-problems {
+	margin: 0 0 var(--space-lg);
+	padding: var(--space) var(--space-lg) var(--space) 28px;
+	border-left: 3px solid var(--flash-error-bg);
+	font-size: 13px;
+}
+
+.flow-tabs {
+	display: flex;
+	gap: var(--space-xs);
+	border-bottom: 1px solid var(--border);
+	margin-bottom: var(--space-lg);
+}
+
+.flow-tabs button {
+	background: none;
+	border: none;
+	border-bottom: 2px solid transparent;
+	padding: var(--space) var(--space-lg);
+	color: var(--text-muted);
+	cursor: pointer;
+}
+
+.flow-tabs button.selected {
+	color: var(--text);
+	border-bottom-color: var(--accent);
+}
+
+.flow-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: var(--space-sm);
+	margin-bottom: var(--space);
+}
+
+.flow-toolbar select,
+.flow-toolbar input {
+	width: auto;
+	margin: 0;
+}
+
+.flow-toolbar-gap {
+	width: var(--space-xl);
+}
+
+.flow-canvas {
+	height: 520px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+
+.flow-json {
+	min-height: 520px;
+	font-family: monospace;
+	font-size: 12px;
+}
+
+.flow-inline {
+	display: flex;
+	gap: var(--space);
+}
+
+.flow-checks {
+	display: flex;
+	flex-wrap: wrap;
+}
+
+/* A run. */
+.run-facts {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+	gap: var(--space-lg) var(--space-xl);
+	margin-bottom: var(--space-xl);
+}
+
+.run-facts dt {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.run-facts pre,
+.run-log pre {
+	white-space: pre-wrap;
+	font-size: 12px;
+	margin: 0;
+}
+
+.run-log {
+	margin-bottom: var(--space-xl);
+}
+
+.run-records-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: var(--space-lg);
+}
+
+.run-records-head select {
+	width: auto;
+}
+
+.run-records td {
+	max-width: 260px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.flows-live {
+	margin-left: var(--space);
+	color: var(--accent);
+}
+
+.run-status-succeeded {
+	color: var(--ok-text);
+}
+
+.run-status-failed {
+	color: var(--flash-error-bg);
+}
+
+.run-status-running,
+.run-status-pending {
+	color: var(--accent);
+}
+
+/* Needs attention: a group heading per flow, its open failures beneath. */
+.attention-group td {
+	font-weight: 600;
+	padding-top: var(--space-lg);
+}
+
+.attention-actions {
+	display: flex;
+	gap: var(--space-xs);
+	justify-content: flex-end;
+}
+
+.lookup-form {
+	max-width: 480px;
+	margin-bottom: var(--space-xl);
+}

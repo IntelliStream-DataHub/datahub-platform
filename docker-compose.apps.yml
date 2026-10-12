@@ -133,7 +133,11 @@ services:
       args:
         MODULE: datahub-console
     depends_on: ["postgres", "valkey", "keycloak"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # The Flows section's pages call datahub-flow from the host's browser, so this is the
+      # published address, not the compose network's.
+      DATAHUB_FLOW_URL: http://localhost:8084
     restart: unless-stopped
     ports: ["8080:8080", "9080:9080"]
 
