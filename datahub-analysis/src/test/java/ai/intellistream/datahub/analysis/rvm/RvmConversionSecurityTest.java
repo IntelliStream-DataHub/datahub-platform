@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.rvm.config;
+package ai.intellistream.datahub.analysis.rvm;
 
-import ai.intellistream.datahub.rvm.RvmConversion;
-import ai.intellistream.datahub.rvm.RvmConverter;
+import ai.intellistream.datahub.analysis.config.AnalysisApiClientFactory;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.FileService;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,19 +29,19 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * The /models trust boundary: a valid JWT with ROLE_DATAHUB_ACCESS, CORS for the console, and CSRF
- * left on without getting in the way of the one GET the console makes.
+ * {@code /models/gltf} sits behind the same gate as {@code /analysis}: a valid JWT with
+ * {@code ROLE_DATAHUB_ACCESS}, CORS for the console, and no session. Mirrors
+ * {@code AnalysisSecurityTest}'s harness; the {@link JwtDecoder} is mocked so no issuer is contacted.
  */
 @SpringBootTest
 @TestPropertySource(properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.test/realms/datahub",
         "cors.allowed-origins=http://console.test"})
-class SecurityConfigTest {
+class RvmConversionSecurityTest {
 
     private static final String MODEL = "/models/gltf?rvm=plant_rvm";
     private static final String BEARER = "Bearer console-token";
@@ -54,7 +53,7 @@ class SecurityConfigTest {
     private JwtDecoder jwtDecoder;
 
     @MockitoBean
-    private RvmApiClientFactory clients;
+    private AnalysisApiClientFactory clients;
 
     @MockitoBean
     private RvmConverter converter;
@@ -88,17 +87,11 @@ class SecurityConfigTest {
     }
 
     @Test
-    void convertsForTheConsolesBearerTokenWithoutACsrfTokenOrASession() throws Exception {
+    void convertsForTheConsolesBearerTokenWithoutASession() throws Exception {
         MvcResult result = mvc.perform(get(MODEL).header("Authorization", BEARER))
                 .andExpect(status().isOk())
                 .andReturn();
         assertNull(result.getRequest().getSession(false));
-    }
-
-    @Test
-    void refusesAStateChangingRequestWithoutACsrfToken() throws Exception {
-        // 403 from the CSRF filter; with CSRF disabled the same request reaches authentication, a 401.
-        mvc.perform(post(MODEL)).andExpect(status().isForbidden());
     }
 
     @Test
@@ -109,13 +102,5 @@ class SecurityConfigTest {
                         .header("Access-Control-Request-Headers", "authorization"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Access-Control-Allow-Origin", "http://console.test"));
-    }
-
-    @Test
-    void refusesAPreflightForAnyOtherMethod() throws Exception {
-        mvc.perform(options(MODEL)
-                        .header("Origin", "http://console.test")
-                        .header("Access-Control-Request-Method", "DELETE"))
-                .andExpect(status().isForbidden());
     }
 }

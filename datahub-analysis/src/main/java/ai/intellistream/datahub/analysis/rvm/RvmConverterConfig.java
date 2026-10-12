@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.rvm.config;
+package ai.intellistream.datahub.analysis.rvm;
 
-import ai.intellistream.datahub.rvm.RvmConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -16,7 +15,7 @@ import java.time.Duration;
  * it is statically linked, so the image needs nothing else to run it.
  */
 @Configuration
-public class ConverterProperties {
+public class RvmConverterConfig {
 
     @Bean
     RvmConverter rvmConverter(

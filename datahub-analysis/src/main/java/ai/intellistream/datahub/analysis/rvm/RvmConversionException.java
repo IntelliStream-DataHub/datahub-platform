@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.rvm;
+package ai.intellistream.datahub.analysis.rvm;
 
 /** A conversion that did not produce a usable model. */
 public class RvmConversionException extends Exception {

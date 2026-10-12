@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.rvm.web;
+package ai.intellistream.datahub.analysis.rvm;
 
-import ai.intellistream.datahub.rvm.RvmConversion;
-import ai.intellistream.datahub.rvm.RvmConversionException;
-import ai.intellistream.datahub.rvm.RvmConverter;
-import ai.intellistream.datahub.rvm.config.RvmApiClientFactory;
+import ai.intellistream.datahub.analysis.config.AnalysisApiClientFactory;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.FileService;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,13 +29,13 @@ import static org.mockito.Mockito.when;
  * What the endpoint does with the two things it does not control: what the api hands back, and
  * whether the converter can make sense of it.
  */
-class ConversionControllerTest {
+class RvmConversionControllerTest {
 
     private static final byte[] GLB = "glTF   model".getBytes(StandardCharsets.UTF_8);
 
     private FileService files;
     private RvmConverter converter;
-    private ConversionController controller;
+    private RvmConversionController controller;
     private final List<Path> seen = new ArrayList<>();
 
     @BeforeEach
@@ -47,11 +44,11 @@ class ConversionControllerTest {
         DatahubClient client = mock(DatahubClient.class);
         when(client.files()).thenReturn(files);
 
-        RvmApiClientFactory clients = mock(RvmApiClientFactory.class);
+        AnalysisApiClientFactory clients = mock(AnalysisApiClientFactory.class);
         when(clients.forCurrentUser()).thenReturn(client);
 
         converter = mock(RvmConverter.class);
-        controller = new ConversionController(clients, converter);
+        controller = new RvmConversionController(clients, converter);
     }
 
     @Test
