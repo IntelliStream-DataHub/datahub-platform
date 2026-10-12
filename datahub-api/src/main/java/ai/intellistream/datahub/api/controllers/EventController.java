@@ -14,6 +14,7 @@ import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.models.SearchBody;
 import ai.intellistream.datahub.models.events.EventFilter;
 import io.swagger.v3.oas.annotations.Operation;
@@ -280,6 +281,61 @@ public class EventController {
             @Valid @RequestBody EventRetreiver apiReqData){
         DataWrapper<EventModel> items = eventService.filter(apiReqData);
         return new ResponseEntity<>(items, HttpStatus.OK);
+    }
+
+    @Tag(name = "Events")
+    @Operation(
+            summary = "Latest event of each lifecycle",
+            description = """
+                    Events that share an `externalId` are the lifecycle of one logical event, each
+                    record a transition (`open`, then `resolved`, say). This returns, for every
+                    `externalId` the `filter` matches, its **latest** event — the one with the
+                    newest `eventTime` — and keeps it only when that latest event's status is one
+                    of `status`. So `"status": ["open"]` answers "which lifecycles are still
+                    open", which `POST /events/filter` with a status cannot: every lifecycle that
+                    was ever opened has an `open` event.
+
+                    `filter` takes the same criteria as `POST /events/filter` except `status`,
+                    which is refused with `400`, since it would select the latest *open* event of
+                    each lifecycle instead. The filter and your data set access apply before the
+                    latest event is chosen: it is the latest event you can see.
+
+                    Results come newest first by the latest event's `eventTime`, at most `limit`
+                    (default 100, at most 1000) per page. Pass `nextCursor` back as `cursor` for
+                    the next page; a missing `nextCursor` means there are no more.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "The latest event of each matching lifecycle.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = EventDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "`filter.status` was set, or the cursor cannot be read.",
+            content = @Content(
+                    mediaType = "application/problem+json",
+                    schema = @Schema(implementation = ValidationProblem.class)
+            ))
+    @PostMapping(path = "/latest", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<DataWrapper<EventModel>> latest(
+            @io.swagger.v3.oas.annotations.parameters.RequestBody(
+                    required = true,
+                    content = @Content(
+                            mediaType = MediaType.APPLICATION_JSON_VALUE,
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "filter": {
+                                        "type": ["flow"],
+                                        "subType": ["run-failed"],
+                                        "dataSetId": [{ "externalId": "ds_demo" }]
+                                      },
+                                      "status": ["open"],
+                                      "limit": 100
+                                    }
+                                    """)
+                    )
+            )
+            @Valid @RequestBody LatestEventsQuery query) {
+        return ResponseEntity.ok(eventService.latest(query));
     }
 
     @Tag(name = "Events")

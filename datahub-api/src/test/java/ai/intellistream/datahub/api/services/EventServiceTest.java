@@ -15,6 +15,7 @@ import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.pulsar.EventCudMessage;
@@ -663,4 +664,62 @@ class EventServiceTest {
         assertThrows(MalformedCursorException.class, () -> eventService.filter(retreiver));
     }
 
+    // ---- latest(): the latest event of each lifecycle ----
+
+    private static EventModel eventAt(String id, long epochMillis) {
+        EventModel event = new EventModel();
+        event.setId(id);
+        event.setEventTime(java.time.Instant.ofEpochMilli(epochMillis).atZone(java.time.ZoneOffset.UTC));
+        return event;
+    }
+
+    @Test
+    void latest_refusesAStatusInsideTheFilter() {
+        LatestEventsQuery query = new LatestEventsQuery();
+        query.getFilter().setStatus(List.of("open"));
+
+        assertThrows(BadRequestException.class, () -> eventService.latest(query));
+        verifyNoInteractions(clickHouseEventService);
+    }
+
+    @Test
+    void latest_restrictedCaller_passesReadableDatasetsAndTheLatestStatus() {
+        Set<Long> readable = Set.of(1L, 2L);
+        when(dataSecurity.hasReadAccessToEverything()).thenReturn(false);
+        when(dataSecurity.readableDataSetIds()).thenReturn(readable);
+        LatestEventsQuery query = new LatestEventsQuery();
+        query.setStatus(List.of("open"));
+
+        eventService.latest(query);
+
+        verify(clickHouseEventService).latestPerExternalId(any(EventFilter.class), eq(List.of("open")),
+                eq(LatestEventsQuery.DEFAULT_LIMIT), isNull(), eq(readable));
+    }
+
+    @Test
+    void latest_fullPage_returnsADescendingEventTimeCursorThatIsAcceptedBack() {
+        when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
+        String lastId = UUID.randomUUID().toString();
+        when(clickHouseEventService.latestPerExternalId(any(), any(), eq(2), any(), isNull()))
+                .thenReturn(List.of(eventAt(UUID.randomUUID().toString(), 2_000), eventAt(lastId, 1_000)));
+        LatestEventsQuery query = new LatestEventsQuery();
+        query.setLimit(2);
+
+        String cursor = eventService.latest(query).getNextCursor();
+
+        assertEquals(new PageCursor("eventTime", true, "1000", lastId), PageCursor.decode(cursor));
+        query.setCursor(cursor);
+        eventService.latest(query);
+        verify(clickHouseEventService).latestPerExternalId(any(), any(), eq(2),
+                eq(new PageCursor("eventTime", true, "1000", lastId)), isNull());
+    }
+
+    @Test
+    void latest_rejectsACursorFromAnotherOrder() {
+        LatestEventsQuery query = new LatestEventsQuery();
+        query.setCursor(new PageCursor("eventTime", false, "1000", UUID.randomUUID().toString()).encode());
+
+        assertThrows(MalformedCursorException.class, () -> eventService.latest(query));
+        verifyNoInteractions(clickHouseEventService);
+    }
 }
