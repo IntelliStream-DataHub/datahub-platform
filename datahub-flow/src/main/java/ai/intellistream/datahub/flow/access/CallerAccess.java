@@ -141,7 +141,8 @@ public class CallerAccess {
         return answer.all() ? DataSets.ALL : new DataSets(false, new HashSet<>(answer.ids()));
     }
 
-    private static Jwt currentJwt() {
+    /** The current request's token: what a preview, which acts as its caller, runs with. */
+    public static Jwt currentJwt() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth instanceof JwtAuthenticationToken token) {
             return token.getToken();

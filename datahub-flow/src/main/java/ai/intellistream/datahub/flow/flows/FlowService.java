@@ -177,6 +177,17 @@ public class FlowService {
         }
     }
 
+    /**
+     * Checks an unsaved definition for a preview exactly as a save would — validation, secrets, the
+     * datasets it names and write access to them — and returns its dataset's id. Nothing is saved and
+     * no declared series is created: a preview's sinks only report what they would write.
+     *
+     * @throws InvalidFlowException listing everything wrong
+     */
+    public long checkForPreview(Caller caller, FlowDefinition definition) {
+        return prepare(definition, access.client(), caller).dataSetId();
+    }
+
     public FlowView get(String externalId) {
         StoredFlow flow = visible(requireRead(), externalId);
         StoredVersion current = repository.version(flow.id(), flow.currentVersion()).orElseThrow();

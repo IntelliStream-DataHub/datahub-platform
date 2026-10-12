@@ -3,6 +3,7 @@ package ai.intellistream.datahub.flow.runs;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.flow.runs.RunService.DeployRequest;
+import ai.intellistream.datahub.flow.runs.RunService.PreviewRequest;
 import ai.intellistream.datahub.flow.runs.RunService.StartRequest;
 import ai.intellistream.datahub.flow.runs.RunView.DeploymentView;
 import org.springframework.http.HttpStatus;
@@ -56,12 +57,28 @@ public class RunController {
         return ResponseEntity.status(HttpStatus.CREATED).body(runs.start(externalId, request));
     }
 
-    /** The runs the caller may see, newest first; of one flow with {@code flow}. */
+    /**
+     * 202 with a preview run already started here: a saved version or an unsaved definition, run as
+     * the caller, writing nothing. Accepted rather than created, since its outcome comes later:
+     * follow it at {@code /runs/{id}/events}. 400 for an invalid definition; 401
+     * {@code token-expiring} when the caller's token has too little time left to run as them; 503
+     * {@code busy} when this instance has no room.
+     */
+    @PostMapping("/previews")
+    public ResponseEntity<RunView> preview(@RequestBody(required = false) PreviewRequest request) {
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(runs.preview(request));
+    }
+
+    /**
+     * The runs the caller may see, newest first; of one flow with {@code flow}. Previews are shown
+     * apart from real runs, so they are left out unless {@code preview=true}.
+     */
     @GetMapping("/runs")
     public DataWrapper<RunView> list(@RequestParam(required = false) String flow,
+                                     @RequestParam(defaultValue = "false") boolean preview,
                                      @RequestParam(required = false) String cursor,
                                      @RequestParam(required = false) Integer limit) {
-        return runs.list(flow, cursor, limit);
+        return runs.list(flow, preview, cursor, limit);
     }
 
     @GetMapping("/runs/{id}")

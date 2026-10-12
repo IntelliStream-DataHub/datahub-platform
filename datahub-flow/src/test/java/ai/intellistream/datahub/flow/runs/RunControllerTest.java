@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
+import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.flow.access.Caller;
 import ai.intellistream.datahub.flow.access.Caller.DataSets;
 import ai.intellistream.datahub.flow.access.CallerAccess;
@@ -17,15 +18,24 @@ import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.flows.TestFlows;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.identity.RegisteredClients;
+import ai.intellistream.datahub.flow.runs.RunRepository.NewPreview;
 import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
 import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
 import ai.intellistream.datahub.flow.web.FlowProblems;
+import ai.intellistream.datahub.models.DataSetModel;
+import ai.intellistream.datahub.sdk.client.DatahubClient;
+import ai.intellistream.datahub.sdk.client.DatasetService;
+import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -35,6 +45,7 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -74,14 +85,35 @@ class RunControllerTest {
     private final CallerAccess access = mock(CallerAccess.class);
     private final RegisteredClients clients = mock(RegisteredClients.class);
     private final FlowTokens offlineTokens = mock(FlowTokens.class);
+    private final DatahubClient api = mock(DatahubClient.class);
+    private final DatasetService datasets = mock(DatasetService.class);
     private MockMvc mvc;
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
 
     @BeforeEach
     void setUp() {
         FlowValidator validator = new FlowValidator(TestFlows.builtIns(), FlowValidator.Limits.DEFAULTS);
         TransactionTemplate transaction = new TransactionTemplate(mock(PlatformTransactionManager.class));
-        FlowService flowService = new FlowService(flows, access, validator, mock(TenantConfigService.class),
-                mock(TenantConfigWriter.class), transaction, JSON, offlineTokens);
+        TenantConfigService tenants = mock(TenantConfigService.class);
+        Tenant tenant = new Tenant();
+        tenant.setOrganizationName("foo");
+        when(tenants.getConfig(any())).thenReturn(tenant);
+        TenantConfigWriter tenantConfig = mock(TenantConfigWriter.class);
+        when(tenantConfig.current("foo")).thenReturn(Map.of());
+        when(access.client()).thenReturn(api);
+        when(api.datasets()).thenReturn(datasets);
+        DataSetModel demo = new DataSetModel();
+        demo.setId(DS_DEMO);
+        demo.setExternalId("ds_demo");
+        DataWrapper<DataSetModel> found = new DataWrapper<>();
+        found.setItems(List.of(demo));
+        when(datasets.byIds(any())).thenReturn(found);
+        FlowService flowService = new FlowService(flows, access, validator, tenants, tenantConfig,
+                transaction, JSON, offlineTokens);
         RunService service = new RunService(flowService, flows, runs, coordinator,
                 new FlowCompiler(validator), transaction, JSON, clients, offlineTokens);
         mvc = MockMvcBuilders.standaloneSetup(new RunController(service))
@@ -238,13 +270,154 @@ class RunControllerTest {
     void theRunListIsLimitedToReadableDatasets() throws Exception {
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(new Caller("user-1", false, true, false, readable, readable));
-        when(runs.list(readable, null, null, null, 100)).thenReturn(List.of());
+        when(runs.list(readable, null, false, null, null, 100)).thenReturn(List.of());
 
         mvc.perform(get("/runs")).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
-        verify(runs).list(readable, null, null, null, 100);
+        verify(runs).list(readable, null, false, null, null, 100);
+
+        // Previews are shown apart, so only on request.
+        mvc.perform(get("/runs?preview=true")).andExpect(status().isOk());
+        verify(runs).list(readable, null, true, null, null, 100);
+    }
+
+    // ---------------------------------------------------------------- previews
+
+    @Test
+    void previewingTakesTheWriteGrantAndWriteAccessToTheDataset() throws Exception {
+        tokenExpiresIn(Duration.ofMinutes(10));
+        callerIs(new Caller("user-1", false, true, false, DataSets.ALL, DataSets.ALL));
+        preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isForbidden());
+
+        callerIs(new Caller("user-1", false, true, true, DataSets.ALL, new DataSets(false, Set.of(99L))));
+        preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
+        preview("{\"definition\":" + TestFlows.EXAMPLE + "}").andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
+        verify(runs, never()).insertPreview(any());
+    }
+
+    @Test
+    void aPreviewIsOfASavedFlowOrOfADefinitionNotBoth() throws Exception {
+        tokenExpiresIn(Duration.ofMinutes(10));
+        callerIs(writer());
+
+        preview("{}").andExpect(status().isBadRequest());
+        preview("{\"flow\":\"temp_hourly\",\"definition\":" + TestFlows.EXAMPLE + "}")
+                .andExpect(status().isBadRequest());
+        verify(runs, never()).insertPreview(any());
+    }
+
+    @Test
+    void aPreviewOfASavedVersionRunsHereAsTheCallerOverTheLastHour() throws Exception {
+        tokenExpiresIn(Duration.ofMinutes(10));
+        callerIs(writer());
+        UUID id = UUID.randomUUID();
+        when(runs.insertPreview(any())).thenReturn(id);
+        when(coordinator.claimPreview(any(), eq(id), any())).thenReturn(true);
+        when(runs.find(id)).thenReturn(Optional.of(stored(id, DS_DEMO, "RUNNING")));
+
+        // A flow need not be deployed to be previewed.
+        preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(id.toString()));
+
+        ArgumentCaptor<NewPreview> created = ArgumentCaptor.forClass(NewPreview.class);
+        verify(runs).insertPreview(created.capture());
+        NewPreview p = created.getValue();
+        assertThat(p.flowId()).isEqualTo(FLOW_ID);
+        assertThat(p.version()).isEqualTo(1);
+        assertThat(p.definition()).isNull();
+        assertThat(p.window()).isEqualTo(new TimeWindow(Instant.parse("2026-10-12T10:06:00Z"),
+                Instant.parse("2026-10-12T11:06:00Z")));
+        assertThat(p.triggeredBy()).isEqualTo("user-1");
+        // The token has ten minutes; the flow's fifteen-minute timeout is cut to what it has left.
+        assertThat(p.timeout()).isLessThanOrEqualTo(Duration.ofMinutes(10).minusSeconds(30))
+                .isGreaterThan(Duration.ofMinutes(9));
+
+        ArgumentCaptor<java.util.function.Supplier<String>> tokens = ArgumentCaptor.captor();
+        verify(coordinator).claimPreview(any(), eq(id), tokens.capture());
+        assertThat(tokens.getValue().get()).isEqualTo("caller-token");
+    }
+
+    @Test
+    void anUnsavedDefinitionIsValidatedAndItsDatasetResolvedButNothingIsSaved() throws Exception {
+        tokenExpiresIn(Duration.ofHours(1));
+        callerIs(writer());
+
+        preview("{\"definition\":{\"schemaVersion\":1,\"externalId\":\"x\",\"dataSet\":\"ds_demo\","
+                + "\"name\":\"n\",\"processors\":[{\"id\":\"s\",\"type\":\"no.such.processor\"}],"
+                + "\"connections\":[]}}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/validation-failed"));
+        verify(runs, never()).insertPreview(any());
+
+        UUID id = UUID.randomUUID();
+        when(runs.insertPreview(any())).thenReturn(id);
+        when(coordinator.claimPreview(any(), eq(id), any())).thenReturn(true);
+        when(runs.find(id)).thenReturn(Optional.of(stored(id, DS_DEMO, "RUNNING")));
+        preview("{\"definition\":" + TestFlows.EXAMPLE + ",\"window\":{\"start\":\"2026-10-01T00:00:00Z\","
+                + "\"end\":\"2026-10-01T06:00:00Z\"}}").andExpect(status().isAccepted());
+
+        ArgumentCaptor<NewPreview> created = ArgumentCaptor.forClass(NewPreview.class);
+        verify(runs).insertPreview(created.capture());
+        assertThat(created.getValue().flowId()).isNull();
+        assertThat(created.getValue().dataSetId()).isEqualTo(DS_DEMO);
+        assertThat(created.getValue().definition()).contains("\"externalId\":\"temp_hourly\"");
+        assertThat(created.getValue().window().start()).isEqualTo(Instant.parse("2026-10-01T00:00:00Z"));
+        // Saving is not previewing: no flow is created, and no declared series either.
+        verify(flows, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(),
+                anyString());
+        verify(api, never()).timeseries();
+    }
+
+    @Test
+    void aTokenAboutToExpireCannotRunAPreview() throws Exception {
+        tokenExpiresIn(Duration.ofSeconds(80));
+        callerIs(writer());
+
+        preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/token-expiring"));
+        verify(runs, never()).insertPreview(any());
+    }
+
+    @Test
+    void aPreviewThisInstanceHasNoRoomForIsCancelledAndRefused() throws Exception {
+        tokenExpiresIn(Duration.ofMinutes(10));
+        callerIs(writer());
+        UUID id = UUID.randomUUID();
+        when(runs.insertPreview(any())).thenReturn(id);
+        when(coordinator.claimPreview(any(), eq(id), any())).thenReturn(false);
+
+        preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/busy"));
+        verify(runs).cancelPending(eq(id), eq(RunCoordinator.NO_CAPACITY), anyString());
+    }
+
+    @Test
+    void aPreviewIsNotReRun() throws Exception {
+        callerIs(writer());
+        UUID id = UUID.randomUUID();
+        when(runs.find(id)).thenReturn(Optional.of(new StoredRun(id, FLOW_ID, "temp_hourly", DS_DEMO, 1,
+                "SUCCEEDED", 1, 1, Instant.EPOCH, false, true, false, 1024, Duration.ofMinutes(15),
+                null, null, "{}", null, "preview", "user-1", "user-1", Instant.EPOCH, null, null,
+                null, null, null)));
+
+        mvc.perform(post("/runs/" + id + "/rerun")).andExpect(status().isBadRequest());
+        verify(runs, never()).insert(any());
     }
 
     // ---------------------------------------------------------------- fixtures
+
+    private org.springframework.test.web.servlet.ResultActions preview(String body) throws Exception {
+        return mvc.perform(post("/previews").contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    /** The caller's token, as the security chain leaves it, expiring {@code left} from now. */
+    private static void tokenExpiresIn(Duration left) {
+        Instant now = Instant.now();
+        Jwt jwt = Jwt.withTokenValue("caller-token").header("alg", "none").subject("user-1")
+                .issuedAt(now.minusSeconds(60)).expiresAt(now.plus(left)).build();
+        SecurityContextHolder.getContext().setAuthentication(new JwtAuthenticationToken(jwt));
+    }
 
     private org.springframework.test.web.servlet.ResultActions deploy(String body) throws Exception {
         return mvc.perform(put("/flows/temp_hourly/deployment").contentType(MediaType.APPLICATION_JSON)
