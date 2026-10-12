@@ -18,9 +18,9 @@ import ai.intellistream.datahub.flow.processors.TimeseriesSource;
 import java.util.List;
 
 /** The plan's example flow, with the built-in processors. */
-final class TestFlows {
+public final class TestFlows {
 
-    static final String EXAMPLE = """
+    public static final String EXAMPLE = """
             {
               "schemaVersion": 1,
               "externalId": "temp_hourly",
@@ -51,7 +51,7 @@ final class TestFlows {
             }
             """;
 
-    static List<Processor> builtIns() {
+    public static List<Processor> builtIns() {
         return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSink(), new Scale(),
                 new Smooth(), new Despike(), new Interpolate(), new Clip(), new Resample(),
                 new FilterRange(), new Threshold(), new RouteOnAttribute());
