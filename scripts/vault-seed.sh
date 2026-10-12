@@ -58,8 +58,9 @@ echo "==> Writing shared platform secret (datahub-platform)"
 # (api + both consumers) and, for keycloak.issuer, by the api (VaultKeycloakData)
 # and the console. These are FLAT dotted string keys — KV-v2 field names that
 # literally contain dots, NOT nested objects. The pulsar OAuth/admin fields are
-# unused with plaintext pulsar (DATAHUB_PULSAR_TLS_ENABLED=false) but must exist
-# so the loader doesn't bind nulls.
+# unused with plaintext pulsar (DATAHUB_PULSAR_TLS_ENABLED=false). pulsar.issuer-url
+# is set explicitly: when it is absent or blank the loader uses keycloak.issuer,
+# and this seed must not point local Pulsar at the Keycloak realm.
 vault kv put "$MOUNT/datahub-platform" \
   pulsar.host="$PULSAR_HOST" \
   pulsar.issuer-url="unused-local" \
