@@ -108,6 +108,19 @@ realm-admin rights. The only realm role left in the dataset ACL is `DATAHUB_ADMI
 deliberately cross-tenant operator escape hatch, resolved from the token alone so operator access
 survives a UserInfo outage.
 
+The same tree carries the grants that are not about datasets, in the same `read`/`write` shape:
+
+```
+/settings/<scope>/read    # a tenant setting: llm, flow; * for every scope
+/settings/<scope>/write
+/flows/read               # see the tenant's flows, their runs and records
+/flows/write              # create, change, deploy and run them
+/datahub/tenant-admin     # the organization's administrators
+```
+
+A flow grant is not enough on its own: seeing or changing a flow also needs read or write on the
+flow's dataset, so `/flows/*` narrows access rather than widening it.
+
 ## Configuration (option A: organization groups)
 
 Session setup, reused by every step. Admin tokens live 60 seconds, so refresh per call rather than
@@ -354,6 +367,11 @@ All verified against 26.7:
 
 Attaching `organization` as a *default client scope* does not stick on an imported client, and is
 not needed: clients request it by selector.
+
+A user whose `realmRoles` are listed explicitly, as the dev users' are, gets only those roles and
+not `default-roles-datahub`. That composite is what normally carries Keycloak's `offline_access`
+role, so the dev users list `offline_access` themselves. Without it, the deploy authorization of
+a flow, which asks for an offline token, is refused.
 
 Note also that `--import-realm` only creates realms that do not already exist, so edits to
 `datahub-realm.json` do nothing to a running Keycloak. Delete the realm first, or use the Admin API.

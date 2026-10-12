@@ -373,7 +373,14 @@ already exist). It provisions:
   groups (without the write grant you can browse but not save
   datasets/resources/timeseries);
 - two test users, **`foo`** / **`foo`** and **`bar`** / **`bar`**, one per demo
-  tenant, each holding all three roles;
+  tenant, each holding all three roles and Keycloak's built-in **`offline_access`** role.
+  Deploying a flow takes an offline token for the deployer, which needs that role. A user
+  whose realm roles are listed explicitly, as these are, does not inherit it from
+  `default-roles-datahub`;
+- the **`intellistream-flow`** confidential client (secret `changeme-flow`, callback
+  `http://localhost:8084/*`). The flow service uses it to send a deployer to Keycloak and
+  receive the offline token its runs act with. It keeps Keycloak's default client scopes,
+  which include the optional `offline_access` and `organization`;
 - two client-credentials clients for the SDKs, **`datahub-service-foo`** /
   `changeme-foo` and **`datahub-service-bar`** / `changeme-bar`, one per demo tenant
   (see [Machine-to-machine tokens](#machine-to-machine-tokens) below).
@@ -382,6 +389,11 @@ The realm uses the real Keycloak **Organizations** feature, one organization per
 their ids pinned to `11111111-1111-1111-1111-111111111111` (`foo`) and
 `22222222-2222-2222-2222-222222222222` (`bar`) so they match the tenants `vault-seed.sh` writes.
 `OrganizationValidator` reads `organization.<alias>.id` into the tenant context.
+
+Each organization carries the same group tree: `/datasets/*` and `/datasets/data_set_demo`
+(`read`, `write`), `/datahub/tenant-admin`, `/flows/{read,write}` (who may see and change
+flows), and `/settings/{llm,flow,*}/{read,write}`. The post-import step below puts each tenant's
+user in all of them except `/settings/*`.
 
 ### The post-import step (automatic)
 
