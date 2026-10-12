@@ -139,13 +139,18 @@ public class RunExecution {
                     + e.problems().getFirst().message());
         }
 
+        // A preview acts as the person previewing, with the token they called with; every other run
+        // as its flow's deployed identity.
         Supplier<String> tokens;
         try {
-            if (claimed.flowId() == null) {
-                throw new RunIdentityException("A preview of an unsaved definition has no deployment "
-                        + "to act as.", true);
+            if (run.tokens != null) {
+                tokens = run.tokens;
+            } else if (claimed.flowId() == null) {
+                throw new RunIdentityException("A preview of an unsaved definition has no "
+                        + "deployment to act as.", true);
+            } else {
+                tokens = credentials.tokens(run.tenantId, claimed.flowId());
             }
-            tokens = credentials.tokens(run.tenantId, claimed.flowId());
         } catch (RunIdentityException e) {
             return failed(e.rejected() ? RunCoordinator.IDENTITY_REJECTED : RunCoordinator.AUTH,
                     e.getMessage());
@@ -172,6 +177,8 @@ public class RunExecution {
         String flowExternalId;
         if (claimed.flowId() == null) {
             flowExternalId = FlowDefinitions.parse(claimed.definition()).externalId();
+            dataSetId = jdbc.queryForObject("SELECT data_set_id FROM flow.run WHERE id = ?",
+                    Long.class, claimed.id());
         } else {
             Map<String, Object> row = jdbc.queryForMap(
                     "SELECT data_set_id, external_id FROM flow.flow WHERE id = ?", claimed.flowId());
@@ -179,7 +186,9 @@ public class RunExecution {
             flowExternalId = (String) row.get("external_id");
         }
         if (dataSetId != null && dataSetDeleted(datahub, dataSetId)) {
-            flows.disable(claimed.flowId(), RunCoordinator.DATASET_DELETED);
+            if (claimed.flowId() != null) {
+                flows.disable(claimed.flowId(), RunCoordinator.DATASET_DELETED);
+            }
             log.warn("Flow {}'s dataset {} is gone: the flow is switched off", claimed.flowId(), dataSetId);
             return failed(RunCoordinator.DATASET_DELETED, "The flow's dataset no longer exists, so the "
                     + "flow was switched off. Move it to another dataset or delete it.");

@@ -34,8 +34,11 @@ import java.util.UUID;
 @Repository
 public class RunRepository {
 
-    private static final String RUN_COLUMNS = "r.id, r.flow_id, f.external_id AS flow_external_id, "
-            + "f.data_set_id, r.version, r.status, r.attempt, r.max_attempts, r.not_before, "
+    // A preview of an unsaved definition has no flow: its external id is the definition's, and its
+    // dataset is kept on the run row (V47).
+    private static final String RUN_COLUMNS = "r.id, r.flow_id, "
+            + "coalesce(f.external_id, r.definition->>'externalId') AS flow_external_id, "
+            + "coalesce(f.data_set_id, r.data_set_id) AS data_set_id, r.version, r.status, r.attempt, r.max_attempts, r.not_before, "
             + "r.cancel_requested, r.preview, r.failure_event_owed, r.memory_bytes, "
             + "extract(epoch FROM r.run_timeout)::bigint AS timeout_seconds, r.owner, "
             + "r.window_start, r.window_end, r.parameters::text AS parameters, "
@@ -82,7 +85,16 @@ public class RunRepository {
     }
 
     /** A pending run that may be claimed, locked for this transaction. */
-    public record Candidate(UUID id, Long flowId, long memoryBytes) {
+    public record Candidate(UUID id, Long flowId, long memoryBytes, boolean preview) {
+    }
+
+    /**
+     * What a preview is created with: a saved version ({@code flowId} and {@code version}) or an
+     * unsaved {@code definition} with the dataset it was resolved to.
+     */
+    public record NewPreview(Long flowId, Integer version, String definition, Long dataSetId,
+                             long memoryBytes, Duration timeout, TimeWindow window, String parameters,
+                             String triggeredBy) {
     }
 
     /** What the claim needs to know of a run's flow, the row locked for this transaction. */
@@ -147,16 +159,40 @@ public class RunRepository {
         return id;
     }
 
+    /**
+     * Creates a preview: one attempt, acting as the person previewing. Only the instance that
+     * created it claims it ({@link #lockPending} leaves previews out of every sweep), since the
+     * caller's token it runs with exists only there.
+     */
+    public UUID insertPreview(NewPreview preview) {
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO flow.run (id, flow_id, version, definition, data_set_id, status, "
+                        + "attempt, max_attempts, preview, memory_bytes, run_timeout, window_start, "
+                        + "window_end, parameters, trigger, triggered_by, run_as) VALUES (?, ?, ?, "
+                        + "?::jsonb, ?, 'PENDING', 1, 1, true, ?, make_interval(secs => ?), ?, ?, "
+                        + "?::jsonb, 'preview', ?, ?)",
+                id, preview.flowId(), preview.version(), preview.definition(), preview.dataSetId(),
+                preview.memoryBytes(), (double) preview.timeout().toSeconds(),
+                timestamp(preview.window().start()), timestamp(preview.window().end()),
+                preview.parameters() == null ? "{}" : preview.parameters(), preview.triggeredBy(),
+                preview.triggeredBy());
+        return id;
+    }
+
     // ---------------------------------------------------------------- the claim
 
-    /** Pending runs that may start now, earliest window first; {@code only} narrows it to one run. */
+    /**
+     * Pending runs that may start now, earliest window first; {@code only} narrows it to one run. A
+     * sweep never takes a preview: it runs with its caller's token, which only the instance that
+     * created it has, so that instance claims it by its id.
+     */
     public List<Candidate> lockPending(int limit, UUID only) {
-        String sql = "SELECT id, flow_id, memory_bytes FROM flow.run WHERE status = 'PENDING' "
+        String sql = "SELECT id, flow_id, memory_bytes, preview FROM flow.run WHERE status = 'PENDING' "
                 + "AND not_before <= now() AND NOT cancel_requested"
-                + (only == null ? "" : " AND id = ?")
+                + (only == null ? " AND NOT preview" : " AND id = ?")
                 + " ORDER BY window_start, created_at LIMIT ? FOR UPDATE SKIP LOCKED";
         RowMapper<Candidate> mapper = (rs, n) -> new Candidate(rs.getObject("id", UUID.class),
-                (Long) rs.getObject("flow_id"), rs.getLong("memory_bytes"));
+                (Long) rs.getObject("flow_id"), rs.getLong("memory_bytes"), rs.getBoolean("preview"));
         return only == null ? jdbc.query(sql, mapper, limit) : jdbc.query(sql, mapper, only, limit);
     }
 
@@ -179,8 +215,9 @@ public class RunRepository {
                     gates.put(rs.getLong("id"), new FlowGate(rs.getLong("id"), rs.getBoolean("enabled"),
                             (Integer) rs.getObject("deployed_version"), rs.getInt("max_concurrent_runs"), 0));
                 }, (Object) ids);
+        // Previews do not count: they are someone trying the flow out, not its runs.
         jdbc.query("SELECT flow_id, count(*) AS running FROM flow.run WHERE status = 'RUNNING' "
-                        + "AND flow_id = ANY (?) GROUP BY flow_id",
+                        + "AND NOT preview AND flow_id = ANY (?) GROUP BY flow_id",
                 rs -> {
                     running.put(rs.getLong("flow_id"), rs.getInt("running"));
                 }, (Object) ids);
@@ -354,20 +391,24 @@ public class RunRepository {
     }
 
     /**
-     * A page of runs of flows in {@code readable} datasets, newest first, optionally of one flow,
-     * after the run created at {@code afterCreated} with id {@code afterId}.
+     * A page of runs in {@code readable} datasets, newest first, optionally of one flow, after the
+     * run created at {@code afterCreated} with id {@code afterId}. Previews only with
+     * {@code previews}.
      */
-    public List<StoredRun> list(DataSets readable, Long flowId, Instant afterCreated, UUID afterId,
-                                int limit) {
+    public List<StoredRun> list(DataSets readable, Long flowId, boolean previews, Instant afterCreated,
+                                UUID afterId, int limit) {
         if (!readable.all() && readable.ids().isEmpty()) {
             return List.of();
         }
         StringBuilder sql = new StringBuilder("SELECT " + RUN_COLUMNS + " FROM flow.run r "
-                + "JOIN flow.flow f ON f.id = r.flow_id WHERE true");
+                + "LEFT JOIN flow.flow f ON f.id = r.flow_id WHERE true");
         List<Object> args = new ArrayList<>();
         if (!readable.all()) {
-            sql.append(" AND f.data_set_id = ANY (?)");
+            sql.append(" AND coalesce(f.data_set_id, r.data_set_id) = ANY (?)");
             args.add(readable.ids().toArray(Long[]::new));
+        }
+        if (!previews) {
+            sql.append(" AND NOT r.preview");
         }
         if (flowId != null) {
             sql.append(" AND r.flow_id = ?");

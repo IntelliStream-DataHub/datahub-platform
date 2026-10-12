@@ -3,6 +3,7 @@ package ai.intellistream.datahub.flow.runs;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.flow.access.Caller;
+import ai.intellistream.datahub.flow.access.CallerAccess;
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.definition.ConfiguredValue;
 import ai.intellistream.datahub.flow.definition.FlowDefinition;
@@ -23,6 +24,7 @@ import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.paging.PageCursor;
 import ai.intellistream.datahub.tenant.TenantContext;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.unit.DataSize;
@@ -52,6 +54,13 @@ public class RunService {
     static final int DEFAULT_MAX_ATTEMPTS = 2;
     static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(15);
     static final long DEFAULT_MEMORY = DataSize.ofMegabytes(512).toBytes();
+
+    /** A preview's window when none is given. */
+    static final Duration PREVIEW_WINDOW = Duration.ofHours(1);
+    /** How much of the caller's token a preview leaves unused, for the run's last requests. */
+    static final Duration TOKEN_MARGIN = Duration.ofSeconds(30);
+    /** The least a preview is given to run; a token with less left is refused. */
+    static final Duration MIN_PREVIEW = Duration.ofMinutes(1);
 
     private final FlowService flowService;
     private final FlowRepository flows;
@@ -91,6 +100,15 @@ public class RunService {
 
     /** What a manual run asks for: a window (default the trigger's latest) and parameter values. */
     public record StartRequest(RunView.Window window, JsonNode parameters) {
+    }
+
+    /**
+     * What a preview asks for: a saved flow ({@code flow}, and a {@code version}, default its
+     * current one) or an unsaved {@code definition}; a window (default the last hour) and parameter
+     * values.
+     */
+    public record PreviewRequest(String flow, Integer version, JsonNode definition,
+                                 RunView.Window window, JsonNode parameters) {
     }
 
     // ---------------------------------------------------------------- deployments
@@ -158,12 +176,20 @@ public class RunService {
                 ? DEFAULT_MAX_CONCURRENT_RUNS : execution.maxConcurrentRuns();
         int maxAttempts = execution == null || execution.maxAttempts() == null
                 ? DEFAULT_MAX_ATTEMPTS : execution.maxAttempts();
-        Duration timeout = execution == null || execution.timeout() == null
-                ? DEFAULT_TIMEOUT : Duration.parse(execution.timeout());
-        long memory = execution == null || execution.memory() == null
-                ? DEFAULT_MEMORY : DataSize.parse(execution.memory()).toBytes();
         return new DeploymentPlan(flow.id(), flow.externalId(), v, schedule, maxConcurrent, maxAttempts,
-                timeout, memory);
+                timeout(definition), memory(definition));
+    }
+
+    private static Duration timeout(FlowDefinition definition) {
+        FlowDefinition.Execution execution = definition.execution();
+        return execution == null || execution.timeout() == null
+                ? DEFAULT_TIMEOUT : Duration.parse(execution.timeout());
+    }
+
+    private static long memory(FlowDefinition definition) {
+        FlowDefinition.Execution execution = definition.execution();
+        return execution == null || execution.memory() == null
+                ? DEFAULT_MEMORY : DataSize.parse(execution.memory()).toBytes();
     }
 
     /**
@@ -207,11 +233,82 @@ public class RunService {
         return get(id, caller);
     }
 
+    /**
+     * Starts a preview: a run of a saved version, or of a definition that was never saved, acting as
+     * the caller, whose sinks report what they would write instead of writing it. It runs here and
+     * now, with the token the caller called with — which exists only on this instance and cannot be
+     * refreshed — so nothing else can claim it; its timeout is cut to what the token has left. Its
+     * records are kept, so the console follows it like any run; it never raises a failure event and
+     * never moves a schedule. The window defaults to the last hour.
+     */
+    public RunView preview(PreviewRequest request) {
+        Caller caller = flowService.requireWrite();
+        if (request == null || (request.flow() == null) == (request.definition() == null)) {
+            throw FlowProblems.badRequest("A preview takes either a saved flow, {\"flow\": …, "
+                    + "\"version\": …}, or an unsaved definition, {\"definition\": {…}}.");
+        }
+        Long flowId = null;
+        Integer version = null;
+        String unsaved = null;
+        Long dataSetId = null;
+        FlowDefinition definition;
+        if (request.flow() != null) {
+            StoredFlow flow = writable(caller, request.flow());
+            int v = request.version() == null ? flow.currentVersion() : request.version();
+            definition = FlowDefinitions.parse(flows.version(flow.id(), v).orElseThrow(() ->
+                    FlowProblems.notFound("Flow " + flow.externalId() + " has no version " + v + "."))
+                    .definition());
+            // Saved versions validated when they were saved; they must still compile now.
+            compiler.compile(definition);
+            flowId = flow.id();
+            version = v;
+        } else {
+            if (!request.definition().isObject()) {
+                throw FlowProblems.badRequest("definition is a flow definition object.");
+            }
+            unsaved = json.writeValueAsString(request.definition());
+            definition = FlowDefinitions.parse(unsaved);
+            dataSetId = flowService.checkForPreview(caller, definition);
+        }
+
+        Jwt jwt = CallerAccess.currentJwt();
+        Duration timeout = timeout(definition);
+        if (jwt.getExpiresAt() != null) {
+            Duration left = Duration.between(Instant.now(), jwt.getExpiresAt()).minus(TOKEN_MARGIN);
+            if (left.compareTo(MIN_PREVIEW) < 0) {
+                throw FlowProblems.tokenExpiring("Your token expires too soon for a preview to run "
+                        + "as you. Get a fresh one and preview again.");
+            }
+            if (left.compareTo(timeout) < 0) {
+                timeout = left;
+            }
+        }
+        TimeWindow window;
+        if (request.window() != null) {
+            window = window(request.window());
+        } else {
+            Instant now = runs.now();
+            window = new TimeWindow(now.minus(PREVIEW_WINDOW), now);
+        }
+        RunRepository.NewPreview preview = new RunRepository.NewPreview(flowId, version, unsaved,
+                dataSetId, memory(definition), timeout, window, parameters(request.parameters()),
+                caller.subject());
+        UUID id = transaction.execute(status -> runs.insertPreview(preview));
+        String token = jwt.getTokenValue();
+        if (!coordinator.claimPreview(TenantContext.getTenantId(), id, () -> token)) {
+            runs.cancelPending(id, RunCoordinator.NO_CAPACITY, "The instance that received the "
+                    + "preview had no room to run it.");
+            throw FlowProblems.busy("This instance is running as much as it may. Preview again "
+                    + "shortly.");
+        }
+        return get(id, caller);
+    }
+
     /** A new run over the same window and with the same values, of the currently deployed version. */
     public RunView rerun(UUID runId) {
         Caller caller = flowService.requireWrite();
         StoredRun original = visibleRun(caller, runId);
-        if (original.flowId() == null) {
+        if (original.preview()) {
             throw FlowProblems.badRequest("A preview is not re-run; preview again instead.");
         }
         StoredFlow flow = writable(caller, original.flowExternalId());
@@ -234,8 +331,9 @@ public class RunService {
         return visibleRun(flowService.requireRead(), runId);
     }
 
-    /** Runs the caller may see, newest first, optionally of one flow, in pages. */
-    public DataWrapper<RunView> list(String flowExternalId, String cursor, Integer limit) {
+    /** Runs the caller may see, newest first, optionally of one flow, in pages; previews only on request. */
+    public DataWrapper<RunView> list(String flowExternalId, boolean previews, String cursor,
+                                     Integer limit) {
         Caller caller = flowService.requireRead();
         int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
         if (pageSize > MAX_LIMIT) {
@@ -247,7 +345,7 @@ public class RunService {
         }
         Long flowId = flowExternalId == null ? null : flowService.visible(caller, flowExternalId).id();
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredRun> page = runs.list(readable, flowId,
+        List<StoredRun> page = runs.list(readable, flowId, previews,
                 after == null ? null : Instant.parse(after.value()),
                 after == null ? null : UUID.fromString(after.id()), pageSize);
         DataWrapper<RunView> out = new DataWrapper<>();

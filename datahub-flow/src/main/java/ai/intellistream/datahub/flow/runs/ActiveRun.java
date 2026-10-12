@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * A run this instance is executing: its lease as this instance knows it, and whether and why it
@@ -37,6 +38,12 @@ final class ActiveRun {
 
     final String tenantId;
     final Claimed claimed;
+    /**
+     * The bearer tokens a preview runs with — its caller's own — or null for a run that acts as its
+     * flow's deployed identity. Held only here: the token never reaches the database, which is why
+     * no other instance can take a preview over.
+     */
+    final Supplier<String> tokens;
     private final LongSupplier nanoTime;
     private final long timeoutDeadline;
     private volatile long leaseDeadline;
@@ -44,8 +51,14 @@ final class ActiveRun {
 
     /** @param sentAt {@link #nanoTime} just before the claim was sent */
     ActiveRun(String tenantId, Claimed claimed, long sentAt, LongSupplier nanoTime) {
+        this(tenantId, claimed, null, sentAt, nanoTime);
+    }
+
+    ActiveRun(String tenantId, Claimed claimed, Supplier<String> tokens, long sentAt,
+              LongSupplier nanoTime) {
         this.tenantId = tenantId;
         this.claimed = claimed;
+        this.tokens = tokens;
         this.nanoTime = nanoTime;
         this.leaseDeadline = sentAt + claimed.leaseLeft().toNanos();
         this.timeoutDeadline = sentAt + claimed.timeout().toNanos();

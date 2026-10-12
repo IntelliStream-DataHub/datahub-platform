@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
+import ai.intellistream.datahub.flow.access.Caller;
 import ai.intellistream.datahub.flow.api.ProcessContext;
 import ai.intellistream.datahub.flow.api.ProcessException;
 import ai.intellistream.datahub.flow.api.ProcessSession;
@@ -14,6 +15,7 @@ import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
 import ai.intellistream.datahub.flow.engine.RunExecutor;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
+import ai.intellistream.datahub.flow.processors.TimeseriesSink;
 import ai.intellistream.datahub.flow.records.FlowRecordBatch;
 import ai.intellistream.datahub.flow.records.RunRecords;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
@@ -85,6 +87,9 @@ class RunCoordinatorIT {
     private RootAllocator allocator;
     private HttpServer datahub;
     private final List<Long> requestArrivals = new CopyOnWriteArrayList<>();
+    /** Every request DataHub received, as "METHOD path", and the Authorization header it carried. */
+    private final List<String> requests = new CopyOnWriteArrayList<>();
+    private final List<String> bearers = new CopyOnWriteArrayList<>();
     private volatile boolean dataSetExists = true;
     private final List<RunCoordinator> coordinators = new ArrayList<>();
     private final Set<RunCoordinator> heartbeating = ConcurrentHashMap.newKeySet();
@@ -112,6 +117,8 @@ class RunCoordinatorIT {
         datahub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         datahub.createContext("/", exchange -> {
             String path = exchange.getRequestURI().getPath();
+            requests.add(exchange.getRequestMethod() + " " + path);
+            bearers.add(String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")));
             int status = 200;
             String answer = "{\"items\":[]}";
             if (path.equals("/datasets/byids")) {
@@ -571,7 +578,140 @@ class RunCoordinatorIT {
         assertThat(coordinator("b", 1).createScheduledRuns()).isPositive();
     }
 
+    // ---------------------------------------------------------------- previews
+
+    @Test
+    void aPreviewRunsOnlyWhereItWasStartedAsItsCallerAndWritesNothing() {
+        // Saved, never deployed: a preview tries a flow out whether or not it is switched on.
+        long flow = savedFlow("previewed", points() + "," + sink(),
+                "{ \"from\": \"p\", \"relationship\": \"success\", \"to\": \"out\" }");
+        UUID run = preview(flow, 1, null, null);
+        RunCoordinator a = coordinator("a", 1);
+        RunCoordinator b = coordinator("b", 1);
+
+        // No sweep takes it: the caller's token it runs with exists only where it was started.
+        assertThat(b.claim(TENANT, null)).isEmpty();
+        assertThat(a.claim(TENANT, null)).isEmpty();
+        assertThat(a.claimPreview(TENANT, run, () -> "caller-token")).isTrue();
+        await(() -> "SUCCEEDED".equals(runs.find(run).orElseThrow().status()));
+
+        assertThat(requests).noneMatch(r -> r.startsWith("POST /timeseries/data")
+                || r.startsWith("POST /timeseries/create") || r.startsWith("POST /events/create"));
+        assertThat(bearers).isNotEmpty().allMatch("Bearer caller-token"::equals);
+        StoredRun done = runs.find(run).orElseThrow();
+        assertThat(done.preview()).isTrue();
+        assertThat(done.failureEventOwed()).isFalse();
+        assertThat(done.stats()).contains("Would write 3 points to ts_out");
+        // Its records are kept like any run's, for the console to show.
+        assertThat(published).isNotEmpty()
+                .allSatisfy(batch -> assertThat(batch.getRunId()).isEqualTo(run.toString()));
+        // Nor does it count against the flow's runs.
+        assertThat(flows.deployment(flow)).isEmpty();
+    }
+
+    @Test
+    void aFailedPreviewRaisesNoEventAndIsNeverQueuedAgain() throws Exception {
+        UUID failed = unsavedPreview("unsaved_fail", fail());
+        RunCoordinator a = coordinator("a", 1);
+        assertThat(a.claimPreview(TENANT, failed, () -> "caller-token")).isTrue();
+        await(() -> "FAILED".equals(runs.find(failed).orElseThrow().status()));
+        StoredRun f = runs.find(failed).orElseThrow();
+        assertThat(f.attempt()).isEqualTo(1);
+        assertThat(f.failureEventOwed()).isFalse();
+        assertThat(createdEvents).isEmpty();
+
+        // An instance that stops renewing loses its preview for good: no one else has the token.
+        UUID lost = unsavedPreview("unsaved_lost", wait(6000, "unsaved_lost"));
+        RunCoordinator c = coordinator("c", 1);
+        RunCoordinator b = coordinator("b", 1);
+        assertThat(c.claimPreview(TENANT, lost, () -> "caller-token")).isTrue();
+        Thread.sleep(LEASE.plusMillis(300).toMillis());
+        b.reap(TENANT);
+        StoredRun l = runs.find(lost).orElseThrow();
+        assertThat(l.status()).isEqualTo("FAILED");
+        assertThat(l.errorCode()).isEqualTo("LEASE_LOST");
+        assertThat(l.failureEventOwed()).isFalse();
+        assertThat(b.claim(TENANT, null)).isEmpty();
+        b.sweep(TENANT);
+        assertThat(createdEvents).isEmpty();
+    }
+
+    @Test
+    void aPreviewIsNotHandedBackWhenItsInstanceShutsDown() {
+        UUID run = unsavedPreview("unsaved_shutdown", """
+                { "id": "h", "type": "test.hang" }
+                """);
+        RunCoordinator a = coordinator("a", 1);
+        heartbeating.add(a);
+        assertThat(a.claimPreview(TENANT, run, () -> "caller-token")).isTrue();
+        await(() -> a.running() == 1);
+
+        a.shutdown();
+        StoredRun stopped = runs.find(run).orElseThrow();
+        assertThat(stopped.status()).isEqualTo("CANCELLED");
+        assertThat(stopped.errorCode()).isEqualTo(RunCoordinator.SHUTDOWN);
+    }
+
+    @Test
+    void aPreviewOfAnUnsavedDefinitionIsSeenThroughItsOwnDataset() {
+        UUID run = unsavedPreview("unsaved_seen", wait(0, "unsaved_seen"));
+        long saved = savedFlow("saved_flow", wait(0, "saved_flow"), "");
+        UUID real = pending(saved, 0);
+
+        StoredRun stored = runs.find(run).orElseThrow();
+        assertThat(stored.flowId()).isNull();
+        assertThat(stored.dataSetId()).isEqualTo(7);
+        assertThat(stored.flowExternalId()).isEqualTo("unsaved_seen");
+
+        Caller.DataSets seven = new Caller.DataSets(false, Set.of(7L));
+        assertThat(runs.list(seven, null, true, null, null, 10)).extracting(StoredRun::id)
+                .containsExactlyInAnyOrder(run, real);
+        // Previews are shown apart: only on request.
+        assertThat(runs.list(seven, null, false, null, null, 10)).extracting(StoredRun::id)
+                .containsExactly(real);
+        assertThat(runs.list(new Caller.DataSets(false, Set.of(8L)), null, true, null, null, 10))
+                .isEmpty();
+    }
+
     // ---------------------------------------------------------------- fixtures
+
+    /** A saved flow, not deployed. */
+    private long savedFlow(String externalId, String processors, String connections) {
+        String definition = """
+                { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
+                  "processors": [ %s ], "connections": [ %s ] }
+                """.formatted(externalId, externalId, processors, connections);
+        return transaction.execute(s -> flows.create(externalId, 7, "ds", externalId, definition,
+                "user-1").id());
+    }
+
+    private UUID preview(Long flow, Integer version, String definition, Long dataSetId) {
+        Instant end = Instant.parse("2026-10-12T01:00:00Z");
+        return transaction.execute(s -> runs.insertPreview(new RunRepository.NewPreview(flow, version,
+                definition, dataSetId, 1 << 20, Duration.ofMinutes(15),
+                new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "user-1")));
+    }
+
+    private UUID unsavedPreview(String externalId, String processor) {
+        String definition = """
+                { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
+                  "processors": [ %s ], "connections": [] }
+                """.formatted(externalId, externalId, processor);
+        return preview(null, null, definition, 7L);
+    }
+
+    /** Three points of series {@code ts_in} inside the preview's window, as a timeseries item. */
+    private static String points() {
+        return """
+                { "id": "p", "type": "test.points" }
+                """;
+    }
+
+    private static String sink() {
+        return """
+                { "id": "out", "type": "datahub.timeseries.sink", "properties": { "target": "ts_out" } }
+                """;
+    }
 
     private RunCoordinator coordinator(String name, int maxRunning) {
         return coordinator(name, maxRunning, Duration.ZERO);
@@ -583,7 +723,8 @@ class RunCoordinatorIT {
 
     private RunCoordinator coordinator(String name, int maxRunning, Duration backoff,
                                        RunCredentials credentials) {
-        List<Processor> processors = List.of(new Wait(), new Fail(), new Call());
+        List<Processor> processors = List.of(new Wait(), new Fail(), new Call(), new Points(),
+                new Hang(), new TimeseriesSink());
         FlowCompiler compiler = new FlowCompiler(new FlowValidator(processors, FlowValidator.Limits.DEFAULTS));
         RunExecution execution = new RunExecution(compiler,
                 new RunExecutor(allocator, java.time.Clock.systemUTC(), d -> { }), flows, jdbc,
@@ -756,6 +897,46 @@ class RunCoordinatorIT {
                 }
                 sleep(20);
             }
+        }
+    }
+
+    /** Works until the run is stopped, and then fails: it did not get its work done. */
+    static final class Hang implements Processor {
+        @Override
+        public ProcessorDescriptor describe() {
+            return ProcessorDescriptor.builder("test.hang", "1.0.0")
+                    .relationship(new Relationship("success", "Never used", Relationship.Unconnected.TERMINATE))
+                    .build();
+        }
+
+        @Override
+        public void onTrigger(ProcessContext context, ProcessSession session) {
+            sleepUnlessStopped(context, 60_000);
+            throw new ProcessException("Stopped before finishing.");
+        }
+    }
+
+    /** One timeseries item of {@code ts_in}: three points inside the run's window. */
+    static final class Points implements Processor {
+        @Override
+        public ProcessorDescriptor describe() {
+            return ProcessorDescriptor.builder("test.points", "1.0.0")
+                    .relationship(new Relationship("success", "The series", Relationship.Unconnected.REQUIRED))
+                    .build();
+        }
+
+        @Override
+        public void onTrigger(ProcessContext context, ProcessSession session) {
+            TimeWindow window = context.window().orElseThrow();
+            long start = window.start().toEpochMilli();
+            var points = session.newTimeseries(3);
+            for (int i = 0; i < 3; i++) {
+                points.add(start + i * 60_000L, i);
+            }
+            var item = session.write(session.create(), points.build());
+            item = session.putAllAttributes(item, Map.of("timeseries.externalId", "ts_in",
+                    "window.start", window.start().toString(), "window.end", window.end().toString()));
+            session.transfer(item, "success");
         }
     }
 

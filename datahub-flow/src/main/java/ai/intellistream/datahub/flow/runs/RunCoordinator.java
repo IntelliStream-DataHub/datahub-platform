@@ -44,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 
 /**
  * How the instances share the work (the plan's <em>How many instances share the work</em> and
@@ -83,6 +84,10 @@ public class RunCoordinator {
     public static final String TIMEOUT = "TIMEOUT";
     /** The flow was switched off before the run could start. */
     public static final String FLOW_DISABLED = "FLOW_DISABLED";
+    /** The instance running a preview shut down; a preview is not handed back, since no one else can run it. */
+    public static final String SHUTDOWN = "SHUTDOWN";
+    /** This instance had no room for a preview, which no other instance can take. */
+    public static final String NO_CAPACITY = "NO_CAPACITY";
     /** Something in the service itself failed the run. */
     public static final String INTERNAL = "INTERNAL";
     /**
@@ -277,7 +282,21 @@ public class RunCoordinator {
      *
      * @return the runs started
      */
-    synchronized List<UUID> claim(String tenantId, UUID only) {
+    List<UUID> claim(String tenantId, UUID only) {
+        return claim(tenantId, only, null);
+    }
+
+    /**
+     * Claims {@code only}, a preview created on this instance, and runs it with {@code tokens}, the
+     * caller's own. No other instance can: the token exists only here.
+     *
+     * @return whether it started; when this instance has no room it did not, and nobody else will
+     */
+    boolean claimPreview(String tenantId, UUID only, Supplier<String> tokens) {
+        return !claim(tenantId, only, tokens).isEmpty();
+    }
+
+    private synchronized List<UUID> claim(String tenantId, UUID only, Supplier<String> tokens) {
         if (stopping) {
             return List.of();
         }
@@ -294,7 +313,7 @@ public class RunCoordinator {
             List<Candidate> candidates = runs.lockPending(Math.min(slots, settings.claimsPerSweep()), only);
             Set<Long> flowIds = new HashSet<>();
             candidates.forEach(c -> {
-                if (c.flowId() != null) {
+                if (c.flowId() != null && !c.preview()) {
                     flowIds.add(c.flowId());
                 }
             });
@@ -306,7 +325,9 @@ public class RunCoordinator {
                 if (c.memoryBytes() > free) {
                     continue;
                 }
-                if (c.flowId() != null) {
+                // A preview tries a flow out whether or not it is deployed, and is not one of its
+                // runs: neither the switch nor maxConcurrentRuns applies.
+                if (c.flowId() != null && !c.preview()) {
                     FlowGate gate = gates.get(c.flowId());
                     if (gate == null || !gate.enabled() || gate.deployedVersion() == null) {
                         runs.cancelPending(c.id(), FLOW_DISABLED, "The flow was switched off before "
@@ -323,7 +344,7 @@ public class RunCoordinator {
                 // transaction, which holds the flow rows locked.
                 Claimed claimed = runs.claim(c.id(), owner, settings.lease()).orElse(null);
                 if (claimed != null) {
-                    out.add(new ActiveRun(tenantId, claimed, sentAt, nanoTime));
+                    out.add(new ActiveRun(tenantId, claimed, tokens, sentAt, nanoTime));
                     free -= c.memoryBytes();
                 }
             }
@@ -379,7 +400,13 @@ public class RunCoordinator {
         // A run told to stop did not do all of its work, even when its processors returned normally
         // on being told: a stop reason outranks the engine's SUCCEEDED, except at shutdown, where a
         // run that did finish is recorded as finished.
-        if (stop == ActiveRun.Stop.SHUTDOWN && result.status() != RunResult.Status.SUCCEEDED) {
+        if (stop == ActiveRun.Stop.SHUTDOWN && result.status() != RunResult.Status.SUCCEEDED
+                && c.preview()) {
+            // Handed back, nobody could run it: the caller's token it ran with goes with this
+            // instance. The person previewing starts another.
+            owned = runs.complete(c.id(), owner, c.attempt(), "CANCELLED", false,
+                    outcome(result, SHUTDOWN));
+        } else if (stop == ActiveRun.Stop.SHUTDOWN && result.status() != RunResult.Status.SUCCEEDED) {
             owned = runs.release(c.id(), owner, c.attempt());
             log.info("Run {} handed back as this instance shuts down", c.id());
         } else if (stop == ActiveRun.Stop.CANCELLED) {
@@ -457,6 +484,9 @@ public class RunCoordinator {
         if (TIMEOUT.equals(code)) {
             return "The run went past its timeout.";
         }
+        if (SHUTDOWN.equals(code)) {
+            return "The instance running the preview shut down.";
+        }
         return error != null ? error : "The run was cancelled.";
     }
 
@@ -499,7 +529,8 @@ public class RunCoordinator {
     void reap(String tenantId) {
         transaction.executeWithoutResult(status -> {
             for (Expired e : runs.lockExpired(REAP_BATCH)) {
-                if (e.attempt() < e.maxAttempts()) {
+                // A preview is never queued again: it ran with a token only its instance had.
+                if (e.attempt() < e.maxAttempts() && !e.preview()) {
                     runs.requeueExpired(e.id(), e.attempt(), backoff(e.attempt()),
                             "The instance running attempt " + e.attempt() + " stopped renewing its lease.");
                     log.info("Run {} attempt {} lost its instance; queued again", e.id(), e.attempt());

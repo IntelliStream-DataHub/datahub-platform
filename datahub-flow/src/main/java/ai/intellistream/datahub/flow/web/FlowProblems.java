@@ -93,6 +93,16 @@ public class FlowProblems {
                 detail), 5);
     }
 
+    /** A 401: the caller's token expires before the work it asks for could finish acting as them. */
+    public static ProblemException tokenExpiring(String detail) {
+        return new ProblemException(of(HttpStatus.UNAUTHORIZED, "token-expiring", detail));
+    }
+
+    /** A 503: this instance has no room for the work right now; retry shortly. */
+    public static ProblemException busy(String detail) {
+        return new ProblemException(of(HttpStatus.SERVICE_UNAVAILABLE, "busy", detail), 10);
+    }
+
     /** A 400 listing every problem in a definition, each at its JSON Pointer. */
     public static ProblemException invalid(List<ValidationProblem> problems) {
         ProblemDetail problem = of(HttpStatus.BAD_REQUEST, "validation-failed",
