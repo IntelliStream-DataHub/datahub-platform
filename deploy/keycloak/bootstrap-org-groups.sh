@@ -133,7 +133,13 @@ fi
 # added later. Separate grants on purpose - write does not imply read - and both go to the tenant's
 # human user only. A service account has no business rewriting the credential its tenant is billed
 # on. The dev grant is the named scope rather than the wildcard, so the ordinary path is the one
-# being exercised.
+# being exercised. The flow scope (/settings/flow/*) holds the tenant's flow secrets and the
+# registered clients a flow may run as, and goes to the same user on the same terms.
+#
+# /flows/read|write is who may see and who may change the tenant's flows (intellistream-flow).
+# Each flow also needs read or write on its own dataset, so these groups narrow access rather
+# than widen it. Granted to the human user only: deploying a flow is an authorization a person
+# gives, with their own offline token.
 
 grant() {
   local alias=$1 username=$2 group_path=$3
@@ -181,6 +187,10 @@ for tenant in foo bar; do
   grant "$tenant" "$tenant" "/datahub/tenant-admin"
   grant "$tenant" "$tenant" "/settings/llm/read"
   grant "$tenant" "$tenant" "/settings/llm/write"
+  grant "$tenant" "$tenant" "/settings/flow/read"
+  grant "$tenant" "$tenant" "/settings/flow/write"
+  grant "$tenant" "$tenant" "/flows/read"
+  grant "$tenant" "$tenant" "/flows/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/read"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/*/write"
   grant "$tenant" "service-account-datahub-service-$tenant" "/datasets/data_set_demo/write"

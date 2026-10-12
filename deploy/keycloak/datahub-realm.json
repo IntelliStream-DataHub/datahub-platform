@@ -54,7 +54,8 @@
       "realmRoles": [
         "DATAHUB_ACCESS",
         "DATAHUB_CONSOLE",
-        "DATAHUB_CHAT"
+        "DATAHUB_CHAT",
+        "offline_access"
       ]
     },
     {
@@ -74,7 +75,8 @@
       "realmRoles": [
         "DATAHUB_ACCESS",
         "DATAHUB_CONSOLE",
-        "DATAHUB_CHAT"
+        "DATAHUB_CHAT",
+        "offline_access"
       ]
     },
     {
@@ -134,6 +136,28 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "intellistream-flow",
+      "name": "intellistream-flow deploy authorization",
+      "description": "Authorization-code client (PKCE) for the flow service. Deploying a flow grants it an offline token (offline_access, organization:<alias>) that the deployment's runs act with. No scope lists of its own: the defaults apply.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "changeme-flow",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://localhost:8084/*"
+      ],
+      "webOrigins": [
+        "+"
+      ],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
     },
     {
       "clientId": "datahub-service-foo",
@@ -223,10 +247,32 @@
           ]
         },
         {
+          "name": "flows",
+          "subGroups": [
+            {
+              "name": "read"
+            },
+            {
+              "name": "write"
+            }
+          ]
+        },
+        {
           "name": "settings",
           "subGroups": [
             {
               "name": "llm",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            },
+            {
+              "name": "flow",
               "subGroups": [
                 {
                   "name": "read"
@@ -308,10 +354,32 @@
           ]
         },
         {
+          "name": "flows",
+          "subGroups": [
+            {
+              "name": "read"
+            },
+            {
+              "name": "write"
+            }
+          ]
+        },
+        {
           "name": "settings",
           "subGroups": [
             {
               "name": "llm",
+              "subGroups": [
+                {
+                  "name": "read"
+                },
+                {
+                  "name": "write"
+                }
+              ]
+            },
+            {
+              "name": "flow",
               "subGroups": [
                 {
                   "name": "read"
