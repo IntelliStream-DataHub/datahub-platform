@@ -21,6 +21,8 @@ plugins {
 
 dependencies {
     api "org.apache.arrow:arrow-vector:${arrowVersion}"
+    // A run reaches DataHub through the Java SDK (Apache-2.0), acting as the run's identity.
+    api project(':datahub-java-sdk')
     // The allocation manager arrow-memory-core looks up at runtime. The Unsafe one rather than the
     // Netty one: it adds no jars of its own.
     runtimeOnly "org.apache.arrow:arrow-memory-unsafe:${arrowVersion}"

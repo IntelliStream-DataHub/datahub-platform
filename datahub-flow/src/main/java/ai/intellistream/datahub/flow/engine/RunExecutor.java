@@ -16,6 +16,7 @@ import ai.intellistream.datahub.flow.definition.Template.Reference;
 import ai.intellistream.datahub.flow.definition.Template.Scope;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.engine.RunResult.Status;
+import ai.intellistream.datahub.sdk.client.DatahubClient;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.OutOfMemoryException;
 
@@ -392,6 +393,19 @@ public final class RunExecutor {
             }
             secretsUsed.add(name);
             return value;
+        }
+
+        @Override
+        public Long dataSetId() {
+            return request.dataSetId();
+        }
+
+        @Override
+        public DatahubClient datahub() {
+            if (request.datahub() == null) {
+                throw new ProcessException("This run has no DataHub client");
+            }
+            return request.datahub();
         }
 
         @Override
