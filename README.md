@@ -311,6 +311,11 @@ Stateless: no database, no messaging. It validates the caller's own JWT and forw
 The console's Analyze tab and its "related series" panel call this service **directly from the browser**, so it has to be reachable from wherever the console is opened, not only from inside the network.
 
 It also converts AVEVA RVM models to glTF for the console's 3D viewer (`GET /models/gltf`), by running the static `rvm-converter` binary from [tools/rvm-converter](tools/rvm-converter). Install that binary on every analysis host (`rvm.converter.binary`, default `/opt/datahub/bin/rvm-converter`); without it every other endpoint works and a conversion answers 422.
+### datahub-flow
+
+intellistream-flow, which runs flows: small pipelines of processors that read DataHub data, transform it and write it back. Its tables are in each tenant's own Postgres (schema `flow`, created by datahub-api's per-tenant migrations), and every instance coordinates through them, so add instances to scale. The console's Flows section calls it directly from the browser, on port 8084.
+
+Most of its memory is off-heap: runs hold their data in Apache Arrow, which is direct memory. It refuses to start unless its Arrow budget (`datahub.flow.arrow.budget`) plus the Pulsar client's memory limit and some headroom fits under `-XX:MaxDirectMemorySize`, and it needs two JVM flags for Arrow on Java 25. Both are set in its compose service and in `systemd/env/flow.env`; see `datahub-flow/build.gradle`.
 
 ### datahub-cleanup
 
@@ -320,7 +325,7 @@ It is also the only persistent retrier of the per-tenant Flyway migration: `data
 
 ### Metrics
 
-Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085. For the api, console and analysis that is a second port next to the application port, so a load balancer never reaches it. It ships switched off, because the scrape carries no token: turn it on per service with `management.endpoints.web.exposure.include=prometheus`, open the port to the Prometheus host only, and prefer mutual TLS (`management.server.ssl.*` with `client-auth: need`) over trusting that rule. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085, flow 9086. For the api, console, analysis and flow that is a second port next to the application port, so a load balancer never reaches it. It ships switched off, because the scrape carries no token: turn it on per service with `management.endpoints.web.exposure.include=prometheus`, open the port to the Prometheus host only, and prefer mutual TLS (`management.server.ssl.*` with `client-auth: need`) over trusting that rule. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
 
 ### Flyway
 
@@ -356,7 +361,8 @@ menu, links to this repository to satisfy that.
 **The client libraries are Apache-2.0, not AGPL.** `datahub-api-model` and `datahub-java-sdk`
 are licensed under the [Apache License 2.0](datahub-java-sdk/LICENSE) so they can be linked
 into your own applications without carrying the platform's copyleft into them. That is the
-point of a client library, and a copyleft one would not be usable as one. The server side of
-the platform remains AGPL.
+point of a client library, and a copyleft one would not be usable as one. So is
+`datahub-flow-api`, the interface a flow processor implements, so that a processor someone
+else writes need not be AGPL. The server side of the platform remains AGPL.
 
 Third-party components keep their own licenses; [NOTICE](NOTICE) lists them.

@@ -35,11 +35,13 @@ change belongs to, say so rather than guessing.
 The platform is AGPL-3.0-or-later, and every source file carries
 `// SPDX-License-Identifier: AGPL-3.0-or-later` as its first line.
 
-**Two modules are Apache-2.0 instead**: `datahub-api-model` and `datahub-java-sdk`. They are
-linked into other people's applications, which copyleft would prevent, so their files carry
-`// SPDX-License-Identifier: Apache-2.0` and each module has its own LICENSE. A new file in
-either module takes the Apache header; a new file anywhere else takes the AGPL one. Do not add
-an AGPL-licensed dependency to either module, since that would defeat the split.
+**Three modules are Apache-2.0 instead**: `datahub-api-model` and `datahub-java-sdk`, which are
+linked into other people's applications, which copyleft would prevent, and `datahub-flow-api`,
+the interface a flow processor implements, so that a processor someone else writes need not be
+AGPL. Their files carry `// SPDX-License-Identifier: Apache-2.0` and each module has its own
+LICENSE. A new file in any of them takes the Apache header; a new file anywhere else takes the
+AGPL one. Do not add an AGPL-licensed dependency to any of them (datahub-flow-api may not depend
+on `commons` or `infra`), since that would defeat the split.
 
 ## Constraints
 
@@ -111,7 +113,8 @@ kept locally and is not checked in. Ask the maintainer for it.
 ./gradlew :datahub-stateless-consumer:bootRun  # Run datapoint/event consumer
 ./gradlew :datahub-console:bootRun     # Run console UI
 ./gradlew :datahub-analysis:bootRun    # Run timeseries analysis compute service (port 8082)
-./gradlew startBootStack               # Run api, both consumers, analysis service, and console in parallel
+./gradlew :datahub-flow:bootRun        # Run the flow service, intellistream-flow (port 8084)
+./gradlew startBootStack               # Run api, both consumers, analysis service, flow service, and console in parallel
 ./gradlew --console plain jshell       # Interactive JShell (useful for IdGenerator.xxHash())
 ```
 
@@ -127,6 +130,8 @@ Flyway tasks (datahub-infra owns the scripts + plugin):
 - **datahub-stateless-consumer** — Headless Spring Boot app. Consumes datapoint/event Pulsar messages, writes batched inserts to ClickHouse, and fans datapoints out to WebSocket subscription topics. Scales horizontally. Its only port (9083) serves the Prometheus scrape.
 - **datahub-console** — Server-side rendered web UI (Thymeleaf + vanilla JS). OAuth2 client auth. PostCSS for CSS minification.
 - **datahub-analysis** — Timeseries relationship-analysis service (Spring Boot web, port 8082). Owns the `POST /analysis` endpoint: the console's Analyze tab posts an `AnalysisForm` directly (browser-facing, so CORS is enabled for the console origin), and this service gathers its own data — nearest-N graph BFS (`/resources/fetch-nearest`) and ClickHouse-aggregated series (`/timeseries/data/list`) — from the api **via the Java SDK (`datahub-java-sdk`), forwarding the caller's JWT** so the api's per-dataset ACLs apply. It then runs the numeric engine in-process and returns raw/whitened cross-correlation, cointegration, stability, and Welch coherence. Also serves AVEVA RVM to glTF conversion for the console's 3D viewer (`GET /models/gltf`, package `analysis.rvm`): it fetches the model from the api with the caller's JWT and runs the static `rvm-converter` binary from `tools/rvm-converter` (`rvm.converter.binary`), synchronously, storing nothing. Stateless, no DB. Trust is OAuth2 — a resource server validating the **user's own JWT** (requires `ROLE_DATAHUB_ACCESS`) against the issuer it loads from Vault at startup (shared `datahub-platform` secret, like the api/console; run with `SPRING_PROFILES_ACTIVE=dev|prod`). Point it at the api with `datahub.api.url`. Owns the numeric engine (`ai.intellistream.datahub.analysis`, on commons-math3). Scales horizontally.
+- **datahub-flow** — intellistream-flow, the flow service (Spring Boot web, port 8084, metrics 9086). Runs flows: versioned pipelines of processors that read DataHub data, transform it and write it back, on a schedule or on request. The design is `INTELLISTREAM_FLOW_PLAN.md` (branch `docs/flow-plan-core`). An OAuth2 resource server that resolves the tenant with the api's `OrganizationValidator` and refuses tenants without the `flow` flag (403) or without the `flow` schema (503). Its tables are in each tenant's Postgres (schema `flow`, created by the shared Flyway migrations, which this service never runs), reached with `JdbcTemplate` over the routing datasource — no JPA. Runs hold data in Arrow (off-heap): it checks at startup that Arrow works and that its budget fits under `MaxDirectMemorySize`, and needs the JVM flags in its `build.gradle` (`arrowJvmFlags`). Scales horizontally.
+- **datahub-flow-api** — The processor interface every flow processor implements. **Apache-2.0** and carries `arrow-vector`; may depend only on Apache-licensed code.
 - **datahub-infra** — Shared JPA entities, repositories, services. Neo4j graph operations, Redis/Lettuce caching, ClickHouse client.
 - **datahub-commons** — Minimal-dependency shared library: DTOs, form models, validators, utilities (UUID v7, hashing, LZ4/Zstd compression). No Spring Boot starters.
 - **datahub-api-model** — Framework-free wire-contract library: the request/response DTOs, form models, and envelopes that make up the datahub-api REST contract. Sits below `commons` (`commons` depends on it with `api`, so existing imports resolve unchanged). No frameworks in the artifact, so the lean Java SDK can consume it. Published to Maven Central with the SDK from 1.0.0.
@@ -135,7 +140,7 @@ Flyway tasks (datahub-infra owns the scripts + plugin):
 - **datahub-cleanup** — Scheduled housekeeping app (single instance). Prunes stale file-storage temp files + folders of removed tenants (`cleanup.file` package), sweeps orphaned Pulsar subscriptions (`cleanup.subscription`), and runs the per-tenant Flyway **migration self-heal sweep** (`cleanup.migration`): a boot pass over all tenants plus a scheduled retry of any that failed, with per-tenant exponential backoff, via the shared `TenantMigrationService`. This is the sole persistent retrier — datahub-api provisions on demand and gives up after one attempt. Depends on `infra` + `commons`.
 - **buildSrc** — Gradle convention plugins (`java-common-conventions`, `java-library-conventions`, `java-application-conventions`).
 
-Dependency flow: `api`/`consumers`/`console` depend on `infra` and `commons`. `infra` depends on `commons`; `commons` depends on `api-model`. `java-sdk` depends only on `api-model`, and `analysis` calls the api through `java-sdk`.
+Dependency flow: `api`/`consumers`/`console` depend on `infra` and `commons`. `infra` depends on `commons`; `commons` depends on `api-model`. `java-sdk` depends only on `api-model`, and `analysis` calls the api through `java-sdk`. `flow` depends on `infra`, `commons` and `flow-api`; `flow-api` depends only on Arrow.
 
 ## Key Technology
 
@@ -171,7 +176,7 @@ subproject) — change a version in one place:
 
 `api`, `console`, and the stateless consumer can run as multiple instances behind a load balancer. See [README.md](README.md) for operational detail. Key constraints:
 
-- **Metrics**: every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own (api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085). **It ships disabled** (`exposure.include` is empty): the scrape carries no token, so a deployment that configured nothing must not publish request rates, error rates, its endpoint inventory and JVM internals. Enabling it is one property per service; the port is then opened to the Prometheus host only, preferably behind mutual TLS (`management.server.ssl.*`, `client-auth: need`) rather than a firewall rule alone. See CONSTRAINTS.md on keeping tenant identifiers out of metrics. The three web services put it on a separate management port so the load balancer never reaches it; an `@Order(1)` chain in each `SecurityConfig` permits the scrape and denies every other actuator path. The health endpoint is not exposed and its indicators are off (`management.health.defaults.enabled=false`): the tenant-routing datasource cannot be probed without a tenant.
+- **Metrics**: every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own (api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085, flow 9086). **It ships disabled** (`exposure.include` is empty): the scrape carries no token, so a deployment that configured nothing must not publish request rates, error rates, its endpoint inventory and JVM internals. Enabling it is one property per service; the port is then opened to the Prometheus host only, preferably behind mutual TLS (`management.server.ssl.*`, `client-auth: need`) rather than a firewall rule alone. See CONSTRAINTS.md on keeping tenant identifiers out of metrics. The web services (api, console, analysis, flow) put it on a separate management port so the load balancer never reaches it; an `@Order(1)` chain in each `SecurityConfig` permits the scrape and denies every other actuator path. The health endpoint is not exposed and its indicators are off (`management.health.defaults.enabled=false`): the tenant-routing datasource cannot be probed without a tenant.
 - **datahub-console** requires Valkey/Redis for Spring Session Redis (OAuth2 tokens, CSRF, locale all live in the externalized session). Credentials come from the `http.session.valkey.*` fields of Vault secret `intellistream-datahub/datahub-console`.
 - **datahub-api** is stateless, including its two WebSocket endpoints under `/timeseries/datapoints/`: `.../subscription/listen/**` (`SubscriptionWebSocketHandler`, durable subscriptions over a Bearer-JWT handshake, multiplexes several subscriptions per socket and routes ack/nack per subscription) and `.../listen` (`DatapointListenWebSocketHandler`, browser live tail authed via the `datahub.bearer.<jwt>` handshake subprotocol, offered alongside `datahub.v1` for the server to echo back — a browser cannot set a handshake header, and unlike the `?token=` query param this replaced a subprotocol stays out of request lines and access logs). **Neither needs session affinity** — the subscription cursor lives in Pulsar (`Failover`/`Key_Shared`) and the tail is a non-durable `latest` consumer, so a reconnect resumes on any instance. The load balancer only needs to support WebSocket upgrades and long-lived connections.
 - **datahub-stateless-consumer** is stateless; scale by adding instances (Pulsar subscription type coordinates distribution).

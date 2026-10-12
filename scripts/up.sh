@@ -207,8 +207,9 @@ _start_svc keycloak-bootstrap
 # 5) The apps. datahub-analysis (:8082) backs the console's Analyze tab and "related series"
 #    panel, which the browser calls directly, so it must be up. datahub-cleanup is here for its
 #    dev-startup event-dimension rebuild, without which the console's event dropdowns are empty.
+#    datahub-flow runs flows (the console's Flows section calls it from the browser).
 #    Each app self-waits on datahub-api via its entrypoint, so start order here does not matter.
-APP_SVCS="datahub-api datahub-console datahub-stateless-consumer datahub-analysis datahub-cleanup"
+APP_SVCS="datahub-api datahub-console datahub-stateless-consumer datahub-analysis datahub-cleanup datahub-flow"
 for s in $APP_SVCS; do _start_svc "$s"; done
 # 5b) If the issuer changed, RESTART the apps — starting them is not enough. An app reads
 #     keycloak.issuer from Vault once, at boot, and vault-seed has just rewritten it. On a fresh

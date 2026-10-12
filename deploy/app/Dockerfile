@@ -38,7 +38,7 @@ RUN apt-get update \
 WORKDIR /app
 
 # Which module's jar this image runs (datahub-api / datahub-console /
-# datahub-stateless-consumer / datahub-analysis / datahub-cleanup).
+# datahub-stateless-consumer / datahub-analysis / datahub-cleanup / datahub-flow).
 ARG MODULE
 COPY --from=build /out/${MODULE}.jar /app/app.jar
 COPY --from=build /src/deploy/app/entrypoint.sh /usr/local/bin/entrypoint

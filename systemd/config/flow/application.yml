@@ -1,0 +1,38 @@
+# /etc/datahub/flow/application.yml
+#
+# Deployment tuning for datahub-flow (intellistream-flow). The console's Flows section calls it
+# straight from the browser and it validates the caller's JWT, so it needs the same header
+# ceiling as the api. Most of a run's memory is Arrow (off-heap); see /etc/datahub/flow.env.
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: native
+  max-http-request-header-size: 16KB
+
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+  tomcat:
+    accept-count: 256
+    connection-timeout: 20s
+    keep-alive-timeout: 75s
+    max-keep-alive-requests: -1
+    # Only if it is fronted by the load balancer too; list the LB addresses, as for the api.
+    remoteip:
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      internal-proxies: 10.0.0.10/32, 10.0.0.11/32, fd00:10::10/128, fd00:10::11/128
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 60s
+
+datahub:
+  flow:
+    arrow:
+      # Arrow memory every run on this instance shares, each run under its own cap. Must fit under
+      # -XX:MaxDirectMemorySize (8g in flow.env) together with the Pulsar client's 512 MB and the
+      # headroom, or the service refuses to start.
+      budget: 6GB
