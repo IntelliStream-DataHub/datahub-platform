@@ -32,7 +32,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -124,7 +123,8 @@ class FlowServiceTest {
 
         mvc.perform(get("/catalog/processors").header("Authorization", "Bearer t"))
                 .andExpect(status().isOk())
-                .andExpect(content().json("[]"));
+                .andExpect(jsonPath("$.length()").value(12))
+                .andExpect(jsonPath("$[0].name").value("datahub.events.sink"));
         assertThat(TenantContext.getTenantId()).as("cleared after the request").isNull();
     }
 

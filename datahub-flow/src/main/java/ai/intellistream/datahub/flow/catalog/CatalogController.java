@@ -9,10 +9,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The processors a flow may use, as a flow definition, the console's editor and an agent read them.
- * Every {@link Processor} bean in the service is listed, by name.
+ * Every {@link Processor} bean in the service is listed, by name, each with its properties as a
+ * JSON Schema ({@link ProcessorSchema}).
  */
 @RestController
 @RequestMapping("/catalog")
@@ -25,10 +27,11 @@ public class CatalogController {
     }
 
     @GetMapping("/processors")
-    public List<ProcessorDescriptor> processors() {
+    public List<Map<String, Object>> processors() {
         return processors.stream()
                 .map(Processor::describe)
                 .sorted(Comparator.comparing(ProcessorDescriptor::name))
+                .map(ProcessorSchema::of)
                 .toList();
     }
 }
