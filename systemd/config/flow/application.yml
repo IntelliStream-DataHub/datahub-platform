@@ -35,6 +35,10 @@ datahub:
   api:
     url: http://localhost:8081
   flow:
+    # Deploying a flow round-trips the browser through Keycloak to <public-url>/flows/deployment/callback,
+    # which must be a redirect URI of the intellistream-flow client; then on to the console.
+    public-url: https://flow.example.com
+    console-url: https://console.example.com
     arrow:
       # Arrow memory every run on this instance shares, each run under its own cap. Must fit under
       # -XX:MaxDirectMemorySize (8g in flow.env) together with the Pulsar client's 512 MB and the
