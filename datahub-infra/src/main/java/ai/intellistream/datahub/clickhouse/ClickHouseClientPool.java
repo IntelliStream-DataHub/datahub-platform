@@ -133,16 +133,34 @@ public class ClickHouseClientPool {
         return ch.getHost() + "|" + ch.getDatabaseName() + "|" + username + "|" + password;
     }
 
+    /**
+     * How every client of ours moves bytes to and from ClickHouse: LZ4 both ways, as HTTP
+     * {@code Content-Encoding}. The integration tests build their clients through this too, so
+     * they run over the transport production uses.
+     *
+     * <p>Not ClickHouse's own compressed framing ({@code useHttpCompression(false)}): with client
+     * 0.10.0 against a 26.8 server, a compressed <em>request</em> in that framing is refused for
+     * any insert past a few kilobytes ({@code UNKNOWN_CODEC}), and the two directions share the
+     * flag. The HTTP form costs nothing on inserts, but its response decoder runs at about 28 MB/s,
+     * which caps a read at 1.2 million rows a second however fast the query is; a query that moves
+     * bulk data therefore overrides the flag for itself, as the binary datapoint read does, and
+     * decodes as fast as an uncompressed answer. {@code ClickHouseArrowReadPerformanceIT} has the
+     * numbers.
+     */
+    public static Client.Builder transport(Client.Builder builder) {
+        return builder
+                .useHttpCompression(true)
+                .compressClientRequest(true)
+                .compressServerResponse(true);
+    }
+
     private Client build(Tenant t, String username, String password) {
         var ch = t.getClickHouseTenant();
-        return new Client.Builder()
+        return transport(new Client.Builder()
                 .addEndpoint("http://" + ch.getHost() + ":8123")
                 .setUsername(username)
                 .setPassword(password)
-                .setDefaultDatabase(ch.getDatabaseName())
-                .useHttpCompression(true)
-                .compressClientRequest(true)
-                .compressServerResponse(true)
+                .setDefaultDatabase(ch.getDatabaseName()))
                 .serverSetting("max_threads", "8")
                 .serverSetting("async_insert", "1")
                 // The DateTime64(3) columns carry no timezone of their own, so without this the server

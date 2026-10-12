@@ -18,6 +18,7 @@ import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.util.DatapointsResult;
 import ai.intellistream.datahub.util.SavedDatapointsStats;
 import com.clickhouse.client.api.Client;
+import com.clickhouse.client.api.ClientConfigProperties;
 import com.clickhouse.client.api.insert.InsertResponse;
 import com.clickhouse.client.api.query.GenericRecord;
 import com.clickhouse.client.api.query.QueryResponse;
@@ -155,7 +156,11 @@ public class ClickHouseDatapointService extends ClickHouseService{
         }
         QuerySettings qs = new QuerySettings()
                 .setQueryId(IdGenerator.getRandomUUID7AsString())
-                .setFormat(ClickHouseFormat.ArrowStream);
+                .setFormat(ClickHouseFormat.ArrowStream)
+                // ClickHouse's own compressed framing for this answer, not the pool's HTTP form,
+                // whose decoder would cap the read at about a million rows a second. See
+                // ClickHouseClientPool.transport for why the pool itself cannot switch.
+                .setOption(ClientConfigProperties.USE_HTTP_COMPRESSION.getKey(), Boolean.FALSE);
         qs.serverSetting("output_format_arrow_string_as_string", "1");
         qs.serverSetting("output_format_arrow_low_cardinality_as_dictionary", "0");
         qs.serverSetting("output_format_arrow_compression_method", "none");

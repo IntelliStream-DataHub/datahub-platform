@@ -58,11 +58,7 @@ class ClickHouseArrowReadIT {
 
     @BeforeAll
     static void setUp() throws Exception {
-        // Compressed responses, as the production pool asks for them: the read streams through that decoder.
-        client = SharedClickHouse.clientBuilder("arrow_read_it")
-                .useHttpCompression(true)
-                .compressServerResponse(true)
-                .build();
+        client = SharedClickHouse.newClient("arrow_read_it");
         String engine = " ENGINE=ReplacingMergeTree ORDER BY (timeseries_id, timestamp)";
         // Bare DateTime64(3), as tables created before clickhouse.sql named the zone still are.
         ddl("CREATE TABLE datapoints_bigint (timeseries_id Int64, timestamp DateTime64(3), value Int64)" + engine);
