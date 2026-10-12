@@ -38,6 +38,7 @@ import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.forms.DataSetForm;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
@@ -381,6 +382,9 @@ class SdkWireContractTest {
             new Contract("events.filter", "POST", "/events/filter",
                     TF.constructType(EventRetreiver.class),
                     c -> c.events().filter(new EventFilter())),
+            new Contract("events.latest", "POST", "/events/latest",
+                    TF.constructType(LatestEventsQuery.class),
+                    c -> c.events().latest(new LatestEventsQuery())),
             new Contract("events.search", "POST", "/events/search", searchBody(EventFilter.class),
                     c -> c.events().search(new SearchBody<>())),
             new Contract("events.create", "POST", "/events/create", wrapper(EventModel.class),

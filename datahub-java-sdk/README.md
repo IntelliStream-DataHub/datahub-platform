@@ -154,6 +154,19 @@ data sets and policies all live in one table, so it searches across every type a
 with `nodeType`, and read what came back off each node's type label. The other three each answer
 for one type.
 
+Events that share an `externalId` are one lifecycle (opened, then resolved, say). To ask which
+lifecycles are still open, use `events().latest(...)`: it takes the latest event of each lifecycle
+the filter matches and keeps it when that event's status is one you name. A `status` in
+`filter(...)` cannot answer this, since it matches every event that ever had the status.
+
+```java
+LatestEventsQuery query = new LatestEventsQuery();
+query.getFilter().setType(List.of("flow"));
+query.getFilter().setSubType(List.of("run-failed"));
+query.setStatus(List.of("open"));             // tested against each lifecycle's latest event
+client.events().latest(query).getItems().forEach(System.out::println);
+```
+
 ### Paging
 
 A filter call returns at most `limit` rows (default 1000, max 10000) and, when more remain, a

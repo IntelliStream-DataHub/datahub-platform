@@ -115,7 +115,9 @@ value types a caller names.
 - `datahub-flow` is the caller `tokenSupplier`, `requestTimeout` and `ingestFrames` were added
   for: a run acts as the user who deployed the flow, through an access token the service keeps
   current by refreshing the user's Keycloak offline token itself, with every call bounded so a run
-  that has lost its lease stops in time, and its points written from columns.
+  that has lost its lease stops in time, and its points written from columns. It also calls
+  `events().latest(...)`, to find whether a window's `run-failed` lifecycle is still open before
+  resolving it.
 - Released versions are on Maven Central from 1.0.0; out-of-tree consumers of an unreleased
   build install it with `publishToMavenLocal`. The remote `publish` repository exists only when
   `-PmavenPublishUrl` names one; `centralBundle` (root project) stages to a local directory
