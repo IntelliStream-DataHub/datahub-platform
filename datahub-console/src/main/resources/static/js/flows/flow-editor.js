@@ -103,9 +103,8 @@
 						<textarea name="__dynamic" rows="4" class="w100">${escapeHtml(lines)}</textarea>
 						<p class="field-hint">${escapeHtml(additional["x-keyDescription"] || "")} — ${escapeHtml(additional.description || "")}</p>
 						<p class="field-hint">${L("flows.field.dynamic.help")}</p>`;
-					// Where they name the outcomes (routing) they are the point; elsewhere extras.
-					if(this.entry.dynamicRelationships) html += dynamic;
-					else { advanced += dynamic; open = open || lines !== ""; }
+					advanced += dynamic;
+					open = open || lines !== "";
 				}
 				var rels = this.relationships();
 				if(rels.length){
@@ -413,16 +412,10 @@
 			});
 		}
 
-		/** A processor's outcomes: its catalog relationships, plus one per dynamic property where it routes by them. */
+		/** A processor's outcomes, from its catalog entry. */
 		function relationshipsOf(spec){
 			var entry = byType[spec.type];
-			if(!entry) return [];
-			var rels = (entry.relationships || []).map(r => r.name);
-			if(entry.dynamicRelationships){
-				var declared = (entry.properties && entry.properties.properties) || {};
-				Object.keys(spec.properties || {}).forEach(k => { if(!(k in declared) && rels.indexOf(k) < 0) rels.push(k); });
-			}
-			return rels;
+			return entry ? (entry.relationships || []).map(r => r.name) : [];
 		}
 
 		/** A new flow's external id, from its name: Pump 3 alarms → pump_3_alarms. */
@@ -802,7 +795,7 @@
 		}
 
 		// The catalog's segments, in the order the add panel lists them.
-		var CATEGORIES = ["read-write", "clean", "transform", "detect", "route"];
+		var CATEGORIES = ["read-write", "transform", "detect"];
 
 		function toggleAddPanel(open){
 			var panel = el("flow-add-panel");
