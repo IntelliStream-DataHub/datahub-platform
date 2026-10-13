@@ -112,6 +112,14 @@ class TenantFlowSectionTest {
     }
 
     @Test
+    void everyFlowsTokenIsListedAndNothingElse() {
+        Map<String, String> stored = Map.of("llm.api-key", "k", "flow.secret.a", "v",
+                "flow.token.7", "seven", "flow.token.9", "nine");
+
+        assertThat(TenantFlowSection.tokens(stored)).containsExactlyInAnyOrder("seven", "nine");
+    }
+
+    @Test
     void aRegisteredClientsCredentialsAreReadAsAPair() {
         Map<String, String> stored = Map.of("flow.client.ingest.client-id", "c",
                 "flow.client.ingest.client-secret", "s", "flow.client.half.client-id", "h");
