@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.test/realms/datahub",
-        "datahub.flow.arrow.budget=64MB",
+        "datahub.flow.arrow.budget=768MB",
         // Only resolved, never called: the tenant registry that would use it is mocked.
         "vault.address=http://vault.test", "vault.role-id=test", "vault.secret-id=test",
         // Read by PulsarConfig, whose client and admin beans are mocked below.
@@ -163,6 +163,6 @@ class FlowServiceTest {
 
     @Test
     void theArrowBudgetIsTheRootAllocatorsLimit() {
-        assertThat(rootAllocator.getLimit()).isEqualTo(64L * 1024 * 1024);
+        assertThat(rootAllocator.getLimit()).isEqualTo(768L * 1024 * 1024);
     }
 }
