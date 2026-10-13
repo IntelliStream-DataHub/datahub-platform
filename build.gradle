@@ -108,3 +108,49 @@ tasks.register('centralBundle', Zip) {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Fat jars in the root build directory.
+//
+// Each Spring Boot application builds its executable jar under that module's
+// build/libs. `./gradlew assemble` also runs this root task, which copies the
+// enabled boot jars into the root build/ so one directory holds every runnable
+// jar. Library modules disable bootJar; their plain jars stay put.
+// The tracked outputs are the jar files themselves, not the build directory:
+// a Copy task would claim the whole directory and then treat reports and the
+// Central bundle as its own outputs.
+// ---------------------------------------------------------------------------
+def rootAssemble = tasks.register('assemble') {
+    group = 'build'
+    description = 'Copy each runnable Spring Boot fat jar into the root build directory.'
+}
+
+gradle.projectsEvaluated {
+    def bootJars = subprojects.collect { it.tasks.findByName('bootJar') }
+            .findAll { it != null && it.enabled }
+    def destDir = layout.buildDirectory
+    def sources = bootJars.collect { it.archiveFile }
+
+    rootAssemble.configure {
+        dependsOn bootJars
+        inputs.files(sources)
+        outputs.files(sources.collect { source ->
+            destDir.file(source.get().asFile.name)
+        })
+
+        doLast {
+            def dest = destDir.get().asFile
+            dest.mkdirs()
+            def names = []
+            sources.each { source ->
+                def src = source.get().asFile
+                java.nio.file.Files.copy(
+                        src.toPath(),
+                        dest.toPath().resolve(src.name),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                names << src.name
+            }
+            logger.lifecycle("Copied fat jars to ${dest}: ${names.sort().join(', ')}")
+        }
+    }
+}
