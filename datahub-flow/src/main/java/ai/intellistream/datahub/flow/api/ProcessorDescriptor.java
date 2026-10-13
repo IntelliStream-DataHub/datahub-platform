@@ -14,6 +14,7 @@ import java.util.Set;
  * in advance.
  *
  * @param name              stable name a flow definition refers to, e.g. {@code timeseries.scale}
+ * @param displayName       what the console calls it, e.g. "Scale"
  * @param version           the processor's own version, recorded by every run that uses it
  * @param description       what it does, for the console and the catalog
  * @param properties        the properties it declares
@@ -23,7 +24,7 @@ import java.util.Set;
  * @param accepts           the content kinds it accepts; empty means any. Not checked in the first
  *                          version: a mismatch fails at run time
  */
-public record ProcessorDescriptor(String name, String version, String description,
+public record ProcessorDescriptor(String name, String displayName, String version, String description,
                                   List<PropertyDescriptor> properties,
                                   DynamicPropertyDescriptor dynamicProperties,
                                   List<Relationship> relationships,
@@ -31,6 +32,7 @@ public record ProcessorDescriptor(String name, String version, String descriptio
 
     public ProcessorDescriptor {
         Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(displayName, "displayName");
         Objects.requireNonNull(version, "version");
         properties = List.copyOf(properties);
         relationships = List.copyOf(relationships);
@@ -54,6 +56,7 @@ public record ProcessorDescriptor(String name, String version, String descriptio
     public static final class Builder {
         private final String name;
         private final String version;
+        private String displayName;
         private String description = "";
         private final List<PropertyDescriptor> properties = new ArrayList<>();
         private DynamicPropertyDescriptor dynamicProperties;
@@ -63,6 +66,12 @@ public record ProcessorDescriptor(String name, String version, String descriptio
         private Builder(String name, String version) {
             this.name = name;
             this.version = version;
+            this.displayName = name;
+        }
+
+        public Builder displayName(String displayName) {
+            this.displayName = displayName;
+            return this;
         }
 
         public Builder description(String description) {
@@ -91,7 +100,7 @@ public record ProcessorDescriptor(String name, String version, String descriptio
         }
 
         public ProcessorDescriptor build() {
-            return new ProcessorDescriptor(name, version, description, properties,
+            return new ProcessorDescriptor(name, displayName, version, description, properties,
                     dynamicProperties, relationships, accepts);
         }
     }

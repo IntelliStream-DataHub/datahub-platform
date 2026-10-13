@@ -35,6 +35,7 @@ public class Interpolate implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.interpolate", "1.0.0")
+            .displayName("Fill gaps")
             .description("Fills gaps between known points; never extrapolates.")
             .property(PropertyDescriptor.builder("interval", PropertyType.DURATION)
                     .displayName("Interval").description("The series' expected sampling interval.")

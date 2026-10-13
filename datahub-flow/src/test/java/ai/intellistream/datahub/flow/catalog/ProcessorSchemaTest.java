@@ -29,6 +29,7 @@ class ProcessorSchemaTest {
         JsonNode sink = entry(new TimeseriesSink());
 
         assertThat(sink.get("name").stringValue()).isEqualTo("datahub.timeseries.sink");
+        assertThat(sink.get("displayName").stringValue()).isEqualTo("Write timeseries");
         assertThat(sink.get("version").stringValue()).isEqualTo("1.0.0");
         assertThat(sink.get("relationships").findValuesAsString("name")).containsExactly("success", "failure");
         assertThat(sink.get("relationships").get(0).get("whenUnconnected").stringValue()).isEqualTo("terminate");
@@ -71,6 +72,16 @@ class ProcessorSchemaTest {
         JsonNode target = entry(new TimeseriesSink()).get("properties").get("properties").get("target");
         assertThat(target.get("type").stringValue()).isEqualTo("string");
         assertThat(target.get("x-references").booleanValue()).isTrue();
+    }
+
+    @Test
+    void theConsoleIsToldWhatToSearchForAndWhatToFoldAway() {
+        JsonNode p = entry(new TimeseriesSource()).get("properties").get("properties");
+
+        assertThat(p.get("timeseries").get("x-lookup").stringValue()).isEqualTo("timeseries");
+        assertThat(p.get("timeseries").has("x-advanced")).isFalse();
+        assertThat(p.get("from").get("x-advanced").booleanValue()).isTrue();
+        assertThat(p.get("from").has("x-lookup")).isFalse();
     }
 
     @Test

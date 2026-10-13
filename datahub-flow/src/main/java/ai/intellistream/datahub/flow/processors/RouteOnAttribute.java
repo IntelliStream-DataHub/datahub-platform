@@ -25,6 +25,7 @@ public class RouteOnAttribute implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("route.on.attribute", "1.0.0")
+            .displayName("Route by attribute")
             .description("Routes whole items by the value of one attribute.")
             .property(PropertyDescriptor.builder("attribute", PropertyType.STRING)
                     .displayName("Attribute").description("The attribute to look at.")

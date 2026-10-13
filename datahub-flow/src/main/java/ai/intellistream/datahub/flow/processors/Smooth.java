@@ -32,6 +32,7 @@ public class Smooth implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.smooth", "1.0.0")
+            .displayName("Smooth")
             .description("Replaces every point with a value smoothed over a trailing time window.")
             .property(PropertyDescriptor.builder("method", PropertyType.ENUM)
                     .displayName("Method")

@@ -37,6 +37,7 @@ public class Despike implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.despike", "1.0.0")
+            .displayName("Remove spikes")
             .description("Finds spikes (a Hampel filter) and removes or replaces them.")
             .property(PropertyDescriptor.builder("window", PropertyType.DURATION)
                     .displayName("Window").required().build())

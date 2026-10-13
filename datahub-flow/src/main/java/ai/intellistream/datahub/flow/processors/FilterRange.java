@@ -25,6 +25,7 @@ public class FilterRange implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.filter.range", "1.0.0")
+            .displayName("Filter by range")
             .description("Splits a series' points by whether they lie in a range.")
             .property(PropertyDescriptor.builder("min", PropertyType.NUMBER)
                     .displayName("Min").description("At least one of min, max.")

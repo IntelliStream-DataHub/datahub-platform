@@ -22,7 +22,8 @@ import java.util.Map;
  * <p>Built by hand from the descriptor: the descriptor is the source of truth, and the mapping is
  * small enough that a schema generator would add a dependency and nothing else. What JSON Schema
  * cannot say is carried in {@code x-} keywords: {@code x-references} (the value may contain
- * {@code ${…}} references) and {@code x-sensitive}.
+ * {@code ${…}} references), {@code x-sensitive}, {@code x-lookup} (what to search for the value)
+ * and {@code x-advanced}.
  */
 final class ProcessorSchema {
 
@@ -37,6 +38,7 @@ final class ProcessorSchema {
     static Map<String, Object> of(ProcessorDescriptor descriptor) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("name", descriptor.name());
+        entry.put("displayName", descriptor.displayName());
         entry.put("version", descriptor.version());
         entry.put("description", descriptor.description());
         entry.put("accepts", descriptor.accepts().stream().map(ContentKind::wireName).sorted().toList());
@@ -91,6 +93,12 @@ final class ProcessorSchema {
         }
         if (p.sensitive()) {
             schema.put("x-sensitive", true);
+        }
+        if (p.lookup() != null) {
+            schema.put("x-lookup", p.lookup());
+        }
+        if (p.advanced()) {
+            schema.put("x-advanced", true);
         }
         return schema;
     }

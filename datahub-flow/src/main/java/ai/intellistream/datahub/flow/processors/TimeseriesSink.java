@@ -51,13 +51,14 @@ public class TimeseriesSink implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder(TYPE, "1.0.0")
+            .displayName("Write timeseries")
             .description("Writes a timeseries item's points in its window to a series.")
             .property(PropertyDescriptor.builder("target", PropertyType.STRING)
                     .displayName("Target")
                     .description("External id of the series to write to, e.g. "
                             + "${timeseries.externalId}_f. No default: a default of the source "
                             + "series would overwrite the raw data in place.")
-                    .required().references().build())
+                    .lookup("timeseries").required().references().build())
             .property(PropertyDescriptor.builder("create", PropertyType.BOOLEAN)
                     .displayName("Create")
                     .description("false: every target must already exist. true: targets that do "
@@ -71,12 +72,12 @@ public class TimeseriesSink implements Processor {
                     .references().build())
             .property(PropertyDescriptor.builder("description", PropertyType.STRING)
                     .displayName("Description").description("Description of a created series.")
-                    .references().build())
+                    .advanced().references().build())
             .property(PropertyDescriptor.builder("dataSet", PropertyType.STRING)
                     .displayName("Dataset")
                     .description("External id of the dataset of created series: any dataset the "
                             + "person saving the flow may write. The flow's own when unset.")
-                    .build())
+                    .advanced().build())
             .relationship(new Relationship("success", "Written; the item passes on unchanged.",
                     Relationship.Unconnected.TERMINATE))
             .relationship(new Relationship("failure", "Not written; failure.reason says why. "
