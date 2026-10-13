@@ -13,7 +13,6 @@ import org.apache.pulsar.common.policies.data.AuthAction;
 import org.apache.pulsar.common.policies.data.BacklogQuota;
 import org.apache.pulsar.common.policies.data.RetentionPolicies;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.DependsOn;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -60,7 +59,6 @@ import static org.apache.pulsar.common.policies.data.BacklogQuota.RetentionPolic
  */
 @Component
 @Slf4j
-@DependsOn("tenantConfigService")
 public class RecordsTopicProvisioner {
 
     public static final String NAMESPACE = "flow";
