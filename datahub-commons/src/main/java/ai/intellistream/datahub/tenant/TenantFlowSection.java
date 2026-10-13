@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.tenant;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -166,6 +167,14 @@ public final class TenantFlowSection {
     /** The offline token stored for a flow, or null when there is none. */
     public static String token(Map<String, String> secret, long flowId) {
         return secret.get(TOKEN + flowId);
+    }
+
+    /** Every flow's offline token in the secret. */
+    public static List<String> tokens(Map<String, String> secret) {
+        return secret.entrySet().stream()
+                .filter(e -> e.getKey().startsWith(TOKEN))
+                .map(Map.Entry::getValue)
+                .toList();
     }
 
     private static String checked(String name) {
