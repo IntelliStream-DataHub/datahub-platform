@@ -65,6 +65,20 @@ class FlowRunCredentialsTest {
     }
 
     @Test
+    void aShortLivedAccessTokenIsSharedForHalfItsLifetime() {
+        deployedBy("user-1");
+        when(keycloak.refresh("offline-1"))
+                .thenReturn(new KeycloakTokens.Tokens("access-1", "offline-1", Duration.ofSeconds(60)))
+                .thenReturn(new KeycloakTokens.Tokens("access-2", "offline-1", Duration.ofSeconds(60)));
+        Supplier<String> tokens = credentials.tokens(TENANT, FLOW);
+
+        now.addAndGet(Duration.ofSeconds(29).toNanos());
+        assertThat(tokens.get()).isEqualTo("access-1");
+        now.addAndGet(Duration.ofSeconds(1).toNanos());
+        assertThat(tokens.get()).isEqualTo("access-2");
+    }
+
+    @Test
     void aRefusedOfflineTokenMarksTheDeploymentAndFailsForGood() {
         deployedBy("user-1");
         when(keycloak.refresh("offline-1")).thenThrow(new KeycloakTokens.Rejected("invalid_grant"));

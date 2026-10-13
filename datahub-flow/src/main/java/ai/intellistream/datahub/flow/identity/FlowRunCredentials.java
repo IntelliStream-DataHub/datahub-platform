@@ -43,7 +43,10 @@ import java.util.stream.Stream;
 @Component
 public class FlowRunCredentials implements RunCredentials {
 
-    /** An access token is renewed when it has less than this left. */
+    /**
+     * An access token is renewed when it has less than this left, or less than half its lifetime for
+     * one that lives shorter: a realm issuing 60-second tokens would otherwise refresh on every request.
+     */
     static final Duration MARGIN = Duration.ofSeconds(60);
     private static final int MAX_CACHED = 1_000;
 
@@ -60,7 +63,7 @@ public class FlowRunCredentials implements RunCredentials {
         }
     };
 
-    private record Cached(String accessToken, long expiresAtNanos, Set<String> sources) {
+    private record Cached(String accessToken, long renewAtNanos, Set<String> sources) {
     }
 
     @Autowired
@@ -147,9 +150,10 @@ public class FlowRunCredentials implements RunCredentials {
             // A client's tokens come with no refresh token; a deployer's may come back unchanged.
             Set<String> sources = tokens.refreshToken() == null ? Set.of(source)
                     : Stream.of(source, digest(tokens.refreshToken())).collect(Collectors.toUnmodifiableSet());
+            long lifetime = tokens.expiresIn().toNanos();
+            long renewAt = nanoTime.getAsLong() + lifetime - Math.min(MARGIN.toNanos(), lifetime / 2);
             synchronized (cache) {
-                cache.put(key, new Cached(tokens.accessToken(),
-                        nanoTime.getAsLong() + tokens.expiresIn().toNanos(), sources));
+                cache.put(key, new Cached(tokens.accessToken(), renewAt, sources));
             }
             return tokens.accessToken();
         }
@@ -157,7 +161,7 @@ public class FlowRunCredentials implements RunCredentials {
 
     private boolean usable(Cached cached, String source) {
         return cached != null && cached.sources().contains(source)
-                && cached.expiresAtNanos() - nanoTime.getAsLong() > MARGIN.toNanos();
+                && cached.renewAtNanos() - nanoTime.getAsLong() > 0;
     }
 
     /** Marks the deployment as needing re-authorisation; returns what fails the run for good. */
