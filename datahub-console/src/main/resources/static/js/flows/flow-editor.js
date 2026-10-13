@@ -77,8 +77,8 @@
 				var spec = this.spec;
 				var props = this.schemaProperties();
 				var required = (this.entry && this.entry.properties && this.entry.properties.required) || [];
-				var html = `
-					${this.entry ? `<p class="field-hint">${escapeHtml(this.entry.description || "")}</p>` : ""}`;
+				var html = this.entry ? `<p class="field-hint">${escapeHtml(this.entry.description || "")}</p>`
+					: `<p class="flows-banner">${L("flows.processor.unknown", [escapeHtml(spec.type)])}</p>`;
 				// Only what has no default shows; the rest is folded, and opened when something in it is set.
 				var advanced = "", open = false;
 				Object.keys(props).forEach(name => {
@@ -158,7 +158,7 @@
 					// The chosen series, looked up in DataHub; the hidden list is what is submitted.
 					input = `<div class="flow-series" data-series>
 						<ul class="flow-series-list" hidden></ul>
-						<input type="search" placeholder="${L("flows.series.search")}"/>
+						<input type="text" placeholder="${L("flows.series.search")}"/>
 						<textarea name="${escapeHtml(field)}" hidden>${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>
 					</div>`;
 				} else if(kind.type === "array"){
@@ -538,7 +538,9 @@
 				style: style(),
 				// cytoscape-dagre registers the layout when its script loads (see flows/flow.html).
 				layout: { name: "dagre", rankDir: "LR", nodeSep: 30, rankSep: 90, fit: true, padding: 30 },
-				wheelSensitivity: 0.3
+				wheelSensitivity: 0.3,
+				// Fitting a flow of one or two processors would otherwise blow them up to the canvas.
+				maxZoom: 1.25
 			});
 			selected = null;
 			el("flow-remove").disabled = true;
