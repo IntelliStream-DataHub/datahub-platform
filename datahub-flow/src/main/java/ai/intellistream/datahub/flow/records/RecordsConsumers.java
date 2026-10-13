@@ -152,6 +152,16 @@ public class RecordsConsumers {
                 log.warn("Receiving records of tenant {} failed: {}", tenantId, e.getMessage());
                 pause(Duration.ofSeconds(1));
                 continue;
+            } catch (RuntimeException e) {
+                // The thread is the tenant's only consumer and stays registered as running, so it
+                // must not end here: nothing would restart it.
+                log.error("Receiving records of tenant {} failed unexpectedly", tenantId, e);
+                pause(Duration.ofSeconds(1));
+                continue;
+            }
+            // The client can answer null rather than an empty batch (seen on an idle topic).
+            if (messages == null) {
+                continue;
             }
             boolean failed = false;
             for (Message<FlowRecordBatch> message : messages) {
