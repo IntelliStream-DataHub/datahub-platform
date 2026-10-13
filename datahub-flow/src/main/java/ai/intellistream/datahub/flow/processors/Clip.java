@@ -18,16 +18,17 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * {@code timeseries.clip}: limits values to a range — a value below {@code min} becomes
- * {@code min}, one above {@code max} becomes {@code max}. Unlike {@code timeseries.filter.range},
+ * {@code clip}: limits values to a range — a value below {@code min} becomes
+ * {@code min}, one above {@code max} becomes {@code max}. Unlike {@code filter-range},
  * every point is kept. Sets {@code clip.count}, the number of points it changed.
  */
 @Component
 public class Clip implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.clip", "1.0.0")
+            .builder("clip", "1.0.0")
             .displayName("Clip")
+            .category(ProcessorDescriptor.Category.CLEAN)
             .description("Limits values to a range; every point is kept.")
             .property(PropertyDescriptor.builder("min", PropertyType.NUMBER)
                     .displayName("Min").description("At least one of min, max.")
@@ -70,7 +71,7 @@ public class Clip implements Processor {
 
     /**
      * The {@code min} and {@code max} a processor is configured with, either of which may be unset
-     * (and is then unbounded). Shared with {@code timeseries.filter.range}.
+     * (and is then unbounded). Shared with {@code filter-range}.
      */
     record Bounds(double min, double max) {
 

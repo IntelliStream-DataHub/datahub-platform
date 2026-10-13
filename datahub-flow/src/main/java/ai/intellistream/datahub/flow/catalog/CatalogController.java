@@ -30,7 +30,8 @@ public class CatalogController {
     public List<Map<String, Object>> processors() {
         return processors.stream()
                 .map(Processor::describe)
-                .sorted(Comparator.comparing(ProcessorDescriptor::name))
+                .sorted(Comparator.comparing(ProcessorDescriptor::category)
+                        .thenComparing(ProcessorDescriptor::displayName))
                 .map(ProcessorSchema::of)
                 .toList();
     }

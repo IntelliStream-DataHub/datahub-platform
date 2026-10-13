@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * {@code timeseries.interpolate}: fills gaps between known points with points every
+ * {@code interpolate}: fills gaps between known points with points every
  * {@code interval}. Only gaps between two known points are filled — never before the first or after
  * the last, so nothing is extrapolated (a {@code lookback} lets a gap at the start of the window be
  * filled).
@@ -34,8 +34,9 @@ import java.util.List;
 public class Interpolate implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.interpolate", "1.0.0")
+            .builder("interpolate", "1.0.0")
             .displayName("Fill gaps")
+            .category(ProcessorDescriptor.Category.CLEAN)
             .description("Fills gaps between known points; never extrapolates.")
             .property(PropertyDescriptor.builder("interval", PropertyType.DURATION)
                     .displayName("Interval").description("The series' expected sampling interval.")

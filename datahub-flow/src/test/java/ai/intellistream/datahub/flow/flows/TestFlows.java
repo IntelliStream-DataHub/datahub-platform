@@ -28,17 +28,17 @@ public final class TestFlows {
               "name": "Hourly temperature",
               "parameters": { "limit": { "type": "number", "default": 140 } },
               "processors": [
-                { "id": "src",  "type": "timeseries.read",
+                { "id": "src",  "type": "read-timeseries",
                   "properties": { "timeseries": ["ts_out_temp", "ts_in_temp"] } },
-                { "id": "f",    "type": "timeseries.scale",
+                { "id": "f",    "type": "scale",
                   "properties": { "factor": 1.8, "offset": 32 } },
-                { "id": "out",  "type": "timeseries.write",
+                { "id": "out",  "type": "write-timeseries",
                   "properties": { "target": "${timeseries.externalId}_f", "create": true,
                                   "name": "${timeseries.externalId} in °F", "unit": "°F" } },
-                { "id": "over", "type": "timeseries.threshold",
+                { "id": "over", "type": "threshold",
                   "properties": { "threshold": "${parameters.limit}", "minDuration": "PT5M" },
                   "terminate": ["success"] },
-                { "id": "ev",   "type": "events.write",
+                { "id": "ev",   "type": "write-events",
                   "properties": { "type": "temperature", "subType": "over-limit" } }
               ],
               "connections": [

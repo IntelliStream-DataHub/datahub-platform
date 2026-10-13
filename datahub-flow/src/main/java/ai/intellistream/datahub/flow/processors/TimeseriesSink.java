@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * {@code timeseries.write}: writes a {@code timeseries} item's datapoints to a series, and
+ * {@code write-timeseries}: writes a {@code timeseries} item's datapoints to a series, and
  * passes the item on unchanged.
  *
  * <p>Writes only the points in the item's window ({@code [window.start, window.end)}); history a
@@ -45,13 +45,14 @@ import java.util.Map;
 @Component
 public class TimeseriesSink implements Processor {
 
-    static final String TYPE = "timeseries.write";
+    static final String TYPE = "write-timeseries";
 
     private static final ZstdPayloadCodec CODEC = new ZstdPayloadCodec(3);
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder(TYPE, "1.0.0")
             .displayName("Write timeseries")
+            .category(ProcessorDescriptor.Category.READ_WRITE)
             .description("Writes a timeseries item's points in its window to a series.")
             .property(PropertyDescriptor.builder("target", PropertyType.STRING)
                     .displayName("Target")

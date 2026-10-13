@@ -19,7 +19,7 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * {@code timeseries.smooth}: replaces every point with a smoothed value computed over a trailing
+ * {@code smooth}: replaces every point with a smoothed value computed over a trailing
  * time window, {@code (t − window, t]}, so a point never depends on later ones. Windows are by time,
  * not by point count, so irregular sampling is handled.
  *
@@ -31,8 +31,9 @@ import java.util.List;
 public class Smooth implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.smooth", "1.0.0")
+            .builder("smooth", "1.0.0")
             .displayName("Smooth")
+            .category(ProcessorDescriptor.Category.TRANSFORM)
             .description("Replaces every point with a value smoothed over a trailing time window.")
             .property(PropertyDescriptor.builder("method", PropertyType.ENUM)
                     .displayName("Method")

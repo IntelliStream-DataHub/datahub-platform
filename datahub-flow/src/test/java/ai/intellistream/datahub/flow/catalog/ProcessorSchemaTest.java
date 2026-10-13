@@ -28,8 +28,9 @@ class ProcessorSchemaTest {
     void anEntryNamesTheProcessorItsVersionAndItsRelationships() {
         JsonNode sink = entry(new TimeseriesSink());
 
-        assertThat(sink.get("name").stringValue()).isEqualTo("timeseries.write");
+        assertThat(sink.get("name").stringValue()).isEqualTo("write-timeseries");
         assertThat(sink.get("displayName").stringValue()).isEqualTo("Write timeseries");
+        assertThat(sink.get("category").stringValue()).isEqualTo("read-write");
         assertThat(sink.get("version").stringValue()).isEqualTo("1.0.0");
         assertThat(sink.get("relationships").findValuesAsString("name")).containsExactly("success", "failure");
         assertThat(sink.get("relationships").get(0).get("whenUnconnected").stringValue()).isEqualTo("terminate");
