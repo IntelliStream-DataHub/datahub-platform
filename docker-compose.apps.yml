@@ -195,10 +195,10 @@ services:
       <<: *app-env
       # Its own JVM settings, not the shared 128 MB of direct memory: runs hold their data in Arrow
       # memory, which is direct memory. The service refuses to start unless its Arrow budget plus
-      # the Pulsar client's 512 MB plus headroom fits under MaxDirectMemorySize. The last two flags
+      # the Pulsar client's 512 MB plus headroom fits under MaxDirectMemorySize, and the budget
+      # must hold one run's default 512 MB cap; 2g fits the default 1GB budget. The last two flags
       # are what Arrow needs on Java 25 (datahub-flow/build.gradle, arrowJvmFlags).
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx384m -XX:MaxDirectMemorySize=1g --add-opens=java.base/java.nio=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
-      DATAHUB_FLOW_ARROW_BUDGET: 256MB
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx384m -XX:MaxDirectMemorySize=2g --add-opens=java.base/java.nio=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
       # The console's Flows section calls this service from the browser.
       CORS_ALLOWED_ORIGINS: http://localhost:8080
       # Asked what a caller may do, and called as the caller.
