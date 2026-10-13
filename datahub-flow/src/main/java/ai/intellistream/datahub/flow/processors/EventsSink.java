@@ -52,6 +52,7 @@ public class EventsSink implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder(TYPE, "1.0.0")
+            .displayName("Create events")
             .description("Creates one DataHub event per row of an events item.")
             .property(PropertyDescriptor.builder("type", PropertyType.STRING)
                     .displayName("Type").description("The events' type.")

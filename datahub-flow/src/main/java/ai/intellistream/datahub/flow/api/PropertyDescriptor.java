@@ -18,11 +18,14 @@ import java.util.Objects;
  * @param references       whether {@code ${…}} references are allowed in the value
  * @param sensitive        never shown or logged; the value must be a {@code ${secrets.<name>}}
  *                         reference
+ * @param lookup           what the console offers to search for the value, e.g. {@code timeseries}
+ *                         for external ids of series; null for none
+ * @param advanced         rarely changed, so the console folds it away
  */
 public record PropertyDescriptor(String name, String displayName, String description,
                                  PropertyType type, boolean required, Object defaultValue,
                                  List<AllowableValue> allowableValues, boolean references,
-                                 boolean sensitive) {
+                                 boolean sensitive, String lookup, boolean advanced) {
 
     public PropertyDescriptor {
         Objects.requireNonNull(name, "name");
@@ -48,6 +51,8 @@ public record PropertyDescriptor(String name, String displayName, String descrip
         private List<AllowableValue> allowableValues = List.of();
         private boolean references;
         private boolean sensitive;
+        private String lookup;
+        private boolean advanced;
 
         private Builder(String name, PropertyType type) {
             this.name = name;
@@ -90,9 +95,19 @@ public record PropertyDescriptor(String name, String displayName, String descrip
             return this;
         }
 
+        public Builder lookup(String lookup) {
+            this.lookup = lookup;
+            return this;
+        }
+
+        public Builder advanced() {
+            this.advanced = true;
+            return this;
+        }
+
         public PropertyDescriptor build() {
             return new PropertyDescriptor(name, displayName, description, type, required,
-                    defaultValue, allowableValues, references, sensitive);
+                    defaultValue, allowableValues, references, sensitive, lookup, advanced);
         }
     }
 }

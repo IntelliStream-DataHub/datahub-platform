@@ -29,6 +29,7 @@ public class Resample implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.resample", "1.0.0")
+            .displayName("Resample")
             .description("Puts a series on a regular interval, one point per bucket.")
             .property(PropertyDescriptor.builder("interval", PropertyType.DURATION)
                     .displayName("Interval").required().build())

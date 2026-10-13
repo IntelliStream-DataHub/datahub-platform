@@ -46,6 +46,7 @@ public class Threshold implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.threshold", "1.0.0")
+            .displayName("Threshold periods")
             .description("Finds the periods a series is above or below a threshold, as event "
                     + "lifecycles.")
             .property(PropertyDescriptor.builder("threshold", PropertyType.NUMBER)

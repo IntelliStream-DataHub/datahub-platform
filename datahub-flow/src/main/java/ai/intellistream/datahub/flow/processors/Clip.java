@@ -27,6 +27,7 @@ public class Clip implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.clip", "1.0.0")
+            .displayName("Clip")
             .description("Limits values to a range; every point is kept.")
             .property(PropertyDescriptor.builder("min", PropertyType.NUMBER)
                     .displayName("Min").description("At least one of min, max.")

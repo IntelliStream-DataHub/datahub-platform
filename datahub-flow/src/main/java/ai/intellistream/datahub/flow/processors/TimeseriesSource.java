@@ -53,19 +53,20 @@ public class TimeseriesSource implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder(TYPE, "1.0.0")
+            .displayName("Read timeseries")
             .description("Reads series over a window from DataHub: one timeseries item per series.")
             .property(PropertyDescriptor.builder("timeseries", PropertyType.LIST)
                     .displayName("Timeseries")
                     .description("External ids of the series to read.")
-                    .required().build())
+                    .lookup("timeseries").required().build())
             .property(PropertyDescriptor.builder("from", PropertyType.INSTANT)
                     .displayName("From")
                     .description("Start of the window, inclusive.")
-                    .references().defaultValue("${run.window.start}").build())
+                    .advanced().references().defaultValue("${run.window.start}").build())
             .property(PropertyDescriptor.builder("to", PropertyType.INSTANT)
                     .displayName("To")
                     .description("End of the window, exclusive.")
-                    .references().defaultValue("${run.window.end}").build())
+                    .advanced().references().defaultValue("${run.window.end}").build())
             .property(PropertyDescriptor.builder("lookback", PropertyType.DURATION)
                     .displayName("Lookback")
                     .description("Also read this much before from, as history for smoothing, spike "
@@ -74,6 +75,7 @@ public class TimeseriesSource implements Processor {
             .property(PropertyDescriptor.builder("maxPointsPerItem", PropertyType.NUMBER)
                     .displayName("Max points per item")
                     .description("A longer series is split into several items.")
+                    .advanced()
                     .defaultValue(100_000).build())
             .property(PropertyDescriptor.builder("onMissing", PropertyType.ENUM)
                     .displayName("When a series is missing")
@@ -81,7 +83,7 @@ public class TimeseriesSource implements Processor {
                             + "may not read.")
                     .allowableValues(new AllowableValue("fail", "Fail the run."),
                             new AllowableValue("skip", "Skip the series and read the rest."))
-                    .defaultValue("fail").build())
+                    .defaultValue("fail").advanced().build())
             .relationship(Relationship.of("success", "Each series read, or each part of one."))
             .build();
 

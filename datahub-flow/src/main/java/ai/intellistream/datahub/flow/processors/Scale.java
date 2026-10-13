@@ -22,6 +22,7 @@ public class Scale implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder("timeseries.scale", "1.0.0")
+            .displayName("Scale")
             .description("value × factor + offset for every point.")
             .property(PropertyDescriptor.builder("factor", PropertyType.NUMBER)
                     .displayName("Factor").references().defaultValue(1).build())
