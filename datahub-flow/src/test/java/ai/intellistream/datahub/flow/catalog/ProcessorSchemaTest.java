@@ -80,8 +80,11 @@ class ProcessorSchemaTest {
 
         assertThat(p.get("timeseries").get("x-lookup").stringValue()).isEqualTo("timeseries");
         assertThat(p.get("timeseries").has("x-advanced")).isFalse();
-        assertThat(p.get("from").get("x-advanced").booleanValue()).isTrue();
         assertThat(p.get("from").has("x-lookup")).isFalse();
+        // An optional property without a default is folded away by being marked advanced.
+        JsonNode sink = entry(new TimeseriesSink()).get("properties").get("properties");
+        assertThat(sink.get("unit").get("x-advanced").booleanValue()).isTrue();
+        assertThat(sink.get("target").has("x-advanced")).isFalse();
     }
 
     @Test

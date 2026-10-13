@@ -56,23 +56,23 @@ public class EventsSink implements Processor {
             .description("Creates one DataHub event per row of an events item.")
             .property(PropertyDescriptor.builder("type", PropertyType.STRING)
                     .displayName("Type").description("The events' type.")
-                    .required().references().build())
+                    .required().references().defaultValue("flow").build())
             .property(PropertyDescriptor.builder("subType", PropertyType.STRING)
                     .displayName("Subtype").description("The events' subtype.")
-                    .references().build())
+                    .references().advanced().build())
             .property(PropertyDescriptor.builder("externalId", PropertyType.STRING)
                     .displayName("External id")
                     .description("Overrides the row's external id, e.g. to key a lifecycle by "
                             + "series: ${timeseries.externalId}:high. The row's when unset.")
-                    .references().build())
+                    .references().advanced().build())
             .property(PropertyDescriptor.builder("dataSet", PropertyType.STRING)
                     .displayName("Dataset")
                     .description("External id of the events' dataset: any dataset the run's "
                             + "identity may write. The flow's own when unset.")
-                    .build())
+                    .advanced().build())
             .property(PropertyDescriptor.builder("description", PropertyType.STRING)
                     .displayName("Description").description("The events' description.")
-                    .references().build())
+                    .references().advanced().build())
             .dynamicProperties(new DynamicPropertyDescriptor(
                     "A metadata key on the events.",
                     "Its value, e.g. ${timeseries.externalId}.",

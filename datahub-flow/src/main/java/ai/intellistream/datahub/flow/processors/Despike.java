@@ -40,7 +40,7 @@ public class Despike implements Processor {
             .displayName("Remove spikes")
             .description("Finds spikes (a Hampel filter) and removes or replaces them.")
             .property(PropertyDescriptor.builder("window", PropertyType.DURATION)
-                    .displayName("Window").required().build())
+                    .displayName("Window").required().defaultValue("PT15M").build())
             .property(PropertyDescriptor.builder("threshold", PropertyType.NUMBER)
                     .displayName("Threshold").description("In median absolute deviations.")
                     .defaultValue(3).build())

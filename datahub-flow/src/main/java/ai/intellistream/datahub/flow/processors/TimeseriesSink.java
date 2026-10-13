@@ -55,21 +55,24 @@ public class TimeseriesSink implements Processor {
             .description("Writes a timeseries item's points in its window to a series.")
             .property(PropertyDescriptor.builder("target", PropertyType.STRING)
                     .displayName("Target")
-                    .description("External id of the series to write to, e.g. "
-                            + "${timeseries.externalId}_f. No default: a default of the source "
-                            + "series would overwrite the raw data in place.")
-                    .lookup("timeseries").required().references().build())
+                    .description("External id of the series to write to. The default is a "
+                            + "series of its own beside each one read, never the one read: that "
+                            + "would overwrite the raw data in place.")
+                    .lookup("timeseries").required().references()
+                    .defaultValue("${timeseries.externalId}_out").build())
             .property(PropertyDescriptor.builder("create", PropertyType.BOOLEAN)
                     .displayName("Create")
-                    .description("false: every target must already exist. true: targets that do "
-                            + "not exist are created when the flow is saved.")
-                    .defaultValue(false).build())
+                    .description("true: targets that do not exist are created when the flow is "
+                            + "saved. false: every target must already exist.")
+                    .defaultValue(true).build())
             .property(PropertyDescriptor.builder("name", PropertyType.STRING)
-                    .displayName("Name").description("Name of a created series.")
-                    .references().build())
+                    .displayName("Name").description("Name of a created series; its external "
+                            + "id when unset.")
+                    .advanced().references().build())
             .property(PropertyDescriptor.builder("unit", PropertyType.STRING)
-                    .displayName("Unit").description("Unit of a created series.")
-                    .references().build())
+                    .displayName("Unit").description("Unit of a created series; when unset, "
+                            + "that of the series read.")
+                    .advanced().references().build())
             .property(PropertyDescriptor.builder("description", PropertyType.STRING)
                     .displayName("Description").description("Description of a created series.")
                     .advanced().references().build())
