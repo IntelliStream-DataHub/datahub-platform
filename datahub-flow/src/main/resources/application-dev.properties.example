@@ -6,7 +6,3 @@
 vault.address=http://localhost:8200
 vault.role-id=datahub-local-roleid
 vault.secret-id=datahub-local-secretid
-
-# The Arrow budget stays at application.properties' 1GB: a run reserves 512MB unless its flow says
-# otherwise, and a smaller budget refuses to boot. bootRun's jvmArgs set -XX:MaxDirectMemorySize=2g,
-# which holds the budget, the Pulsar client's 512MB and the headroom.

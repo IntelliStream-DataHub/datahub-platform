@@ -10,7 +10,6 @@ import ai.intellistream.datahub.flow.engine.FlowRecord.Action;
 import ai.intellistream.datahub.flow.engine.RunResult.Status;
 import ai.intellistream.datahub.flow.fake.ExampleFlow;
 import ai.intellistream.datahub.flow.fake.FakeProcessors;
-import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -33,19 +32,19 @@ class RunExecutorTest {
     private static final TimeWindow WINDOW = new TimeWindow(Instant.parse("2026-10-01T10:00:00Z"),
             Instant.parse("2026-10-01T11:00:00Z"));
 
-    private final RootAllocator instance = new RootAllocator(256 * MB);
     private final List<Duration> slept = new ArrayList<>();
-    private final RunExecutor executor = new RunExecutor(instance,
+    private final RunExecutor executor = new RunExecutor(
             Clock.fixed(Instant.parse("2026-10-01T11:05:00Z"), ZoneOffset.UTC), slept::add);
     private final List<FlowRecord> records = new ArrayList<>();
+    private final List<RunResult> results = new ArrayList<>();
 
     private final FakeProcessors.Sink sink = new FakeProcessors.Sink();
     private final FakeProcessors.EventsSink events = new FakeProcessors.EventsSink();
 
     @AfterEach
-    void everyByteIsReleased() {
-        assertThat(instance.getAllocatedMemory()).as("memory left after the run").isZero();
-        instance.close();
+    void everyByteIsGivenBack() {
+        assertThat(results).flatExtracting(RunResult::log).extracting(RunResult.LogLine::message)
+                .as("memory left counted after a run").noneMatch(m -> m.contains("not given back"));
     }
 
     private CompiledFlow compile(String json, Processor... extra) {
@@ -68,7 +67,9 @@ class RunExecutorTest {
     }
 
     private RunResult run(CompiledFlow flow, RunRequest request) {
-        return executor.execute(flow, request, records::add);
+        RunResult result = executor.execute(flow, request, records::add);
+        results.add(result);
+        return result;
     }
 
     private static RunRequest request(Map<String, Object> parameters) {
@@ -219,9 +220,8 @@ class RunExecutorTest {
         assertThat(failed.status()).isEqualTo(Status.FAILED);
         assertThat(failed.errorCode()).isEqualTo(RunResult.MEMORY_LIMIT);
         assertThat(failed.failedProcessor()).isEqualTo("hog");
-        assertThat(instance.getAllocatedMemory()).isZero();
 
-        // The instance carries on: the next run on it is unaffected.
+        // The executor carries on: the next run is unaffected.
         assertThat(run(compile(ExampleFlow.DEFINITION)).status()).isEqualTo(Status.SUCCEEDED);
     }
 

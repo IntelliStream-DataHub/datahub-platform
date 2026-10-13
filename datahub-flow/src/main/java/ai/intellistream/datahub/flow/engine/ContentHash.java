@@ -23,8 +23,8 @@ import java.util.TreeMap;
  * re-read can be compared with it later ("has the input changed since?", "did two runs see the same
  * data?", "did this step change it?").
  *
- * <p>It is taken over a canonical form, not over Arrow's in-memory bytes, so that the same data
- * read again hashes the same however it was laid out:
+ * <p>It is taken over a canonical form, not over the content's in-memory layout, so that the same
+ * data read again hashes the same however it was laid out:
  * <ul>
  *   <li><b>timeseries</b> — rows sorted by timestamp (then by value), each the timestamp in
  *       milliseconds and the value's IEEE-754 bits ({@link Double#doubleToLongBits}, so every NaN

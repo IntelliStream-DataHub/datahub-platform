@@ -16,7 +16,7 @@ import java.util.function.Function;
  * @param window      the range of data time it covers, or null for a run without one
  * @param parameters  values for the flow's parameters, overriding their defaults: strings, numbers
  *                    ({@link java.math.BigDecimal}), booleans or lists, as JSON would give them
- * @param memoryBytes the cap on the run's Arrow memory; going over fails this run alone
+ * @param memoryBytes the cap on the memory the run's content takes; going over fails this run alone
  * @param secrets     a secret's value by name, or null when the tenant has no such secret
  * @param cancelled   whether the run should stop: cancelled, past its timeout, or its lease lost
  * @param dataSetId   the flow's dataset, or null for a definition that names none

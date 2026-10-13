@@ -9,7 +9,7 @@ import ai.intellistream.datahub.flow.api.Content;
  * <p>Content is shared, never copied: a branch's copies all point at their original's content, and
  * a processor may give the content it received to a new item. {@code holders} counts the items that
  * refer to the content and are still live — waiting on a queue, or held by a processor in the
- * middle of an invocation. When the last one ends, the memory goes back to the run's allocator.
+ * middle of an invocation. When the last one ends, its size goes back to the run's memory cap.
  * Counts change only when an invocation commits, so a rollback has nothing to undo.
  */
 final class ContentRef {
@@ -21,8 +21,7 @@ final class ContentRef {
     private boolean closed;
 
     /**
-     * @param memory what holds the content's memory: its Arrow batch, or for heap content the
-     *               reservation that counts its size against the run's cap
+     * @param memory gives the content's size back to the run's memory cap
      */
     ContentRef(Content content, AutoCloseable memory) {
         this.content = content;

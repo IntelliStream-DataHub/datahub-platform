@@ -18,12 +18,12 @@ import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.arrow.memory.BufferAllocator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.InetAddress;
@@ -54,7 +54,7 @@ import java.util.function.Supplier;
  *   <li><b>Sweep</b> (~10 s): creates a pending run for every schedule tick that is due — oldest
  *       first, at most {@code catch-up} per flow per sweep — and moves the schedule on <em>when the
  *       run is created</em>, never when it finishes; then claims pending runs, earliest window first,
- *       as far as this instance has free run slots and free Arrow memory.</li>
+ *       as far as this instance has free run slots and free run memory.</li>
  *   <li><b>Heartbeat</b> (~15 s): renews the leases of all of this instance's runs in a tenant with
  *       one statement. A run missing from the answer was taken over and is stopped and fenced.</li>
  *   <li><b>Reaper</b> (~30 s): runs whose lease expired go back to pending for another attempt, or
@@ -132,7 +132,7 @@ public class RunCoordinator {
     @Autowired
     public RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
                           TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
-                          BufferAllocator rootAllocator,
+                          DataSize runMemoryBudget,
                           @Value("${datahub.flow.runs.lease:PT60S}") Duration lease,
                           @Value("${datahub.flow.runs.heartbeat-interval:PT15S}") Duration heartbeat,
                           @Value("${datahub.flow.runs.max-running:8}") int maxRunning,
@@ -141,7 +141,7 @@ public class RunCoordinator {
                           @Value("${datahub.flow.runs.backoff:PT30S}") Duration backoff,
                           @Value("${datahub.flow.runs.max-backoff:PT15M}") Duration maxBackoff,
                           @Value("${datahub.flow.runs.overdue-grace:PT1M}") Duration overdueGrace) {
-        this(runs, execution, events, transaction, tenants, schemaCheck, json, rootAllocator.getLimit(),
+        this(runs, execution, events, transaction, tenants, schemaCheck, json, runMemoryBudget.toBytes(),
                 new Settings(lease, heartbeat, maxRunning, claimsPerSweep, catchUp, backoff,
                         maxBackoff, overdueGrace),
                 instanceId(), System::nanoTime);

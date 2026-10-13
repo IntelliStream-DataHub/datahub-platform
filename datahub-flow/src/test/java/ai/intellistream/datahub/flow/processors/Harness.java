@@ -20,7 +20,6 @@ import ai.intellistream.datahub.flow.engine.RunExecutor;
 import ai.intellistream.datahub.flow.engine.RunRequest;
 import ai.intellistream.datahub.flow.engine.RunResult;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
-import org.apache.arrow.memory.RootAllocator;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -36,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Runs the built-in processors for real, in the engine, between a source that emits given items
  * ({@code test.given}) and a collector that keeps what reaches it ({@code test.collect}), and checks
- * afterwards that every byte of Arrow memory was released.
+ * afterwards that every byte counted against a run's memory cap was given back.
  */
 final class Harness implements AutoCloseable {
 
@@ -51,12 +50,12 @@ final class Harness implements AutoCloseable {
                 new FilterRange(), new Threshold(), new RouteOnAttribute());
     }
 
-    final RootAllocator instance = new RootAllocator(256L * 1024 * 1024);
-    final RunExecutor executor = new RunExecutor(instance,
+    final RunExecutor executor = new RunExecutor(
             Clock.fixed(Instant.parse("2026-10-01T11:05:00Z"), ZoneOffset.UTC), d -> { });
     final Given given = new Given();
     final Collect collect = new Collect();
     final List<FlowRecord> records = new ArrayList<>();
+    private final List<RunResult> results = new ArrayList<>();
 
     /** A series {@code ts1} in {@link #WINDOW}, as the source would make it. */
     Harness series(long[] t, double[] v) {
@@ -103,8 +102,10 @@ final class Harness implements AutoCloseable {
         catalog.add(collect);
         FlowValidator validator = new FlowValidator(catalog, FlowValidator.Limits.DEFAULTS);
         CompiledFlow flow = new FlowCompiler(validator).compile(FlowDefinitions.parse(json));
-        return executor.execute(flow, new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(), preview,
-                64L * 1024 * 1024, null, null, dataSetId, datahub), records::add);
+        RunResult result = executor.execute(flow, new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(),
+                preview, 64L * 1024 * 1024, null, null, dataSetId, datahub), records::add);
+        results.add(result);
+        return result;
     }
 
     /**
@@ -132,8 +133,8 @@ final class Harness implements AutoCloseable {
 
     @Override
     public void close() {
-        assertThat(instance.getAllocatedMemory()).as("Arrow memory left after the run").isZero();
-        instance.close();
+        assertThat(results).flatExtracting(RunResult::log).extracting(RunResult.LogLine::message)
+                .as("memory left counted after a run").noneMatch(m -> m.contains("not given back"));
     }
 
     record Input(Map<String, String> attributes, long[] t, double[] v, List<EventRow> rows) {

@@ -17,8 +17,6 @@ import ai.intellistream.datahub.flow.definition.Template.Scope;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.engine.RunResult.Status;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.OutOfMemoryException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -45,10 +43,10 @@ import java.util.function.Function;
  *
  * <p>Each invocation is a transaction ({@link RunSession}). One that throws is rolled back and
  * retried as the processor's {@code retry} allows; when its attempts are used up the run fails. A
- * run that goes over its memory cap fails at once, and alone: its Arrow memory comes from a child
- * allocator capped at the run's memory, so the error stays inside the run.
+ * run that goes over its memory cap fails at once, and alone: every series a processor builds is
+ * counted against the run's own cap before it is allocated, so the error stays inside the run.
  *
- * <p>Whatever happens, every byte the run allocated is released before {@link #execute} returns.
+ * <p>Whatever happens, everything the run counted is given back before {@link #execute} returns.
  */
 public final class RunExecutor {
 
@@ -58,13 +56,10 @@ public final class RunExecutor {
         void sleep(Duration duration) throws InterruptedException;
     }
 
-    private final BufferAllocator instanceAllocator;
     private final Clock clock;
     private final Sleeper sleeper;
 
-    /** @param instanceAllocator the instance's Arrow budget, which every run's allocator comes from */
-    public RunExecutor(BufferAllocator instanceAllocator, Clock clock, Sleeper sleeper) {
-        this.instanceAllocator = instanceAllocator;
+    public RunExecutor(Clock clock, Sleeper sleeper) {
         this.clock = clock;
         this.sleeper = sleeper;
     }
@@ -82,9 +77,7 @@ public final class RunExecutor {
         String code = null;
         String error = null;
         String failedProcessor = null;
-        BufferAllocator allocator = instanceAllocator.newChildAllocator(
-                "run-" + request.runId() + "-" + request.attempt(), 0, request.memoryBytes());
-        Run run = new Run(request.runId(), request.attempt(), allocator, clock, sink);
+        Run run = new Run(request.runId(), request.attempt(), request.memoryBytes(), clock, sink);
         try {
             parameters = parameters(flow.definition(), request.parameters());
             Map<String, NodeContext> contexts = new LinkedHashMap<>();
@@ -108,7 +101,11 @@ public final class RunExecutor {
             log.add(new LogLine(clock.instant(), f.processor, "ERROR", f.getMessage()));
         } finally {
             run.releaseAll();
-            close(allocator, log);
+            if (run.used != 0) {
+                // The engine lost track of some content; say so on the run rather than hide it.
+                log.add(new LogLine(clock.instant(), null, "ERROR", run.used
+                        + " bytes were not given back to the run's memory cap"));
+            }
         }
         return new RunResult(status, code, error, failedProcessor, parameters, secretsUsed, versions,
                 List.copyOf(log), run.records);
@@ -139,7 +136,7 @@ public final class RunExecutor {
                 session.checkAccounted();
             } catch (RuntimeException e) {
                 session.rollback();
-                if (causedBy(e, OutOfMemoryException.class)) {
+                if (causedBy(e, Run.OverCap.class)) {
                     throw new RunFailure(RunResult.MEMORY_LIMIT, node.id(), "\"" + node.id()
                             + "\" went over the run's memory cap of "
                             + request.memoryBytes() / (1024 * 1024) + " MB.");
@@ -178,17 +175,6 @@ public final class RunExecutor {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RunFailure(RunResult.CANCELLED, node.id(), "The run was interrupted.");
-        }
-    }
-
-    private void close(BufferAllocator allocator, List<LogLine> log) {
-        try {
-            allocator.close();
-        } catch (IllegalStateException e) {
-            // A processor kept Arrow memory it was given no way to keep; the engine released all it
-            // tracks. Say so on the run rather than hide it.
-            log.add(new LogLine(clock.instant(), null, "ERROR", "Memory was not released: "
-                    + e.getMessage()));
         }
     }
 

@@ -2,7 +2,6 @@
 package ai.intellistream.datahub.flow.engine;
 
 import ai.intellistream.datahub.flow.api.Content;
-import org.apache.arrow.memory.BufferAllocator;
 
 import java.time.Clock;
 import java.util.ArrayDeque;
@@ -13,13 +12,16 @@ import java.util.UUID;
 
 /**
  * The state of one run attempt while it executes: the queue in front of every processor, the
- * content its items share, and the allocator their memory comes from. Lives on one thread.
+ * content its items share, and how much of the run's memory cap that content takes. Lives on one
+ * thread.
  */
 final class Run {
 
     final UUID runId;
     final int attempt;
-    final BufferAllocator allocator;
+    /** The run's memory cap, in bytes, and how much of it the content alive now takes. */
+    final long cap;
+    long used;
     final Clock clock;
     final RecordSink sink;
     final Map<String, ArrayDeque<RunItem>> queues = new HashMap<>();
@@ -27,16 +29,35 @@ final class Run {
     final Map<Content, ContentRef> refs = new IdentityHashMap<>();
     long records;
 
-    Run(UUID runId, int attempt, BufferAllocator allocator, Clock clock, RecordSink sink) {
+    Run(UUID runId, int attempt, long cap, Clock clock, RecordSink sink) {
         this.runId = runId;
         this.attempt = attempt;
-        this.allocator = allocator;
+        this.cap = cap;
         this.clock = clock;
         this.sink = sink;
     }
 
     ArrayDeque<RunItem> queue(String nodeId) {
         return queues.computeIfAbsent(nodeId, k -> new ArrayDeque<>());
+    }
+
+    /** Counts {@code bytes} against the cap before they are allocated. */
+    void claim(long bytes) {
+        if (bytes > cap - used) {
+            throw new OverCap(bytes);
+        }
+        used += bytes;
+    }
+
+    void free(long bytes) {
+        used -= bytes;
+    }
+
+    /** Content would go over the run's memory cap. */
+    static final class OverCap extends RuntimeException {
+        OverCap(long bytes) {
+            super(bytes + " more bytes do not fit in the run's memory cap");
+        }
     }
 
     void emit(FlowRecord record) {

@@ -311,11 +311,12 @@ Stateless: no database, no messaging. It validates the caller's own JWT and forw
 The console's Analyze tab and its "related series" panel call this service **directly from the browser**, so it has to be reachable from wherever the console is opened, not only from inside the network.
 
 It also converts AVEVA RVM models to glTF for the console's 3D viewer (`GET /models/gltf`), by running the static `rvm-converter` binary from [tools/rvm-converter](tools/rvm-converter). Install that binary on every analysis host (`rvm.converter.binary`, default `/opt/datahub/bin/rvm-converter`); without it every other endpoint works and a conversion answers 422.
+
 ### datahub-flow
 
 intellistream-flow, which runs flows: small pipelines of processors that read DataHub data, transform it and write it back. Its tables are in each tenant's own Postgres (schema `flow`, created by datahub-api's per-tenant migrations), and every instance coordinates through them, so add instances to scale. The console's Flows section calls it directly from the browser, on port 8084.
 
-Most of its memory is off-heap: runs hold their data in Apache Arrow, which is direct memory. It refuses to start unless its Arrow budget (`datahub.flow.arrow.budget`) plus the Pulsar client's memory limit and some headroom fits under `-XX:MaxDirectMemorySize`, and it needs two JVM flags for Arrow on Java 25. Both are set in its compose service and in `systemd/env/flow.env`; see `datahub-flow/build.gradle`.
+Runs hold their data on the heap, so size it with `-Xmx`. The runs on one instance share a memory budget, each reserving its cap (512 MB unless the flow sets `execution.memory`) before it starts. The budget is half the heap unless `datahub.flow.runs.memory-budget` sets a smaller one, and the service refuses to start if it cannot hold one default run, so give it at least 1 GB of heap.
 
 ### datahub-cleanup
 

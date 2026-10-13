@@ -17,11 +17,6 @@ repositories {
 }
 
 dependencies {
-	// A timeseries item's content is an Arrow batch. The Unsafe allocation manager rather than
-	// netty's, which would drag in a second netty.
-	implementation "org.apache.arrow:arrow-vector:${arrowVersion}"
-	runtimeOnly "org.apache.arrow:arrow-memory-unsafe:${arrowVersion}"
-
 	// TenantConfigService (the tenant registry and its feature flags) from commons; from infra the
 	// multi-tenant routing datasource and the OrganizationValidator the api resolves tenants with.
 	// Infra brings JPA, Neo4j, Valkey and ClickHouse clients too; none are scanned or configured
@@ -79,21 +74,12 @@ dependencies {
 	testImplementation testFixtures(project(':datahub-infra'))
 }
 
-// What Arrow needs from the JVM on Java 25, found by starting the service without flags:
-//  - its IPC path wraps Arrow memory in NIO buffers through a private java.nio constructor; without
-//    the opens, ArrowMemoryConfig's startup check fails with "sun.misc.Unsafe or
-//    java.nio.DirectByteBuffer.<init>(long, int) not available". On the classpath Arrow is in the
-//    unnamed module, so ALL-UNNAMED is the target (naming org.apache.arrow.memory.core only warns
-//    "Unknown module");
-//  - it allocates through sun.misc.Unsafe, whose memory methods JDK 25 warns about on first use and
-//    a later JDK will refuse by default. This allows them explicitly.
-// The same flags go into the service's compose JAVA_TOOL_OPTIONS and systemd/env/flow.env.
-def arrowJvmFlags = ['--add-opens=java.base/java.nio=ALL-UNNAMED', '--sun-misc-unsafe-memory-access=allow']
-
 tasks.named('test') {
 	// The @Tag("integration") tests need a container runtime and run under integrationTest.
 	useJUnitPlatform { excludeTags 'integration' }
-	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=2g']
+	// FlowServiceTest boots the service, whose run memory budget may take at most half the heap
+	// and must hold one run's default 512 MB.
+	maxHeapSize = '1g'
 }
 
 //   ./gradlew :datahub-flow:integrationTest
@@ -104,10 +90,6 @@ tasks.register('integrationTest', Test) {
 	testClassesDirs = sourceSets.test.output.classesDirs
 	classpath = sourceSets.test.runtimeClasspath
 	shouldRunAfter tasks.named('test')
-	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=2g']
 	systemProperty 'datahub.pulsar.image.version', project.findProperty('pulsarBrokerVersion') ?: '5.0.0'
 }
 
-tasks.named('bootRun') {
-	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=2g']
-}
