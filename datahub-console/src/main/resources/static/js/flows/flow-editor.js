@@ -78,11 +78,17 @@
 				var required = (this.entry && this.entry.properties && this.entry.properties.required) || [];
 				var html = `
 					${this.entry ? `<p class="field-hint">${escapeHtml(this.entry.description || "")}</p>` : ""}`;
-				var advanced = "";
+				// Only what has no default shows; the rest is folded, and opened when something in it is set.
+				var advanced = "", open = false;
 				Object.keys(props).forEach(name => {
-					var field = this.propertyField(name, props[name], required.indexOf(name) >= 0,
-						spec.properties ? spec.properties[name] : undefined);
-					if(props[name]["x-advanced"]) advanced += field; else html += field;
+					var value = spec.properties ? spec.properties[name] : undefined;
+					var field = this.propertyField(name, props[name], required.indexOf(name) >= 0, value);
+					if(props[name]["default"] !== undefined || props[name]["x-advanced"]){
+						advanced += field;
+						open = open || value !== undefined;
+					} else {
+						html += field;
+					}
 				});
 				var additional = this.entry && this.entry.properties && this.entry.properties.additionalProperties;
 				if(additional && typeof additional === "object"){
@@ -90,24 +96,29 @@
 						.filter(k => !(k in props))
 						.map(k => k + " = " + text(spec.properties[k]))
 						.join("\n");
-					html += `
+					var dynamic = `
 						<label>${L("flows.field.dynamic")}</label>
 						<textarea name="__dynamic" rows="4" class="w100">${escapeHtml(lines)}</textarea>
 						<p class="field-hint">${escapeHtml(additional["x-keyDescription"] || "")} — ${escapeHtml(additional.description || "")}</p>
 						<p class="field-hint">${L("flows.field.dynamic.help")}</p>`;
+					// Where they name the outcomes (routing) they are the point; elsewhere extras.
+					if(this.entry.dynamicRelationships) html += dynamic;
+					else { advanced += dynamic; open = open || lines !== ""; }
 				}
 				var rels = this.relationships();
 				if(rels.length){
-					html += `<label>${L("flows.field.terminate")}</label><div class="flow-checks">`;
+					advanced += `<label>${L("flows.field.terminate")}</label><div class="flow-checks">`;
 					rels.forEach(r => {
 						var checked = (spec.terminate || []).indexOf(r) >= 0 ? "checked" : "";
-						html += `<label class="flows-check"><input type="checkbox" name="__terminate" value="${escapeHtml(r)}" ${checked}/> <span>${escapeHtml(r)}</span></label>`;
+						advanced += `<label class="flows-check"><input type="checkbox" name="__terminate" value="${escapeHtml(r)}" ${checked}/> <span>${escapeHtml(r)}</span></label>`;
 					});
-					html += `</div><p class="field-hint">${L("flows.field.terminate.help")}</p>`;
+					advanced += `</div><p class="field-hint">${L("flows.field.terminate.help")}</p>`;
+					open = open || (spec.terminate || []).length > 0;
 				}
 				var retry = spec.retry || {};
+				open = open || spec.retry != null;
 				html += `
-					<details class="flow-advanced"><summary>${L("flows.field.advanced")}</summary>
+					<details class="flow-advanced" ${open ? "open" : ""}><summary>${L("flows.field.advanced")}</summary>
 					${advanced}
 					<label>${L("flows.field.retry")}</label>
 					<div class="flow-inline">
@@ -125,7 +136,8 @@
 				var kind = schemaKind(schema);
 				var label = escapeHtml(schema.title || name) + (required ? " *" : "");
 				var hint = schema.description ? `<p class="field-hint">${escapeHtml(schema.description)}</p>` : "";
-				var placeholder = schema["default"] !== undefined ? escapeHtml(text(schema["default"])) : "";
+				var placeholder = schema["default"] === undefined ? ""
+					: escapeHtml(kind.format === "duration" ? friendlyDuration(text(schema["default"])) : text(schema["default"]));
 				var field = "f_" + name;
 				var lookup = schema["x-lookup"] ? `data-lookup="${escapeHtml(schema["x-lookup"])}"` : "";
 				var current = value === undefined ? "" : kind.format === "duration" ? friendlyDuration(text(value)) : text(value);
@@ -144,7 +156,7 @@
 				} else if(kind.type === "array"){
 					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" ${lookup} placeholder="${L(schema["x-lookup"] ? "flows.field.lookup.list.placeholder" : "flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
 				} else {
-					var ph = kind.format === "duration" ? "1h" : kind.format === "date-time" ? "${run.window.start}"
+					var ph = placeholder ? placeholder : kind.format === "duration" ? "1h" : kind.format === "date-time" ? "${run.window.start}"
 						: kind.secret ? "${secrets.name}" : placeholder;
 					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}" ${lookup}
 						placeholder="${escapeHtml(schema["x-lookup"] ? L("flows.field.lookup.placeholder") : ph)}" ${required && !placeholder ? "required" : ""}/>`;
