@@ -1,7 +1,6 @@
 /*
  * The flows list: GET {flow}/flows a page at a time, newest cursor first, as datahub-flow filters
- * it to the flows whose dataset the user may read. Creating a flow is choosing its external id:
- * the flow page opens an id that does not exist yet as a new flow.
+ * it to the flows whose dataset the user may read. A new flow is made on the flow page.
  */
 (function(){
 	"use strict";
@@ -56,12 +55,6 @@
 		}
 
 		more.addEventListener("click", load);
-
-		page.querySelector('[data-type="flows-create"]').addEventListener("submit", function(e){
-			e.preventDefault();
-			var id = e.target.elements.externalId.value.trim();
-			if(id) window.location.href = "/flows/" + FlowApi.seg(id);
-		});
 
 		window.i18nReady.then(load);
 	});

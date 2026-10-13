@@ -28,7 +28,8 @@
 		var page = document.querySelector('[data-type="flow-page"]');
 		if(!page) return;
 
-		var flowId = page.getAttribute("data-flow-id");
+		var flowId = page.getAttribute("data-flow-id");   // empty until a new flow is named
+		var idFromName = !flowId;                          // opened by New flow: its id follows the name
 		var el = function(type){ return page.querySelector('[data-type="' + type + '"]'); };
 
 		var catalog = [];          // the catalog entries, sorted by name
@@ -230,6 +231,11 @@
 				this.render();
 			}
 
+			render(){
+				super.render();
+				fillDataSets(this.formElement.elements.dataSet, def.dataSet);
+			}
+
 			getFormFields(){
 				var t = def.trigger || {};
 				var x = def.execution || {};
@@ -240,7 +246,7 @@
 					<label>${L("description")}</label>
 					<textarea name="description" rows="2" class="w100">${v(def.description)}</textarea>
 					<label>${L("flows.field.dataset")}</label>
-					<input type="text" name="dataSet" required value="${v(def.dataSet)}"/>
+					<select name="dataSet" required></select>
 					<p class="field-hint">${L("flows.field.dataset.help")}</p>
 
 					<label>${L("flows.field.trigger")}</label>
@@ -417,6 +423,40 @@
 				Object.keys(spec.properties || {}).forEach(k => { if(!(k in declared) && rels.indexOf(k) < 0) rels.push(k); });
 			}
 			return rels;
+		}
+
+		/** A new flow's external id, from its name: Pump 3 alarms → pump_3_alarms. */
+		function externalIdOf(name){
+			return name.normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase()
+				.replace(/æ/g, "ae").replace(/ø/g, "o").replace(/ß/g, "ss")
+				.replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 128);
+		}
+
+		var writable = null;
+
+		/**
+		 * The datasets the user may write, which a flow can belong to: those datahub-api lists for
+		 * them, narrowed by their write grants. Loaded once per page.
+		 */
+		function writableDataSets(){
+			writable = writable || Promise.all([FlowApi.api("/datasets?limit=1000"), FlowApi.api("/me/datasets?access=write")])
+				.then(answers => {
+					var grants = answers[1], ids = (grants.ids || []).map(String);
+					return (answers[0].items || [])
+						.filter(d => d.externalId && (grants.all || ids.indexOf(String(d.id)) >= 0))
+						.map(d => ({ value: d.externalId, label: d.name && d.name !== d.externalId ? d.name + " (" + d.externalId + ")" : d.externalId }))
+						.sort((a, b) => a.label.localeCompare(b.label));
+				});
+			return writable;
+		}
+
+		/** A dataset select: the writable datasets, with {@code current} kept even when it is not one of them. */
+		function fillDataSets(select, current){
+			writableDataSets().then(list => {
+				if(current && !list.some(d => d.value === current)) list = list.concat([{ value: current, label: current }]);
+				fillSelect(select, [{ value: "", label: L("flows.field.dataset.choose") }].concat(list), false);
+				select.value = current || "";
+			}).catch(err => FlowApi.flashError(err, "flows.error.datasets"));
 		}
 
 		// Durations are ISO-8601 in the definition (PT1H30M) and written as 1h 30m in the forms.
@@ -608,7 +648,7 @@
 		}
 
 		function drawHeader(){
-			el("flow-title").textContent = (def.name ? def.name + " · " : "") + flowId;
+			el("flow-title").textContent = flowId ? (def.name ? def.name + " · " : "") + flowId : L("flows.new.title");
 			var state = el("flow-state");
 			state.textContent = stateLine();
 			state.classList.toggle("flows-warn", !!(deployment && deployment.identityState === "needs-reauthorisation") || !!(flow && flow.disabledReason));
@@ -696,6 +736,11 @@
 			var body = outgoing();
 			var call = flow ? FlowApi.put("/flows/" + FlowApi.seg(flowId), body) : FlowApi.post("/flows", body);
 			return call.then(view => {
+				if(!flow){
+					// Created: from here on the page is the flow's own.
+					history.replaceState(null, "", "/flows/" + FlowApi.seg(flowId));
+					page.setAttribute("data-flow-id", flowId);
+				}
 				flow = view;
 				def = view.definition || def;
 				savedJson = JSON.stringify(def);
@@ -848,7 +893,7 @@
 			if(name === "tree" && cy){ cy.resize(); cy.fit(undefined, 30); }
 			if(name === "json") drawJson();
 			if(name === "versions") loadVersions();
-			if(name === "runs") FlowRuns.list(page, flowId);
+			if(name === "runs" && flow) FlowRuns.list(page, flowId);
 		}
 
 		function loadVersions(){
@@ -900,7 +945,7 @@
 			var notFound = err => (err instanceof DataHubProblem && err.status === 404) ? null : Promise.reject(err);
 			return Promise.all([
 				FlowApi.get("/catalog/processors"),
-				FlowApi.get("/flows/" + FlowApi.seg(flowId)).catch(notFound)
+				flowId ? FlowApi.get("/flows/" + FlowApi.seg(flowId)).catch(notFound) : null
 			]).then(results => {
 				catalog = results[0] || [];
 				catalog.forEach(e => { byType[e.name] = e; });
@@ -908,6 +953,7 @@
 				def = flow ? flow.definition : { schemaVersion: 1, externalId: flowId, name: "", dataSet: "",
 					processors: [], connections: [], trigger: { type: "schedule", cron: "0 0 * * * *", window: "PT1H" } };
 				savedJson = flow ? JSON.stringify(def) : null;
+				if(!flow) fillDataSets(el("flow-new").elements.dataSet, def.dataSet);
 				return flow ? FlowApi.get("/flows/" + FlowApi.seg(flowId) + "/deployment").catch(notFound) : null;
 			}).then(d => {
 				deployment = d;
@@ -946,13 +992,19 @@
 		on("flow-json-apply", applyJson);
 		on("flow-settings", () => new FlowSettingsForm());
 		el("flow-connect-from").addEventListener("change", drawRelationships);
-		el("flow-new").addEventListener("input", () => {
+		var onNewFlow = () => {
 			var form = el("flow-new");
 			def.name = form.elements.name.value.trim();
-			def.dataSet = form.elements.dataSet.value.trim();
+			def.dataSet = form.elements.dataSet.value;
+			if(idFromName){
+				flowId = def.externalId = externalIdOf(def.name);
+				el("flow-new-id").textContent = flowId ? L("flows.new.id", [flowId]) : "";
+			}
 			drawJson();
 			drawHeader();
-		});
+		};
+		el("flow-new").addEventListener("input", onNewFlow);
+		el("flow-new").addEventListener("change", onNewFlow);
 		page.querySelectorAll(".flow-tabs button").forEach(b => b.addEventListener("click", () => showTab(b.getAttribute("data-tab"))));
 		window.addEventListener("beforeunload", e => {
 			if(def && isDirty() && (flow || (def.processors || []).length)){ e.preventDefault(); e.returnValue = ""; }

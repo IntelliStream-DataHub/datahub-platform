@@ -31,6 +31,8 @@ class FlowsControllerTest {
                 .andExpect(model().attribute("featureDisabled", false));
         mvc.perform(get("/flows").param("tab", "attention")).andExpect(view().name("flows/attention"));
         mvc.perform(get("/flows").param("tab", "lookup")).andExpect(view().name("flows/lookup"));
+        mvc.perform(get("/flows").param("new", "")).andExpect(view().name("flows/flow"))
+                .andExpect(model().attribute("flowExternalId", ""));
         mvc.perform(get("/flows/temp_hourly")).andExpect(view().name("flows/flow"))
                 .andExpect(model().attribute("flowExternalId", "temp_hourly"));
         mvc.perform(get("/flows/temp_hourly/runs/0190a5d2-0000-7000-8000-000000000001"))
@@ -42,6 +44,12 @@ class FlowsControllerTest {
     void aFlowCalledAttentionIsAFlow() throws Exception {
         mvc(true).perform(get("/flows/attention")).andExpect(view().name("flows/flow"))
                 .andExpect(model().attribute("flowExternalId", "attention"));
+    }
+
+    @Test
+    void aFlowCalledNewIsAFlow() throws Exception {
+        mvc(true).perform(get("/flows/new")).andExpect(view().name("flows/flow"))
+                .andExpect(model().attribute("flowExternalId", "new"));
     }
 
     @Test

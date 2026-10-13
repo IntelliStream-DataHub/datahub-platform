@@ -33,11 +33,6 @@
 	margin-top: var(--space-lg);
 }
 
-.flows-create-row {
-	display: flex;
-	gap: var(--space);
-}
-
 .flows-check {
 	display: inline-flex;
 	align-items: center;
