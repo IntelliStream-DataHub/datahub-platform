@@ -51,12 +51,17 @@
 		// inside a function and referenced from a closure.
 		var ProcessorForm = class extends DatasetFormAbstract {
 			constructor(spec, entry){
-				super({ title: spec.id + " · " + spec.type });
+				super({ title: labelOf(spec) });
 				this.spec = spec;
 				this.entry = entry;
 				this.deleteUrl = "local";   // shows the form's delete button; delete() is local
-				this.confirmDeleteMessage = L("flows.remove.processor.confirm", [spec.id]);
+				this.confirmDeleteMessage = L("flows.remove.processor.confirm", [labelOf(spec)]);
 				this.render();
+			}
+
+			render(){
+				super.render();
+				this.formElement.querySelectorAll("[data-lookup='timeseries']").forEach(lookupTimeseries);
 			}
 
 			schemaProperties(){
@@ -73,9 +78,11 @@
 				var required = (this.entry && this.entry.properties && this.entry.properties.required) || [];
 				var html = `
 					${this.entry ? `<p class="field-hint">${escapeHtml(this.entry.description || "")}</p>` : ""}`;
+				var advanced = "";
 				Object.keys(props).forEach(name => {
-					html += this.propertyField(name, props[name], required.indexOf(name) >= 0,
+					var field = this.propertyField(name, props[name], required.indexOf(name) >= 0,
 						spec.properties ? spec.properties[name] : undefined);
+					if(props[name]["x-advanced"]) advanced += field; else html += field;
 				});
 				var additional = this.entry && this.entry.properties && this.entry.properties.additionalProperties;
 				if(additional && typeof additional === "object"){
@@ -100,6 +107,8 @@
 				}
 				var retry = spec.retry || {};
 				html += `
+					<details class="flow-advanced"><summary>${L("flows.field.advanced")}</summary>
+					${advanced}
 					<label>${L("flows.field.retry")}</label>
 					<div class="flow-inline">
 						<input type="number" name="__retryAttempts" min="1" step="1"
@@ -107,7 +116,8 @@
 							   placeholder="${L("flows.field.retry.attempts")}"/>
 						<input type="text" name="__retryBackoff" value="${escapeHtml(friendlyDuration(retry.backoff))}"
 							   placeholder="${L("flows.field.retry.backoff")}"/>
-					</div>`;
+					</div>
+					</details>`;
 				return html;
 			}
 
@@ -117,6 +127,7 @@
 				var hint = schema.description ? `<p class="field-hint">${escapeHtml(schema.description)}</p>` : "";
 				var placeholder = schema["default"] !== undefined ? escapeHtml(text(schema["default"])) : "";
 				var field = "f_" + name;
+				var lookup = schema["x-lookup"] ? `data-lookup="${escapeHtml(schema["x-lookup"])}"` : "";
 				var current = value === undefined ? "" : kind.format === "duration" ? friendlyDuration(text(value)) : text(value);
 				var input;
 				if(kind.type === "enum"){
@@ -131,12 +142,12 @@
 						<option value="false" ${current === "false" ? "selected" : ""}>false</option>
 					</select>`;
 				} else if(kind.type === "array"){
-					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" placeholder="${L("flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
+					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" ${lookup} placeholder="${L(schema["x-lookup"] ? "flows.field.lookup.list.placeholder" : "flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
 				} else {
 					var ph = kind.format === "duration" ? "1h" : kind.format === "date-time" ? "${run.window.start}"
 						: kind.secret ? "${secrets.name}" : placeholder;
-					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}"
-						placeholder="${escapeHtml(ph)}" ${required && !placeholder ? "required" : ""}/>`;
+					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}" ${lookup}
+						placeholder="${escapeHtml(schema["x-lookup"] ? L("flows.field.lookup.placeholder") : ph)}" ${required && !placeholder ? "required" : ""}/>`;
 				}
 				return `<label>${label}</label>${input}${hint}`;
 			}
@@ -282,6 +293,41 @@
 			return (def.processors || []).find(p => p.id === id) || null;
 		}
 
+		/** What the editor calls a processor: its catalog name, numbered when the flow has several. */
+		function labelOf(spec){
+			var entry = byType[spec.type];
+			var name = entry && entry.displayName ? entry.displayName : spec.type;
+			var same = (def.processors || []).filter(p => p.type === spec.type);
+			return same.length > 1 ? name + " " + (same.indexOf(spec) + 1) : name;
+		}
+
+		/**
+		 * Search-as-you-type over the tenant's series for a field holding external ids: one per line
+		 * in a list, the whole value in a single field. Only the line being typed is searched.
+		 */
+		function lookupTimeseries(input){
+			var list = input.tagName === "TEXTAREA";
+			var current = () => (list ? input.value.split(/\r?\n/).pop() : input.value).trim();
+			var picked = {};
+			new SearchDropdown(input, {
+				minChars: 3,
+				emptyText: L("no.results.found"),
+				source: () => FlowApi.api("/timeseries/search", { search: { query: current() }, limit: 20 })
+					.then(json => (json.items || []).map(ts => {
+						var label = ts.name && ts.name !== ts.externalId ? ts.name + " — " + ts.externalId : ts.externalId;
+						picked[label] = ts.externalId;
+						return label;
+					})),
+				applySelection: (label, el) => {
+					var id = picked[label] || label;
+					if(!list){ el.value = id; return; }
+					var lines = el.value.split(/\r?\n/);
+					lines[lines.length - 1] = id;
+					el.value = lines.join("\n") + "\n";
+				}
+			});
+		}
+
 		/** A processor's outcomes: its catalog relationships, plus one per dynamic property where it routes by them. */
 		function relationshipsOf(spec){
 			var entry = byType[spec.type];
@@ -333,7 +379,9 @@
 		}
 
 		function newId(type){
-			var stem = type.split(".").pop().replace(/[^A-Za-z0-9_\-]/g, "_");
+			var entry = byType[type];
+			var stem = (entry && entry.displayName ? entry.displayName : type.split(".").pop())
+				.toLowerCase().replace(/[^a-z0-9_\-]+/g, "-");
 			for(var i = 1; ; i++){
 				var candidate = stem + (i === 1 ? "" : i);
 				if(!processorById(candidate)) return candidate;
@@ -362,7 +410,7 @@
 			var bad = problemProcessors();
 			var out = [];
 			(def.processors || []).forEach(p => {
-				out.push({ data: { id: "p:" + p.id, pid: p.id, label: p.id + "\n" + p.type, kind: "processor" },
+				out.push({ data: { id: "p:" + p.id, pid: p.id, label: labelOf(p), kind: "processor" },
 					classes: bad[p.id] ? "problem" : "" });
 				(p.terminate || []).forEach(rel => {
 					var endId = "end:" + p.id + ":" + rel;
@@ -438,7 +486,7 @@
 		}
 
 		function drawToolbar(){
-			var ids = (def.processors || []).map(p => ({ value: p.id, label: p.id }));
+			var ids = (def.processors || []).map(p => ({ value: p.id, label: labelOf(p) }));
 			fillSelect(el("flow-connect-from"), ids, true);
 			fillSelect(el("flow-connect-to"), ids, true);
 			drawRelationships();
@@ -653,7 +701,7 @@
 		function removeSelected(){
 			if(!selected) return;
 			if(selected.kind === "processor"){
-				if(!confirm(L("flows.remove.processor.confirm", [selected.pid]))) return;
+				if(!confirm(L("flows.remove.processor.confirm", [labelOf(processorById(selected.pid))]))) return;
 				removeProcessor(selected.pid);
 			} else if(selected.kind === "connection"){
 				def.connections.splice(selected.index, 1);
@@ -740,7 +788,7 @@
 			]).then(results => {
 				catalog = results[0] || [];
 				catalog.forEach(e => { byType[e.name] = e; });
-				fillSelect(el("flow-add-type"), catalog.map(e => ({ value: e.name, label: e.name })), false);
+				fillSelect(el("flow-add-type"), catalog.map(e => ({ value: e.name, label: e.displayName || e.name })), false);
 				flow = results[1];
 				def = flow ? flow.definition : { schemaVersion: 1, externalId: flowId, name: "", dataSet: "",
 					processors: [], connections: [], trigger: { type: "schedule", cron: "0 0 * * * *", window: "PT1H" } };
