@@ -269,7 +269,7 @@
 .flow-add-panel[hidden] {
 	display: none;
 }
-.flow-add-panel input[type="search"] {
+.flow-add-panel input {
 	width: 100%;
 	margin-bottom: 6px;
 }
@@ -340,6 +340,6 @@
 .flow-series-list li.missing .flow-series-id {
 	color: var(--input-error-fg);
 }
-.flow-series input[type="search"] {
+.flow-series input {
 	width: 100%;
 }
