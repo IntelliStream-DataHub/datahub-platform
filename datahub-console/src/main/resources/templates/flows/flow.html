@@ -41,11 +41,11 @@
 			<div>
 				<label for="flow-new-name" th:text="#{flows.column.name}"></label>
 				<input id="flow-new-name" name="name" type="text" required/>
+				<p class="field-hint" data-type="flow-new-id"></p>
 			</div>
 			<div>
 				<label for="flow-new-dataset" th:text="#{flows.field.dataset}"></label>
-				<input id="flow-new-dataset" name="dataSet" type="text" required
-					   th:placeholder="#{flows.field.dataset.placeholder}"/>
+				<select id="flow-new-dataset" name="dataSet" required></select>
 			</div>
 		</form>
 

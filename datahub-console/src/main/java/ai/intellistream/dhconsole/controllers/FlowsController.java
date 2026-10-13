@@ -36,6 +36,13 @@ public class FlowsController {
         return page(model, "flows/index");
     }
 
+    /** A flow not saved yet: it gets its external id from the name typed in the editor. */
+    @GetMapping(params = "new")
+    public String create(Model model) {
+        model.addAttribute("flowExternalId", "");
+        return page(model, "flows/flow");
+    }
+
     @GetMapping(params = "tab=attention")
     public String attention(Model model) {
         return page(model, "flows/attention");

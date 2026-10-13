@@ -20,14 +20,7 @@
 				<h2 th:text="#{flows}"></h2>
 				<p class="flows-intro" th:text="#{flows.list.intro}"></p>
 			</div>
-			<form class="flows-create datahub-form-fields" data-type="flows-create">
-				<label for="flows-create-id" th:text="#{flows.create.label}"></label>
-				<div class="flows-create-row">
-					<input id="flows-create-id" name="externalId" type="text" required
-						   pattern="[A-Za-z0-9._:+=\-]{3,256}" th:placeholder="#{flows.create.placeholder}"/>
-					<button type="submit" class="dh-btn primary" th:text="#{flows.create}"></button>
-				</div>
-			</form>
+			<a class="dh-btn primary" data-type="flows-create" th:href="@{/flows(new='')}" th:text="#{flows.create}"></a>
 		</header>
 
 		<table class="listing slim pointer w100" data-type="flows-table">
