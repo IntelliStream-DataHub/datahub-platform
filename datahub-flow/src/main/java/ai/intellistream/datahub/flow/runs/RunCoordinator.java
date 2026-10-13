@@ -376,6 +376,12 @@ public class RunCoordinator {
     private RunResult executeSafely(ActiveRun run) {
         try {
             return execution.execute(run);
+        } catch (RunCredentials.RunIdentityException e) {
+            // The run's token is taken again on each request to DataHub, so Keycloak can refuse it
+            // mid-run: the identity's failure, which a retry does not fix when it was refused.
+            String code = e.rejected() ? IDENTITY_REJECTED : AUTH;
+            return new RunResult(RunResult.Status.FAILED, code, e.getMessage(), null, Map.of(), Set.of(),
+                    Map.of(), List.of(new LogLine(Instant.now(), null, "ERROR", e.getMessage())), 0);
         } catch (RuntimeException | Error e) {
             log.error("Run {} failed inside the service", run.id(), e);
             String error = "The flow service failed the run: " + e;

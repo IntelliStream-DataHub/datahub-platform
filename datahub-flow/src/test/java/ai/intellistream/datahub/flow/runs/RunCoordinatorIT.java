@@ -526,6 +526,22 @@ class RunCoordinatorIT {
     }
 
     @Test
+    void anIdentityRefusedMidRunFailsItWithoutRetrying() {
+        long flow = deployedFlow("revoked", wait(0, "revoked"), 1, 3);
+        UUID run = pending(flow, 0);
+        // The token was good when the run started; Keycloak refuses it at the first request.
+        RunCoordinator a = coordinator("a", 1, Duration.ZERO, (tenant, flowId) -> () -> {
+            throw new RunIdentityException("Keycloak refused the flow's identity.", true);
+        });
+
+        a.claim(TENANT, null);
+        await(() -> "FAILED".equals(runs.find(run).orElseThrow().status()));
+        StoredRun failed = runs.find(run).orElseThrow();
+        assertThat(failed.errorCode()).isEqualTo(RunCoordinator.IDENTITY_REJECTED);
+        assertThat(failed.attempt()).isEqualTo(1);
+    }
+
+    @Test
     void aRefusedIdentityFailsTheRunWithoutRetrying() {
         long flow = deployedFlow("refused", wait(0, "refused"), 1, 3);
         UUID run = pending(flow, 0);
