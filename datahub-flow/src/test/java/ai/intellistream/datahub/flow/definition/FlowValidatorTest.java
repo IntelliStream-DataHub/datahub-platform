@@ -253,20 +253,6 @@ class FlowValidatorTest {
     }
 
     @Test
-    void dynamicRelationshipsMustBeWiredToo() {
-        List<ValidationProblem> problems = problems(tree -> {
-            ObjectNode route = ((ArrayNode) tree.get("processors")).addObject()
-                    .put("id", "route").put("type", "test.route");
-            route.putObject("properties").put("attribute", "unit").put("celsius", "C");
-            route.putArray("terminate").add("unmatched");
-            ((ArrayNode) tree.get("connections")).addObject()
-                    .put("from", "src").put("relationship", "success").put("to", "route");
-        });
-        assertThat(problems).singleElement().satisfies(p ->
-                assertThat(p.message()).contains("Relationship \"celsius\" of \"route\""));
-    }
-
-    @Test
     void aScheduleNeedsACronAWindowAndParameterDefaults() {
         List<ValidationProblem> problems = problems(tree -> {
             ObjectNode trigger = (ObjectNode) tree.get("trigger");

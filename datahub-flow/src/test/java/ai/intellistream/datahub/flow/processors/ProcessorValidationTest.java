@@ -31,11 +31,10 @@ class ProcessorValidationTest {
     }
 
     @Test
-    void clipAndFilterRangeNeedABound() {
+    void clipNeedsABound() {
         assertThat(problems("clip", "{}", "[\"success\"]"))
                 .contains("Set min, max or both.");
-        assertThat(problems("filter-range", "{ \"min\": 5, \"max\": 1 }",
-                "[\"inRange\", \"outOfRange\"]"))
+        assertThat(problems("clip", "{ \"min\": 5, \"max\": 1 }", "[\"success\"]"))
                 .contains("min must not be greater than max.");
         assertThat(problems("clip", "{ \"min\": 0 }", "[\"success\"]")).isEmpty();
     }
@@ -54,15 +53,5 @@ class ProcessorValidationTest {
         // create is on by default.
         assertThat(problems("write-timeseries", "{ \"target\": \"x\", \"unit\": \"°F\" }", "[]"))
                 .noneMatch(p -> p.contains("only used with create"));
-    }
-
-    @Test
-    void durationsMustBePositive() {
-        assertThat(problems("smooth", "{ \"window\": \"PT0S\" }", "[\"success\"]"))
-                .contains("window must be at least a millisecond.");
-        assertThat(problems("interpolate", "{ \"interval\": \"PT5M\", \"maxGap\": \"PT1M\" }",
-                "[\"success\"]")).contains("maxGap must be longer than interval.");
-        assertThat(problems("despike", "{ \"window\": \"PT5M\", \"threshold\": 0 }",
-                "[\"success\"]")).contains("threshold must be greater than 0.");
     }
 }

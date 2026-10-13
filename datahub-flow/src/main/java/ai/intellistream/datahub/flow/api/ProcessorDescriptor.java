@@ -13,15 +13,14 @@ import java.util.Set;
  * against: a rename keeps the old name as an alias, and a removal is announced at least one release
  * in advance.
  *
- * @param name              stable name a flow definition refers to, e.g. {@code scale}
- * @param displayName       what the console calls it, e.g. "Scale"
+ * @param name              stable name a flow definition refers to, e.g. {@code clip}
+ * @param displayName       what the console calls it, e.g. "Clip"
  * @param category          the segment the console lists it under
  * @param version           the processor's own version, recorded by every run that uses it
  * @param description       what it does, for the console and the catalog
  * @param properties        the properties it declares
  * @param dynamicProperties what user-named properties mean to it, or null if it takes none
- * @param relationships     its fixed outcomes; a processor whose dynamic properties each name a
- *                          relationship has those in addition
+ * @param relationships     its outcomes
  * @param accepts           the content kinds it accepts; empty means any. Not checked in the first
  *                          version: a mismatch fails at run time
  */
@@ -44,7 +43,7 @@ public record ProcessorDescriptor(String name, String displayName, Category cate
 
     /** The segments of the console's processor list, in the order it shows them. */
     public enum Category {
-        READ_WRITE("read-write"), CLEAN("clean"), TRANSFORM("transform"), DETECT("detect"), ROUTE("route");
+        READ_WRITE("read-write"), TRANSFORM("transform"), DETECT("detect");
 
         private final String wireName;
 

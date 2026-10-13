@@ -36,7 +36,7 @@ public final class FakeProcessors {
     /** All the well-behaved ones, for the validator. */
     public static List<Processor> catalog() {
         return List.of(new Source(), new Scale(), new Sink(), new Threshold(), new EventsSink(),
-                new Route(), new Secretive(), new Range());
+                new Secretive(), new Range());
     }
 
     /**
@@ -179,7 +179,7 @@ public final class FakeProcessors {
             return ProcessorDescriptor.builder("test.events.sink", "1.0.0")
                     .property(PropertyDescriptor.builder("type", PropertyType.STRING).required().references().build())
                     .dynamicProperties(new DynamicPropertyDescriptor("A metadata key", "Its value",
-                            PropertyType.STRING, true, false))
+                            PropertyType.STRING, true))
                     .relationship(new Relationship("success", "Created", Relationship.Unconnected.TERMINATE))
                     .relationship(new Relationship("failure", "Not created", Relationship.Unconnected.FAIL_RUN))
                     .build();
@@ -191,32 +191,6 @@ public final class FakeProcessors {
             rows.add(item.content(EventsContent.class).rows().size());
             session.send(item, "datahub://events?type=" + context.property("type").asString());
             session.transfer(item, "success");
-        }
-    }
-
-    /** {@code test.route}: routes on an attribute; each dynamic property is a relationship. */
-    public static final class Route implements Processor {
-        @Override
-        public ProcessorDescriptor describe() {
-            return ProcessorDescriptor.builder("test.route", "1.0.0")
-                    .property(PropertyDescriptor.builder("attribute", PropertyType.STRING).required().build())
-                    .dynamicProperties(new DynamicPropertyDescriptor("A relationship name",
-                            "The attribute value that selects it", PropertyType.STRING, false, true))
-                    .relationship(Relationship.of("unmatched", "No value matched"))
-                    .build();
-        }
-
-        @Override
-        public void onTrigger(ProcessContext context, ProcessSession session) {
-            Item item = session.get();
-            String value = item.attribute(context.property("attribute").asString());
-            for (Map.Entry<String, ?> e : context.dynamicProperties().entrySet()) {
-                if (context.dynamicProperties().get(e.getKey()).asString().equals(value)) {
-                    session.transfer(item, e.getKey());
-                    return;
-                }
-            }
-            session.transfer(item, "unmatched");
         }
     }
 

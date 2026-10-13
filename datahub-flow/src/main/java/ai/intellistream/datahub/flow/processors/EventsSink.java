@@ -77,7 +77,7 @@ public class EventsSink implements Processor {
             .dynamicProperties(new DynamicPropertyDescriptor(
                     "A metadata key on the events.",
                     "Its value, e.g. ${timeseries.externalId}.",
-                    PropertyType.STRING, true, false))
+                    PropertyType.STRING, true))
             .relationship(new Relationship("success", "Created; the item passes on unchanged.",
                     Relationship.Unconnected.TERMINATE))
             .relationship(new Relationship("failure", "Not created; failure.reason says why. "

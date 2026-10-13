@@ -3,14 +3,8 @@ package ai.intellistream.datahub.flow.flows;
 
 import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.processors.Clip;
-import ai.intellistream.datahub.flow.processors.Despike;
 import ai.intellistream.datahub.flow.processors.EventsSink;
-import ai.intellistream.datahub.flow.processors.FilterRange;
-import ai.intellistream.datahub.flow.processors.Interpolate;
-import ai.intellistream.datahub.flow.processors.Resample;
-import ai.intellistream.datahub.flow.processors.RouteOnAttribute;
-import ai.intellistream.datahub.flow.processors.Scale;
-import ai.intellistream.datahub.flow.processors.Smooth;
+import ai.intellistream.datahub.flow.processors.EventsSource;
 import ai.intellistream.datahub.flow.processors.Threshold;
 import ai.intellistream.datahub.flow.processors.TimeseriesSink;
 import ai.intellistream.datahub.flow.processors.TimeseriesSource;
@@ -30,8 +24,8 @@ public final class TestFlows {
               "processors": [
                 { "id": "src",  "type": "read-timeseries",
                   "properties": { "timeseries": ["ts_out_temp", "ts_in_temp"] } },
-                { "id": "f",    "type": "scale",
-                  "properties": { "factor": 1.8, "offset": 32 } },
+                { "id": "f",    "type": "clip",
+                  "properties": { "min": -60, "max": 60 } },
                 { "id": "out",  "type": "write-timeseries",
                   "properties": { "target": "${timeseries.externalId}_f", "create": true,
                                   "name": "${timeseries.externalId} in °F", "unit": "°F" } },
@@ -52,9 +46,8 @@ public final class TestFlows {
             """;
 
     public static List<Processor> builtIns() {
-        return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSink(), new Scale(),
-                new Smooth(), new Despike(), new Interpolate(), new Clip(), new Resample(),
-                new FilterRange(), new Threshold(), new RouteOnAttribute());
+        return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new EventsSink(),
+                new Clip(), new Threshold());
     }
 
     private TestFlows() {
