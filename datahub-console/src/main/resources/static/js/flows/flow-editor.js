@@ -407,6 +407,18 @@
 			});
 		}
 
+		/** A processor's outcomes: its catalog relationships, plus one per dynamic property where it routes by them. */
+		function relationshipsOf(spec){
+			var entry = byType[spec.type];
+			if(!entry) return [];
+			var rels = (entry.relationships || []).map(r => r.name);
+			if(entry.dynamicRelationships){
+				var declared = (entry.properties && entry.properties.properties) || {};
+				Object.keys(spec.properties || {}).forEach(k => { if(!(k in declared) && rels.indexOf(k) < 0) rels.push(k); });
+			}
+			return rels;
+		}
+
 		// Durations are ISO-8601 in the definition (PT1H30M) and written as 1h 30m in the forms.
 		var DURATION_UNITS = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
 
