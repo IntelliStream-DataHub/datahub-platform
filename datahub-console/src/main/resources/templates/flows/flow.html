@@ -65,8 +65,13 @@
 
 		<section class="flow-pane" data-pane="tree">
 			<div class="flow-toolbar datahub-form-fields">
-				<select data-type="flow-add-type" th:title="#{flows.add.processor}"></select>
-				<button type="button" class="dh-btn secondary small" data-type="flow-add" th:text="#{flows.add.processor}"></button>
+				<div class="flow-add">
+					<button type="button" class="dh-btn secondary small" data-type="flow-add" th:text="#{flows.add.processor}"></button>
+					<div class="flow-add-panel" data-type="flow-add-panel" hidden>
+						<input type="search" data-type="flow-add-search" th:placeholder="#{flows.add.search}"/>
+						<div class="flow-add-list" data-type="flow-add-list"></div>
+					</div>
+				</div>
 				<span class="flow-toolbar-gap"></span>
 				<select data-type="flow-connect-from"></select>
 				<select data-type="flow-connect-rel"></select>

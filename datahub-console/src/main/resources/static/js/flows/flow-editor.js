@@ -61,7 +61,8 @@
 
 			render(){
 				super.render();
-				this.formElement.querySelectorAll("[data-lookup='timeseries']").forEach(lookupTimeseries);
+				this.formElement.querySelectorAll("input[data-lookup='timeseries']").forEach(lookupTimeseries);
+				this.formElement.querySelectorAll("[data-series]").forEach(seriesPicker);
 			}
 
 			schemaProperties(){
@@ -153,8 +154,15 @@
 						<option value="true" ${current === "true" ? "selected" : ""}>true</option>
 						<option value="false" ${current === "false" ? "selected" : ""}>false</option>
 					</select>`;
+				} else if(kind.type === "array" && schema["x-lookup"] === "timeseries"){
+					// The chosen series, looked up in DataHub; the hidden list is what is submitted.
+					input = `<div class="flow-series" data-series>
+						<ul class="flow-series-list" hidden></ul>
+						<input type="search" placeholder="${L("flows.series.search")}"/>
+						<textarea name="${escapeHtml(field)}" hidden>${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>
+					</div>`;
 				} else if(kind.type === "array"){
-					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" ${lookup} placeholder="${L(schema["x-lookup"] ? "flows.field.lookup.list.placeholder" : "flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
+					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" placeholder="${L("flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
 				} else {
 					var ph = placeholder ? placeholder : kind.format === "duration" ? "1h" : kind.format === "date-time" ? "${run.window.start}"
 						: kind.secret ? "${secrets.name}" : placeholder;
@@ -313,43 +321,90 @@
 			return same.length > 1 ? name + " " + (same.indexOf(spec) + 1) : name;
 		}
 
+		/** A series as a search suggestion: its name, and its external id when that differs. */
+		function seriesLabel(ts){
+			return ts.name && ts.name !== ts.externalId ? ts.name + " — " + ts.externalId : ts.externalId;
+		}
+
 		/**
-		 * Search-as-you-type over the tenant's series for a field holding external ids: one per line
-		 * in a list, the whole value in a single field. Only the line being typed is searched.
+		 * The tenant's series as the user types: the newest when nothing is typed, a search from three
+		 * letters (the api's minimum). Suggestions are labels; {@code picked} maps them back.
 		 */
+		function searchSeries(query, picked, skip){
+			var found = query.length >= 3 ? FlowApi.api("/timeseries/search", { search: { query: query }, limit: 20 })
+				: query.length === 0 ? FlowApi.api("/timeseries?limit=20")
+				: Promise.resolve({ items: [] });
+			return found.then(json => (json.items || [])
+				.filter(ts => !skip || skip.indexOf(ts.externalId) < 0)
+				.map(ts => { var label = seriesLabel(ts); picked[label] = ts; return label; }));
+		}
+
+		/** A single series field, such as a write target: a search that fills in the external id. */
 		function lookupTimeseries(input){
-			var list = input.tagName === "TEXTAREA";
-			var current = () => (list ? input.value.split(/\r?\n/).pop() : input.value).trim();
 			var picked = {};
 			new SearchDropdown(input, {
 				minChars: 3,
 				emptyText: L("no.results.found"),
-				source: () => FlowApi.api("/timeseries/search", { search: { query: current() }, limit: 20 })
-					.then(json => (json.items || []).map(ts => {
-						var label = ts.name && ts.name !== ts.externalId ? ts.name + " — " + ts.externalId : ts.externalId;
-						picked[label] = ts.externalId;
-						return label;
-					})),
-				applySelection: (label, el) => {
-					var id = picked[label] || label;
-					if(!list){ el.value = id; return; }
-					var lines = el.value.split(/\r?\n/);
-					lines[lines.length - 1] = id;
-					el.value = lines.join("\n") + "\n";
-				}
+				source: query => searchSeries(query, picked),
+				applySelection: (label, el) => { el.value = picked[label] ? picked[label].externalId : label; }
 			});
 		}
 
-		/** A processor's outcomes: its catalog relationships, plus one per dynamic property where it routes by them. */
-		function relationshipsOf(spec){
-			var entry = byType[spec.type];
-			if(!entry) return [];
-			var rels = (entry.relationships || []).map(r => r.name);
-			if(entry.dynamicRelationships){
-				var declared = (entry.properties && entry.properties.properties) || {};
-				Object.keys(spec.properties || {}).forEach(k => { if(!(k in declared) && rels.indexOf(k) < 0) rels.push(k); });
+		/**
+		 * A list of series picked from DataHub: one row per series with its name, flagged when it does
+		 * not exist or the user may not read it, and a search to add more. The hidden textarea holds
+		 * the external ids, one per line, as the form submits them.
+		 */
+		function seriesPicker(box){
+			var store = box.querySelector("textarea"), list = box.querySelector("ul"), search = box.querySelector("input");
+			var known = {};   // externalId -> the series, or null when DataHub has none it may read
+			var ids = () => store.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+			var save = next => { store.value = next.join("\n"); draw(); };
+
+			function draw(){
+				list.innerHTML = "";
+				ids().forEach(id => {
+					var ts = known[id];
+					var li = document.createElement("li");
+					if(ts === null) li.className = "missing";
+					var name = Object.assign(document.createElement("span"), { className: "flow-series-name",
+						textContent: ts ? ts.name || id : id });
+					var detail = Object.assign(document.createElement("span"), { className: "flow-series-id",
+						textContent: ts === null ? L("flows.series.missing") : ts ? id + (ts.unit ? " · " + ts.unit : "") : "" });
+					var remove = Object.assign(document.createElement("button"), { type: "button",
+						className: "flow-series-remove", textContent: "×", title: L("flows.series.remove") });
+					remove.addEventListener("click", () => save(ids().filter(i => i !== id)));
+					li.append(name, detail, remove);
+					list.appendChild(li);
+				});
+				list.hidden = list.childElementCount === 0;
 			}
-			return rels;
+
+			var unresolved = ids().filter(id => !(id in known) && id.indexOf("${") < 0);
+			if(unresolved.length){
+				FlowApi.api("/timeseries/byids", { items: unresolved.map(id => ({ externalId: id })) })
+					.then(json => {
+						unresolved.forEach(id => { known[id] = null; });
+						(json.items || []).forEach(ts => { known[ts.externalId] = ts; });
+					})
+					.catch(err => FlowApi.flashError(err, "flows.error.load"))
+					.then(draw);
+			}
+			draw();
+
+			var picked = {};
+			new SearchDropdown(search, {
+				minChars: 0,
+				emptyText: L("flows.series.none"),
+				source: query => searchSeries(query, picked, ids()),
+				applySelection: (label, el) => {
+					el.value = "";
+					var ts = picked[label];
+					if(!ts) return;
+					known[ts.externalId] = ts;
+					save(ids().concat([ts.externalId]));
+				}
+			});
 		}
 
 		// Durations are ISO-8601 in the definition (PT1H30M) and written as 1h 30m in the forms.
@@ -687,9 +742,44 @@
 				.catch(err => refuse(err, "flows.error.delete"));
 		}
 
-		function addProcessor(){
-			var type = el("flow-add-type").value;
-			if(!type) return;
+		// The catalog's segments, in the order the add panel lists them.
+		var CATEGORIES = ["read-write", "clean", "transform", "detect", "route"];
+
+		function toggleAddPanel(open){
+			var panel = el("flow-add-panel");
+			panel.hidden = open === undefined ? !panel.hidden : !open;
+			if(!panel.hidden){
+				el("flow-add-search").value = "";
+				drawAddList();
+				el("flow-add-search").focus();
+			}
+		}
+
+		/** The processors matching the search, under their segment's heading. */
+		function drawAddList(){
+			var query = el("flow-add-search").value.trim().toLowerCase();
+			var list = el("flow-add-list");
+			list.innerHTML = "";
+			var order = CATEGORIES.concat(catalog.map(e => e.category).filter(c => CATEGORIES.indexOf(c) < 0));
+			order.filter((c, i) => order.indexOf(c) === i).forEach(category => {
+				var entries = catalog.filter(e => e.category === category && (!query
+					|| [e.displayName, e.name, e.description].join(" ").toLowerCase().indexOf(query) >= 0));
+				if(!entries.length) return;
+				list.appendChild(Object.assign(document.createElement("h4"), { textContent: L("flows.category." + category) }));
+				entries.forEach(e => {
+					var item = Object.assign(document.createElement("button"), { type: "button", className: "flow-add-item" });
+					item.append(Object.assign(document.createElement("strong"), { textContent: e.displayName || e.name }),
+						Object.assign(document.createElement("span"), { textContent: e.description || "" }));
+					item.addEventListener("click", () => { toggleAddPanel(false); addProcessor(e.name); });
+					list.appendChild(item);
+				});
+			});
+			if(!list.childElementCount){
+				list.appendChild(Object.assign(document.createElement("p"), { className: "flows-hint", textContent: L("no.results.found") }));
+			}
+		}
+
+		function addProcessor(type){
 			var id = newId(type);
 			def.processors = def.processors || [];
 			def.processors.push({ id: id, type: type, properties: {} });
@@ -800,7 +890,6 @@
 			]).then(results => {
 				catalog = results[0] || [];
 				catalog.forEach(e => { byType[e.name] = e; });
-				fillSelect(el("flow-add-type"), catalog.map(e => ({ value: e.name, label: e.displayName || e.name })), false);
 				flow = results[1];
 				def = flow ? flow.definition : { schemaVersion: 1, externalId: flowId, name: "", dataSet: "",
 					processors: [], connections: [], trigger: { type: "schedule", cron: "0 0 * * * *", window: "PT1H" } };
@@ -825,7 +914,19 @@
 		on("flow-run-as", runAs);
 		on("flow-toggle", toggle);
 		on("flow-delete", remove);
-		on("flow-add", addProcessor);
+		on("flow-add", () => toggleAddPanel());
+		el("flow-add-search").addEventListener("input", drawAddList);
+		el("flow-add-search").addEventListener("keydown", e => {
+			if(e.key === "Escape") toggleAddPanel(false);
+			if(e.key === "Enter"){
+				e.preventDefault();
+				var first = el("flow-add-list").querySelector(".flow-add-item");
+				if(first) first.click();
+			}
+		});
+		document.addEventListener("pointerdown", e => {
+			if(!el("flow-add-panel").hidden && !e.target.closest(".flow-add")) toggleAddPanel(false);
+		});
 		on("flow-connect", connect);
 		on("flow-remove", removeSelected);
 		on("flow-json-apply", applyJson);
