@@ -720,7 +720,7 @@ class RunCoordinatorIT {
 
     private static String sink() {
         return """
-                { "id": "out", "type": "datahub.timeseries.sink", "properties": { "target": "ts_out" } }
+                { "id": "out", "type": "timeseries.write", "properties": { "target": "ts_out" } }
                 """;
     }
 

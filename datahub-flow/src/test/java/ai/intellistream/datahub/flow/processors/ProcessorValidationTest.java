@@ -18,7 +18,7 @@ class ProcessorValidationTest {
                 {
                   "schemaVersion": 1, "externalId": "t", "dataSet": "ds", "name": "T",
                   "processors": [
-                    { "id": "src", "type": "datahub.timeseries.source",
+                    { "id": "src", "type": "timeseries.read",
                       "properties": { "timeseries": ["ts1"] } },
                     { "id": "p", "type": "%s", "properties": %s, "terminate": %s }
                   ],
@@ -48,9 +48,9 @@ class ProcessorValidationTest {
 
     @Test
     void theSinksCreationFieldsNeedCreate() {
-        assertThat(problems("datahub.timeseries.sink", "{ \"target\": \"x\", \"unit\": \"°F\" }",
+        assertThat(problems("timeseries.write", "{ \"target\": \"x\", \"unit\": \"°F\" }",
                 "[]")).contains("unit is only used with create.");
-        assertThat(problems("datahub.timeseries.sink",
+        assertThat(problems("timeseries.write",
                 "{ \"target\": \"x\", \"create\": true, \"unit\": \"°F\" }", "[]"))
                 .noneMatch(p -> p.contains("only used with create"));
     }

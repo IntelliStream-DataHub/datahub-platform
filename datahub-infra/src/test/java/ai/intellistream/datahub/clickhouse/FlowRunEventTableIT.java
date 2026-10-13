@@ -90,7 +90,7 @@ class FlowRunEventTableIT {
                 + " flow_external_id, flow_version, processor, processor_type, action, item_id,"
                 + " parent_item_ids, relationship, content_kind, size, hash, changed_attributes,"
                 + " transit_uri, duration_ms) SELECT now64(3), generateUUIDv4(number), 1, 0, 'f', 1,"
-                + " 'out', 'datahub.timeseries.sink', 'send', generateUUIDv4(number), [], 'success',"
+                + " 'out', 'timeseries.write', 'send', generateUUIDv4(number), [], 'success',"
                 + " 'timeseries', 1, 1, map(), concat('datahub://timeseries/s', toString(number % 5000),"
                 + " '?from=2026-10-12T09:00:00Z&to=2026-10-12T10:00:00Z'), 1 FROM numbers(200000)");
         insert("t3", List.of(row("send",
@@ -106,7 +106,7 @@ class FlowRunEventTableIT {
     }
 
     private static String row(String action, String transitUri) {
-        return "(now64(3), '" + RUN + "', 1, 0, 'temp_hourly', 1, 'src', 'datahub.timeseries.source', '"
+        return "(now64(3), '" + RUN + "', 1, 0, 'temp_hourly', 1, 'src', 'timeseries.read', '"
                 + action + "', generateUUIDv4(), [], 'success', 'timeseries', 100, 42, map(), '"
                 + transitUri + "', 3, false)";
     }

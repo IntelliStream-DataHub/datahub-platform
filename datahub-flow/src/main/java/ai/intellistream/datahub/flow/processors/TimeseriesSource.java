@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * {@code datahub.timeseries.source}: reads series over a window, one {@code timeseries} item per
+ * {@code timeseries.read}: reads series over a window, one {@code timeseries} item per
  * series.
  *
  * <p>Reads through datahub-api's binary read, so a run never parses JSON: frames of Arrow batches in
@@ -49,7 +49,7 @@ import java.util.Map;
 @Component
 public class TimeseriesSource implements Processor {
 
-    static final String TYPE = "datahub.timeseries.source";
+    static final String TYPE = "timeseries.read";
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder(TYPE, "1.0.0")
