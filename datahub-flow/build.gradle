@@ -17,8 +17,10 @@ repositories {
 }
 
 dependencies {
-	// The processor interface (Apache-2.0), and with it arrow-vector.
-	implementation project(':datahub-flow-api')
+	// A timeseries item's content is an Arrow batch. The Unsafe allocation manager rather than
+	// netty's, which would drag in a second netty.
+	implementation "org.apache.arrow:arrow-vector:${arrowVersion}"
+	runtimeOnly "org.apache.arrow:arrow-memory-unsafe:${arrowVersion}"
 
 	// TenantConfigService (the tenant registry and its feature flags) from commons; from infra the
 	// multi-tenant routing datasource and the OrganizationValidator the api resolves tenants with.
@@ -26,6 +28,8 @@ dependencies {
 	// here (see DatahubFlowApplication and application.properties).
 	implementation project(':datahub-commons')
 	implementation project(':datahub-infra')
+	// Runs call datahub-api as their identity, through the SDK.
+	implementation project(':datahub-java-sdk')
 
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
