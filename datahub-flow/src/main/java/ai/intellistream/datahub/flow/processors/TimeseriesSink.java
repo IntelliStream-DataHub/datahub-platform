@@ -29,7 +29,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * {@code datahub.timeseries.sink}: writes a {@code timeseries} item's datapoints to a series, and
+ * {@code timeseries.write}: writes a {@code timeseries} item's datapoints to a series, and
  * passes the item on unchanged.
  *
  * <p>Writes only the points in the item's window ({@code [window.start, window.end)}); history a
@@ -45,7 +45,7 @@ import java.util.Map;
 @Component
 public class TimeseriesSink implements Processor {
 
-    static final String TYPE = "datahub.timeseries.sink";
+    static final String TYPE = "timeseries.write";
 
     private static final ZstdPayloadCodec CODEC = new ZstdPayloadCodec(3);
 

@@ -74,7 +74,7 @@ class RunEventStreamTest {
 
     private static StoredRecord record(int sequence, int ordinal) {
         return new StoredRecord(Instant.parse("2026-10-12T10:00:00Z"), 1, sequence, ordinal, "out",
-                "datahub.timeseries.sink", "send", UUID.randomUUID(), List.of(), "success", "timeseries",
+                "timeseries.write", "send", UUID.randomUUID(), List.of(), "success", "timeseries",
                 100, "42", Map.of(), "datahub://timeseries/ts_out", 3, false);
     }
 

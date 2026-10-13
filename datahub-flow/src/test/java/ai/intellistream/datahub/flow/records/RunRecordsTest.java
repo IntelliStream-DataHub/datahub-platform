@@ -115,7 +115,7 @@ class RunRecordsTest {
         UUID item = UUID.randomUUID();
         UUID parent = UUID.randomUUID();
         FlowRecord record = new FlowRecord(Instant.parse("2026-10-12T10:00:00.123Z"), RUN, 2, "out",
-                "datahub.timeseries.sink", FlowRecord.Action.ATTRIBUTES_MODIFIED, item, List.of(parent),
+                "timeseries.write", FlowRecord.Action.ATTRIBUTES_MODIFIED, item, List.of(parent),
                 "success", ContentKind.TIMESERIES, 640, -2, Map.of("k", "v"),
                 "datahub://timeseries/ts_out?from=a&to=b", 12);
 
@@ -141,7 +141,7 @@ class RunRecordsTest {
     }
 
     private FlowRecord record() {
-        return new FlowRecord(clock.instant(), RUN, 2, "out", "datahub.timeseries.sink",
+        return new FlowRecord(clock.instant(), RUN, 2, "out", "timeseries.write",
                 FlowRecord.Action.SEND, UUID.randomUUID(), List.of(), null, ContentKind.TIMESERIES,
                 100, 42, Map.of(), "datahub://timeseries/ts_out", 3);
     }

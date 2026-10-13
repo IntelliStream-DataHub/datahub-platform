@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * {@code datahub.events.sink}: creates one DataHub event per row of an {@code events} item. Type,
+ * {@code events.write}: creates one DataHub event per row of an {@code events} item. Type,
  * subtype, dataset and description come from here; {@code externalId}, {@code eventTime} and
  * {@code status} from the row; metadata from the row plus the dynamic properties. Rows sharing an
  * external id are one event's lifecycle, as everywhere in DataHub.
@@ -45,14 +45,14 @@ import java.util.UUID;
 @Component
 public class EventsSink implements Processor {
 
-    static final String TYPE = "datahub.events.sink";
+    static final String TYPE = "events.write";
 
     /** Events per create request. */
     private static final int BATCH = 1000;
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
             .builder(TYPE, "1.0.0")
-            .displayName("Create events")
+            .displayName("Write events")
             .description("Creates one DataHub event per row of an events item.")
             .property(PropertyDescriptor.builder("type", PropertyType.STRING)
                     .displayName("Type").description("The events' type.")

@@ -39,7 +39,7 @@ class DatahubProcessorsTest {
     /** {@code src → out (collector)} with the source's properties. */
     private RunResult read(String properties) {
         return h.flow("""
-                { "id": "src", "type": "datahub.timeseries.source", "properties": %s },
+                { "id": "src", "type": "timeseries.read", "properties": %s },
                 { "id": "out", "type": "test.collect" }""".formatted(properties),
                 "{ \"from\": \"src\", \"relationship\": \"success\", \"to\": \"out\" }",
                 false, 7L, api.client());
@@ -150,7 +150,7 @@ class DatahubProcessorsTest {
     /** {@code in → sink (target) [→ failure collector]} */
     private RunResult write(String properties, boolean preview, boolean collectFailure) {
         String processors = """
-                { "id": "sink", "type": "datahub.timeseries.sink", "properties": %s }"""
+                { "id": "sink", "type": "timeseries.write", "properties": %s }"""
                 .formatted(properties);
         String connections = "{ \"from\": \"in\", \"relationship\": \"success\", \"to\": \"sink\" }";
         if (collectFailure) {
@@ -241,7 +241,7 @@ class DatahubProcessorsTest {
 
     private RunResult events(String properties, boolean preview) {
         return h.run("""
-                { "id": "ev", "type": "datahub.events.sink", "properties": %s }""".formatted(properties),
+                { "id": "ev", "type": "events.write", "properties": %s }""".formatted(properties),
                 "{ \"from\": \"in\", \"relationship\": \"success\", \"to\": \"ev\" }",
                 preview, 7L, api.client());
     }
@@ -283,7 +283,7 @@ class DatahubProcessorsTest {
         Harness again = new Harness();
         again.events(Map.of(), ROWS);
         again.run("""
-                { "id": "ev", "type": "datahub.events.sink", "properties": { "type": "temperature" } }""",
+                { "id": "ev", "type": "events.write", "properties": { "type": "temperature" } }""",
                 "{ \"from\": \"in\", \"relationship\": \"success\", \"to\": \"ev\" }", false, 7L,
                 api.client());
         again.close();
@@ -342,14 +342,14 @@ class DatahubProcessorsTest {
         api.add("ts_out_temp_f", DatapointValueType.FLOAT);
 
         RunResult result = h.flow("""
-                { "id": "src", "type": "datahub.timeseries.source",
+                { "id": "src", "type": "timeseries.read",
                   "properties": { "timeseries": ["ts_out_temp"] } },
                 { "id": "f", "type": "timeseries.scale", "properties": { "factor": 1.8, "offset": 32 } },
-                { "id": "out", "type": "datahub.timeseries.sink",
+                { "id": "out", "type": "timeseries.write",
                   "properties": { "target": "${timeseries.externalId}_f" } },
                 { "id": "over", "type": "timeseries.threshold",
                   "properties": { "threshold": 140, "minDuration": "PT2M" }, "terminate": ["success"] },
-                { "id": "ev", "type": "datahub.events.sink",
+                { "id": "ev", "type": "events.write",
                   "properties": { "type": "temperature", "subType": "over-limit",
                                   "series": "${timeseries.externalId}" } }""", """
                 { "from": "src", "relationship": "success", "to": "f" },
