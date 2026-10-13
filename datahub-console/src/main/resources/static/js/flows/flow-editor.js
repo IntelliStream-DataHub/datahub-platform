@@ -41,7 +41,7 @@
 		var cy = null;             // the cytoscape instance
 		var selected = null;       // the selected graph element's data, for Remove
 
-		function L(key, args){ return $L(key, null, args); }
+		function L(key, args){ return args ? $L(key, null, args) : $L(key); }
 		function isDirty(){ return savedJson !== JSON.stringify(def); }
 
 		// ---- forms ---------------------------------------------------------------------------------

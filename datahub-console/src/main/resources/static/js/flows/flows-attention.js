@@ -10,7 +10,7 @@
 (function(){
 	"use strict";
 
-	function L(key, args){ return $L(key, null, args); }
+	function L(key, args){ return args ? $L(key, null, args) : $L(key); }
 
 	function time(value){
 		if(value === null || value === undefined || value === "") return "";
