@@ -72,9 +72,6 @@
 				var props = this.schemaProperties();
 				var required = (this.entry && this.entry.properties && this.entry.properties.required) || [];
 				var html = `
-					<label>${L("flows.field.processor.id")}</label>
-					<input type="text" name="__id" required pattern="[A-Za-z0-9_\\-]{1,64}"
-						   value="${escapeHtml(spec.id)}"/>
 					${this.entry ? `<p class="field-hint">${escapeHtml(this.entry.description || "")}</p>` : ""}`;
 				Object.keys(props).forEach(name => {
 					html += this.propertyField(name, props[name], required.indexOf(name) >= 0,
@@ -108,7 +105,7 @@
 						<input type="number" name="__retryAttempts" min="1" step="1"
 							   value="${retry.maxAttempts == null ? "" : escapeHtml(String(retry.maxAttempts))}"
 							   placeholder="${L("flows.field.retry.attempts")}"/>
-						<input type="text" name="__retryBackoff" value="${escapeHtml(retry.backoff || "")}"
+						<input type="text" name="__retryBackoff" value="${escapeHtml(friendlyDuration(retry.backoff))}"
 							   placeholder="${L("flows.field.retry.backoff")}"/>
 					</div>`;
 				return html;
@@ -120,7 +117,7 @@
 				var hint = schema.description ? `<p class="field-hint">${escapeHtml(schema.description)}</p>` : "";
 				var placeholder = schema["default"] !== undefined ? escapeHtml(text(schema["default"])) : "";
 				var field = "f_" + name;
-				var current = value === undefined ? "" : text(value);
+				var current = value === undefined ? "" : kind.format === "duration" ? friendlyDuration(text(value)) : text(value);
 				var input;
 				if(kind.type === "enum"){
 					input = `<select name="${escapeHtml(field)}">
@@ -136,7 +133,7 @@
 				} else if(kind.type === "array"){
 					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" placeholder="${L("flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
 				} else {
-					var ph = kind.format === "duration" ? "PT1H" : kind.format === "date-time" ? "${run.window.start}"
+					var ph = kind.format === "duration" ? "1h" : kind.format === "date-time" ? "${run.window.start}"
 						: kind.secret ? "${secrets.name}" : placeholder;
 					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}"
 						placeholder="${escapeHtml(ph)}" ${required && !placeholder ? "required" : ""}/>`;
@@ -160,6 +157,8 @@
 						properties[name] = Number(raw);
 					} else if(kind.type === "boolean" && (raw === "true" || raw === "false")){
 						properties[name] = raw === "true";
+					} else if(kind.format === "duration"){
+						properties[name] = isoDuration(raw);
 					} else {
 						properties[name] = raw;
 					}
@@ -172,15 +171,7 @@
 				}
 				var terminate = Array.from(form.querySelectorAll('input[name="__terminate"]:checked')).map(c => c.value);
 				var attempts = form.elements.__retryAttempts.value.trim();
-				var backoff = form.elements.__retryBackoff.value.trim();
-				var newId = form.elements.__id.value.trim();
-				if(newId !== this.spec.id && processorById(newId)){
-					this.errors = [{ field: null, message: L("flows.error.duplicate.id", [newId]) }];
-					this.render();
-					return;
-				}
-
-				renameProcessor(this.spec, newId);
+				var backoff = isoDuration(form.elements.__retryBackoff.value.trim());
 				this.spec.properties = properties;
 				if(terminate.length) this.spec.terminate = terminate; else delete this.spec.terminate;
 				if(attempts || backoff){
@@ -231,9 +222,9 @@
 					<label>${L("flows.field.timezone")}</label>
 					<input type="text" name="timezone" value="${v(t.timezone)}" placeholder="Europe/Oslo"/>
 					<label>${L("flows.field.window")}</label>
-					<input type="text" name="window" value="${v(t.window)}" placeholder="PT1H"/>
+					<input type="text" name="window" value="${v(friendlyDuration(t.window))}" placeholder="1h"/>
 					<label>${L("flows.field.delay")}</label>
-					<input type="text" name="delay" value="${v(t.delay)}" placeholder="PT5M"/>
+					<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="5m"/>
 					<p class="field-hint">${L("flows.field.trigger.help")}</p>
 
 					<label>${L("flows.field.execution")}</label>
@@ -242,7 +233,7 @@
 						<input type="number" name="maxAttempts" min="1" value="${v(x.maxAttempts)}" placeholder="${L("flows.field.max.attempts")}"/>
 					</div>
 					<div class="flow-inline">
-						<input type="text" name="timeout" value="${v(x.timeout)}" placeholder="PT15M"/>
+						<input type="text" name="timeout" value="${v(friendlyDuration(x.timeout))}" placeholder="15m"/>
 						<input type="text" name="memory" value="${v(x.memory)}" placeholder="512MB"/>
 					</div>
 					<p class="field-hint">${L("flows.field.parameters.help")}</p>`;
@@ -255,11 +246,13 @@
 				if(val("description")) def.description = val("description"); else delete def.description;
 				def.dataSet = val("dataSet");
 				var trigger = { type: f.triggerType.value };
-				["cron", "timezone", "window", "delay"].forEach(k => { if(val(k)) trigger[k] = val(k); });
+				["cron", "timezone"].forEach(k => { if(val(k)) trigger[k] = val(k); });
+				["window", "delay"].forEach(k => { if(val(k)) trigger[k] = isoDuration(val(k)); });
 				def.trigger = trigger;
 				var execution = {};
 				["maxConcurrentRuns", "maxAttempts"].forEach(k => { if(val(k)) execution[k] = Number(val(k)); });
-				["timeout", "memory"].forEach(k => { if(val(k)) execution[k] = val(k); });
+				if(val("timeout")) execution.timeout = isoDuration(val("timeout"));
+				if(val("memory")) execution.memory = val("memory");
 				if(Object.keys(execution).length) def.execution = execution; else delete def.execution;
 				changed();
 				this.cancelButtonElement.dispatchEvent(new Event("click"));
@@ -301,13 +294,37 @@
 			return rels;
 		}
 
-		function renameProcessor(spec, newId){
-			if(newId === spec.id) return;
-			(def.connections || []).forEach(c => {
-				if(c.from === spec.id) c.from = newId;
-				if(c.to === spec.id) c.to = newId;
+		// Durations are ISO-8601 in the definition (PT1H30M) and written as 1h 30m in the forms.
+		var DURATION_UNITS = [["d", 86400], ["h", 3600], ["m", 60], ["s", 1]];
+
+		/** An ISO-8601 duration as 1h 30m; anything else (a reference, a typo) as it is. */
+		function friendlyDuration(iso){
+			if(!iso) return "";
+			var m = /^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(iso);
+			if(!m || /^P$|T$/.test(iso)) return iso;
+			var seconds = Number(m[1] || 0) * 86400 + Number(m[2] || 0) * 3600 + Number(m[3] || 0) * 60 + Number(m[4] || 0);
+			var parts = [];
+			DURATION_UNITS.forEach(u => {
+				if(seconds >= u[1]){ parts.push(Math.floor(seconds / u[1]) + u[0]); seconds %= u[1]; }
 			});
-			spec.id = newId;
+			return parts.length ? parts.join(" ") : "0s";
+		}
+
+		/** 1h 30m, 90 min or 2 days as ISO-8601; anything it does not read is left for the validator. */
+		function isoDuration(value){
+			if(!value) return value;
+			var rest = value.trim().toLowerCase(), seconds = 0, m;
+			var unit = /^(\d+)\s*(d|days?|h|hrs?|hours?|m|mins?|minutes?|s|secs?|seconds?)(?![a-z])\s*,?\s*/;
+			if(!rest || !unit.test(rest)) return value.trim();
+			while((m = unit.exec(rest))){
+				seconds += Number(m[1]) * DURATION_UNITS.find(u => u[0] === m[2][0])[1];
+				rest = rest.slice(m[0].length);
+			}
+			if(rest) return value.trim();
+			var days = Math.floor(seconds / 86400), h = Math.floor(seconds % 86400 / 3600),
+				min = Math.floor(seconds % 3600 / 60), s = seconds % 60;
+			var time = (h ? h + "H" : "") + (min ? min + "M" : "") + (s ? s + "S" : "");
+			return "P" + (days ? days + "D" : "") + (time ? "T" + time : days ? "" : "T0S");
 		}
 
 		function removeProcessor(id){
@@ -613,11 +630,9 @@
 		function addProcessor(){
 			var type = el("flow-add-type").value;
 			if(!type) return;
-			var id = el("flow-add-id").value.trim() || newId(type);
-			if(processorById(id)){ Flash.error(L("flows.error.duplicate.id", [id])); return; }
+			var id = newId(type);
 			def.processors = def.processors || [];
 			def.processors.push({ id: id, type: type, properties: {} });
-			el("flow-add-id").value = "";
 			changed();
 			new ProcessorForm(processorById(id), byType[type]);
 		}
@@ -728,7 +743,7 @@
 				fillSelect(el("flow-add-type"), catalog.map(e => ({ value: e.name, label: e.name })), false);
 				flow = results[1];
 				def = flow ? flow.definition : { schemaVersion: 1, externalId: flowId, name: "", dataSet: "",
-					processors: [], connections: [], trigger: { type: "manual", window: "PT1H" } };
+					processors: [], connections: [], trigger: { type: "schedule", cron: "0 0 * * * *", window: "PT1H" } };
 				savedJson = flow ? JSON.stringify(def) : null;
 				return flow ? FlowApi.get("/flows/" + FlowApi.seg(flowId) + "/deployment").catch(notFound) : null;
 			}).then(d => {
