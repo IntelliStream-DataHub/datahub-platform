@@ -53,7 +53,7 @@ public class RunService {
     static final int DEFAULT_MAX_CONCURRENT_RUNS = 1;
     static final int DEFAULT_MAX_ATTEMPTS = 2;
     static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(15);
-    static final long DEFAULT_MEMORY = DataSize.ofMegabytes(512).toBytes();
+    public static final long DEFAULT_MEMORY = DataSize.ofMegabytes(512).toBytes();
 
     /** A preview's window when none is given. */
     static final Duration PREVIEW_WINDOW = Duration.ofHours(1);
