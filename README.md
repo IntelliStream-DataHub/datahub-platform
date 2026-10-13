@@ -361,8 +361,7 @@ menu, links to this repository to satisfy that.
 **The client libraries are Apache-2.0, not AGPL.** `datahub-api-model` and `datahub-java-sdk`
 are licensed under the [Apache License 2.0](datahub-java-sdk/LICENSE) so they can be linked
 into your own applications without carrying the platform's copyleft into them. That is the
-point of a client library, and a copyleft one would not be usable as one. So is
-`datahub-flow-api`, the interface a flow processor implements, so that a processor someone
-else writes need not be AGPL. The server side of the platform remains AGPL.
+point of a client library, and a copyleft one would not be usable as one. The server side of
+the platform remains AGPL.
 
 Third-party components keep their own licenses; [NOTICE](NOTICE) lists them.

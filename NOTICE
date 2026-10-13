@@ -7,13 +7,11 @@ the terms of the GNU Affero General Public License as published by the Free
 Software Foundation, either version 3 of the License, or (at your option) any
 later version. See LICENSE for the full text.
 
-Three modules are deliberately not AGPL. `datahub-api-model` and
-`datahub-java-sdk`, the wire-contract types and the Java client, and
-`datahub-flow-api`, the interface a flow processor implements, are licensed
+Two modules are deliberately not AGPL. `datahub-api-model` and
+`datahub-java-sdk`, the wire-contract types and the Java client, are licensed
 under the Apache License 2.0, whose text is in each module's own LICENSE file.
-A client library exists to be linked into other people's programs, and a
-processor may be written by someone else, which a copyleft licence would
-prevent. Everything else in this repository is AGPL.
+A client library exists to be linked into other people's programs, which a
+copyleft licence would prevent. Everything else in this repository is AGPL.
 
 This file records the third-party work distributed with DataHub and the
 attribution its licences require. It is not a substitute for those licences;
