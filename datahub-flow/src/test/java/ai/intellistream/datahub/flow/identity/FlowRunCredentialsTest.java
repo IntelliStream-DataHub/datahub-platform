@@ -15,6 +15,7 @@ import java.util.function.Supplier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -111,6 +112,37 @@ class FlowRunCredentialsTest {
         credentials.tokens(TENANT, FLOW);
 
         verify(offlineTokens).store(TENANT, FLOW, "offline-2");
+    }
+
+    @Test
+    void theAccessTokenStandsForTheReissuedOfflineTokenToo() {
+        deployedBy("user-1");
+        when(keycloak.refresh("offline-1"))
+                .thenReturn(new KeycloakTokens.Tokens("access-1", "offline-2", Duration.ofMinutes(5)));
+        Supplier<String> first = credentials.tokens(TENANT, FLOW);
+
+        // The next run reads the reissued token: no second refresh, and no second write to Vault.
+        when(offlineTokens.get(TENANT, FLOW)).thenReturn("offline-2");
+        Supplier<String> second = credentials.tokens(TENANT, FLOW);
+
+        assertThat(first.get()).isEqualTo("access-1");
+        assertThat(second.get()).isEqualTo("access-1");
+        verify(keycloak, times(1)).refresh(anyString());
+        verify(offlineTokens, times(1)).store(eq(TENANT), eq(FLOW), anyString());
+    }
+
+    @Test
+    void aFreshDeploymentStartsFromItsOwnGrant() {
+        deployedBy("user-1");
+        when(keycloak.refresh("offline-1"))
+                .thenReturn(new KeycloakTokens.Tokens("access-1", "offline-1", Duration.ofMinutes(5)));
+        when(keycloak.refresh("offline-9"))
+                .thenReturn(new KeycloakTokens.Tokens("access-9", "offline-9", Duration.ofMinutes(5)));
+        credentials.tokens(TENANT, FLOW);
+
+        when(offlineTokens.get(TENANT, FLOW)).thenReturn("offline-9");
+
+        assertThat(credentials.tokens(TENANT, FLOW).get()).isEqualTo("access-9");
     }
 
     @Test

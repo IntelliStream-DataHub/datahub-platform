@@ -17,16 +17,21 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Tokens for a run, as the identity its flow is deployed with: the deployer, by refreshing the
  * offline token they granted when deploying, or a registered client, by its client credentials.
  *
  * <p>An access token is kept until shortly before it expires and shared by the runs of one flow, so
- * a flow running every minute does not ask Keycloak every minute. The cache key includes a digest of
- * the offline token (or the client's name), so deploying afresh starts from the new grant at once.
+ * a flow running every minute does not ask Keycloak every minute. It is cached under the flow and
+ * holds for the offline tokens it stands for: the one it was refreshed from and the one Keycloak
+ * reissued with it, which is stored in its place. Deploying afresh stores a token it does not stand
+ * for, so the next run starts from the new grant at once.
  *
  * <p>When Keycloak <em>refuses</em> — a revoked offline token, a disabled user, a client whose secret
  * was rotated without updating the settings — the deployment is marked as needing
@@ -55,7 +60,7 @@ public class FlowRunCredentials implements RunCredentials {
         }
     };
 
-    private record Cached(String accessToken, long expiresAtNanos) {
+    private record Cached(String accessToken, long expiresAtNanos, Set<String> sources) {
     }
 
     @Autowired
@@ -84,16 +89,18 @@ public class FlowRunCredentials implements RunCredentials {
         Identity identity = state.identity();
         Supplier<KeycloakTokens.Tokens> fetch;
         String key;
+        String source;
         if (Identity.DEPLOYER.equals(identity.kind())) {
             String offline = offlineTokens.get(tenantId, flowId);
             if (offline == null) {
                 throw reject(tenantId, flowId, "No offline token is stored for the deployment.");
             }
-            key = tenantId + "/" + flowId + "/deployer/" + digest(offline);
+            key = tenantId + "/" + flowId + "/deployer";
+            source = digest(offline);
             fetch = () -> {
                 KeycloakTokens.Tokens tokens = keycloak.refresh(offline);
-                // With refresh-token rotation on, Keycloak hands out a new offline token and the
-                // old one stops working: keep the new one.
+                // Keycloak reissues the offline token on each refresh, and with refresh-token rotation
+                // on the old one stops working: keep the new one.
                 if (tokens.refreshToken() != null && !tokens.refreshToken().equals(offline)) {
                     TenantContext.runWith(tenantId, () ->
                             offlineTokens.store(tenantId, flowId, tokens.refreshToken()));
@@ -101,20 +108,22 @@ public class FlowRunCredentials implements RunCredentials {
                 return tokens;
             };
         } else {
-            key = tenantId + "/" + flowId + "/client/" + identity.clientName();
+            key = tenantId + "/" + flowId + "/client";
+            source = identity.clientName();
             fetch = () -> clients.tokens(tenantId, identity.clientName());
         }
-        Supplier<String> supplier = () -> token(tenantId, flowId, key, fetch);
+        Supplier<String> supplier = () -> token(tenantId, flowId, key, source, fetch);
         // Taken once now, so that a refused identity fails the run before it starts rather than
         // inside a processor.
         supplier.get();
         return supplier;
     }
 
-    private String token(String tenantId, long flowId, String key, Supplier<KeycloakTokens.Tokens> fetch) {
+    private String token(String tenantId, long flowId, String key, String source,
+                         Supplier<KeycloakTokens.Tokens> fetch) {
         synchronized (cache) {
             Cached cached = cache.get(key);
-            if (cached != null && cached.expiresAtNanos() - nanoTime.getAsLong() > MARGIN.toNanos()) {
+            if (usable(cached, source)) {
                 return cached.accessToken();
             }
         }
@@ -122,7 +131,7 @@ public class FlowRunCredentials implements RunCredentials {
         synchronized (key.intern()) {
             synchronized (cache) {
                 Cached cached = cache.get(key);
-                if (cached != null && cached.expiresAtNanos() - nanoTime.getAsLong() > MARGIN.toNanos()) {
+                if (usable(cached, source)) {
                     return cached.accessToken();
                 }
             }
@@ -135,12 +144,20 @@ public class FlowRunCredentials implements RunCredentials {
                 throw new RunIdentityException("Keycloak could not be asked for the run's token: "
                         + e.getMessage());
             }
+            // A client's tokens come with no refresh token; a deployer's may come back unchanged.
+            Set<String> sources = tokens.refreshToken() == null ? Set.of(source)
+                    : Stream.of(source, digest(tokens.refreshToken())).collect(Collectors.toUnmodifiableSet());
             synchronized (cache) {
                 cache.put(key, new Cached(tokens.accessToken(),
-                        nanoTime.getAsLong() + tokens.expiresIn().toNanos()));
+                        nanoTime.getAsLong() + tokens.expiresIn().toNanos(), sources));
             }
             return tokens.accessToken();
         }
+    }
+
+    private boolean usable(Cached cached, String source) {
+        return cached != null && cached.sources().contains(source)
+                && cached.expiresAtNanos() - nanoTime.getAsLong() > MARGIN.toNanos();
     }
 
     /** Marks the deployment as needing re-authorisation; returns what fails the run for good. */
