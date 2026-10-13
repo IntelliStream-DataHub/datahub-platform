@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.flows;
 
+import ai.intellistream.datahub.flow.api.ProcessorDescriptor;
+import ai.intellistream.datahub.flow.api.PropertyDescriptor;
 import ai.intellistream.datahub.flow.definition.FlowDefinition;
 import ai.intellistream.datahub.flow.definition.FlowDefinition.Connection;
 import ai.intellistream.datahub.flow.definition.FlowDefinition.ProcessorSpec;
@@ -8,6 +10,7 @@ import ai.intellistream.datahub.flow.definition.Template;
 import ai.intellistream.datahub.flow.definition.Template.Reference;
 import ai.intellistream.datahub.flow.definition.ValidationProblem;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -33,7 +36,8 @@ import java.util.Set;
  * </ul>
  * Anything else — a parameter, another attribute, a source whose list is a reference — cannot be
  * known before a run and is refused when {@code create} is set. The name, unit and description may
- * use {@code ${timeseries.externalId}} the same way.
+ * use {@code ${timeseries.externalId}} the same way. A sink's unset properties take the sink's
+ * defaults, so a sink with nothing set creates a series of its own beside each one read.
  */
 public final class DeclaredSeries {
 
@@ -47,28 +51,35 @@ public final class DeclaredSeries {
     /**
      * One series to create.
      *
-     * @param dataSet the external id of its dataset
+     * @param unit     null when it is to be copied from {@code unitFrom}
+     * @param unitFrom the series read that it is built from, when no unit is set; else null
+     * @param dataSet  the external id of its dataset
      */
-    public record Series(String externalId, String name, String unit, String description, String dataSet) {
+    public record Series(String externalId, String name, String unit, String unitFrom, String description,
+                         String dataSet) {
     }
 
     /** What the sinks declare, or the problems that keep it from being worked out. */
     public record Result(List<Series> series, List<ValidationProblem> problems) {
     }
 
-    /** @param flowDataSet the flow's dataset, which created series go into unless a sink names one */
-    public static Result of(FlowDefinition definition, String flowDataSet) {
+    /**
+     * @param flowDataSet the flow's dataset, which created series go into unless a sink names one
+     * @param sink        the sink's catalog entry, for the defaults of what a sink leaves unset;
+     *                    null when the catalog has no sink
+     */
+    public static Result of(FlowDefinition definition, String flowDataSet, ProcessorDescriptor sink) {
         Map<String, Series> series = new LinkedHashMap<>();
         List<ValidationProblem> problems = new ArrayList<>();
         List<ProcessorSpec> processors = definition.processors();
         for (int i = 0; i < processors.size(); i++) {
             ProcessorSpec spec = processors.get(i);
-            if (!SINK.equals(spec.type()) || !isTrue(spec.properties().get("create"))) {
+            if (!SINK.equals(spec.type()) || !isTrue(property(spec, sink, "create"))) {
                 continue;
             }
             String at = "#/processors/" + i + "/properties/";
             int problemsBefore = problems.size();
-            JsonNode target = spec.properties().get("target");
+            JsonNode target = property(spec, sink, "target");
             if (target == null || !target.isString()) {
                 continue; // the validator reports a missing or mistyped target
             }
@@ -87,9 +98,11 @@ public final class DeclaredSeries {
             Template name = optional(spec, "name", at, problems);
             Template unit = optional(spec, "unit", at, problems);
             Template description = optional(spec, "description", at, problems);
-            if (spec.properties().get("unit") == null) {
-                problems.add(new ValidationProblem(at + "unit",
-                        "Required with create: a series is created with a unit."));
+            boolean copyUnit = spec.properties().get("unit") == null;
+            if (copyUnit && targetTemplate.references().isEmpty()) {
+                problems.add(new ValidationProblem(at + "unit", "Required with create and a fixed "
+                        + "target: a series is created with a unit, and there is no series read to "
+                        + "copy it from."));
             }
             if (problems.size() > problemsBefore) {
                 continue;
@@ -100,7 +113,7 @@ public final class DeclaredSeries {
                 String externalId = render(targetTemplate, input);
                 series.putIfAbsent(externalId, new Series(externalId,
                         name == null ? externalId : render(name, input),
-                        unit == null ? null : render(unit, input),
+                        unit == null ? null : render(unit, input), copyUnit ? input : null,
                         description == null ? null : render(description, input), dataSet));
             }
         }
@@ -189,6 +202,17 @@ public final class DeclaredSeries {
 
     private static String render(Template template, String externalId) {
         return Template.text(template.substitute(reference -> externalId));
+    }
+
+    /** What a sink has set for {@code name}, or the sink's default; null when neither. */
+    private static JsonNode property(ProcessorSpec spec, ProcessorDescriptor sink, String name) {
+        JsonNode set = spec.properties().get(name);
+        if (set != null) {
+            return set;
+        }
+        PropertyDescriptor declared = sink == null ? null : sink.property(name);
+        return declared == null || declared.defaultValue() == null ? null
+                : JsonMapper.shared().valueToTree(declared.defaultValue());
     }
 
     private static boolean isTrue(JsonNode node) {

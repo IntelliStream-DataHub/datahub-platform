@@ -48,10 +48,11 @@ class ProcessorValidationTest {
 
     @Test
     void theSinksCreationFieldsNeedCreate() {
-        assertThat(problems("timeseries.write", "{ \"target\": \"x\", \"unit\": \"°F\" }",
-                "[]")).contains("unit is only used with create.");
         assertThat(problems("timeseries.write",
-                "{ \"target\": \"x\", \"create\": true, \"unit\": \"°F\" }", "[]"))
+                "{ \"target\": \"x\", \"create\": false, \"unit\": \"°F\" }", "[]"))
+                .contains("unit is only used with create.");
+        // create is on by default.
+        assertThat(problems("timeseries.write", "{ \"target\": \"x\", \"unit\": \"°F\" }", "[]"))
                 .noneMatch(p -> p.contains("only used with create"));
     }
 

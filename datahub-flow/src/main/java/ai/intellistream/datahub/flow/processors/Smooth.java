@@ -44,7 +44,7 @@ public class Smooth implements Processor {
                                     + "constant window, weighted by the gap between points."))
                     .defaultValue("median").build())
             .property(PropertyDescriptor.builder("window", PropertyType.DURATION)
-                    .displayName("Window").required().build())
+                    .displayName("Window").required().defaultValue("PT15M").build())
             .relationship(Relationship.of("success", "The smoothed series."))
             .accepts(ContentKind.TIMESERIES)
             .build();

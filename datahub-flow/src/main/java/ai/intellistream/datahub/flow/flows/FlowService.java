@@ -7,6 +7,7 @@ import ai.intellistream.datahub.flow.access.CallerAccess;
 import ai.intellistream.datahub.flow.definition.FlowDefinition;
 import ai.intellistream.datahub.flow.definition.FlowDefinitions;
 import ai.intellistream.datahub.flow.definition.FlowValidator;
+import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.definition.InvalidFlowException;
 import ai.intellistream.datahub.flow.definition.ValidationProblem;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
@@ -242,7 +243,9 @@ public class FlowService {
      */
     private Prepared prepare(FlowDefinition definition, DatahubClient api, Caller caller) {
         List<ValidationProblem> problems = new ArrayList<>(validator.validate(definition, secretNames()));
-        DeclaredSeries.Result declared = DeclaredSeries.of(definition, definition.dataSet());
+        Processor sink = validator.processor(DeclaredSeries.SINK);
+        DeclaredSeries.Result declared = DeclaredSeries.of(definition, definition.dataSet(),
+                sink == null ? null : sink.describe());
         problems.addAll(declared.problems());
         if (!problems.isEmpty()) {
             throw new InvalidFlowException(problems);
@@ -281,12 +284,13 @@ public class FlowService {
         if (missing.isEmpty()) {
             return List.of();
         }
+        Map<String, String> units = unitsOf(missing, api);
         List<Timeseries> create = new ArrayList<>();
         for (DeclaredSeries.Series s : missing) {
             Timeseries ts = new Timeseries();
             ts.setExternalId(s.externalId());
             ts.setName(s.name());
-            ts.setUnit(s.unit());
+            ts.setUnit(s.unit() != null ? s.unit() : units.get(s.unitFrom()));
             ts.setDescription(s.description());
             ts.setDataSetId(prepared.dataSets().get(s.dataSet()));
             ts.setValueType("float");
@@ -300,6 +304,34 @@ public class FlowService {
         List<String> ids = missing.stream().map(DeclaredSeries.Series::externalId).toList();
         log.info("Created {} series declared by a flow", ids.size());
         return ids;
+    }
+
+    /** The units of the series read that series without a unit of their own copy theirs from. */
+    private Map<String, String> unitsOf(List<DeclaredSeries.Series> series, DatahubClient api) {
+        List<String> from = series.stream().filter(s -> s.unit() == null).map(DeclaredSeries.Series::unitFrom)
+                .distinct().toList();
+        if (from.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, String> units = new HashMap<>();
+        try {
+            for (Timeseries t : api.timeseries().byIds(from.stream().map(IdCollection::createFromExternalId).toList())
+                    .getItems()) {
+                if (t.getUnit() != null && !t.getUnit().isBlank()) {
+                    units.put(t.getExternalId(), t.getUnit());
+                }
+            }
+        } catch (DatahubApiException e) {
+            throw apiError(e, "Looking up the units of the flow's series");
+        }
+        List<ValidationProblem> problems = from.stream().filter(id -> !units.containsKey(id))
+                .map(id -> new ValidationProblem("#/processors", "Series " + id + " has no unit for "
+                        + "the series written from it to copy: set unit on the write step."))
+                .toList();
+        if (!problems.isEmpty()) {
+            throw new InvalidFlowException(problems);
+        }
+        return units;
     }
 
     private List<DeclaredSeries.Series> missingSeries(Prepared prepared, DatahubClient api) {

@@ -39,7 +39,7 @@ public class Interpolate implements Processor {
             .description("Fills gaps between known points; never extrapolates.")
             .property(PropertyDescriptor.builder("interval", PropertyType.DURATION)
                     .displayName("Interval").description("The series' expected sampling interval.")
-                    .required().build())
+                    .required().defaultValue("PT1M").build())
             .property(PropertyDescriptor.builder("method", PropertyType.ENUM)
                     .displayName("Method")
                     .allowableValues(new AllowableValue("linear", "Linear between the two neighbours."),
@@ -48,7 +48,7 @@ public class Interpolate implements Processor {
             .property(PropertyDescriptor.builder("maxGap", PropertyType.DURATION)
                     .displayName("Max gap")
                     .description("Leave gaps longer than this unfilled; unset fills every gap.")
-                    .build())
+                    .advanced().build())
             .relationship(Relationship.of("success", "The filled series; interpolate.count is set."))
             .accepts(ContentKind.TIMESERIES)
             .build();

@@ -29,7 +29,7 @@ public class RouteOnAttribute implements Processor {
             .description("Routes whole items by the value of one attribute.")
             .property(PropertyDescriptor.builder("attribute", PropertyType.STRING)
                     .displayName("Attribute").description("The attribute to look at.")
-                    .required().build())
+                    .required().defaultValue(Points.EXTERNAL_ID).build())
             .dynamicProperties(new DynamicPropertyDescriptor(
                     "A relationship name.",
                     "The attribute value that selects it.",

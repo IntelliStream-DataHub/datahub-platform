@@ -32,7 +32,7 @@ public class Resample implements Processor {
             .displayName("Resample")
             .description("Puts a series on a regular interval, one point per bucket.")
             .property(PropertyDescriptor.builder("interval", PropertyType.DURATION)
-                    .displayName("Interval").required().build())
+                    .displayName("Interval").required().defaultValue("PT1H").build())
             .property(PropertyDescriptor.builder("aggregate", PropertyType.ENUM)
                     .displayName("Aggregate")
                     .description("How a bucket's points become one.")

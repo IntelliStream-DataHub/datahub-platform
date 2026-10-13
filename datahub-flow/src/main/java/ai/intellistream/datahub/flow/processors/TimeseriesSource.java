@@ -62,11 +62,11 @@ public class TimeseriesSource implements Processor {
             .property(PropertyDescriptor.builder("from", PropertyType.INSTANT)
                     .displayName("From")
                     .description("Start of the window, inclusive.")
-                    .advanced().references().defaultValue("${run.window.start}").build())
+                    .references().defaultValue("${run.window.start}").build())
             .property(PropertyDescriptor.builder("to", PropertyType.INSTANT)
                     .displayName("To")
                     .description("End of the window, exclusive.")
-                    .advanced().references().defaultValue("${run.window.end}").build())
+                    .references().defaultValue("${run.window.end}").build())
             .property(PropertyDescriptor.builder("lookback", PropertyType.DURATION)
                     .displayName("Lookback")
                     .description("Also read this much before from, as history for smoothing, spike "
@@ -75,7 +75,6 @@ public class TimeseriesSource implements Processor {
             .property(PropertyDescriptor.builder("maxPointsPerItem", PropertyType.NUMBER)
                     .displayName("Max points per item")
                     .description("A longer series is split into several items.")
-                    .advanced()
                     .defaultValue(100_000).build())
             .property(PropertyDescriptor.builder("onMissing", PropertyType.ENUM)
                     .displayName("When a series is missing")
@@ -83,7 +82,7 @@ public class TimeseriesSource implements Processor {
                             + "may not read.")
                     .allowableValues(new AllowableValue("fail", "Fail the run."),
                             new AllowableValue("skip", "Skip the series and read the rest."))
-                    .defaultValue("fail").advanced().build())
+                    .defaultValue("fail").build())
             .relationship(Relationship.of("success", "Each series read, or each part of one."))
             .build();
 
