@@ -239,3 +239,12 @@
 	max-width: 480px;
 	margin-bottom: var(--space-xl);
 }
+
+.flow-advanced {
+	margin-top: 12px;
+}
+.flow-advanced > summary {
+	cursor: pointer;
+	font-weight: 600;
+	margin-bottom: 8px;
+}
