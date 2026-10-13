@@ -56,6 +56,14 @@
 	color: var(--text-muted);
 }
 
+/* These displays outrank the browser's own [hidden] rule, so without this a hidden banner, form or
+   count stays on screen: every writer was told they could only view a flow. */
+.flows-banner[hidden],
+.flow-new[hidden],
+.nav-count[hidden] {
+	display: none;
+}
+
 /* The count of open failures on the Flows entry in the header. */
 .nav-count {
 	display: inline-block;

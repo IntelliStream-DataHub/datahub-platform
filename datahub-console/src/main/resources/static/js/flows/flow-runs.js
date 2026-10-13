@@ -12,7 +12,7 @@
 
 	var ENDED = ["SUCCEEDED", "FAILED", "CANCELLED"];
 
-	function L(key, args){ return $L(key, null, args); }
+	function L(key, args){ return args ? $L(key, null, args) : $L(key); }
 
 	function windowText(w){
 		if(!w) return "";
