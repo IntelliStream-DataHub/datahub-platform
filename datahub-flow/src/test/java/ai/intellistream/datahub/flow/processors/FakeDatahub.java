@@ -52,6 +52,8 @@ final class FakeDatahub implements AutoCloseable {
     /** Points written through the binary path, by external id. */
     final Map<String, List<double[]>> written = new LinkedHashMap<>();
     final List<JsonNode> events = new ArrayList<>();
+    /** Events /events/filter answers from, two per page so that paging is exercised. */
+    final List<Map<String, Object>> stored = new ArrayList<>();
     final List<String> requests = new ArrayList<>();
     /** When set, the binary write answers this status with a problem document. */
     Integer writeStatus;
@@ -89,6 +91,7 @@ final class FakeDatahub implements AutoCloseable {
                 case "/timeseries/data/list/binary" -> read(exchange, body);
                 case "/timeseries/data/binary" -> write(exchange, body);
                 case "/datasets/byids" -> json(exchange, 200, datasetsByIds(body));
+                case "/events/filter" -> json(exchange, 200, filterEvents(body));
                 case "/events/create" -> {
                     JsonNode items = JSON.readTree(body).get("items");
                     items.forEach(events::add);
@@ -99,6 +102,35 @@ final class FakeDatahub implements AutoCloseable {
         } catch (RuntimeException e) {
             json(exchange, 500, Map.of("type", "about:blank", "status", 500, "detail", String.valueOf(e)));
         }
+    }
+
+    /** An event /events/filter can return. */
+    void storeEvent(String externalId, String type, long eventTime, String status) {
+        stored.add(Map.of("id", "e" + stored.size(), "externalId", externalId, "type", type,
+                "eventTime", eventTime, "status", status, "metadata", Map.of("k", "v")));
+    }
+
+    /** By type and an inclusive event-time window, as the api filters, two at a time. */
+    private Map<String, Object> filterEvents(byte[] body) {
+        JsonNode request = JSON.readTree(body);
+        JsonNode filter = request.get("filter");
+        JsonNode types = filter.get("type");
+        long min = instant(filter.get("eventTime").get("min"));
+        long max = instant(filter.get("eventTime").get("max"));
+        List<Map<String, Object>> matching = stored.stream()
+                .filter(e -> types == null || types.isNull() || types.valueStream()
+                        .anyMatch(t -> t.stringValue().equals(e.get("type"))))
+                .filter(e -> (long) e.get("eventTime") >= min && (long) e.get("eventTime") <= max)
+                .toList();
+        JsonNode cursor = request.get("cursor");
+        int from = cursor == null || cursor.isNull() ? 0 : Integer.parseInt(cursor.stringValue());
+        int to = Math.min(matching.size(), from + 2);
+        Map<String, Object> page = new LinkedHashMap<>();
+        page.put("items", matching.subList(from, to));
+        if (to < matching.size()) {
+            page.put("nextCursor", Integer.toString(to));
+        }
+        return page;
     }
 
     private Map<String, Object> byIds(byte[] body) {

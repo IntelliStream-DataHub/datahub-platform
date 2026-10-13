@@ -3,8 +3,6 @@ package ai.intellistream.datahub.flow.catalog;
 
 import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.processors.EventsSink;
-import ai.intellistream.datahub.flow.processors.RouteOnAttribute;
-import ai.intellistream.datahub.flow.processors.Smooth;
 import ai.intellistream.datahub.flow.processors.TimeseriesSink;
 import ai.intellistream.datahub.flow.processors.TimeseriesSource;
 import org.junit.jupiter.api.Test;
@@ -35,7 +33,6 @@ class ProcessorSchemaTest {
         assertThat(sink.get("relationships").findValuesAsString("name")).containsExactly("success", "failure");
         assertThat(sink.get("relationships").get(0).get("whenUnconnected").stringValue()).isEqualTo("terminate");
         assertThat(sink.get("relationships").get(1).get("whenUnconnected").stringValue()).isEqualTo("fail-run");
-        assertThat(sink.get("dynamicRelationships").booleanValue()).isFalse();
     }
 
     @Test
@@ -94,19 +91,14 @@ class ProcessorSchemaTest {
         assertThat(events.get("type").stringValue()).isEqualTo("string");
         assertThat(events.get("x-references").booleanValue()).isTrue();
         assertThat(events.get("x-keyDescription").stringValue()).contains("metadata key");
-
-        JsonNode route = entry(new RouteOnAttribute());
-        assertThat(route.get("dynamicRelationships").booleanValue()).isTrue();
-        assertThat(route.get("properties").get("additionalProperties").has("x-references")).isFalse();
     }
 
     @Test
     void anEnumListsItsValuesWithTheirDescriptions() {
-        JsonNode method = entry(new Smooth()).get("properties").get("properties").get("method");
+        JsonNode onMissing = entry(new TimeseriesSource()).get("properties").get("properties").get("onMissing");
 
-        assertThat(method.get("type").stringValue()).isEqualTo("string");
-        assertThat(method.get("oneOf").findValuesAsString("const"))
-                .containsExactly("median", "mean", "exponential");
-        assertThat(method.get("oneOf").get(0).get("description").stringValue()).contains("keeps steps sharp");
+        assertThat(onMissing.get("type").stringValue()).isEqualTo("string");
+        assertThat(onMissing.get("oneOf").findValuesAsString("const")).containsExactly("fail", "skip");
+        assertThat(onMissing.get("oneOf").get(0).get("description").stringValue()).isEqualTo("Fail the run.");
     }
 }

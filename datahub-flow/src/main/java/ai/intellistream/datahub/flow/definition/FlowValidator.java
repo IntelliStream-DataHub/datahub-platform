@@ -52,7 +52,6 @@ public final class FlowValidator {
     static final Pattern EXTERNAL_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}");
     static final Pattern PROCESSOR_ID = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,63}");
     static final Pattern NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_]{0,63}");
-    static final Pattern RELATIONSHIP = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.-]{0,63}");
     static final int MAX_RETRY_ATTEMPTS = 10;
 
     /** The types a flow parameter may have. */
@@ -86,23 +85,11 @@ public final class FlowValidator {
         return processors.get(type);
     }
 
-    /**
-     * The relationships of a configured processor: its fixed ones, plus one per dynamic property
-     * when its dynamic properties name relationships.
-     */
-    public static Map<String, Relationship> relationships(ProcessorDescriptor descriptor,
-                                                          Collection<String> propertyNames) {
+    /** A processor's relationships by name. */
+    public static Map<String, Relationship> relationships(ProcessorDescriptor descriptor) {
         Map<String, Relationship> all = new LinkedHashMap<>();
         for (Relationship r : descriptor.relationships()) {
             all.put(r.name(), r);
-        }
-        DynamicPropertyDescriptor dynamic = descriptor.dynamicProperties();
-        if (dynamic != null && dynamic.relationshipPerProperty()) {
-            for (String name : propertyNames) {
-                if (descriptor.property(name) == null) {
-                    all.putIfAbsent(name, Relationship.of(name, dynamic.keyDescription()));
-                }
-            }
         }
         return all;
     }
@@ -265,8 +252,7 @@ public final class FlowValidator {
                 }
                 ProcessorDescriptor descriptor = processor.describe();
                 if (spec.id() != null) {
-                    relationshipsById.put(spec.id(),
-                            relationships(descriptor, spec.properties().keySet()));
+                    relationshipsById.put(spec.id(), relationships(descriptor));
                 }
                 properties(at, spec, processor, descriptor);
                 retry(at, spec);
@@ -285,10 +271,6 @@ public final class FlowValidator {
                 if (property == null && dynamicDescriptor == null) {
                     problem(where, "\"" + descriptor.name() + "\" has no property \"" + name + "\".");
                     return;
-                }
-                if (property == null && dynamicDescriptor.relationshipPerProperty()
-                        && !RELATIONSHIP.matcher(name).matches()) {
-                    problem(where, "A relationship name is letters, digits and _ . -.");
                 }
                 PropertyType type = property != null ? property.type() : dynamicDescriptor.type();
                 boolean references = property != null ? property.references()

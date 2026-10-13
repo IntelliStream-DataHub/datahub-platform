@@ -54,7 +54,6 @@ final class ProcessorSchema {
         }
         entry.put("relationships", relationships);
         DynamicPropertyDescriptor dynamic = descriptor.dynamicProperties();
-        entry.put("dynamicRelationships", dynamic != null && dynamic.relationshipPerProperty());
 
         Map<String, Object> properties = new LinkedHashMap<>();
         List<String> required = new ArrayList<>();

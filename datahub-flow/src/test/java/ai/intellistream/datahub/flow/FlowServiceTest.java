@@ -123,8 +123,8 @@ class FlowServiceTest {
 
         mvc.perform(get("/catalog/processors").header("Authorization", "Bearer t"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(12))
-                .andExpect(jsonPath("$[0].name").value("read-timeseries"));
+                .andExpect(jsonPath("$.length()").value(6))
+                .andExpect(jsonPath("$[0].name").value("read-events"));
         assertThat(TenantContext.getTenantId()).as("cleared after the request").isNull();
     }
 

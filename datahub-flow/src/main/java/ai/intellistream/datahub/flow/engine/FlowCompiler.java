@@ -67,8 +67,7 @@ public final class FlowCompiler {
             });
 
             Map<String, CompiledFlow.Outcome> outcomes = new LinkedHashMap<>();
-            for (Relationship r : FlowValidator.relationships(descriptor, spec.properties().keySet())
-                    .values()) {
+            for (Relationship r : descriptor.relationships()) {
                 outcomes.put(r.name(), new CompiledFlow.Outcome(
                         List.copyOf(targets.getOrDefault(spec.id() + "\u0000" + r.name(), List.of())),
                         spec.terminate().contains(r.name()), r.whenUnconnected()));

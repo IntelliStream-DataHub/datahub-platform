@@ -237,6 +237,69 @@ class DatahubProcessorsTest {
         assertThat(h.at("failed")).isEmpty();
     }
 
+    // --- events source ----------------------------------------------------------------------------
+
+    /** {@code src → out (collector)} with the events source's properties. */
+    private RunResult readEvents(String properties) {
+        return h.flow("""
+                { "id": "src", "type": "read-events", "properties": %s },
+                { "id": "out", "type": "test.collect" }""".formatted(properties),
+                "{ \"from\": \"src\", \"relationship\": \"success\", \"to\": \"out\" }",
+                false, 7L, api.client());
+    }
+
+    @Test
+    void theEventsSourceReadsTheWindowOfTheTypesAskedOldestFirst() {
+        api.storeEvent("b", "alarm", T0 + 2 * MINUTE, "cleared");
+        api.storeEvent("a", "alarm", T0, "active");
+        api.storeEvent("c", "note", T0 + MINUTE, "");            // another type: not read
+        api.storeEvent("d", "alarm", T0 + 59 * MINUTE, "active");
+        api.storeEvent("e", "alarm", T0 + 60 * MINUTE, "active"); // the window's end is exclusive
+        api.storeEvent("f", "alarm", T0 - MINUTE, "active");      // before the window
+
+        RunResult result = readEvents("{ \"type\": [\"alarm\"] }");
+
+        assertThat(result.error()).isNull();
+        Captured item = h.at("out").getFirst();
+        assertThat(item.rows()).extracting(EventRow::externalId).containsExactly("a", "b", "d");
+        assertThat(item.rows().getFirst().status()).isEqualTo("active");
+        assertThat(item.rows().getFirst().metadata()).containsEntry("k", "v");
+        assertThat(item.attributes()).containsEntry(Points.WINDOW_START, WINDOW.start().toString());
+        assertThat(records("src", Action.RECEIVE)).extracting(FlowRecord::transitUri)
+                .containsExactly("datahub://events?type=alarm&from=" + WINDOW.start() + "&to=" + WINDOW.end());
+    }
+
+    @Test
+    void manyEventsAreSplitIntoSeveralItems() {
+        for (int i = 0; i < 5; i++) {
+            api.storeEvent("e" + i, "alarm", T0 + i * MINUTE, "active");
+        }
+        readEvents("{ \"maxEventsPerItem\": 2 }");
+        assertThat(h.at("out")).extracting(c -> c.rows().size()).containsExactly(2, 2, 1);
+    }
+
+    @Test
+    void noEventsIsNoItem() {
+        assertThat(readEvents("{}").error()).isNull();
+        assertThat(h.at("out")).isEmpty();
+    }
+
+    @Test
+    void eventsReadCanBeWrittenAgain() {
+        api.storeEvent("a", "alarm", T0, "active");
+        api.storeEvent("a", "alarm", T0 + MINUTE, "cleared");
+
+        RunResult result = h.flow("""
+                { "id": "src", "type": "read-events", "properties": { "type": ["alarm"] } },
+                { "id": "ev", "type": "write-events", "properties": { "type": "alarm-copy" } }""",
+                "{ \"from\": \"src\", \"relationship\": \"success\", \"to\": \"ev\" }",
+                false, 7L, api.client());
+
+        assertThat(result.error()).isNull();
+        assertThat(api.events).extracting(e -> e.get("status").stringValue()).containsExactly("active", "cleared");
+        assertThat(api.events).extracting(e -> e.get("type").stringValue()).containsOnly("alarm-copy");
+    }
+
     // --- events sink ------------------------------------------------------------------------------
 
     private RunResult events(String properties, boolean preview) {
@@ -337,18 +400,18 @@ class DatahubProcessorsTest {
     void thePlansExampleFlowRunsEndToEnd() {
         FakeDatahub.Series temp = api.add("ts_out_temp", DatapointValueType.FLOAT);
         for (int i = 0; i < 10; i++) {
-            temp.put(T0 + i * MINUTE, i < 3 || i > 7 ? 20 : 70);   // 68°F is the limit below
+            temp.put(T0 + i * MINUTE, i < 3 || i > 7 ? 20 : 70);   // clipped to 60, over the 50 below
         }
         api.add("ts_out_temp_f", DatapointValueType.FLOAT);
 
         RunResult result = h.flow("""
                 { "id": "src", "type": "read-timeseries",
                   "properties": { "timeseries": ["ts_out_temp"] } },
-                { "id": "f", "type": "scale", "properties": { "factor": 1.8, "offset": 32 } },
+                { "id": "f", "type": "clip", "properties": { "min": 0, "max": 60 } },
                 { "id": "out", "type": "write-timeseries",
                   "properties": { "target": "${timeseries.externalId}_f" } },
                 { "id": "over", "type": "threshold",
-                  "properties": { "threshold": 140, "minDuration": "PT2M" }, "terminate": ["success"] },
+                  "properties": { "threshold": 50, "minDuration": "PT2M" }, "terminate": ["success"] },
                 { "id": "ev", "type": "write-events",
                   "properties": { "type": "temperature", "subType": "over-limit",
                                   "series": "${timeseries.externalId}" } }""", """
@@ -359,7 +422,7 @@ class DatahubProcessorsTest {
 
         assertThat(result.error()).isNull();
         assertThat(api.written.get("ts_out_temp_f")).hasSize(10);
-        assertThat(api.written.get("ts_out_temp_f").get(3)[1]).isEqualTo(158.0);
+        assertThat(api.written.get("ts_out_temp_f").get(3)[1]).isEqualTo(60.0);
         assertThat(api.events).extracting(e -> e.get("status").stringValue())
                 .containsExactly("active", "cleared");
         assertThat(api.events.getFirst().get("externalId").stringValue())
