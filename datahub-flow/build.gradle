@@ -89,7 +89,7 @@ def arrowJvmFlags = ['--add-opens=java.base/java.nio=ALL-UNNAMED', '--sun-misc-u
 tasks.named('test') {
 	// The @Tag("integration") tests need a container runtime and run under integrationTest.
 	useJUnitPlatform { excludeTags 'integration' }
-	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=1g']
+	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=2g']
 }
 
 //   ./gradlew :datahub-flow:integrationTest
@@ -100,10 +100,10 @@ tasks.register('integrationTest', Test) {
 	testClassesDirs = sourceSets.test.output.classesDirs
 	classpath = sourceSets.test.runtimeClasspath
 	shouldRunAfter tasks.named('test')
-	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=1g']
+	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=2g']
 	systemProperty 'datahub.pulsar.image.version', project.findProperty('pulsarBrokerVersion') ?: '5.0.0'
 }
 
 tasks.named('bootRun') {
-	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=1g']
+	jvmArgs arrowJvmFlags + ['-XX:MaxDirectMemorySize=2g']
 }
