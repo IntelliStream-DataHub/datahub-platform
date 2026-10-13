@@ -23,7 +23,6 @@ import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
 import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
 import com.sun.net.httpserver.HttpServer;
-import org.apache.arrow.memory.RootAllocator;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -84,7 +83,6 @@ class RunCoordinatorIT {
     private TransactionTemplate transaction;
     private RunRepository runs;
     private FlowRepository flows;
-    private RootAllocator allocator;
     private HttpServer datahub;
     private final List<Long> requestArrivals = new CopyOnWriteArrayList<>();
     /** Every request DataHub received, as "METHOD path", and the Authorization header it carried. */
@@ -112,7 +110,6 @@ class RunCoordinatorIT {
         transaction = new TransactionTemplate(new DataSourceTransactionManager(ds));
         runs = new RunRepository(jdbc);
         flows = new FlowRepository(jdbc);
-        allocator = new RootAllocator(Long.MAX_VALUE);
 
         datahub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         datahub.createContext("/", exchange -> {
@@ -172,8 +169,6 @@ class RunCoordinatorIT {
         datahub.stop(0);
         RUNNING.clear();
         MOST.clear();
-        assertThat(allocator.getAllocatedMemory()).isZero();
-        allocator.close();
     }
 
     // ---------------------------------------------------------------- the tests
@@ -743,7 +738,7 @@ class RunCoordinatorIT {
                 new Hang(), new TimeseriesSink());
         FlowCompiler compiler = new FlowCompiler(new FlowValidator(processors, FlowValidator.Limits.DEFAULTS));
         RunExecution execution = new RunExecution(compiler,
-                new RunExecutor(allocator, java.time.Clock.systemUTC(), d -> { }), flows, jdbc,
+                new RunExecutor(java.time.Clock.systemUTC(), d -> { }), flows, jdbc,
                 credentials, tenant -> Map.of(), "http://127.0.0.1:" + datahub.getAddress().getPort(),
                 REQUEST_TIMEOUT, JSON, (tenant, run, attempt, flow, version) -> new RunRecords(run,
                         attempt, flow, version, 100_000, java.time.Clock.systemUTC(), batch -> {

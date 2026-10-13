@@ -10,9 +10,6 @@ import ai.intellistream.datahub.flow.api.Relationship;
 import ai.intellistream.datahub.flow.api.TimeseriesContent;
 import ai.intellistream.datahub.flow.engine.FlowRecord.Action;
 import ai.intellistream.datahub.helpers.utils.IdGenerator;
-import org.apache.arrow.memory.AllocationReservation;
-import org.apache.arrow.memory.OutOfMemoryException;
-import org.apache.arrow.vector.VectorSchemaRoot;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -49,7 +46,7 @@ final class RunSession implements ProcessSession {
     private final Map<UUID, String> disposition = new HashMap<>();
     private final List<Pending> pending = new ArrayList<>();
     /** Batches handed out by {@link #newTimeseries}, built or not. */
-    private final List<VectorSchemaRoot> newRoots = new ArrayList<>();
+    private final List<TimeseriesContent.Builder> newBuilders = new ArrayList<>();
     /** Content first seen in this invocation; it has no holders until commit. */
     private final Map<Content, ContentRef> newRefs = new IdentityHashMap<>();
 
@@ -165,11 +162,11 @@ final class RunSession implements ProcessSession {
         }
         ref = switch (content) {
             case TimeseriesContent ts -> {
-                if (!newRoots.contains(ts.root())) {
+                if (newBuilders.stream().noneMatch(b -> b.built() == ts)) {
                     throw new ProcessException("This timeseries content was not made with this "
                             + "invocation's session (newTimeseries)");
                 }
-                yield new ContentRef(ts, ts.root());
+                yield new ContentRef(ts, () -> run.free(ts.size()));
             }
             case EventsContent events -> new ContentRef(events, reserve(events.size()));
         };
@@ -177,22 +174,17 @@ final class RunSession implements ProcessSession {
         return ref;
     }
 
-    /** Counts heap content against the run's cap, so it fails like Arrow memory does. */
-    private AllocationReservation reserve(long bytes) {
-        AllocationReservation reservation = run.allocator.newReservation();
-        if (bytes > 0 && !reservation.add(bytes)) {
-            reservation.close();
-            throw new OutOfMemoryException("Content of " + bytes + " bytes does not fit in the "
-                    + "run's memory cap");
-        }
-        return reservation;
+    /** Counts content the session did not build against the run's cap, as built content is. */
+    private AutoCloseable reserve(long bytes) {
+        run.claim(bytes);
+        return () -> run.free(bytes);
     }
 
     @Override
     public TimeseriesContent.Builder newTimeseries(int expectedRows) {
-        VectorSchemaRoot root = TimeseriesContent.newRoot(run.allocator);
-        newRoots.add(root);
-        return new TimeseriesContent.Builder(root, expectedRows);
+        TimeseriesContent.Builder builder = new TimeseriesContent.Builder(expectedRows, run::claim);
+        newBuilders.add(builder);
+        return builder;
     }
 
     @Override
@@ -316,11 +308,7 @@ final class RunSession implements ProcessSession {
                 ref.close();
             }
         }
-        for (VectorSchemaRoot root : newRoots) {
-            if (!run.refs.containsKey(contentOf(root))) {
-                root.close();
-            }
-        }
+        freeUnwritten();
         for (FlowRecord record : records) {
             run.emit(record);
         }
@@ -335,8 +323,15 @@ final class RunSession implements ProcessSession {
         for (ContentRef ref : newRefs.values()) {
             ref.close();
         }
-        for (VectorSchemaRoot root : newRoots) {
-            root.close();
+        freeUnwritten();
+    }
+
+    /** Gives back what builders took whose content was never written to an item: no ref frees it. */
+    private void freeUnwritten() {
+        for (TimeseriesContent.Builder builder : newBuilders) {
+            if (builder.built() == null || !newRefs.containsKey(builder.built())) {
+                run.free(builder.size());
+            }
         }
     }
 
@@ -354,16 +349,6 @@ final class RunSession implements ProcessSession {
             run.refs.remove(ref.content);
             ref.close();
         }
-    }
-
-    /** The content in {@link Run#refs} whose batch is {@code root}, or null. */
-    private Content contentOf(VectorSchemaRoot root) {
-        for (ContentRef ref : newRefs.values()) {
-            if (ref.content instanceof TimeseriesContent ts && ts.root() == root) {
-                return ref.content;
-            }
-        }
-        return null;
     }
 
     private FlowRecord record(Instant time, long durationMillis, Action action, RunItem item,

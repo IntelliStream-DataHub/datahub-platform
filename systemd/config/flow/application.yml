@@ -2,7 +2,7 @@
 #
 # Deployment tuning for datahub-flow (intellistream-flow). The console's Flows section calls it
 # straight from the browser and it validates the caller's JWT, so it needs the same header
-# ceiling as the api. Most of a run's memory is Arrow (off-heap); see /etc/datahub/flow.env.
+# ceiling as the api. Runs hold their data on the heap; see /etc/datahub/flow.env.
 
 server:
   shutdown: graceful
@@ -39,8 +39,7 @@ datahub:
     # which must be a redirect URI of the intellistream-flow client; then on to the console.
     public-url: https://flow.example.com
     console-url: https://console.example.com
-    arrow:
-      # Arrow memory every run on this instance shares, each run under its own cap. Must fit under
-      # -XX:MaxDirectMemorySize (8g in flow.env) together with the Pulsar client's 512 MB and the
-      # headroom, or the service refuses to start.
-      budget: 6GB
+    runs:
+      # What the runs on this instance may hold at once, each under its own cap. Unset, half the
+      # heap (8 GB with flow.env's 16 GB); at most half, or the service refuses to start.
+      #memory-budget: 8GB

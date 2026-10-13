@@ -4,14 +4,9 @@ package ai.intellistream.datahub.flow.engine;
 import ai.intellistream.datahub.flow.api.EventsContent;
 import ai.intellistream.datahub.flow.api.EventsContent.EventRow;
 import ai.intellistream.datahub.flow.api.TimeseriesContent;
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -24,19 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ContentHashTest {
 
-    private final BufferAllocator allocator = new RootAllocator();
-    private final List<VectorSchemaRoot> roots = new ArrayList<>();
-
-    @AfterEach
-    void release() {
-        roots.forEach(VectorSchemaRoot::close);
-        allocator.close();
-    }
-
-    private TimeseriesContent series(long[] timestamps, double[] values) {
-        VectorSchemaRoot root = TimeseriesContent.newRoot(allocator);
-        roots.add(root);
-        TimeseriesContent.Builder b = new TimeseriesContent.Builder(root, timestamps.length);
+    private static TimeseriesContent series(long[] timestamps, double[] values) {
+        TimeseriesContent.Builder b = new TimeseriesContent.Builder(timestamps.length, bytes -> { });
         for (int i = 0; i < timestamps.length; i++) {
             b.add(timestamps[i], values[i]);
         }

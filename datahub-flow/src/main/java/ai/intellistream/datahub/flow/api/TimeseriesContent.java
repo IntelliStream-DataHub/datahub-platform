@@ -1,57 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.api;
 
-import org.apache.arrow.memory.BufferAllocator;
-import org.apache.arrow.vector.Float8Vector;
-import org.apache.arrow.vector.TimeStampMilliTZVector;
-import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.types.FloatingPointPrecision;
-import org.apache.arrow.vector.types.TimeUnit;
-import org.apache.arrow.vector.types.pojo.ArrowType;
-import org.apache.arrow.vector.types.pojo.Field;
-import org.apache.arrow.vector.types.pojo.FieldType;
-import org.apache.arrow.vector.types.pojo.Schema;
-
-import java.util.List;
+import java.util.Arrays;
+import java.util.function.LongConsumer;
 
 /**
- * One series over one window: an Arrow batch of {@code (timestamp, value)}, timestamps in
- * milliseconds UTC and values as doubles, neither nullable. The column names and types are those
- * of the platform's binary datapoint format for float series, so a batch read from DataHub or
- * written to it needs no conversion.
+ * One series over one window: {@code (timestamp, value)} rows, timestamps in milliseconds UTC and
+ * values as doubles. The same columns as the platform's binary datapoint format for float series,
+ * which the source and sink read and write with api-model's frame tooling.
  *
- * <p>Rows are in the order they were added; nothing here sorts them. The batch is never changed
- * once built: {@link #root()} is for reading only, for code that works on whole columns or writes
- * the batch out as Arrow IPC.
+ * <p>Held on the heap, in two arrays. Arrow's Java library would hold it off-heap, but on Java 25
+ * it does not start without extra JVM flags, which is why api-model does not use it either.
  *
- * <p>Made through {@link ProcessSession#newTimeseries(int)}, so the engine owns its memory from the
- * first byte.
+ * <p>Rows are in the order they were added; nothing here sorts them. The content never changes
+ * once built.
+ *
+ * <p>Made through {@link ProcessSession#newTimeseries(int)}, so the run's memory cap counts it from
+ * the first row.
  */
 public final class TimeseriesContent implements Content {
 
-    public static final String TIMESTAMP = "timestamp";
-    public static final String VALUE = "value";
+    /** Bytes one row takes: a long and a double. */
+    public static final int ROW_BYTES = Long.BYTES + Double.BYTES;
 
-    /** The schema every timeseries batch has. */
-    public static final Schema SCHEMA = new Schema(List.of(
-            new Field(TIMESTAMP, FieldType.notNullable(
-                    new ArrowType.Timestamp(TimeUnit.MILLISECOND, "UTC")), null),
-            new Field(VALUE, FieldType.notNullable(
-                    new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)), null)));
+    private final long[] timestamps;
+    private final double[] values;
+    private final int rows;
 
-    private final VectorSchemaRoot root;
-    private final TimeStampMilliTZVector timestamps;
-    private final Float8Vector values;
-
-    private TimeseriesContent(VectorSchemaRoot root) {
-        this.root = root;
-        this.timestamps = (TimeStampMilliTZVector) root.getVector(TIMESTAMP);
-        this.values = (Float8Vector) root.getVector(VALUE);
-    }
-
-    /** An empty batch with {@link #SCHEMA}, for the engine to hand to a {@link Builder}. */
-    public static VectorSchemaRoot newRoot(BufferAllocator allocator) {
-        return VectorSchemaRoot.create(SCHEMA, allocator);
+    private TimeseriesContent(long[] timestamps, double[] values, int rows) {
+        this.timestamps = timestamps;
+        this.values = values;
+        this.rows = rows;
     }
 
     @Override
@@ -60,58 +39,66 @@ public final class TimeseriesContent implements Content {
     }
 
     public int rowCount() {
-        return root.getRowCount();
+        return rows;
     }
 
     /** Milliseconds since the epoch, UTC. */
     public long timestamp(int row) {
-        return timestamps.get(row);
+        return timestamps[checked(row)];
     }
 
     public double value(int row) {
-        return values.get(row);
+        return values[checked(row)];
     }
 
+    /** What the content holds, as counted against the run's memory cap: its arrays' capacity. */
     @Override
     public long size() {
-        return (long) timestamps.getBufferSize() + values.getBufferSize();
+        return (long) timestamps.length * ROW_BYTES;
     }
 
-    /** The batch itself, for reading only. */
-    public VectorSchemaRoot root() {
-        return root;
+    private int checked(int row) {
+        if (row < 0 || row >= rows) {
+            throw new IndexOutOfBoundsException("Row " + row + " of " + rows);
+        }
+        return row;
     }
 
     /**
-     * Fills an empty batch row by row. Processors get one from their session; the engine keeps the
-     * batch's memory accounted for whether or not {@link #build()} is ever reached.
+     * Fills a series row by row. Processors get one from their session; every byte it grows by is
+     * counted against the run's memory cap first, whether or not {@link #build()} is ever reached.
      */
     public static final class Builder {
-        private final VectorSchemaRoot root;
-        private final TimeStampMilliTZVector timestamps;
-        private final Float8Vector values;
+        private final LongConsumer memory;
+        private long[] timestamps;
+        private double[] values;
         private int rows;
-        private boolean built;
+        private TimeseriesContent built;
 
-        /** @param root an empty batch from {@link #newRoot(BufferAllocator)} */
-        public Builder(VectorSchemaRoot root, int expectedRows) {
-            if (!SCHEMA.equals(root.getSchema()) || root.getRowCount() != 0) {
-                throw new IllegalArgumentException("A timeseries builder needs an empty batch with "
-                        + "TimeseriesContent.SCHEMA");
-            }
-            this.root = root;
-            this.timestamps = (TimeStampMilliTZVector) root.getVector(TIMESTAMP);
-            this.values = (Float8Vector) root.getVector(VALUE);
-            timestamps.allocateNew(Math.max(expectedRows, 1));
-            values.allocateNew(Math.max(expectedRows, 1));
+        /**
+         * @param memory charged with the bytes of every allocation before it is made; throws when
+         *               the run's cap would be exceeded
+         */
+        public Builder(int expectedRows, LongConsumer memory) {
+            this.memory = memory;
+            int capacity = Math.max(expectedRows, 1);
+            memory.accept((long) capacity * ROW_BYTES);
+            this.timestamps = new long[capacity];
+            this.values = new double[capacity];
         }
 
         public Builder add(long timestampMillis, double value) {
-            if (built) {
-                throw new IllegalStateException("The batch is already built");
+            if (built != null) {
+                throw new IllegalStateException("The series is already built");
             }
-            timestamps.setSafe(rows, timestampMillis);
-            values.setSafe(rows, value);
+            if (rows == timestamps.length) {
+                int capacity = (int) Math.min(Integer.MAX_VALUE - 8, Math.max(16L, 2L * rows));
+                memory.accept((long) (capacity - rows) * ROW_BYTES);
+                timestamps = Arrays.copyOf(timestamps, capacity);
+                values = Arrays.copyOf(values, capacity);
+            }
+            timestamps[rows] = timestampMillis;
+            values[rows] = value;
             rows++;
             return this;
         }
@@ -120,13 +107,22 @@ public final class TimeseriesContent implements Content {
             return rows;
         }
 
+        /** The bytes charged to the run's cap so far. */
+        public long size() {
+            return (long) timestamps.length * ROW_BYTES;
+        }
+
+        /** The series built from this builder, or null before {@link #build()}. */
+        public TimeseriesContent built() {
+            return built;
+        }
+
         public TimeseriesContent build() {
-            if (built) {
-                throw new IllegalStateException("The batch is already built");
+            if (built != null) {
+                throw new IllegalStateException("The series is already built");
             }
-            built = true;
-            root.setRowCount(rows);
-            return new TimeseriesContent(root);
+            built = new TimeseriesContent(timestamps, values, rows);
+            return built;
         }
     }
 }

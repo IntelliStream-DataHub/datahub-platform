@@ -8,7 +8,6 @@ import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.tenant.TenantFeatures;
-import org.apache.arrow.memory.BufferAllocator;
 import org.apache.pulsar.client.admin.PulsarAdmin;
 import org.apache.pulsar.client.api.PulsarClient;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +20,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.util.unit.DataSize;
 import org.springframework.web.context.WebApplicationContext;
 
 import java.time.Instant;
@@ -44,7 +44,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @SpringBootTest(properties = {
         "spring.security.oauth2.resourceserver.jwt.issuer-uri=https://issuer.test/realms/datahub",
-        "datahub.flow.arrow.budget=768MB",
+        "datahub.flow.runs.memory-budget=512MB",
         // Only resolved, never called: the tenant registry that would use it is mocked.
         "vault.address=http://vault.test", "vault.role-id=test", "vault.secret-id=test",
         // Read by PulsarConfig, whose client and admin beans are mocked below.
@@ -62,7 +62,7 @@ class FlowServiceTest {
     private FilterRegistrationBean<?> tenantContextCleanupFilter;
 
     @Autowired
-    private BufferAllocator rootAllocator;
+    private DataSize runMemoryBudget;
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
@@ -162,7 +162,7 @@ class FlowServiceTest {
     }
 
     @Test
-    void theArrowBudgetIsTheRootAllocatorsLimit() {
-        assertThat(rootAllocator.getLimit()).isEqualTo(768L * 1024 * 1024);
+    void theRunMemoryBudgetIsTheConfiguredOne() {
+        assertThat(runMemoryBudget).isEqualTo(DataSize.ofMegabytes(512));
     }
 }

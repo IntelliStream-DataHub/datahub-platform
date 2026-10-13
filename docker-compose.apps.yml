@@ -193,12 +193,9 @@ services:
     depends_on: ["postgres", "clickhouse", "pulsar", "keycloak", "datahub-api"]
     environment:
       <<: *app-env
-      # Its own JVM settings, not the shared 128 MB of direct memory: runs hold their data in Arrow
-      # memory, which is direct memory. The service refuses to start unless its Arrow budget plus
-      # the Pulsar client's 512 MB plus headroom fits under MaxDirectMemorySize, and the budget
-      # must hold one run's default 512 MB cap; 2g fits the default 1GB budget. The last two flags
-      # are what Arrow needs on Java 25 (datahub-flow/build.gradle, arrowJvmFlags).
-      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx384m -XX:MaxDirectMemorySize=2g --add-opens=java.base/java.nio=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow"
+      # A bigger heap than the others: runs hold their data on it. The run memory budget is half
+      # the heap and must hold one run's default 512 MB cap, or the service refuses to start.
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1536m -XX:MaxDirectMemorySize=128m"
       # The console's Flows section calls this service from the browser.
       CORS_ALLOWED_ORIGINS: http://localhost:8080
       # Asked what a caller may do, and called as the caller.
