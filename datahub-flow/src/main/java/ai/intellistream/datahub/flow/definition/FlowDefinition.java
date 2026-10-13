@@ -48,7 +48,7 @@ public record FlowDefinition(Integer schemaVersion, String externalId, String da
      * One step.
      *
      * @param id         unique in the flow; connections and records refer to it
-     * @param type       the processor's catalog name, e.g. {@code timeseries.scale}
+     * @param type       the processor's catalog name, e.g. {@code scale}
      * @param properties property values by name, declared ones and dynamic ones together
      * @param retry      retries of a single invocation that throws, within the run
      * @param terminate  relationships whose items end here

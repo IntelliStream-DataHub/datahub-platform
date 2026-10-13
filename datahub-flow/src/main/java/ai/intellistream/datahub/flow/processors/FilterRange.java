@@ -17,15 +17,16 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 
 /**
- * {@code timeseries.filter.range}: splits a series' points by whether they lie in a range. Both
+ * {@code filter-range}: splits a series' points by whether they lie in a range. Both
  * sides keep the item's attributes; an empty side is not emitted.
  */
 @Component
 public class FilterRange implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.filter.range", "1.0.0")
+            .builder("filter-range", "1.0.0")
             .displayName("Filter by range")
+            .category(ProcessorDescriptor.Category.CLEAN)
             .description("Splits a series' points by whether they lie in a range.")
             .property(PropertyDescriptor.builder("min", PropertyType.NUMBER)
                     .displayName("Min").description("At least one of min, max.")

@@ -39,6 +39,7 @@ final class ProcessorSchema {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("name", descriptor.name());
         entry.put("displayName", descriptor.displayName());
+        entry.put("category", descriptor.category().wireName());
         entry.put("version", descriptor.version());
         entry.put("description", descriptor.description());
         entry.put("accepts", descriptor.accepts().stream().map(ContentKind::wireName).sorted().toList());

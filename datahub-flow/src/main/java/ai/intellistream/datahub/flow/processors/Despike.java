@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * {@code timeseries.despike}: finds spikes and removes or replaces them, leaving every other point
+ * {@code despike}: finds spikes and removes or replaces them, leaving every other point
  * untouched — a Hampel filter. A point is a spike when it is more than {@code threshold} × the
  * median absolute deviation away from the median of the {@code window} before it,
  * {@code [t − window, t)}, taken over the original values.
@@ -36,8 +36,9 @@ public class Despike implements Processor {
     private static final int MIN_HISTORY = 3;
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.despike", "1.0.0")
+            .builder("despike", "1.0.0")
             .displayName("Remove spikes")
+            .category(ProcessorDescriptor.Category.CLEAN)
             .description("Finds spikes (a Hampel filter) and removes or replaces them.")
             .property(PropertyDescriptor.builder("window", PropertyType.DURATION)
                     .displayName("Window").required().defaultValue("PT15M").build())

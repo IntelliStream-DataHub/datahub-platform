@@ -31,7 +31,7 @@ import java.util.Set;
  * <ul>
  *   <li>a fixed external id, {@code "temp_f"};</li>
  *   <li>one built from the series it is handed, {@code "${timeseries.externalId}_f"}, where the
- *       series are the fixed lists of the {@code timeseries.read} processors upstream of
+ *       series are the fixed lists of the {@code read-timeseries} processors upstream of
  *       the sink. Processors in between keep an item's {@code timeseries.externalId}.</li>
  * </ul>
  * Anything else — a parameter, another attribute, a source whose list is a reference — cannot be
@@ -41,8 +41,8 @@ import java.util.Set;
  */
 public final class DeclaredSeries {
 
-    static final String SINK = "timeseries.write";
-    static final String SOURCE = "timeseries.read";
+    static final String SINK = "write-timeseries";
+    static final String SOURCE = "read-timeseries";
     static final String EXTERNAL_ID = "timeseries.externalId";
 
     private DeclaredSeries() {

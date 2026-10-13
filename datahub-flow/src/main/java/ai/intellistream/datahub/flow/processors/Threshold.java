@@ -24,7 +24,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * {@code timeseries.threshold}: finds the periods a series is above (or below) a threshold and
+ * {@code threshold}: finds the periods a series is above (or below) a threshold and
  * produces them as an {@code events} item in lifecycle form — an {@code active} row when a period
  * starts and a {@code cleared} row when it ends, sharing an external id built from the series and
  * the period's start. The peak (or trough) and the threshold go in the rows' metadata.
@@ -45,8 +45,9 @@ import java.util.Map;
 public class Threshold implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.threshold", "1.0.0")
+            .builder("threshold", "1.0.0")
             .displayName("Threshold periods")
+            .category(ProcessorDescriptor.Category.DETECT)
             .description("Finds the periods a series is above or below a threshold, as event "
                     + "lifecycles.")
             .property(PropertyDescriptor.builder("threshold", PropertyType.NUMBER)

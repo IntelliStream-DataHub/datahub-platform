@@ -14,15 +14,16 @@ import ai.intellistream.datahub.flow.api.TimeseriesContent;
 import org.springframework.stereotype.Component;
 
 /**
- * {@code timeseries.scale}: {@code value × factor + offset} for every point. Covers unit
+ * {@code scale}: {@code value × factor + offset} for every point. Covers unit
  * conversion, adding or subtracting a constant, multiplying and dividing.
  */
 @Component
 public class Scale implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.scale", "1.0.0")
+            .builder("scale", "1.0.0")
             .displayName("Scale")
+            .category(ProcessorDescriptor.Category.TRANSFORM)
             .description("value × factor + offset for every point.")
             .property(PropertyDescriptor.builder("factor", PropertyType.NUMBER)
                     .displayName("Factor").references().defaultValue(1).build())

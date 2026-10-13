@@ -16,7 +16,7 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * {@code route.on.attribute}: routes whole items by the value of one attribute. Each dynamic
+ * {@code route-on-attribute}: routes whole items by the value of one attribute. Each dynamic
  * property names a relationship and the value that selects it; the first match in definition order
  * wins, and an item that matches none goes to {@code unmatched}.
  */
@@ -24,8 +24,9 @@ import java.util.Map;
 public class RouteOnAttribute implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("route.on.attribute", "1.0.0")
+            .builder("route-on-attribute", "1.0.0")
             .displayName("Route by attribute")
+            .category(ProcessorDescriptor.Category.ROUTE)
             .description("Routes whole items by the value of one attribute.")
             .property(PropertyDescriptor.builder("attribute", PropertyType.STRING)
                     .displayName("Attribute").description("The attribute to look at.")

@@ -19,7 +19,7 @@ import java.time.Duration;
 import java.util.List;
 
 /**
- * {@code timeseries.resample}: puts a series on a regular interval. The points in each bucket of
+ * {@code resample}: puts a series on a regular interval. The points in each bucket of
  * length {@code interval} become one point, timestamped at the bucket's start. Buckets are aligned
  * to whole intervals since the epoch (a {@code PT1H} bucket starts on the hour), so the same input
  * gives the same buckets in every run. A bucket with no points produces no point.
@@ -28,8 +28,9 @@ import java.util.List;
 public class Resample implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("timeseries.resample", "1.0.0")
+            .builder("resample", "1.0.0")
             .displayName("Resample")
+            .category(ProcessorDescriptor.Category.TRANSFORM)
             .description("Puts a series on a regular interval, one point per bucket.")
             .property(PropertyDescriptor.builder("interval", PropertyType.DURATION)
                     .displayName("Interval").required().defaultValue("PT1H").build())
