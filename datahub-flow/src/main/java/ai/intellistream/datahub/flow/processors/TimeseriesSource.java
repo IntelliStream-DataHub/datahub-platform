@@ -29,14 +29,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * {@code read-timeseries}: reads series over a window, one {@code timeseries} item per
- * series.
+ * {@code read-timeseries}: reads one series over a window as a {@code timeseries} item, or several
+ * when it has more than {@code maxPointsPerItem} points.
  *
  * <p>Reads through datahub-api's binary read, so a run never parses JSON: frames of Arrow batches in
  * the platform's canonical schema, which the SDK has already decompressed and checked, read here
@@ -55,10 +53,10 @@ public class TimeseriesSource implements Processor {
             .builder(TYPE, "1.0.0")
             .displayName("Read timeseries")
             .category(ProcessorDescriptor.Category.READ_WRITE)
-            .description("Reads series over a window from DataHub: one timeseries item per series.")
-            .property(PropertyDescriptor.builder("timeseries", PropertyType.LIST)
+            .description("Reads a series over a window from DataHub.")
+            .property(PropertyDescriptor.builder("timeseries", PropertyType.STRING)
                     .displayName("Timeseries")
-                    .description("External ids of the series to read.")
+                    .description("The series to read.")
                     .lookup("timeseries").required().build())
             .property(PropertyDescriptor.builder("from", PropertyType.INSTANT)
                     .displayName("From")
@@ -70,21 +68,21 @@ public class TimeseriesSource implements Processor {
                     .references().defaultValue("${run.window.end}").build())
             .property(PropertyDescriptor.builder("lookback", PropertyType.DURATION)
                     .displayName("Lookback")
-                    .description("Also read this much before from, as history for smoothing, spike "
-                            + "removal and alarms. Sinks write only from the window's start on.")
+                    .description("Also read this much before from, as history for alarms. Sinks "
+                            + "write only from the window's start on.")
                     .defaultValue("PT0S").build())
             .property(PropertyDescriptor.builder("maxPointsPerItem", PropertyType.NUMBER)
                     .displayName("Max points per item")
                     .description("A longer series is split into several items.")
                     .defaultValue(100_000).build())
             .property(PropertyDescriptor.builder("onMissing", PropertyType.ENUM)
-                    .displayName("When a series is missing")
-                    .description("What to do with a series that does not exist or that the run "
-                            + "may not read.")
+                    .displayName("When the series is missing")
+                    .description("What to do when the series does not exist or the run may not "
+                            + "read it.")
                     .allowableValues(new AllowableValue("fail", "Fail the run."),
-                            new AllowableValue("skip", "Skip the series and read the rest."))
+                            new AllowableValue("skip", "Read nothing."))
                     .defaultValue("fail").build())
-            .relationship(Relationship.of("success", "Each series read, or each part of one."))
+            .relationship(Relationship.of("success", "The series read, or each part of it."))
             .build();
 
     @Override
@@ -95,10 +93,6 @@ public class TimeseriesSource implements Processor {
     @Override
     public List<String> validate(PropertyValues properties) {
         List<String> problems = new ArrayList<>();
-        List<String> series = properties.property("timeseries").asList();
-        if (series != null && series.isEmpty()) {
-            problems.add("Name at least one series in timeseries.");
-        }
         Double max = Literal.number(properties.property("maxPointsPerItem"));
         if (max != null && max < 1) {
             problems.add("maxPointsPerItem must be at least 1.");
@@ -112,7 +106,7 @@ public class TimeseriesSource implements Processor {
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) {
-        List<String> series = context.property("timeseries").asList();
+        String externalId = context.property("timeseries").asString();
         Instant from = required(context.property("from").asInstant(), "from");
         Instant to = required(context.property("to").asInstant(), "to");
         if (!from.isBefore(to)) {
@@ -120,94 +114,66 @@ public class TimeseriesSource implements Processor {
         }
         Instant readFrom = from.minus(context.property("lookback").asDuration());
         int maxPoints = context.property("maxPointsPerItem").asDouble().intValue();
-        boolean skipMissing = "skip".equals(context.property("onMissing").asString());
 
-        Map<String, DatapointValueType> types = types(context, series, skipMissing);
-        Map<String, Series> read = read(context, types, readFrom, to);
-
-        for (String externalId : series) {
-            if (!types.containsKey(externalId)) {
-                continue;
+        if (type(context, externalId) == null) {
+            if (!"skip".equals(context.property("onMissing").asString())) {
+                throw new ProcessException("Series " + externalId + " does not exist, or the run "
+                        + "may not read it");
             }
-            Series s = read.getOrDefault(externalId, new Series());
-            Points points = s.dedupedByTimestamp();
-            String uri = TransitUris.timeseries(externalId, readFrom, to);
-            int parts = Math.max(1, (points.n + maxPoints - 1) / maxPoints);
-            for (int part = 0; part < parts; part++) {
-                int start = part * maxPoints;
-                int end = Math.min(points.n, start + maxPoints);
-                Item item = session.create();
-                item = session.putAllAttributes(item, Map.of(Points.EXTERNAL_ID, externalId,
-                        Points.WINDOW_START, from.toString(), Points.WINDOW_END, to.toString()));
-                item = session.write(item, new Points(Arrays.copyOfRange(points.t, start, end),
-                        Arrays.copyOfRange(points.v, start, end), end - start).write(session));
-                session.receive(item, uri);
-                session.transfer(item, "success");
-            }
+            context.log().warn("Skipped series " + externalId + ": it does not exist, or the run "
+                    + "may not read it");
+            return;
+        }
+        Points points = read(context, externalId, readFrom, to).dedupedByTimestamp();
+        String uri = TransitUris.timeseries(externalId, readFrom, to);
+        int parts = Math.max(1, (points.n + maxPoints - 1) / maxPoints);
+        for (int part = 0; part < parts; part++) {
+            int start = part * maxPoints;
+            int end = Math.min(points.n, start + maxPoints);
+            Item item = session.create();
+            item = session.putAllAttributes(item, Map.of(Points.EXTERNAL_ID, externalId,
+                    Points.WINDOW_START, from.toString(), Points.WINDOW_END, to.toString()));
+            item = session.write(item, new Points(Arrays.copyOfRange(points.t, start, end),
+                    Arrays.copyOfRange(points.v, start, end), end - start).write(session));
+            session.receive(item, uri);
+            session.transfer(item, "success");
         }
     }
 
     /**
-     * The value type of every series the run may read, in the order asked. A series that does not
-     * exist and one the run may not read look the same: the api answers neither.
+     * The series' value type; null when it does not exist or the run may not read it, which look
+     * the same: the api answers neither.
      */
-    private static Map<String, DatapointValueType> types(ProcessContext context, List<String> series,
-                                                         boolean skipMissing) {
-        List<IdCollection> ids = series.stream().map(IdCollection::createFromExternalId).toList();
+    private static DatapointValueType type(ProcessContext context, String externalId) {
         List<Timeseries> found;
         try {
-            found = context.datahub().timeseries().byIds(ids).getItems();
+            found = context.datahub().timeseries()
+                    .byIds(List.of(IdCollection.createFromExternalId(externalId))).getItems();
         } catch (DatahubApiException e) {
             throw new ProcessException("Could not look up the series: " + e.getMessage(), e);
         }
-        Map<String, DatapointValueType> byExternalId = new HashMap<>();
-        for (Timeseries ts : found == null ? List.<Timeseries>of() : found) {
-            byExternalId.put(ts.getExternalId(), DatapointValueType.fromName(ts.getValueType()));
+        Timeseries ts = found == null ? null : found.stream()
+                .filter(t -> externalId.equals(t.getExternalId())).findFirst().orElse(null);
+        if (ts == null) {
+            return null;
         }
-        Map<String, DatapointValueType> types = new LinkedHashMap<>();
-        List<String> missing = new ArrayList<>();
-        for (String externalId : series) {
-            DatapointValueType type = byExternalId.get(externalId);
-            if (type == null) {
-                missing.add(externalId);
-            } else if (type == DatapointValueType.TEXT || type == DatapointValueType.MIXED) {
-                throw new ProcessException("Series " + externalId + " holds " + type.name()
-                        .toLowerCase() + " values; flows read numeric series only");
-            } else {
-                types.put(externalId, type);
-            }
+        DatapointValueType type = DatapointValueType.fromName(ts.getValueType());
+        if (type == DatapointValueType.TEXT || type == DatapointValueType.MIXED) {
+            throw new ProcessException("Series " + externalId + " holds " + type.name()
+                    .toLowerCase() + " values; flows read numeric series only");
         }
-        if (!missing.isEmpty()) {
-            String names = String.join(", ", missing);
-            if (!skipMissing) {
-                throw new ProcessException("These series do not exist, or the run may not read "
-                        + "them: " + names);
-            }
-            context.log().warn("Skipped series that do not exist or that the run may not read: "
-                    + names);
-        }
-        return types;
+        return type;
     }
 
-    /** Every point of every series in {@code [from, to)}, by external id. */
-    private static Map<String, Series> read(ProcessContext context,
-                                            Map<String, DatapointValueType> types, Instant from,
-                                            Instant to) {
-        Map<String, Series> out = new HashMap<>();
-        if (types.isEmpty()) {
-            return out;
-        }
-        List<RetrieveFilter> items = new ArrayList<>();
-        for (String externalId : types.keySet()) {
-            RetrieveFilter filter = new RetrieveFilter();
-            filter.setExternalId(externalId);
-            filter.setStart(from.atZone(ZoneOffset.UTC));
-            filter.setEnd(to.atZone(ZoneOffset.UTC));
-            items.add(filter);
-        }
+    /** Every point of the series in {@code [from, to)}. */
+    private static Series read(ProcessContext context, String externalId, Instant from, Instant to) {
+        RetrieveFilter filter = new RetrieveFilter();
+        filter.setExternalId(externalId);
+        filter.setStart(from.atZone(ZoneOffset.UTC));
+        filter.setEnd(to.atZone(ZoneOffset.UTC));
         DataRetriever<RetrieveFilter> request = new DataRetriever<>();
-        request.setItems(items);
-        // Missing series were found by the lookup; one deleted since must not fail the read.
+        request.setItems(List.of(filter));
+        // The series was found by the lookup; one deleted since must not fail the read.
         request.setIgnoreUnknownIds(true);
 
         List<DatapointFrame> frames;
@@ -216,23 +182,17 @@ public class TimeseriesSource implements Processor {
         } catch (DatahubApiException e) {
             throw new ProcessException("Could not read the series: " + e.getMessage(), e);
         }
+        Series out = new Series();
         for (DatapointFrame frame : frames) {
             if (frame.aggregates()) {
                 throw new ProcessException("Frame " + frame.index() + " holds aggregates, not points");
             }
-            Map<Long, String> names = new HashMap<>();
-            for (int i = 0; i < frame.seriesCount(); i++) {
-                names.put(frame.seriesIds()[i], frame.externalIds()[i]);
-            }
             DatapointValueType type = frame.valueType();
             for (Batch batch : frame.batches()) {
-                ColumnView ids = batch.columns()[0];
                 ColumnView timestamps = batch.columns()[1];
                 ColumnView values = batch.columns()[2];
                 for (int r = 0; r < batch.rows(); r++) {
-                    String externalId = names.get(ids.data().getLong(r * 8));
-                    out.computeIfAbsent(externalId, k -> new Series())
-                            .add(timestamps.data().getLong(r * 8), value(type, values, r));
+                    out.add(timestamps.data().getLong(r * 8), value(type, values, r));
                 }
             }
         }

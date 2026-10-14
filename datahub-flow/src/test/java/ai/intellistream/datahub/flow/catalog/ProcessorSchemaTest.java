@@ -46,8 +46,7 @@ class ProcessorSchemaTest {
         assertThat(JSON.convertValue(schema.get("required"), List.class)).containsExactly("timeseries");
 
         JsonNode p = schema.get("properties");
-        assertThat(p.get("timeseries").get("type").stringValue()).isEqualTo("array");
-        assertThat(p.get("timeseries").get("items").get("type").stringValue()).isEqualTo("string");
+        assertThat(p.get("timeseries").get("type").stringValue()).isEqualTo("string");
         assertThat(p.get("lookback").get("format").stringValue()).isEqualTo("duration");
         assertThat(p.get("lookback").get("default").stringValue()).isEqualTo("PT0S");
         assertThat(p.get("maxPointsPerItem").get("default").intValue()).isEqualTo(100_000);

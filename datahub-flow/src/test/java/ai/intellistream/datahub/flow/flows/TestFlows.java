@@ -23,7 +23,7 @@ public final class TestFlows {
               "parameters": { "limit": { "type": "number", "default": 140 } },
               "processors": [
                 { "id": "src",  "type": "read-timeseries",
-                  "properties": { "timeseries": ["ts_out_temp", "ts_in_temp"] } },
+                  "properties": { "timeseries": "ts_out_temp" } },
                 { "id": "f",    "type": "clip",
                   "properties": { "min": -60, "max": 60 } },
                 { "id": "out",  "type": "write-timeseries",
@@ -33,10 +33,13 @@ public final class TestFlows {
                   "properties": { "threshold": "${parameters.limit}", "minDuration": "PT5M" },
                   "terminate": ["success"] },
                 { "id": "ev",   "type": "write-events",
-                  "properties": { "type": "temperature", "subType": "over-limit" } }
+                  "properties": { "type": "temperature", "subType": "over-limit" } },
+                { "id": "src2", "type": "read-timeseries",
+                  "properties": { "timeseries": "ts_in_temp" } }
               ],
               "connections": [
                 { "from": "src",  "relationship": "success", "to": "f" },
+                { "from": "src2", "relationship": "success", "to": "f" },
                 { "from": "f",    "relationship": "success", "to": "out" },
                 { "from": "f",    "relationship": "success", "to": "over" },
                 { "from": "over", "relationship": "alarms",  "to": "ev" }

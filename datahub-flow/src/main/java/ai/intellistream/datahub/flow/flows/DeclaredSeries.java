@@ -31,7 +31,7 @@ import java.util.Set;
  * <ul>
  *   <li>a fixed external id, {@code "temp_f"};</li>
  *   <li>one built from the series it is handed, {@code "${timeseries.externalId}_f"}, where the
- *       series are the fixed lists of the {@code read-timeseries} processors upstream of
+ *       series are those of the {@code read-timeseries} processors upstream of
  *       the sink. Processors in between keep an item's {@code timeseries.externalId}.</li>
  * </ul>
  * Anything else — a parameter, another attribute, a source whose list is a reference — cannot be
@@ -175,13 +175,14 @@ public final class DeclaredSeries {
                 continue;
             }
             anySource = true;
-            JsonNode list = spec.properties().get("timeseries");
-            if (list == null || !list.isArray() || !fixed(list)) {
+            JsonNode read = spec.properties().get("timeseries");
+            if (read == null || !read.isString() || Template.mayReference(read.asString())) {
                 problems.add(new ValidationProblem("#/processors/" + i + "/properties/timeseries",
-                        "Must be a fixed list of series: a sink downstream creates series from it."));
+                        "Must name a series, not a reference: a sink downstream creates series "
+                                + "from it."));
                 return null;
             }
-            list.forEach(node -> series.add(node.asString()));
+            series.add(read.asString());
         }
         if (!anySource) {
             problems.add(new ValidationProblem(pointer, "With create, ${" + EXTERNAL_ID + "} needs a "
@@ -189,15 +190,6 @@ public final class DeclaredSeries {
             return null;
         }
         return List.copyOf(series);
-    }
-
-    private static boolean fixed(JsonNode list) {
-        for (JsonNode node : list) {
-            if (!node.isString() || Template.mayReference(node.asString())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static String render(Template template, String externalId) {

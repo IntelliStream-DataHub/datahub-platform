@@ -13,6 +13,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -62,7 +63,7 @@ class DatahubProcessorsTest {
                 .put(T0 + MINUTE, 4)             // written twice, not merged: the last one wins
                 .put(T0 + 60 * MINUTE, 5);       // the window's end is exclusive
 
-        RunResult result = read("{ \"timeseries\": [\"ts1\"], \"lookback\": \"PT15M\" }");
+        RunResult result = read("{ \"timeseries\": \"ts1\", \"lookback\": \"PT15M\" }");
 
         assertThat(result.error()).isNull();
         Captured item = h.at("out").getFirst();
@@ -83,18 +84,21 @@ class DatahubProcessorsTest {
         api.add("dec", DatapointValueType.DECIMAL32).put(T0, -3.5);
         api.add("f32", DatapointValueType.FLOAT32).put(T0, 0.5);
 
-        read("{ \"timeseries\": [\"big\", \"num\", \"dec\", \"f32\"] }");
+        Map<String, Double> read = new LinkedHashMap<>();
+        for (String series : List.of("big", "num", "dec", "f32")) {
+            read("{ \"timeseries\": \"" + series + "\" }");
+            read.put(h.at("out").getLast().attribute(Points.EXTERNAL_ID), h.at("out").getLast().v()[0]);
+        }
 
-        assertThat(h.at("out")).extracting(c -> c.attribute(Points.EXTERNAL_ID))
-                .containsExactly("big", "num", "dec", "f32");
-        assertThat(h.at("out")).extracting(c -> c.v()[0]).containsExactly(7.0, 1.25, -3.5, 0.5);
+        assertThat(read).containsExactly(Map.entry("big", 7.0), Map.entry("num", 1.25),
+                Map.entry("dec", -3.5), Map.entry("f32", 0.5));
     }
 
     @Test
     void aSeriesWithNoPointsInTheWindowIsAnEmptyItem() {
         api.add("quiet", DatapointValueType.FLOAT).put(T0 - 90 * MINUTE, 1);
 
-        read("{ \"timeseries\": [\"quiet\"] }");
+        read("{ \"timeseries\": \"quiet\" }");
 
         assertThat(h.at("out")).hasSize(1);
         assertThat(h.at("out").getFirst().t()).isEmpty();
@@ -107,7 +111,7 @@ class DatahubProcessorsTest {
             s.put(T0 + i * MINUTE, i);
         }
 
-        read("{ \"timeseries\": [\"ts1\"], \"maxPointsPerItem\": 2 }");
+        read("{ \"timeseries\": \"ts1\", \"maxPointsPerItem\": 2 }");
 
         assertThat(h.at("out")).extracting(c -> c.t().length).containsExactly(2, 2, 1);
         assertThat(h.at("out").get(2).v()).containsExactly(4);
@@ -117,7 +121,7 @@ class DatahubProcessorsTest {
     void aMissingSeriesFailsTheRunByDefault() {
         api.add("ts1", DatapointValueType.FLOAT).put(T0, 1);
 
-        RunResult result = read("{ \"timeseries\": [\"ts1\", \"gone\"] }");
+        RunResult result = read("{ \"timeseries\": \"gone\" }");
 
         assertThat(result.errorCode()).isEqualTo(RunResult.PROCESSOR_FAILED);
         assertThat(result.error()).contains("gone");
@@ -128,10 +132,10 @@ class DatahubProcessorsTest {
     void aMissingSeriesCanBeSkipped() {
         api.add("ts1", DatapointValueType.FLOAT).put(T0, 1);
 
-        RunResult result = read("{ \"timeseries\": [\"gone\", \"ts1\"], \"onMissing\": \"skip\" }");
+        RunResult result = read("{ \"timeseries\": \"gone\", \"onMissing\": \"skip\" }");
 
         assertThat(result.error()).isNull();
-        assertThat(h.at("out")).extracting(c -> c.attribute(Points.EXTERNAL_ID)).containsExactly("ts1");
+        assertThat(h.at("out")).isEmpty();
         assertThat(result.log()).anySatisfy(l -> assertThat(l.message()).contains("gone"));
     }
 
@@ -139,7 +143,7 @@ class DatahubProcessorsTest {
     void aTextSeriesFailsClearly() {
         api.add("words", DatapointValueType.TEXT);
 
-        RunResult result = read("{ \"timeseries\": [\"words\"] }");
+        RunResult result = read("{ \"timeseries\": \"words\" }");
 
         assertThat(result.errorCode()).isEqualTo(RunResult.PROCESSOR_FAILED);
         assertThat(result.error()).contains("words").contains("numeric series only");
@@ -406,7 +410,7 @@ class DatahubProcessorsTest {
 
         RunResult result = h.flow("""
                 { "id": "src", "type": "read-timeseries",
-                  "properties": { "timeseries": ["ts_out_temp"] } },
+                  "properties": { "timeseries": "ts_out_temp" } },
                 { "id": "f", "type": "clip", "properties": { "min": 0, "max": 60 } },
                 { "id": "out", "type": "write-timeseries",
                   "properties": { "target": "${timeseries.externalId}_f" } },
