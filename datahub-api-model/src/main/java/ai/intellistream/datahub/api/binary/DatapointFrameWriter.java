@@ -190,7 +190,10 @@ public final class DatapointFrameWriter {
         return clamped;
     }
 
-    /** Uncompressed payload bytes this frame would need, for chunking before {@link #build}. */
+    /**
+     * The raw length this frame would declare, its record batch body with every buffer
+     * uncompressed, for chunking before {@link #build}.
+     */
     public long estimatedRawBytes() {
         long perRow = switch (type) {
             case BIGINT, FLOAT -> 24;
@@ -200,23 +203,23 @@ public final class DatapointFrameWriter {
             case MIXED -> 28;
         };
         long bitmaps = type == DatapointValueType.MIXED ? 2L * ((size + 7) / 8) : 0;
-        // Schema message, record batch message, end-of-stream, one row of padding per buffer, the
-        // extra Utf8 offset, then the rows.
-        long fixed = canon.schemaMessageLength() + 256 + 8 + 8L * canon.bufferCount() + 8;
-        return fixed + perRow * size + textBytes + bitmaps;
+        // One row of padding per buffer, the extra Utf8 offset, then the rows.
+        return 8L * canon.bufferCount() + 8 + perRow * size + textBytes + bitmaps;
     }
 
     /**
      * Bytes the frame would take as sent, for chunking before {@link #build}: the envelope, a
-     * directory of every series named so far, and the payload as if it did not compress at all.
+     * directory of every series named so far, the schema and record batch messages, the
+     * end-of-stream marker, and the body as if it did not compress at all.
      */
     public long estimatedFrameBytes() {
-        return FrameLimits.HEADER_BYTES + directoryBytes + estimatedRawBytes();
+        return FrameLimits.HEADER_BYTES + directoryBytes + canon.schemaMessageLength() + 256 + 8 + estimatedRawBytes();
     }
 
     /**
      * Sorts by (id, timestamp), keeps the last value for a repeated pair, checks the caps, writes the
-     * Arrow stream, compresses it and returns the complete frame.
+     * Arrow stream with every buffer compressed in-band by {@code codec} and returns the complete
+     * frame: {@link FrameLimits#COMPRESSION_ARROW_ZSTD}, the form a binary read answers with.
      */
     public byte[] build(PayloadCodec codec) {
         if (size == 0) {
@@ -243,12 +246,13 @@ public final class DatapointFrameWriter {
             directoryLength += 8 + Varint.size(externalIds[i].length) + externalIds[i].length;
         }
 
-        byte[] raw = ArrowIpc.writeStream(canon, List.of(new BatchData(n, columns(order, n))));
-        if (raw.length > FrameLimits.MAX_FRAME_RAW_BYTES) {
-            throw new IllegalStateException("frame payload is " + raw.length + " bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES + "; split it");
+        ByteArrayOutputStream payload = new ByteArrayOutputStream();
+        long rawBytes = ArrowIpc.writeStream(canon, List.of(new BatchData(n, columns(order, n))), payload, codec);
+        if (rawBytes > FrameLimits.MAX_FRAME_RAW_BYTES) {
+            throw new IllegalStateException("frame buffers are " + rawBytes + " bytes, the cap is " + FrameLimits.MAX_FRAME_RAW_BYTES + "; split it");
         }
-        return assemble(type, FrameLimits.CODEC_ARROW_IPC, FrameLimits.COMPRESSION_ZSTD, n, directoryIds, externalIds, directoryLength,
-                codec.compress(raw), raw.length);
+        return assemble(type, FrameLimits.CODEC_ARROW_IPC, FrameLimits.COMPRESSION_ARROW_ZSTD, n, directoryIds, externalIds, directoryLength,
+                payload.toByteArray(), (int) rawBytes);
     }
 
     /**

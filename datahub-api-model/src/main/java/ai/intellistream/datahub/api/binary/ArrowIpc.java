@@ -205,17 +205,11 @@ public final class ArrowIpc {
         return out.array();
     }
 
-    /** Writes one stream: the canon's schema, the batches in order, the end-of-stream marker. */
-    public static byte[] writeStream(ArrowSchemaCanon canon, List<BatchData> batches) {
-        return writeStream(canon, batches, null);
-    }
-
     /**
-     * As {@link #writeStream(ArrowSchemaCanon, List)}, every record batch compressing its buffers
-     * in-band with {@code inBand} when one is given: the payload of a
-     * {@link FrameLimits#COMPRESSION_ARROW_ZSTD} frame.
+     * Writes one stream with its buffers uncompressed: the canon's schema, the batches in order,
+     * the end-of-stream marker.
      */
-    public static byte[] writeStream(ArrowSchemaCanon canon, List<BatchData> batches, PayloadCodec inBand) {
+    public static byte[] writeStream(ArrowSchemaCanon canon, List<BatchData> batches) {
         int estimate = canon.schemaMessageLength() + 8;
         for (BatchData batch : batches) {
             estimate += 256;
@@ -226,12 +220,24 @@ public final class ArrowIpc {
             }
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream(estimate);
+        writeStream(canon, batches, out, null);
+        return out.toByteArray();
+    }
+
+    /**
+     * Writes one stream to {@code out}: the canon's schema, the batches in order, every record
+     * batch compressing its buffers in-band when {@code inBand} is given, the end-of-stream
+     * marker. Returns the bodies' length with every buffer uncompressed: a
+     * {@link FrameLimits#COMPRESSION_ARROW_ZSTD} frame's raw length.
+     */
+    static long writeStream(ArrowSchemaCanon canon, List<BatchData> batches, ByteArrayOutputStream out, PayloadCodec inBand) {
         canon.writeSchemaMessage(out);
+        long raw = 0;
         for (BatchData batch : batches) {
-            writeBatch(canon, batch, out, inBand);
+            raw += writeBatch(canon, batch, out, inBand);
         }
         out.write(END_OF_STREAM, 0, END_OF_STREAM.length);
-        return out.toByteArray();
+        return raw;
     }
 
     /**

@@ -31,6 +31,13 @@ class DatapointFrameResponseTest {
 
     static final PayloadCodec ZSTD = new ZstdPayloadCodec(1);
 
+    /** A stream with every record batch compressed in-band, as ClickHouse answers the read's query. */
+    private static byte[] inBand(ArrowSchemaCanon canon, List<BatchData> batches) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ArrowIpc.writeStream(canon, batches, out, ZSTD);
+        return out.toByteArray();
+    }
+
     private static ByteBuffer longs(long... values) {
         ByteBuffer b = ByteBuffer.allocate(values.length * 8).order(ByteOrder.LITTLE_ENDIAN);
         for (long v : values) b.putLong(v);
@@ -53,7 +60,7 @@ class DatapointFrameResponseTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
             DatapointFrameWriter.relayStream(type, aggregates, id, externalId,
-                    new ByteArrayInputStream(ArrowIpc.writeStream(canon, batches, ZSTD)), ZSTD, out);
+                    new ByteArrayInputStream(inBand(canon, batches)), ZSTD, out);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }

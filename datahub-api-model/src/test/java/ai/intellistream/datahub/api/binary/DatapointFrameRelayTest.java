@@ -61,6 +61,13 @@ class DatapointFrameRelayTest {
                 new ColumnData(null, 0, null, ids), new ColumnData(null, 0, null, timestamps), new ColumnData(null, 0, null, values)});
     }
 
+    /** A stream with every record batch compressed in-band, as ClickHouse answers the read's query. */
+    private static byte[] inBand(ArrowSchemaCanon canon, List<BatchData> batches) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ArrowIpc.writeStream(canon, batches, out, ZSTD);
+        return out.toByteArray();
+    }
+
     /** The frames the relay writes for {@code stream}, with the end marker a response carries. */
     private static byte[] relay(DatapointValueType type, boolean aggregates, long id, byte[] stream) throws IOException {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
@@ -95,7 +102,7 @@ class DatapointFrameRelayTest {
     @Test
     void wholeBatchesAreRelayedAsTheyCame() throws Exception {
         ArrowSchemaCanon canon = ArrowSchemaCanon.of(DatapointValueType.TEXT);
-        byte[] stream = ArrowIpc.writeStream(canon, List.of(textBatch(7, 0, 3000), textBatch(7, 3000, 3000), textBatch(7, 6000, 3000)), ZSTD);
+        byte[] stream = inBand(canon, List.of(textBatch(7, 0, 3000), textBatch(7, 3000, 3000), textBatch(7, 6000, 3000)));
         List<DatapointFrame> frames = DatapointFrame.parseResponse(relay(DatapointValueType.TEXT, false, 7, stream), ZSTD);
 
         assertEquals(1, frames.size());
@@ -118,7 +125,7 @@ class DatapointFrameRelayTest {
     @Test
     void batchesArePackedUpToTheCapAndNeverCut() throws Exception {
         ArrowSchemaCanon canon = ArrowSchemaCanon.of(DatapointValueType.FLOAT);
-        byte[] stream = ArrowIpc.writeStream(canon, List.of(floatBatch(1, 0, 40_000), floatBatch(1, 40_000, 40_000), floatBatch(1, 80_000, 40_000)), ZSTD);
+        byte[] stream = inBand(canon, List.of(floatBatch(1, 0, 40_000), floatBatch(1, 40_000, 40_000), floatBatch(1, 80_000, 40_000)));
         List<DatapointFrame> frames = DatapointFrame.parseResponse(relay(DatapointValueType.FLOAT, false, 1, stream), ZSTD);
 
         assertEquals(List.of(80_000, 40_000), frames.stream().map(DatapointFrame::rowCount).toList());
@@ -133,7 +140,7 @@ class DatapointFrameRelayTest {
         // 20 005 rows in one batch, then 5 000 in another: two full frames, and the 5-row tail
         // of the cut shares its frame with the whole batch that follows.
         ArrowSchemaCanon canon = ArrowSchemaCanon.of(DatapointValueType.TEXT);
-        byte[] stream = ArrowIpc.writeStream(canon, List.of(textBatch(7, 0, 20_005), textBatch(7, 20_005, 5_000)), ZSTD);
+        byte[] stream = inBand(canon, List.of(textBatch(7, 0, 20_005), textBatch(7, 20_005, 5_000)));
         List<DatapointFrame> frames = DatapointFrame.parseResponse(relay(DatapointValueType.TEXT, false, 7, stream), ZSTD);
 
         assertEquals(List.of(10_000, 10_000, 5_005), frames.stream().map(DatapointFrame::rowCount).toList());
@@ -163,7 +170,7 @@ class DatapointFrameRelayTest {
     void aSchemaAloneWritesNoFrame() throws Exception {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         DatapointFrameWriter.relayStream(DatapointValueType.FLOAT, false, 1, "s1",
-                new ByteArrayInputStream(ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT), List.of(), ZSTD)), ZSTD, body);
+                new ByteArrayInputStream(inBand(ArrowSchemaCanon.of(DatapointValueType.FLOAT), List.of())), ZSTD, body);
         assertEquals(0, body.size());
     }
 
@@ -183,7 +190,7 @@ class DatapointFrameRelayTest {
                 new ColumnData(null, 0, null, ids), new ColumnData(null, 0, null, buckets),
                 new ColumnData(null, 0, null, stats[0]), new ColumnData(null, 0, null, stats[1]),
                 new ColumnData(null, 0, null, stats[2]), new ColumnData(null, 0, null, stats[3])});
-        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.aggregates(), List.of(batch), ZSTD);
+        byte[] stream = inBand(ArrowSchemaCanon.aggregates(), List.of(batch));
         DatapointFrame frame = DatapointFrame.parseResponse(relay(DatapointValueType.FLOAT, true, 4, stream), ZSTD).get(0);
         assertTrue(frame.aggregates());
         assertEquals(7_200_000, frame.timestamp(2));
@@ -196,7 +203,7 @@ class DatapointFrameRelayTest {
     @Test
     void aReadsFramesAreAnIngestBody() throws Exception {
         // The response as a read answers it, end marker included, posted back as it is.
-        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT), List.of(floatBatch(1, 0, 10)), ZSTD);
+        byte[] stream = inBand(ArrowSchemaCanon.of(DatapointValueType.FLOAT), List.of(floatBatch(1, 0, 10)));
         byte[] response = relay(DatapointValueType.FLOAT, false, 1, stream);
         List<DatapointFrame> ingested = DatapointFrame.parseAll(response, ZSTD);
         assertEquals(1, ingested.size());
@@ -219,7 +226,7 @@ class DatapointFrameRelayTest {
 
         BatchData sliced = batch.slice(ArrowSchemaCanon.of(DatapointValueType.MIXED), 3, 11);
         DatapointFrame part = DatapointFrame.parseAll(
-                relay(DatapointValueType.MIXED, false, 9, ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.MIXED), List.of(sliced), ZSTD)), ZSTD).get(0);
+                relay(DatapointValueType.MIXED, false, 9, inBand(ArrowSchemaCanon.of(DatapointValueType.MIXED), List.of(sliced))), ZSTD).get(0);
         assertEquals(8, part.rowCount());
         for (int r = 0; r < 8; r++) {
             assertEquals(whole.timestamp(3 + r), part.timestamp(r), "row " + r);
@@ -237,7 +244,7 @@ class DatapointFrameRelayTest {
         DatapointFrame whole = DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0);
         BatchData sliced = whole.batches().get(0).slice(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), 1, 4);
         DatapointFrame part = DatapointFrame.parseAll(
-                relay(DatapointValueType.FLOAT32, false, 5, ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), List.of(sliced), ZSTD)), ZSTD).get(0);
+                relay(DatapointValueType.FLOAT32, false, 5, inBand(ArrowSchemaCanon.of(DatapointValueType.FLOAT32), List.of(sliced))), ZSTD).get(0);
         assertEquals(3, part.rowCount());
         for (int r = 0; r < 3; r++) {
             assertEquals(whole.valueAsString(1 + r), part.valueAsString(r), "row " + r);

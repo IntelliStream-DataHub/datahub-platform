@@ -64,7 +64,7 @@ public class DatapointBinaryController {
                     Every frame in the request is validated before any is published, so a rejected request
                     inserts nothing and can be retried as a whole. Compression is mandatory, either of the
                     whole payload (compression `1`) or of each Arrow buffer in-band (compression `2`, what
-                    a read answers with): a frame that declares none is refused, and no body-level
+                    a read answers with and the Java SDK sends): a frame that declares none is refused, and no body-level
                     `Content-Encoding` is accepted. The answer to `POST /timeseries/data/list/binary` is
                     a valid body as it is, end marker included, as long as it holds no aggregate frame
                     and stays under the caps below; a longer answer is split at frame boundaries.

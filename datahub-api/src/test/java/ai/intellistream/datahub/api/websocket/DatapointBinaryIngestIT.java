@@ -121,7 +121,7 @@ class DatapointBinaryIngestIT extends AbstractPulsarWebSocketIT {
         assertThat(m1.getProperty("tenantId")).isEqualTo(TENANT);
         assertThat(m1.getProperty("valueTypeId")).isEqualTo("7");
         assertThat(m2.getProperty("valueTypeId")).isEqualTo("4");
-        assertThat(m1.getProperty("compression")).isEqualTo("1");
+        assertThat(m1.getProperty("compression")).isEqualTo("2");
         // What arrived is still a valid, still compressed frame.
         DatapointFrame frame = DatapointFrame.parseAll(m1.getData(), new ZstdPayloadCodec()).get(0);
         assertThat(frame.valueAsString(0)).isEqualTo("1.5");

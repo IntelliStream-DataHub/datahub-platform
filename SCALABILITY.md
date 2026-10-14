@@ -115,7 +115,7 @@ removed; datapoints now flow through the shared partitioned topic.
 `POST /timeseries/data/binary` exists to move this document's first limit, the api parsing every
 value, off the api and onto the client. The client resolves each series once, checks and sorts the
 values, writes them as Arrow IPC frames in the schema the ClickHouse table wants, compresses each
-frame with zstd, and posts them; the api validates a frame and forwards its bytes. Arrow IPC
+Arrow buffer with zstd in-band, and posts them; the api validates a frame and forwards its bytes. Arrow IPC
 rather than ClickHouse Native because the two parse at the same speed on these tables once frames
 hold a thousand points, so the tie went to the format that also suits reads and that any
 Arrow-capable tool can produce. `FrameLimits` and `ArrowSchemaCanon` in `datahub-api-model` are

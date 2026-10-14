@@ -38,6 +38,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ArrowIpcInBandTest {
 
     private static final PayloadCodec ZSTD = new ZstdPayloadCodec(1);
+
+    /** A stream with every record batch compressed in-band, as ClickHouse answers the read's query. */
+    private static byte[] inBand(ArrowSchemaCanon canon, List<BatchData> batches) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        ArrowIpc.writeStream(canon, batches, out, ZSTD);
+        return out.toByteArray();
+    }
     /** Compresses nothing, so the writer stores every buffer as it is behind a -1 prefix. */
     private static final PayloadCodec NONE = new PayloadCodec() {
         @Override
@@ -93,7 +100,7 @@ class ArrowIpcInBandTest {
     void buffersCompressedInBandReadBackAsWritten() throws IOException {
         List<BatchData> batches = mixedBatches(3000);
         byte[] plain = ArrowIpc.writeStream(MIXED, batches);
-        byte[] inBand = ArrowIpc.writeStream(MIXED, batches, ZSTD);
+        byte[] inBand = inBand(MIXED, batches);
         assertTrue(inBand.length < plain.length / 2, inBand.length + " bytes in-band against " + plain.length);
 
         long rawLength = rawBodyBytes(MIXED, plain, null);
@@ -105,7 +112,9 @@ class ArrowIpcInBandTest {
     @Test
     void aBufferStoredBehindAMinusOnePrefixIsTakenAsItIs() throws IOException {
         List<BatchData> batches = mixedBatches(50);
-        byte[] stream = ArrowIpc.writeStream(MIXED, batches, NONE);
+        ByteArrayOutputStream stored = new ByteArrayOutputStream();
+        ArrowIpc.writeStream(MIXED, batches, stored, NONE);
+        byte[] stream = stored.toByteArray();
         // The first non-empty buffer of the first batch starts with the -1 prefix.
         ArrowIpc.StreamReader reader = new ArrowIpc.StreamReader(MIXED, new ByteArrayInputStream(stream), 0, 100, 1 << 20, NONE);
         RawBatch raw = reader.nextRaw();
@@ -123,7 +132,7 @@ class ArrowIpcInBandTest {
 
     @Test
     void aWholePayloadStreamMustNotCarryInBandCompression() {
-        byte[] inBand = ArrowIpc.writeStream(MIXED, mixedBatches(5), ZSTD);
+        byte[] inBand = inBand(MIXED, mixedBatches(5));
         FrameFormatException e = assertThrows(FrameFormatException.class, () -> ArrowIpc.readStream(MIXED, inBand, 0, 100));
         assertEquals(Reason.PAYLOAD_INVALID, e.reason());
         assertTrue(e.getMessage().contains("must not be compressed"), e.getMessage());
@@ -139,7 +148,7 @@ class ArrowIpcInBandTest {
 
     @Test
     void theRawLengthMustBeWhatTheBuffersDecompressTo() throws IOException {
-        byte[] inBand = ArrowIpc.writeStream(MIXED, mixedBatches(5), ZSTD);
+        byte[] inBand = inBand(MIXED, mixedBatches(5));
         int rawLength = (int) rawBodyBytes(MIXED, inBand, ZSTD);
         assertEquals(5, ArrowIpc.readCompressedStream(MIXED, inBand, 0, 100, ZSTD, rawLength).get(0).rows());
         FrameFormatException e = assertThrows(FrameFormatException.class, () -> ArrowIpc.readCompressedStream(MIXED, inBand, 0, 100, ZSTD, rawLength + 8));
@@ -154,7 +163,7 @@ class ArrowIpcInBandTest {
     @Test
     void theStreamReaderDecodesInBandBatchesOnlyWhenGivenTheCodec() throws IOException {
         List<BatchData> batches = mixedBatches(20);
-        byte[] inBand = ArrowIpc.writeStream(MIXED, batches, ZSTD);
+        byte[] inBand = inBand(MIXED, batches);
         ArrowIpc.StreamReader without = new ArrowIpc.StreamReader(MIXED, new ByteArrayInputStream(inBand), 0, 100, 1 << 20);
         FrameFormatException e = assertThrows(FrameFormatException.class, without::next);
         assertEquals(Reason.PAYLOAD_INVALID, e.reason());

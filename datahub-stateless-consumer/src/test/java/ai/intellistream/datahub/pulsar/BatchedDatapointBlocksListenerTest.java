@@ -6,6 +6,7 @@ import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointFrame;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
+import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DataWrapperMessage;
 import ai.intellistream.datahub.clickhouse.ClickHouseDatapointService;
@@ -27,7 +28,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.util.Iterator;
 import java.util.List;
@@ -131,14 +131,11 @@ class BatchedDatapointBlocksListenerTest {
 
     @Test
     void aFrameWithInBandCompressedBuffersIsMergedLikeAnyOther() throws Exception {
-        // What a read answered, posted back through ingest: the buffers are compressed in-band and
-        // the merge needs them decompressed.
+        // What the writer builds and a read answers: the buffers are compressed in-band and the
+        // merge needs them decompressed.
         byte[] built = frame(DatapointValueType.TEXT, 7, 40);
-        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.TEXT),
-                DatapointFrame.parseAll(built, ZSTD).get(0).batches().stream().map(ArrowIpc.Batch::toData).toList(), ZSTD);
-        ByteArrayOutputStream relayed = new ByteArrayOutputStream();
-        DatapointFrameWriter.relayStream(DatapointValueType.TEXT, false, 7, "s7", new ByteArrayInputStream(stream), ZSTD, relayed);
-        Message<byte[]> m = message("acme", relayed.toByteArray());
+        assertThat(DatapointFrame.parseEnvelopes(built).get(0).compression()).isEqualTo(FrameLimits.COMPRESSION_ARROW_ZSTD);
+        Message<byte[]> m = message("acme", built);
 
         listener.handleBlockMessages(batch(List.of(m)));
 

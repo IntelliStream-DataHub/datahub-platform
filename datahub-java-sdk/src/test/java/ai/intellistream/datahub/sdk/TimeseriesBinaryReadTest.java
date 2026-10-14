@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
-import ai.intellistream.datahub.api.binary.ArrowIpc;
-import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointFrame;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
@@ -21,7 +19,6 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -88,22 +85,13 @@ class TimeseriesBinaryReadTest {
         }
     }
 
+    /** A frame as the writer builds it and as the server relays it: the batches compressed in-band. */
     private static byte[] frame(long id, String externalId, int rows) {
         DatapointFrameWriter w = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(id, externalId);
         for (int r = 0; r < rows; r++) {
             w.addFloat(id, 1_700_000_000_000L + r * 1000L, r * 1.5);
         }
         return w.build(new ZstdPayloadCodec(1));
-    }
-
-    /** The frame the server relays for the same points: the batches compressed in-band. */
-    private static byte[] relayedFrame(long id, String externalId, int rows) throws IOException {
-        DatapointFrame built = DatapointFrame.parseAll(frame(id, externalId, rows), new ZstdPayloadCodec(1)).get(0);
-        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT),
-                built.batches().stream().map(ArrowIpc.Batch::toData).toList(), new ZstdPayloadCodec(1));
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        DatapointFrameWriter.relayStream(DatapointValueType.FLOAT, false, id, externalId, new ByteArrayInputStream(stream), new ZstdPayloadCodec(1), out);
-        return out.toByteArray();
     }
 
     private static byte[] response(byte[]... frames) {
@@ -145,8 +133,8 @@ class TimeseriesBinaryReadTest {
 
     @Test
     void relayedFramesComeBackDecodedAndPostBackAsTheyAre() throws Exception {
-        byte[] a = relayedFrame(1, "a", 3);
-        byte[] b = relayedFrame(2, "b", 2);
+        byte[] a = frame(1, "a", 3);
+        byte[] b = frame(2, "b", 2);
         answer = response(a, b);
 
         List<DatapointFrame> frames = client.timeseries().retrieveBinary(request("a", "b"));
@@ -168,7 +156,7 @@ class TimeseriesBinaryReadTest {
     void framesArePostedInAsManyRequestsAsTheCapsNeed() throws Exception {
         byte[][] many = new byte[FrameLimits.MAX_FRAMES_PER_REQUEST + 1][];
         for (int i = 0; i < many.length; i++) {
-            many[i] = relayedFrame(1, "a", 1);
+            many[i] = frame(1, "a", 1);
         }
         answer = response(many);
         List<DatapointFrame> frames = client.timeseries().retrieveBinary(request("a"));

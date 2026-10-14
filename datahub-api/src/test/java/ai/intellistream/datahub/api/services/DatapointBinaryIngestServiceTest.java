@@ -3,8 +3,6 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.binary.DatapointFrame;
 import ai.intellistream.datahub.api.binary.FrameLimits;
-import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
-import ai.intellistream.datahub.api.binary.ArrowIpc;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.PayloadCodec;
@@ -115,12 +113,10 @@ class DatapointBinaryIngestServiceTest {
         return w.build(ZSTD);
     }
 
-    /** The frame a read answers with for the same points: the batches compressed in-band, relayed. */
-    private static byte[] relayed(DatapointValueType type, long id) throws IOException {
-        DatapointFrame built = DatapointFrame.parseAll(frame(type, id), ZSTD).get(0);
-        byte[] stream = ArrowIpc.writeStream(ArrowSchemaCanon.of(type), built.batches().stream().map(ArrowIpc.Batch::toData).toList(), ZSTD);
+    /** A read's answer for the same points: the frame as the writer builds it, which is the form a read relays, then the end marker. */
+    private static byte[] answer(DatapointValueType type, long id) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        DatapointFrameWriter.relayStream(type, false, id, "s" + id, new ByteArrayInputStream(stream), ZSTD, out);
+        out.writeBytes(frame(type, id));
         out.writeBytes(FrameLimits.END_OF_RESPONSE);
         return out.toByteArray();
     }
@@ -128,7 +124,7 @@ class DatapointBinaryIngestServiceTest {
     @Test
     void aReadsAnswerIsPublishedAsItCame() throws Exception {
         series(4, DatapointValueType.TEXT, 20);
-        byte[] answer = relayed(DatapointValueType.TEXT, 4);
+        byte[] answer = answer(DatapointValueType.TEXT, 4);
 
         DatapointBinaryIngestService.Summary summary = ingest(service, answer, answer.length);
 
@@ -160,7 +156,7 @@ class DatapointBinaryIngestServiceTest {
         byte[] numeric = frame(DatapointValueType.FLOAT32, 1, 2);
         byte[] text = frame(DatapointValueType.TEXT, 3);
 
-        DatapointBinaryIngestService.Summary summary = ingest(service, body(numeric, text), 500);
+        DatapointBinaryIngestService.Summary summary = ingest(service, body(numeric, text), 100);
 
         assertThat(summary.frames()).isEqualTo(2);
         assertThat(summary.rows()).isEqualTo(9);
@@ -173,7 +169,7 @@ class DatapointBinaryIngestServiceTest {
         verify(message, times(2)).send();
         verify(message).property("valueTypeId", "7");
         verify(message).property("valueTypeId", "4");
-        verify(message, times(2)).property("compression", "1");
+        verify(message, times(2)).property("compression", "2");
 
         verify(dataSecurity, times(1)).assertCanWriteDataSet(10L);
         verify(dataSecurity, times(1)).assertCanWriteDataSet(20L);
@@ -185,7 +181,7 @@ class DatapointBinaryIngestServiceTest {
         verify(ingestQuota).record(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, 3);
         long raw = 0;
         for (DatapointFrame f : DatapointFrame.parseEnvelopes(body(numeric, text))) raw += f.rawLength();
-        verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, raw - 500);
+        verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, raw - 100);
 
         verify(latestDatapointCache).update("s1", 1_700_000_002_000L, "12.0");
         verify(latestDatapointCache).update("s2", 1_700_000_002_000L, "22.0");

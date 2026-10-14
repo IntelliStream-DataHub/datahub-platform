@@ -181,6 +181,8 @@ together.
 For volume, `ingestBinary` sends datapoints as zstd-compressed Arrow frames to
 `POST /timeseries/data/binary` instead of JSON: up to a million points per request, values parsed,
 sorted and de-duplicated on the client, and nothing for the API to parse but a few headers.
+Frames go at compression `2`, each Arrow buffer zstd in-band, the form a read answers with; a
+platform older than 1.1 refuses them.
 Each series is resolved once to its id and value type through `/timeseries/byids` and cached for
 the life of the client, so the caller needs read access to the series' dataset as well as write
 access.

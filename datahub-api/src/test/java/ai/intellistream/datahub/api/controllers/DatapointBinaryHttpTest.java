@@ -50,6 +50,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
@@ -313,10 +315,12 @@ class DatapointBinaryHttpTest {
     void aReadsAnswerIsRelayedAsCompressedAndPostsBackAsItIs() throws Exception {
         when(dataSecurity.hasReadAccessToEverything()).thenReturn(true);
         when(timeseriesRepository.findAllByIdOrExternalId(any(), any())).thenReturn(List.of(series(1, "a")));
-        // ClickHouse's answer with its buffers compressed in-band, as the query asks for.
-        byte[] compressed = ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT32),
-                DatapointFrame.parseAll(frame(1, "a", 4), new ZstdPayloadCodec(1)).get(0).batches().stream().map(ArrowIpc.Batch::toData).toList(),
-                new ZstdPayloadCodec(1));
+        // ClickHouse's answer with its buffers compressed in-band, as the query asks for: the
+        // writer's payload is that stream.
+        byte[] built = frame(1, "a", 4);
+        ByteBuffer header = ByteBuffer.wrap(built).order(ByteOrder.LITTLE_ENDIAN);
+        int payloadAt = FrameLimits.HEADER_BYTES + header.getInt(16);
+        byte[] compressed = Arrays.copyOfRange(built, payloadAt, payloadAt + header.getInt(20));
         when(clickHouseDatapointService.openArrowStream(any(), seriesId(1), any(), anyLong(), anyInt()))
                 .thenAnswer(i -> new ByteArrayInputStream(compressed));
 

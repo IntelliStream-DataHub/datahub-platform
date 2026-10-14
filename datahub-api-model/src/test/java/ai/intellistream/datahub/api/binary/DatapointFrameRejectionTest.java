@@ -53,8 +53,8 @@ class DatapointFrameRejectionTest {
         assertEquals(Reason.UNKNOWN_VALUE_TYPE, reject(tampered(b -> b.put(5, (byte) 8))));
         assertEquals(Reason.UNSUPPORTED_CODEC, reject(tampered(b -> b.put(6, (byte) 0))));
         assertEquals(Reason.UNCOMPRESSED_FRAME, reject(tampered(b -> b.put(7, (byte) 0))));
-        // Declared in-band compressed, the zstd stream is no IPC stream at all.
-        assertEquals(Reason.PAYLOAD_INVALID, reject(tampered(b -> b.put(7, (byte) 2))));
+        // Declared whole-payload zstd, the in-band stream is no zstd stream at all.
+        assertEquals(Reason.PAYLOAD_INVALID, reject(tampered(b -> b.put(7, (byte) 1))));
         assertEquals(Reason.MALFORMED_FRAME, reject(tampered(b -> b.put(7, (byte) 3))));
         assertEquals(Reason.ROW_COUNT_MISMATCH, reject(tampered(b -> b.putInt(8, 0))));
         assertEquals(Reason.ROW_COUNT_MISMATCH, reject(tampered(b -> b.putInt(8, 100_001))));
@@ -136,8 +136,16 @@ class DatapointFrameRejectionTest {
 
     @Test
     void payloadAndOrder() {
-        // A corrupt zstd stream.
-        assertEquals(Reason.PAYLOAD_INVALID, reject(tampered(b -> b.put(b.limit() - 3, (byte) 0x55))));
+        // A corrupt zstd stream around the whole payload.
+        byte[] whole = withStream(DatapointValueType.FLOAT, 3, stream(DatapointValueType.FLOAT,
+                new long[]{3, 3, 9}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3)));
+        whole[whole.length - 3] ^= 0x55;
+        assertEquals(Reason.PAYLOAD_INVALID, reject(whole));
+        // Declared in-band compressed, the zstd stream is no IPC stream at all.
+        whole = withStream(DatapointValueType.FLOAT, 3, stream(DatapointValueType.FLOAT,
+                new long[]{3, 3, 9}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3)));
+        whole[7] = 2;
+        assertEquals(Reason.PAYLOAD_INVALID, reject(whole));
         // A stream of the wrong schema: FLOAT data under a FLOAT32 envelope.
         assertEquals(Reason.SCHEMA_MISMATCH, reject(withStream(DatapointValueType.FLOAT32, 3, stream(DatapointValueType.FLOAT,
                 new long[]{3, 3, 9}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3)))));
@@ -156,9 +164,12 @@ class DatapointFrameRejectionTest {
                 new long[]{3, 3, 4}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3)))));
         // Not an IPC stream at all.
         assertEquals(Reason.PAYLOAD_INVALID, reject(withStream(DatapointValueType.FLOAT, 3, new byte[]{1, 2, 3, 4, 5, 6, 7, 8})));
-        // In-band compressed buffers under a whole-payload zstd envelope.
-        assertEquals(Reason.PAYLOAD_INVALID, reject(withStream(DatapointValueType.FLOAT, 3, ArrowIpc.writeStream(ArrowSchemaCanon.of(DatapointValueType.FLOAT),
-                List.of(new BatchData(3, new ColumnData[]{longs(3, 3, 9), longs(1000, 2000, 1000), doubles(1, 2, 3)})), ZSTD))));
+        // In-band compressed buffers, the writer's payload, under a whole-payload zstd envelope.
+        byte[] good = goodFrame();
+        ByteBuffer header = ByteBuffer.wrap(good).order(ByteOrder.LITTLE_ENDIAN);
+        int payloadAt = FrameLimits.HEADER_BYTES + header.getInt(16);
+        assertEquals(Reason.PAYLOAD_INVALID, reject(withStream(DatapointValueType.FLOAT32, 3,
+                java.util.Arrays.copyOfRange(good, payloadAt, payloadAt + header.getInt(20)))));
         // A stream with no end-of-stream marker.
         byte[] stream = stream(DatapointValueType.FLOAT, new long[]{3, 3, 9}, new long[]{1000, 2000, 1000}, doubles(1, 2, 3));
         byte[] cut = java.util.Arrays.copyOf(stream, stream.length - 8);
