@@ -79,9 +79,25 @@ class ProcessorSchemaTest {
         assertThat(p.get("timeseries").has("x-advanced")).isFalse();
         assertThat(p.get("from").has("x-lookup")).isFalse();
         // An optional property without a default is folded away by being marked advanced.
+        JsonNode events = entry(new EventsSink()).get("properties").get("properties");
+        assertThat(events.get("subType").get("x-advanced").booleanValue()).isTrue();
+        // A required one with a default is not folded, though the default satisfies it.
+        assertThat(events.get("type").get("x-required").booleanValue()).isTrue();
+        assertThat(entry(new EventsSink()).get("properties").get("required").valueStream()
+                .map(JsonNode::stringValue)).doesNotContain("type");
+    }
+
+    @Test
+    void aBooleanCanBeTwoTabsWithWhatAppliesOnlyWhenItIsTrue() {
         JsonNode sink = entry(new TimeseriesSink()).get("properties").get("properties");
-        assertThat(sink.get("unit").get("x-advanced").booleanValue()).isTrue();
-        assertThat(sink.get("target").has("x-advanced")).isFalse();
+
+        assertThat(sink.get("create").get("x-tabs").valueStream().map(JsonNode::stringValue))
+                .containsExactly("Existing series", "New series");
+        assertThat(sink.get("unit").get("x-onlyWith").stringValue()).isEqualTo("create");
+        assertThat(sink.get("dataSet").get("x-onlyWith").stringValue()).isEqualTo("create");
+        // The target applies either way.
+        assertThat(sink.get("target").has("x-onlyWith")).isFalse();
+        assertThat(sink.get("target").get("x-required").booleanValue()).isTrue();
     }
 
     @Test
