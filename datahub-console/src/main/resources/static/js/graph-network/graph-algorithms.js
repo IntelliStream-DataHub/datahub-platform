@@ -210,14 +210,15 @@ function hierarchyClusters(G) {
         for (const r of ranked) if (!anc(c, r.p)) { parent[c] = r.p; break; }
     });
     const depth = parent.map((_, i) => { let d = 0; for (let x = parent[i]; x >= 0 && d < 64; x = parent[x]) d++; return d; });
-    const hasTree = parent.some(p => p >= 0);
+    const hasKid = new Set(parent.filter(p => p >= 0));
+    const hasTree = hasKid.size > 0;
     if (!hasTree) return { comm: G.ids.map(() => 0), depth: 0, parent, treeDepth: depth, parents, shared };
     let best = null;
     // From cut 0, where each tree is one cluster: with the plant set aside as context, its lines are the
     // roots, and a line's valves belong with it.
     for (let cut = 0; cut <= 4; cut++) {
         const comm = G.ids.map((_, i) => {
-            if (parent[i] < 0 && !G.ids.some((__, j) => parent[j] === i)) return -1;   // not in the tree
+            if (parent[i] < 0 && !hasKid.has(i)) return -1;   // not in the tree
             let x = i; while (depth[x] > cut) x = parent[x];
             return x;
         });
@@ -253,7 +254,11 @@ function hierarchyClusters(G) {
 // ---- importance -----------------------------------------------------------------------------------
 // Brandes (2001) betweenness on the undirected graph: how many shortest paths run through each node
 // and each relationship. A bridge between two parts of the plant scores high; a leaf scores zero.
+// Exact up to EXACT_BETWEENNESS resources; above, it takes the cost of a search from every resource, so
+// it is estimated from PIVOTS of them (Brandes and Pich 2007), which ranks the important ones the same.
+const EXACT_BETWEENNESS = 2000, PIVOTS = 256;
 function betweenness(G) {
+    if (G.ids.length > EXACT_BETWEENNESS) return sampledBetweenness(G, PIVOTS);
     const n = G.ids.length, nb = G.adj.map(row => [...row.keys()]);
     const cb = new Float64Array(n), eb = new Map();
     const key = (a, b) => a < b ? a + ',' + b : b + ',' + a;
@@ -283,6 +288,45 @@ function betweenness(G) {
     const node = Array.from(cb, v => v / 2), edge = new Map();
     eb.forEach((v, k) => edge.set(k, v / 2));
     return { node, edge, key };
+}
+// The same sums from k sources picked at random (seeded), scaled up by n / k. Neighbours are kept in flat
+// arrays and predecessors are found again from the distances, so a search allocates nothing.
+function sampledBetweenness(G, k) {
+    const n = G.ids.length, start = new Int32Array(n + 1);
+    G.adj.forEach((row, i) => { start[i + 1] = start[i] + row.size; });
+    const to = new Int32Array(start[n]);
+    G.adj.forEach((row, i) => { let p = start[i]; row.forEach((_, j) => { to[p++] = j; }); });
+    const cb = new Float64Array(n), ce = new Float64Array(start[n]);
+    const sigma = new Float64Array(n), dist = new Int32Array(n), delta = new Float64Array(n), order = new Int32Array(n);
+    const rand = mulberry32(1), pool = Array.from({ length: n }, (_, i) => i);
+    for (let i = 0; i < k; i++) { const j = i + Math.floor(rand() * (n - i)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    for (let q = 0; q < k; q++) {
+        const s = pool[q];
+        sigma.fill(0); dist.fill(-1); delta.fill(0);
+        sigma[s] = 1; dist[s] = 0; order[0] = s;
+        let len = 1;
+        for (let qi = 0; qi < len; qi++) {
+            const v = order[qi];
+            for (let p = start[v]; p < start[v + 1]; p++) {
+                const w = to[p];
+                if (dist[w] < 0) { dist[w] = dist[v] + 1; order[len++] = w; }
+                if (dist[w] === dist[v] + 1) sigma[w] += sigma[v];
+            }
+        }
+        for (let qi = len - 1; qi > 0; qi--) {
+            const w = order[qi];
+            for (let p = start[w]; p < start[w + 1]; p++) {
+                const v = to[p];
+                if (dist[v] !== dist[w] - 1) continue;
+                const c = sigma[v] / sigma[w] * (1 + delta[w]);
+                ce[p] += c; delta[v] += c;
+            }
+            cb[w] += delta[w];
+        }
+    }
+    const scale = n / k / 2, key = (a, b) => a < b ? a + ',' + b : b + ',' + a, edge = new Map();
+    for (let v = 0; v < n; v++) for (let p = start[v]; p < start[v + 1]; p++) { const kk = key(v, to[p]); edge.set(kk, (edge.get(kk) || 0) + ce[p] * scale); }
+    return { node: Array.from(cb, x => x * scale), edge, key };
 }
 // 0..1, square-root scaled so a few hubs don't flatten everyone else.
 function normalise(v) { const max = Math.max(...v, 1e-12); return v.map(x => Math.sqrt(Math.max(0, x) / max)); }
