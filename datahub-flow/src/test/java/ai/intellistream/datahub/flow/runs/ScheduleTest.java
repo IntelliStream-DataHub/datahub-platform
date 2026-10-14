@@ -36,6 +36,34 @@ class ScheduleTest {
     }
 
     @Test
+    void withoutAWindowATickCoversTheTimeSinceTheTickBeforeIt() {
+        Schedule hourly = new Schedule(Schedule.SCHEDULE, "0 0 * * * *", OSLO, null, null);
+        Instant tick = Instant.parse("2026-10-12T11:00:00Z");
+        assertThat(hourly.windowOf(tick)).isEqualTo(new TimeWindow(Instant.parse("2026-10-12T10:00:00Z"), tick));
+
+        // Weekday mornings: Monday's run covers the weekend too.
+        Schedule weekdays = new Schedule(Schedule.SCHEDULE, "0 0 9 * * MON-FRI", ZoneId.of("UTC"), null, null);
+        Instant monday = Instant.parse("2026-10-12T09:00:00Z");
+        assertThat(weekdays.windowOf(monday)).isEqualTo(new TimeWindow(Instant.parse("2026-10-09T09:00:00Z"), monday));
+
+        // A daylight-saving change makes that day's window 25 hours.
+        Schedule daily = new Schedule(Schedule.SCHEDULE, "0 0 6 * * *", OSLO, null, null);
+        Instant after = Instant.parse("2026-10-25T05:00:00Z");
+        assertThat(daily.windowOf(after)).isEqualTo(new TimeWindow(Instant.parse("2026-10-24T04:00:00Z"), after));
+    }
+
+    @Test
+    void thePreviousTickIsStrictlyBefore() {
+        Schedule s = new Schedule(Schedule.SCHEDULE, "*/10 * * * * *", OSLO, null, null);
+
+        assertThat(s.previousTick(Instant.parse("2026-10-12T11:00:00Z"))).isEqualTo(Instant.parse("2026-10-12T10:59:50Z"));
+        assertThat(s.previousTick(Instant.parse("2026-10-12T11:00:00.5Z"))).isEqualTo(Instant.parse("2026-10-12T11:00:00Z"));
+        // Every 29 February: four years back.
+        Schedule leap = new Schedule(Schedule.SCHEDULE, "0 0 0 29 2 *", ZoneId.of("UTC"), null, null);
+        assertThat(leap.previousTick(Instant.parse("2026-10-12T00:00:00Z"))).isEqualTo(Instant.parse("2024-02-29T00:00:00Z"));
+    }
+
+    @Test
     void aDailyTickFollowsTheWallClockAcrossADaylightSavingChange() {
         // 06:00 in Oslo: 04:00 UTC in summer, 05:00 UTC once the clocks go back at 03:00 on
         // 25 October.
@@ -81,6 +109,11 @@ class ScheduleTest {
                 Instant.parse("2026-10-12T09:00:00Z"), Instant.parse("2026-10-12T10:00:00Z")));
         assertThat(s.defaultWindow(Instant.parse("2026-10-12T11:06:00Z"))).isEqualTo(new TimeWindow(
                 Instant.parse("2026-10-12T10:00:00Z"), Instant.parse("2026-10-12T11:00:00Z")));
+
+        Schedule derived = new Schedule(Schedule.SCHEDULE, "0 0 * * * *", OSLO, null, Duration.ofMinutes(5));
+        assertThat(derived.defaultWindow(Instant.parse("2026-10-12T11:05:00Z"))).isEqualTo(new TimeWindow(
+                Instant.parse("2026-10-12T10:00:00Z"), Instant.parse("2026-10-12T11:00:00Z")));
+        assertThat(Schedule.fromJson(JSON, derived.toJson(JSON))).isEqualTo(derived);
 
         Schedule manual = new Schedule(Schedule.MANUAL, null, null, Duration.ofMinutes(30), null);
         assertThat(manual.defaultWindow(Instant.parse("2026-10-12T11:06:07.5Z"))).isEqualTo(new TimeWindow(

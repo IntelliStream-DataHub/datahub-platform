@@ -26,11 +26,14 @@ import java.util.regex.Pattern;
  * deployed. Stored on the flow row as JSON ({@link #toJson}), so the sweep never re-reads the
  * definition.
  *
- * <p>The tick at T covers {@code [T - window, T)} and is due at {@code T + delay}. Ticks come from
- * Spring's six-field cron expression read in {@link #zone}, so a daylight-saving change moves them
- * the way a wall clock in that zone would.
+ * <p>The tick at T covers the time since the tick before it, {@code [previous tick, T)}, so every
+ * point is covered once however irregular the cron expression; with a window set, it covers
+ * {@code [T - window, T)} instead. It is due at {@code T + delay}. Ticks come from Spring's
+ * six-field cron expression read in {@link #zone}, so a daylight-saving change moves them the way
+ * a wall clock in that zone would.
  *
- * @param window null for a manual trigger without one
+ * @param window null for a schedule that covers the time since its previous tick, and for a manual
+ *               trigger without one
  */
 public record Schedule(String type, String cron, ZoneId zone, Duration window, Duration delay) {
 
@@ -41,6 +44,8 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
     /** How far back {@link #latestDueTick} looks for the last tick, in windows. */
     private static final int LOOKBACK_WINDOWS = 2;
     private static final int MAX_STEPS = 10_000;
+    /** How far back {@link #previousTick} looks. */
+    private static final Duration MAX_GAP = Duration.ofDays(366 * 10);
 
     public Schedule {
         delay = delay == null ? Duration.ZERO : delay;
@@ -57,10 +62,18 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
         if (trigger == null) {
             return new Schedule(MANUAL, null, null, null, null);
         }
-        return new Schedule(trigger.type(), trigger.cron(),
+        Schedule schedule = new Schedule(trigger.type(), trigger.cron(),
                 trigger.timezone() == null ? null : ZoneId.of(trigger.timezone()),
                 trigger.window() == null ? null : resolveWindow(trigger.window(), definition),
                 trigger.delay() == null ? null : Duration.parse(trigger.delay()));
+        if (schedule.scheduled() && schedule.window() == null) {
+            Instant next = schedule.nextTick(Instant.now());
+            if (next == null || schedule.previousTick(next) == null) {
+                throw new IllegalArgumentException("The cron expression's ticks are too far apart "
+                        + "for each run to cover the time since the one before; set the trigger's window.");
+            }
+        }
+        return schedule;
     }
 
     private static Duration resolveWindow(String window, FlowDefinition definition) {
@@ -82,12 +95,52 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
         return next == null ? null : next.toInstant();
     }
 
+    /**
+     * The latest tick strictly before {@code t}, or null when there is none within ten years.
+     * Spring's cron expression only looks forward, so this searches for the latest second whose
+     * next tick is still before {@code t}: ticks fall on whole seconds.
+     */
+    public Instant previousTick(Instant t) {
+        Duration back = Duration.ofMinutes(1);
+        long lo = t.minus(back).getEpochSecond();
+        while (!tickBefore(lo, t)) {
+            if (back.equals(MAX_GAP)) {
+                return null;
+            }
+            back = back.multipliedBy(2);
+            back = back.compareTo(MAX_GAP) > 0 ? MAX_GAP : back;
+            lo = t.minus(back).getEpochSecond();
+        }
+        long hi = t.getEpochSecond() + 1;   // its next tick is after t
+        while (hi - lo > 1) {
+            long mid = lo + (hi - lo) / 2;
+            if (tickBefore(mid, t)) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        return nextTick(Instant.ofEpochSecond(lo));
+    }
+
+    private boolean tickBefore(long second, Instant t) {
+        Instant next = nextTick(Instant.ofEpochSecond(second));
+        return next != null && next.isBefore(t);
+    }
+
     public Instant dueAt(Instant tick) {
         return tick.plus(delay);
     }
 
     public TimeWindow windowOf(Instant tick) {
-        return new TimeWindow(tick.minus(window), tick);
+        if (window != null) {
+            return new TimeWindow(tick.minus(window), tick);
+        }
+        Instant previous = previousTick(tick);
+        if (previous == null) {
+            throw new IllegalStateException("No tick of " + cron + " in the ten years before " + tick);
+        }
+        return new TimeWindow(previous, tick);
     }
 
     /**
@@ -114,22 +167,28 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
      * Null when the trigger has no window.
      */
     public TimeWindow defaultWindow(Instant now) {
-        if (window == null) {
-            return null;
-        }
         if (scheduled()) {
             Instant tick = latestDueTick(now);
             if (tick != null) {
                 return windowOf(tick);
             }
         }
+        if (window == null) {
+            return null;
+        }
         Instant end = now.truncatedTo(ChronoUnit.SECONDS);
         return new TimeWindow(end.minus(window), end);
     }
 
-    /** The latest tick due at {@code now}, looking back a couple of windows; null if none there. */
+    /**
+     * The latest tick due at {@code now}: with a window, looking back a couple of windows, and null
+     * if none is there.
+     */
     Instant latestDueTick(Instant now) {
         Instant limit = now.minus(delay);
+        if (window == null) {
+            return previousTick(limit.truncatedTo(ChronoUnit.SECONDS).plusSeconds(1));
+        }
         Instant tick = nextTick(limit.minus(window.multipliedBy(LOOKBACK_WINDOWS)).minusSeconds(1));
         Instant latest = null;
         for (int i = 0; tick != null && !tick.isAfter(limit) && i < MAX_STEPS; i++) {

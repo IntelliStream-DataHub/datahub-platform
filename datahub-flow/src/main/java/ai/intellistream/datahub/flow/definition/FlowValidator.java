@@ -583,10 +583,6 @@ public final class FlowValidator {
                         problem("#/trigger/timezone", "Not a time zone: \"" + trigger.timezone() + "\".");
                     }
                 }
-                if (trigger.window() == null) {
-                    problem("#/trigger/window", "Required for a schedule: how much data time each "
-                            + "tick covers, e.g. PT1H.");
-                }
                 for (Map.Entry<String, FlowDefinition.Parameter> p : d.parameters().entrySet()) {
                     if (p.getValue().defaultValue() == null) {
                         problem("#/parameters/" + p.getKey(), "A scheduled flow's parameters need "
