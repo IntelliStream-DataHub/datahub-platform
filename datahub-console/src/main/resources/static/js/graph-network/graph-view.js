@@ -2,11 +2,15 @@
     The drawing of the network view, for GraphNetwork (graph-network.js).
 
     Resources are dots sized by importance (betweenness) with an icon for their type, grouped by the
-    data's BELONGS_TO tree: a parent's sections are laid out together inside one more group, and each
-    group is outlined. A resource with parents in several groups sits between them and every group
-    reaches out to it. Lines between groups run as curved bundles through the groups; the names drawn
-    are the ones that read at the current zoom. Without a usable BELONGS_TO tree, Louvain finds the
+    data's containment tree (BELONGS_TO, PART_OF): a parent's sections are laid out together inside one
+    more group, and each group is outlined. A resource with parents in several groups sits between them
+    and every group reaches out to it. Lines between groups run as curved bundles through the groups;
+    the names drawn are the ones that read at the current zoom. Without a usable tree, Louvain finds the
     groups instead.
+
+    A context hub, linked to half the graph or more (the plant everything is part of), is grouped with
+    the resources nothing else connects, and its lines are drawn only while one of their ends is
+    selected (graph-algorithms.js).
 
     Cytoscape draws the dots and lines (WebGL where the browser has WebGL 2, canvas otherwise). The
     outlines, names and moving flow labels are drawn on canvases of their own, below and above it, so a
@@ -306,23 +310,26 @@ function createGraphView(container, opts) {
     }
     function analyse() {
         const bt = A.betweenness(G);
-        info = { bt, tree: A.hierarchyClusters(G), importance: A.normalise(bt.node) };
+        // A hub's relations are left out of betweenness, which would leave the plant a speck: it is drawn
+        // as large as the most important resource.
+        info = { bt, tree: A.hierarchyClusters(G), importance: A.normalise(bt.node).map((v, i) => (G.hubs.has(i) ? 1 : v)) };
         info.edgeImp = A.normalise(G.edges.map(e => bt.edge.get(bt.key(G.index.get(e.source), G.index.get(e.target))) || 0));
     }
-    // BELONGS_TO sections when the graph has a tree that groups it clearly; Louvain otherwise, so a tenant
-    // that does not model BELONGS_TO still gets groups.
+    // Containment sections when the graph has a tree that groups it clearly; Louvain otherwise, so a tenant
+    // that models no containment still gets groups.
     const treeUsable = h => new Set(h.comm).size >= 2 && (h.q === undefined || h.q >= 0.3);
     function freshGroups() {
         fellBack = !treeUsable(info.tree);
-        return fellBack ? A.louvain(G) : info.tree.comm;
+        return fellBack ? A.withContext(G, A.louvain(G)) : info.tree.comm;
     }
     // Groups stay as they were saved, so an edit neither recolours nor regroups anything. A resource that
-    // is new since then joins the group most of its neighbours are in.
+    // is new since then joins the group most of its neighbours are in, or with only a hub's relations, the
+    // hub's group.
     function keptGroups(saved) {
         fellBack = !treeUsable(info.tree);
         const comm = G.ids.map(id => Number.isInteger(saved.get(id)) ? saved.get(id) : -1);
         const nb = G.ids.map(() => []);
-        G.edges.forEach(e => { const a = G.index.get(e.source), b = G.index.get(e.target); nb[a].push(b); nb[b].push(a); });
+        G.edges.forEach(e => { if (e.ctx) return; const a = G.index.get(e.source), b = G.index.get(e.target); nb[a].push(b); nb[b].push(a); });
         for (let pass = 0; pass < 4; pass++) comm.forEach((c, i) => {
             if (c >= 0) return;
             const count = new Map();
@@ -330,13 +337,14 @@ function createGraphView(container, opts) {
             const best = [...count.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0];
             if (best) comm[i] = best[0];
         });
+        A.contextHomes(G).forEach((h, i) => { if (comm[i] < 0 && comm[h] >= 0) comm[i] = comm[h]; });
         let next = Math.max(-1, ...comm) + 1;
         comm.forEach((c, i) => { if (c < 0) comm[i] = next++; });
         return comm;
     }
 
     // ---- resources in several groups --------------------------------------------------------------------
-    // The groups a resource belongs to besides the one it is drawn in: its other BELONGS_TO parents' groups.
+    // The groups a resource belongs to besides the one it is drawn in: its other containers' groups.
     function otherGroups(i, comm) {
         if (fellBack || !info || !info.tree.parents) return [];
         const t = info.tree, home = comm[i];
@@ -362,6 +370,7 @@ function createGraphView(container, opts) {
         const inside = new Map(), out = new Map(), size = new Map(), nIn = new Array(comm.length).fill(0), nOut = new Array(comm.length).fill(0);
         comm.forEach(c => size.set(c, (size.get(c) || 0) + 1));
         G.edges.forEach(e => {
+            if (e.ctx) return;
             const i = G.index.get(e.source), j = G.index.get(e.target), a = comm[i], b = comm[j];
             if (a === b) { inside.set(a, (inside.get(a) || 0) + 1); nIn[i]++; nIn[j]++; }
             else { out.set(a, (out.get(a) || 0) + 1); out.set(b, (out.get(b) || 0) + 1); nOut[i]++; nOut[j]++; }
@@ -369,7 +378,7 @@ function createGraphView(container, opts) {
         const tight = c => size.get(c) >= 2 && (inside.get(c) || 0) >= (out.get(c) || 0);
         const shared = i => !fellBack && info.tree.shared[i];
         const nb = G.ids.map(() => new Set());
-        G.edges.forEach(e => { const i = G.index.get(e.source), j = G.index.get(e.target); if (i !== j) { nb[i].add(j); nb[j].add(i); } });
+        G.edges.forEach(e => { const i = G.index.get(e.source), j = G.index.get(e.target); if (!e.ctx && i !== j) { nb[i].add(j); nb[j].add(i); } });
         const fl = G.ids.map((_, i) => floats(i, comm)), lone = i => nb[i].size === 1 && fl[[...nb[i]][0]];
         return new Set(G.ids.filter((id, i) => tight(comm[i]) && nIn[i] >= nOut[i] && !shared(i) && !fl[i] && !lone(i)));
     }
@@ -379,7 +388,7 @@ function createGraphView(container, opts) {
     // themselves while they would read the same as another resource's. The full name is in the tooltip.
     function shortNames() {
         const parent = new Map();
-        G.edges.forEach(e => { if (e.type === A.HIERARCHY && !parent.has(e.target)) parent.set(e.target, e.source); });
+        G.edges.forEach(e => { if (e.parent && !parent.has(e.child)) parent.set(e.child, e.parent); });
         const chain = id => { const out = []; for (let x = parent.get(id), k = 0; x && k < 32; x = parent.get(x), k++) out.push(G.nodes.get(x).name); return out; };
         const nb = new Map(G.ids.map(id => [id, []]));
         G.edges.forEach(e => { nb.get(e.source).push(e.target); nb.get(e.target).push(e.source); });
@@ -410,7 +419,11 @@ function createGraphView(container, opts) {
                 n.data({ w: d, h: d, fs: 8 + 11 * imp[i], imp: imp[i], dot: CLUSTER[comm[i]] || OTHER, icon: glyph(G.nodes.get(id).type, pal.ink), c: comm[i], short: SHORT.get(id) });
                 if (!n.hasClass('dot')) n.addClass('dot');
             });
-            G.edges.forEach((e, k) => cy.getElementById(e.id).data({ imp: info.edgeImp[k], flow: flowOf(e), same: comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 }));
+            G.edges.forEach((e, k) => {
+                const el = cy.getElementById(e.id);
+                el.data({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
+                if (e.ctx !== el.hasClass('ctx')) el.toggleClass('ctx', e.ctx);
+            });
         });
     }
 
@@ -424,7 +437,7 @@ function createGraphView(container, opts) {
             idealEdgeLength: e => (e.data('same') ? GROUPED.intra : GROUPED.inter) + (d(e.data('source')) + d(e.data('target'))) / 2,
             edgeElasticity: e => e.data('same') ? 0.55 : 0.12 };
     }
-    // Nested BELONGS_TO groups: the sections of one parent (a well) sit inside one more group with that
+    // Nested containment groups: the sections of one parent (a well) sit inside one more group with that
     // parent, so a well's sections stay together.
     function sectionParents(comm) {
         if (fellBack) return null;   // Louvain's groups have no parents
@@ -436,7 +449,7 @@ function createGraphView(container, opts) {
     }
     // The groups are temporary compound nodes while fcose runs, so it keeps each one together; they are
     // removed again afterwards and drawn as outlines instead of boxes. While the layout runs, lines are
-    // haystack: fcose's result depends on the edge style.
+    // haystack: fcose's result depends on the edge style. A hub's lines pull on nothing.
     function groupedLayout(comm) {
         const member = groupMembers(comm), groups = [...new Set(G.ids.filter(id => member.has(id)).map(id => comm[G.index.get(id)]))];
         // Moving a node into a compound re-adds it, which would show a node hidden by a collapse.
@@ -453,7 +466,7 @@ function createGraphView(container, opts) {
             keep.forEach(k => { const id = G.ids[k]; if (!member.has(id)) cy.getElementById(id).move({ parent: 'out:' + k }); });
         } else if (groups.length > 1) cy.add(groups.map(c => ({ group: 'nodes', data: { id: 'grp:' + c }, classes: 'grp' })));
         if (groups.length > 1) G.ids.forEach((id, i) => { if (member.has(id)) cy.getElementById(id).move({ parent: 'grp:' + comm[i] }); });
-        A.withSeed(7, () => cy.layout(forceOptions()).run());
+        A.withSeed(7, () => cy.layout(Object.assign(forceOptions(), { eles: cy.elements().not('edge.ctx') })).run());
         if (groups.length > 1) { cy.nodes(':child').not('.grp').move({ parent: null }); cy.nodes('.grp').move({ parent: null }); cy.remove('.grp'); }
         hidden.forEach(n => { const m = cy.getElementById(n.id()); if (m.length) m.style('display', 'none'); });
     }
@@ -470,15 +483,20 @@ function createGraphView(container, opts) {
         if (fresh.length && known) {
             const freshIds = new Set(fresh.map(n => n.id())), placed = new Set(), d = n => n.data('w') || 20;
             const bb = nodes.filter(o => !freshIds.has(o.id())).boundingBox();
+            const ready = o => !freshIds.has(o.id()) || placed.has(o.id());
             fresh.sort((a, b) => (a.id() < b.id() ? -1 : 1)).forEach((n, k) => {
-                const near = n.neighborhood('node').not(TEMP).filter(o => !freshIds.has(o.id()) || placed.has(o.id()));
+                // Beside its neighbours, leaving out hubs while it has others; with none at all, beside its group.
+                const by = es => es.connectedNodes().not(TEMP).filter(o => o.id() !== n.id() && ready(o));
+                let near = by(n.connectedEdges().not('.ctx'));
+                if (!near.length) near = by(n.connectedEdges());
+                if (!near.length) near = nodes.filter(o => o.id() !== n.id() && o.data('c') === n.data('c') && ready(o));
                 const c = near.length ? near.reduce((s, o) => ({ x: s.x + o.position().x / near.length, y: s.y + o.position().y / near.length }), { x: 0, y: 0 }) : { x: bb.x2 + 60, y: bb.y1 + 40 * k };
                 n.position({ x: c.x + 40 * Math.cos(k * 2.4), y: c.y + 40 * Math.sin(k * 2.4) });
                 placed.add(n.id());
             });
             const fixed = nodes.filter(n => !freshIds.has(n.id())).map(n => ({ nodeId: n.id(), position: { ...n.position() } }));
             graphEdges().addClass('lay');
-            A.withSeed(11, () => cy.layout({ name: 'fcose', eles: graphNodes().union(graphEdges()), quality: 'proof', randomize: false, animate: false, fit: false, packComponents: false, nodeDimensionsIncludeLabels: false,
+            A.withSeed(11, () => cy.layout({ name: 'fcose', eles: graphNodes().union(graphEdges().not('.ctx')), quality: 'proof', randomize: false, animate: false, fit: false, packComponents: false, nodeDimensionsIncludeLabels: false,
                 numIter: 2500, nodeSeparation: 60, nodeRepulsion: n => 4500 + 260 * d(n), idealEdgeLength: e => 30 + (d(e.source()) + d(e.target())) / 2, fixedNodeConstraint: fixed }).run());
         }
         return { fresh: fresh.map(n => n.id()) };
@@ -542,7 +560,7 @@ function createGraphView(container, opts) {
         // leaves the resource as one trunk and splits towards each end, like a palm frond.
         const fanOf = new Map();
         graphNodes().forEach(h => {
-            const es = h.connectedEdges().not(TEMP).filter(e => e.source().id() !== e.target().id());
+            const es = h.connectedEdges().not(TEMP).not('.ctx').filter(e => e.source().id() !== e.target().id());
             if (es.length < FAN_MIN) return;
             const hp = h.position();
             const items = es.map(e => { const o = e.source().same(h) ? e.target() : e.source(), p = o.position(); return { e, ang: Math.atan2(p.y - hp.y, p.x - hp.x), len: Math.hypot(p.x - hp.x, p.y - hp.y) }; }).sort((a, b) => a.ang - b.ang);
@@ -567,7 +585,7 @@ function createGraphView(container, opts) {
             flush();
         });
         const par = parallelOffsets(), straight = G.ids.length > STRAIGHT_ABOVE;
-        cy.batch(() => edges.forEach(e => {
+        cy.batch(() => edges.not('.ctx').forEach(e => {
             const sN = e.source(), tN = e.target(), cs = sN.data('c'), ct = tN.data('c');
             const P = sN.position(), Q = tN.position();
             const ms = member.has(sN.id()) && cen.has(cs), mt = member.has(tN.id()) && cen.has(ct);
@@ -996,6 +1014,9 @@ function createGraphView(container, opts) {
             // A relation shows its type when you point at it, pick it, or select one of its ends.
             { selector: 'edge.hl, edge.hov, edge:selected', style: { 'label': 'data(label)', 'font-family': 'Manrope, Arial, sans-serif', 'font-size': () => Math.min(8 * cy.zoom(), MAX_EDGE_LABEL_PX) / cy.zoom(), 'font-weight': 600, 'color': pal.label,
                 'text-rotation': 'autorotate', 'text-background-color': pal.bg, 'text-background-opacity': 0.85, 'text-background-padding': 1.5, 'min-zoomed-font-size': 6 } },
+            // A selected hub's lines go unlabelled, all saying the same thing, until one is pointed at or picked.
+            { selector: 'edge.quiet', style: { 'label': '' } },
+            { selector: 'edge.quiet.hov, edge.quiet:selected', style: { 'label': 'data(label)' } },
             // The selected resource's lines: one colour where they leave it, another where they arrive.
             { selector: 'edge.hl.out', style: cyWebgl ? { 'line-color': pal.out, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.outFrom, pal.out], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.out, 'width': 1.8 } },
             { selector: 'edge.hl.in', style: cyWebgl ? { 'line-color': pal.in, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.inFrom, pal.in], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.in, 'width': 1.8 } },
@@ -1006,6 +1027,9 @@ function createGraphView(container, opts) {
             { selector: '.eh-handle', style: { 'width': 10, 'height': 10, 'background-color': pal.accent, 'background-image': 'none' } },
             { selector: '.eh-ghost-edge.eh-preview-active', style: { 'opacity': 0 } },
             { selector: '.eh-preview, .eh-ghost-edge', style: { 'curve-style': 'straight', 'line-fill': 'solid', 'line-color': pal.accent, 'target-arrow-shape': 'triangle', 'target-arrow-color': pal.accent, 'opacity': 1, 'width': 1.5 } },
+            // A hub's lines are drawn only while one of their ends is selected, or the line itself.
+            { selector: 'edge.ctx', style: { 'display': 'none' } },
+            { selector: 'edge.ctx.hl, edge.ctx:selected', style: { 'display': 'element' } },
             { selector: '.filtered-out', style: { 'display': 'none' } },
             // The guided tutorial's highlight and dimming.
             { selector: 'node.tut-highlight', style: { 'border-width': 4, 'border-color': pal.tutorial, 'border-opacity': 1 } },
@@ -1021,18 +1045,19 @@ function createGraphView(container, opts) {
         if (!n.length) return;
         selectedId = id;
         const near = n.closedNeighborhood();
+        const hub = !!(G && G.index.has(id) && G.hubs.has(G.index.get(id)));
         cy.batch(() => {
-            cy.elements().removeClass('dim hl sel in out');
+            cy.elements().removeClass('dim hl sel in out quiet');
             cy.elements().not(near).not(TEMP).addClass('dim');
             n.addClass('sel');
-            n.connectedEdges().forEach(e => e.addClass('hl ' + (e.data('source') === id ? 'out' : 'in')));
+            n.connectedEdges().forEach(e => e.addClass('hl ' + (e.data('source') === id ? 'out' : 'in') + (hub ? ' quiet' : '')));
         });
         drawHulls();
     }
     function clearSel() {
         selectedId = null;
         if (!cy) return;
-        cy.elements().removeClass('dim hl sel in out');
+        cy.elements().removeClass('dim hl sel in out quiet');
         drawHulls();
     }
 
@@ -1263,7 +1288,7 @@ function createGraphView(container, opts) {
         refresh, rearrange, redraw, applyTheme, select, clearSel, setRoot, reset, fit, destroy, hidePick,
         refreshFlows: () => { cy.edges().forEach(e => { const m = { metadata: e.data('metadata') }; e.data('flow', flowOf(m)); }); flowReset(); },
         // For tests and the tutorial: what is drawn and how.
-        state: () => ({ groups: current ? current.comm.slice() : [], ids: current ? current.ids.slice() : [], multi: MULTI.map(m => ({ id: m.id, groups: m.groups.slice() })), moved: [...MOVED], named: [...NAMED], fellBack, member: current ? [...current.member] : [], selected: selectedId, root: rootId }),
+        state: () => ({ groups: current ? current.comm.slice() : [], ids: current ? current.ids.slice() : [], multi: MULTI.map(m => ({ id: m.id, groups: m.groups.slice() })), hubs: G ? [...G.hubs].map(i => G.ids[i]) : [], moved: [...MOVED], named: [...NAMED], fellBack, member: current ? [...current.member] : [], selected: selectedId, root: rootId }),
         edgesNear: (p, tol) => edgesNear(p, tol === undefined ? HIT_PX / cy.zoom() : tol),
     };
 }
