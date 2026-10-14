@@ -85,7 +85,7 @@ class FlowValidatorTest {
                 processor(tree, 3).set("terminate", ExampleFlow.JSON.createArrayNode()));
         assertThat(problems).singleElement().satisfies(p -> {
             assertThat(p.pointer()).isEqualTo("#/processors/3");
-            assertThat(p.message()).contains("\"success\" of \"over\" must be connected");
+            assertThat(p.message()).contains("\"success\" outcome goes nowhere");
         });
     }
 

@@ -292,7 +292,7 @@ public final class FlowValidator {
                             ConfiguredValue.of(property.name(), property.defaultValue()));
                 } else if (property.required()) {
                     problem(at + "/properties/" + Template.escapePointer(property.name()),
-                            "Required by \"" + descriptor.name() + "\".");
+                            "Required.");
                 }
             }
 
@@ -528,8 +528,8 @@ public final class FlowValidator {
                 for (Relationship r : relationships.values()) {
                     if (r.whenUnconnected() == Relationship.Unconnected.REQUIRED
                             && !wired.contains(r.name()) && !spec.terminate().contains(r.name())) {
-                        problem("#/processors/" + i, "Relationship \"" + r.name() + "\" of \""
-                                + spec.id() + "\" must be connected or listed in terminate.");
+                        problem("#/processors/" + i, "Its \"" + r.name() + "\" outcome goes nowhere: "
+                                + "connect it to another processor, or end it there (terminate).");
                     }
                 }
             }
