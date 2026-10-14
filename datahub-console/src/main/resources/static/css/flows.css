@@ -97,14 +97,16 @@
 	font-size: 13px;
 }
 
-.flow-tabs {
+.flow-tabs,
+.flow-switch {
 	display: flex;
 	gap: var(--space-xs);
 	border-bottom: 1px solid var(--border);
 	margin-bottom: var(--space-lg);
 }
 
-.flow-tabs button {
+.flow-tabs button,
+.flow-switch button {
 	background: none;
 	border: none;
 	border-bottom: 2px solid transparent;
@@ -113,7 +115,8 @@
 	cursor: pointer;
 }
 
-.flow-tabs button.selected {
+.flow-tabs button.selected,
+.flow-switch button.selected {
 	color: var(--text);
 	border-bottom-color: var(--accent);
 }
@@ -237,6 +240,9 @@
 
 .flow-advanced {
 	margin-top: 12px;
+}
+.flow-switch {
+	margin: var(--space) 0;
 }
 .flow-advanced > summary {
 	cursor: pointer;

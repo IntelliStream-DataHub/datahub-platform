@@ -64,6 +64,11 @@
 
 			render(){
 				super.render();
+				var form = this.formElement;
+				form.querySelectorAll(".flow-switch button").forEach(b => b.addEventListener("click", () => {
+					form.querySelectorAll(".flow-switch button").forEach(o => o.classList.toggle("selected", o === b));
+					form.querySelector("[data-only-with]").hidden = b.getAttribute("data-on") !== "true";
+				}));
 				this.formElement.querySelectorAll("input[data-lookup='timeseries']").forEach(lookupTimeseries);
 				this.formElement.querySelectorAll("[data-series]").forEach(seriesPicker);
 				this.formElement.querySelectorAll("select[data-lookup='dataset']")
@@ -74,6 +79,19 @@
 					if(path.slice(0, 2).join("/") !== at) return undefined;
 					return path[2] === "properties" ? "f_" + path[3] : path[2] === "retry" ? "__retryAttempts" : null;
 				});
+			}
+
+			/** The boolean the form is drawn as two tabs of, or undefined. */
+			tabsProperty(){
+				var props = this.schemaProperties();
+				return Object.keys(props).find(name => Array.isArray(props[name]["x-tabs"]));
+			}
+
+			/** Whether the tabs property is true: as set, else its default. */
+			tabOn(){
+				var name = this.tabsProperty();
+				var set = this.spec.properties ? this.spec.properties[name] : undefined;
+				return (set === undefined ? this.schemaProperties()[name]["default"] : set) === true;
 			}
 
 			schemaProperties(){
@@ -90,18 +108,34 @@
 				var required = (this.entry && this.entry.properties && this.entry.properties.required) || [];
 				var html = this.entry ? `<p class="field-hint">${escapeHtml(this.entry.description || "")}</p>`
 					: `<p class="flows-banner">${L("flows.processor.unknown", [escapeHtml(spec.type)])}</p>`;
-				// Only what has no default shows; the rest is folded, and opened when something in it is set.
+				// A boolean with x-tabs is drawn as its two tabs, and what applies only with it in the true
+				// one, below the fields both share.
+				var tabs = this.tabsProperty(), on = tabs && this.tabOn(), shown = "", only = "";
+				// Only what has no default, or is required, shows; the rest is folded, and opened when
+				// something in it is set.
 				var advanced = "", open = false;
 				Object.keys(props).forEach(name => {
+					if(name === tabs) return;
 					var value = spec.properties ? spec.properties[name] : undefined;
-					var field = this.propertyField(name, props[name], required.indexOf(name) >= 0, value);
-					if(props[name]["default"] !== undefined || props[name]["x-advanced"]){
+					var field = this.propertyField(name, props[name], required.indexOf(name) >= 0 || props[name]["x-required"], value);
+					if(tabs && props[name]["x-onlyWith"] === tabs){
+						only += field;
+					} else if(props[name]["x-advanced"] || props[name]["default"] !== undefined && !props[name]["x-required"]){
 						advanced += field;
 						open = open || value !== undefined;
 					} else {
-						html += field;
+						shown += field;
 					}
 				});
+				if(tabs){
+					var labels = props[tabs]["x-tabs"];
+					html += `<div class="flow-switch" role="tablist">
+							<button type="button" data-on="false" class="${on ? "" : "selected"}">${escapeHtml(labels[0])}</button>
+							<button type="button" data-on="true" class="${on ? "selected" : ""}">${escapeHtml(labels[1])}</button>
+						</div>`;
+				}
+				html += shown;
+				if(tabs) html += `<div data-only-with ${on ? "" : "hidden"}>${only}</div>`;
 				var additional = this.entry && this.entry.properties && this.entry.properties.additionalProperties;
 				if(additional && typeof additional === "object"){
 					var lines = Object.keys(spec.properties || {})
@@ -207,6 +241,14 @@
 						properties[name] = raw;
 					}
 				});
+				var tabs = this.tabsProperty();
+				if(tabs){
+					// Written only when it is not the default. Off, what applies only with it is dropped:
+					// the service refuses it there.
+					var on = form.querySelector(".flow-switch button.selected").getAttribute("data-on") === "true";
+					if(on !== (props[tabs]["default"] === true)) properties[tabs] = on;
+					if(!on) Object.keys(props).filter(n => props[n]["x-onlyWith"] === tabs).forEach(n => delete properties[n]);
+				}
 				if(form.elements.__dynamic){
 					form.elements.__dynamic.value.split(/\r?\n/).forEach(line => {
 						var eq = line.indexOf("=");
@@ -282,11 +324,14 @@
 					<input type="text" name="cron" value="${v(t.cron)}" placeholder="0 0 * * * *"/>
 					<label>${L("flows.field.timezone")}</label>
 					<input type="text" name="timezone" value="${v(t.timezone)}" placeholder="Europe/Oslo"/>
-					<label>${L("flows.field.window")}</label>
-					<input type="text" name="window" value="${v(friendlyDuration(t.window))}" placeholder="1h"/>
 					<label>${L("flows.field.delay")}</label>
 					<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="5m"/>
 					<p class="field-hint">${L("flows.field.trigger.help")}</p>
+					<details class="flow-advanced" ${t.window ? "open" : ""}><summary>${L("flows.field.advanced")}</summary>
+						<label>${L("flows.field.window")}</label>
+						<input type="text" name="window" value="${v(friendlyDuration(t.window))}"/>
+						<p class="field-hint">${L("flows.field.window.help")}</p>
+					</details>
 
 					<label>${L("flows.field.execution")}</label>
 					<div class="flow-inline">
@@ -514,6 +559,8 @@
 				anchor.insertAdjacentElement("afterend", note);
 				var fold = anchor.closest("details");
 				if(fold) fold.open = true;
+				var pane = anchor.closest("[data-only-with]");
+				if(pane && pane.hidden) form.querySelector('.flow-switch button[data-on="true"]').click();
 			});
 		}
 
@@ -1073,7 +1120,7 @@
 				catalog.forEach(e => { byType[e.name] = e; });
 				flow = results[1];
 				def = flow ? flow.definition : { schemaVersion: 1, externalId: flowId, name: "", dataSet: "",
-					processors: [], connections: [], trigger: { type: "schedule", cron: "0 0 * * * *", window: "PT1H" } };
+					processors: [], connections: [], trigger: { type: "schedule", cron: "0 0 * * * *" } };
 				savedJson = flow ? JSON.stringify(def) : null;
 				if(!flow) fillDataSets(el("flow-new").elements.dataSet, def.dataSet);
 				return flow ? FlowApi.get("/flows/" + FlowApi.seg(flowId) + "/deployment").catch(notFound) : null;
