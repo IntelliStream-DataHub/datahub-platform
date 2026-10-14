@@ -70,7 +70,7 @@ public class EventsSink implements Processor {
                     .displayName("Dataset")
                     .description("External id of the events' dataset: any dataset the run's "
                             + "identity may write. The flow's own when unset.")
-                    .advanced().build())
+                    .lookup("dataset").advanced().build())
             .property(PropertyDescriptor.builder("description", PropertyType.STRING)
                     .displayName("Description").description("The events' description.")
                     .references().advanced().build())

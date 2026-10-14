@@ -81,7 +81,7 @@ public class TimeseriesSink implements Processor {
                     .displayName("Dataset")
                     .description("External id of the dataset of created series: any dataset the "
                             + "person saving the flow may write. The flow's own when unset.")
-                    .advanced().build())
+                    .lookup("dataset").advanced().build())
             .relationship(new Relationship("success", "Written; the item passes on unchanged.",
                     Relationship.Unconnected.TERMINATE))
             .relationship(new Relationship("failure", "Not written; failure.reason says why. "
