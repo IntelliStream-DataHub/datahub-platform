@@ -65,23 +65,23 @@ public class TimeseriesSink implements Processor {
                     .displayName("Create")
                     .description("true: targets that do not exist are created when the flow is "
                             + "saved. false: every target must already exist.")
-                    .defaultValue(true).build())
+                    .tabs("Existing series", "New series").defaultValue(true).build())
             .property(PropertyDescriptor.builder("name", PropertyType.STRING)
                     .displayName("Name").description("Name of a created series; its external "
                             + "id when unset.")
-                    .advanced().references().build())
+                    .onlyWith("create").references().build())
             .property(PropertyDescriptor.builder("unit", PropertyType.STRING)
                     .displayName("Unit").description("Unit of a created series; when unset, "
                             + "that of the series read.")
-                    .advanced().references().build())
+                    .onlyWith("create").references().build())
             .property(PropertyDescriptor.builder("description", PropertyType.STRING)
                     .displayName("Description").description("Description of a created series.")
-                    .advanced().references().build())
+                    .onlyWith("create").references().build())
             .property(PropertyDescriptor.builder("dataSet", PropertyType.STRING)
                     .displayName("Dataset")
                     .description("External id of the dataset of created series: any dataset the "
                             + "person saving the flow may write. The flow's own when unset.")
-                    .lookup("dataset").advanced().build())
+                    .lookup("dataset").onlyWith("create").build())
             .relationship(new Relationship("success", "Written; the item passes on unchanged.",
                     Relationship.Unconnected.TERMINATE))
             .relationship(new Relationship("failure", "Not written; failure.reason says why. "

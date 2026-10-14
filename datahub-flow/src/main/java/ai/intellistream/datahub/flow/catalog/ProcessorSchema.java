@@ -22,8 +22,10 @@ import java.util.Map;
  * <p>Built by hand from the descriptor: the descriptor is the source of truth, and the mapping is
  * small enough that a schema generator would add a dependency and nothing else. What JSON Schema
  * cannot say is carried in {@code x-} keywords: {@code x-references} (the value may contain
- * {@code ${…}} references), {@code x-sensitive}, {@code x-lookup} (what to search for the value)
- * and {@code x-advanced}.
+ * {@code ${…}} references), {@code x-sensitive}, {@code x-lookup} (what to search for the value),
+ * {@code x-advanced}, {@code x-required} (required, though a default satisfies it), {@code x-tabs}
+ * (a boolean's false and true, offered as two tabs) and {@code x-onlyWith} (the boolean it applies
+ * only when true).
  */
 final class ProcessorSchema {
 
@@ -99,6 +101,15 @@ final class ProcessorSchema {
         }
         if (p.advanced()) {
             schema.put("x-advanced", true);
+        }
+        if (p.required() && p.defaultValue() != null) {
+            schema.put("x-required", true);
+        }
+        if (!p.tabs().isEmpty()) {
+            schema.put("x-tabs", p.tabs());
+        }
+        if (p.onlyWith() != null) {
+            schema.put("x-onlyWith", p.onlyWith());
         }
         return schema;
     }

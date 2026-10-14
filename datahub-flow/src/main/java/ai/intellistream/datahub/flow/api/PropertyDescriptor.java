@@ -21,16 +21,25 @@ import java.util.Objects;
  * @param lookup           what the console offers to search for the value, e.g. {@code timeseries}
  *                         for external ids of series; null for none
  * @param advanced         rarely changed, so the console folds it away
+ * @param tabs             for a {@link PropertyType#BOOLEAN}: what its false and true each mean,
+ *                         which the console offers as two tabs; empty for none
+ * @param onlyWith         a boolean property this one applies only when true, so the console shows
+ *                         it in that property's true tab; null for none
  */
 public record PropertyDescriptor(String name, String displayName, String description,
                                  PropertyType type, boolean required, Object defaultValue,
                                  List<AllowableValue> allowableValues, boolean references,
-                                 boolean sensitive, String lookup, boolean advanced) {
+                                 boolean sensitive, String lookup, boolean advanced,
+                                 List<String> tabs, String onlyWith) {
 
     public PropertyDescriptor {
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(type, "type");
         allowableValues = List.copyOf(allowableValues);
+        tabs = List.copyOf(tabs);
+        if (!tabs.isEmpty() && (type != PropertyType.BOOLEAN || tabs.size() != 2)) {
+            throw new IllegalArgumentException(name + ": tabs are a boolean's false and true");
+        }
     }
 
     public static Builder builder(String name, PropertyType type) {
@@ -53,6 +62,8 @@ public record PropertyDescriptor(String name, String displayName, String descrip
         private boolean sensitive;
         private String lookup;
         private boolean advanced;
+        private List<String> tabs = List.of();
+        private String onlyWith;
 
         private Builder(String name, PropertyType type) {
             this.name = name;
@@ -105,9 +116,20 @@ public record PropertyDescriptor(String name, String displayName, String descrip
             return this;
         }
 
+        public Builder tabs(String whenFalse, String whenTrue) {
+            this.tabs = List.of(whenFalse, whenTrue);
+            return this;
+        }
+
+        public Builder onlyWith(String property) {
+            this.onlyWith = property;
+            return this;
+        }
+
         public PropertyDescriptor build() {
             return new PropertyDescriptor(name, displayName, description, type, required,
-                    defaultValue, allowableValues, references, sensitive, lookup, advanced);
+                    defaultValue, allowableValues, references, sensitive, lookup, advanced, tabs,
+                    onlyWith);
         }
     }
 }
