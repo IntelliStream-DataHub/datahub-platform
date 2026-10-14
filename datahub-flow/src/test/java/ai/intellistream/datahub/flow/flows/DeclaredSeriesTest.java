@@ -57,9 +57,8 @@ class DeclaredSeriesTest {
     }
 
     @Test
-    void aSourceListThatIsNotFixedIsRefused() {
-        String flow = TestFlows.EXAMPLE.replace("[\"ts_out_temp\", \"ts_in_temp\"]",
-                "[\"ts_out_temp\", \"${parameters.extra}\"]");
+    void aSourceThatIsAReferenceIsRefused() {
+        String flow = TestFlows.EXAMPLE.replace("\"ts_out_temp\" }", "\"${parameters.extra}\" }");
 
         assertThat(DeclaredSeries.of(FlowDefinitions.parse(flow), "ds_demo", SINK).problems())
                 .extracting(ValidationProblem::pointer)
@@ -92,8 +91,9 @@ class DeclaredSeriesTest {
 
     @Test
     void aReferenceToTheSeriesWithNoSourceUpstreamIsRefused() {
-        String flow = TestFlows.EXAMPLE.replace(
-                "{ \"from\": \"src\",  \"relationship\": \"success\", \"to\": \"f\" },", "");
+        String flow = TestFlows.EXAMPLE
+                .replace("{ \"from\": \"src\",  \"relationship\": \"success\", \"to\": \"f\" },", "")
+                .replace("{ \"from\": \"src2\", \"relationship\": \"success\", \"to\": \"f\" },", "");
 
         assertThat(DeclaredSeries.of(FlowDefinitions.parse(flow), "ds_demo", SINK).problems())
                 .extracting(ValidationProblem::pointer)

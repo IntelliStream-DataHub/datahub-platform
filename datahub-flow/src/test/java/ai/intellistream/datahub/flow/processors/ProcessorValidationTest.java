@@ -19,7 +19,7 @@ class ProcessorValidationTest {
                   "schemaVersion": 1, "externalId": "t", "dataSet": "ds", "name": "T",
                   "processors": [
                     { "id": "src", "type": "read-timeseries",
-                      "properties": { "timeseries": ["ts1"] } },
+                      "properties": { "timeseries": "ts1" } },
                     { "id": "p", "type": "%s", "properties": %s, "terminate": %s }
                   ],
                   "connections": [ { "from": "src", "relationship": "success", "to": "p" } ]
