@@ -64,6 +64,8 @@
 				super.render();
 				this.formElement.querySelectorAll("input[data-lookup='timeseries']").forEach(lookupTimeseries);
 				this.formElement.querySelectorAll("[data-series]").forEach(seriesPicker);
+				this.formElement.querySelectorAll("select[data-lookup='dataset']")
+					.forEach(select => fillDataSets(select, select.dataset.current, L("flows.field.dataset.flow")));
 			}
 
 			schemaProperties(){
@@ -154,6 +156,9 @@
 						<option value="true" ${current === "true" ? "selected" : ""}>true</option>
 						<option value="false" ${current === "false" ? "selected" : ""}>false</option>
 					</select>`;
+				} else if(schema["x-lookup"] === "dataset"){
+					// Filled with the writable datasets in render().
+					input = `<select name="${escapeHtml(field)}" ${lookup} data-current="${escapeHtml(current)}"></select>`;
 				} else if(kind.type === "array" && schema["x-lookup"] === "timeseries"){
 					// The chosen series, looked up in DataHub; the hidden list is what is submitted.
 					input = `<div class="flow-series" data-series>
@@ -443,11 +448,14 @@
 			return writable;
 		}
 
-		/** A dataset select: the writable datasets, with {@code current} kept even when it is not one of them. */
-		function fillDataSets(select, current){
+		/**
+		 * A dataset select: the writable datasets, with {@code current} kept even when it is not one
+		 * of them. {@code none} labels the empty choice.
+		 */
+		function fillDataSets(select, current, none){
 			writableDataSets().then(list => {
 				if(current && !list.some(d => d.value === current)) list = list.concat([{ value: current, label: current }]);
-				fillSelect(select, [{ value: "", label: L("flows.field.dataset.choose") }].concat(list), false);
+				fillSelect(select, [{ value: "", label: none || L("flows.field.dataset.choose") }].concat(list), false);
 				select.value = current || "";
 			}).catch(err => FlowApi.flashError(err, "flows.error.datasets"));
 		}
