@@ -51,11 +51,13 @@
 		// Class expressions rather than declarations: Closure Compiler fails on a class declared
 		// inside a function and referenced from a closure.
 		var ProcessorForm = class extends DatasetFormAbstract {
-			constructor(spec, entry){
+			/** {@code adding}: a processor not in the flow yet, which joins it when the form is saved. */
+			constructor(spec, entry, adding){
 				super({ title: labelOf(spec) });
 				this.spec = spec;
 				this.entry = entry;
-				this.deleteUrl = "local";   // shows the form's delete button; delete() is local
+				this.adding = !!adding;
+				if(!adding) this.deleteUrl = "local";   // shows the form's delete button; delete() is local
 				this.confirmDeleteMessage = L("flows.remove.processor.confirm", [labelOf(spec)]);
 				this.render();
 			}
@@ -165,12 +167,12 @@
 				} else if(schema["x-lookup"] === "dataset"){
 					// Filled with the writable datasets in render().
 					input = `<select name="${escapeHtml(field)}" ${lookup} data-current="${escapeHtml(current)}"></select>`;
-				} else if(kind.type === "array" && schema["x-lookup"] === "timeseries"){
-					// The chosen series, looked up in DataHub; the hidden list is what is submitted.
+				} else if(schema["x-lookup"] === "timeseries" && !kind.references){
+					// The chosen series, looked up in DataHub; the hidden input is what is submitted.
 					input = `<div class="flow-series" data-series>
 						<ul class="flow-series-list" hidden></ul>
-						<input type="text" placeholder="${L("flows.series.search")}"/>
-						<textarea name="${escapeHtml(field)}" hidden>${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>
+						<input type="text" placeholder="${L("flows.series.search")}" ${required ? "data-required" : ""}/>
+						<input type="hidden" name="${escapeHtml(field)}" value="${escapeHtml(current)}"/>
 					</div>`;
 				} else if(kind.type === "array"){
 					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" placeholder="${L("flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
@@ -222,6 +224,11 @@
 					if(backoff) this.spec.retry.backoff = backoff;
 				} else {
 					delete this.spec.retry;
+				}
+				if(this.adding){
+					def.processors = def.processors || [];
+					def.processors.push(this.spec);
+					this.adding = false;
 				}
 				changed();
 				this.cancelButtonElement.dispatchEvent(new Event("click"));
@@ -341,6 +348,7 @@
 			var entry = byType[spec.type];
 			var name = entry && entry.displayName ? entry.displayName : spec.type;
 			var same = (def.processors || []).filter(p => p.type === spec.type);
+			if(same.indexOf(spec) < 0) same.push(spec);   // one being added
 			return same.length > 1 ? name + " " + (same.indexOf(spec) + 1) : name;
 		}
 
@@ -353,12 +361,11 @@
 		 * The tenant's series as the user types: the newest when nothing is typed, a search from three
 		 * letters (the api's minimum). Suggestions are labels; {@code picked} maps them back.
 		 */
-		function searchSeries(query, picked, skip){
+		function searchSeries(query, picked){
 			var found = query.length >= 3 ? FlowApi.api("/timeseries/search", { search: { query: query }, limit: 20 })
 				: query.length === 0 ? FlowApi.api("/timeseries?limit=20")
 				: Promise.resolve({ items: [] });
 			return found.then(json => (json.items || [])
-				.filter(ts => !skip || skip.indexOf(ts.externalId) < 0)
 				.map(ts => { var label = seriesLabel(ts); picked[label] = ts; return label; }));
 		}
 
@@ -374,42 +381,42 @@
 		}
 
 		/**
-		 * A list of series picked from DataHub: one row per series with its name, flagged when it does
-		 * not exist or the user may not read it, and a search to add more. The hidden textarea holds
-		 * the external ids, one per line, as the form submits them.
+		 * A series picked from DataHub: its name, external id and unit once chosen, flagged when it
+		 * does not exist or the user may not read it; a search until then, which a required field
+		 * cannot be saved without. The hidden input holds the external id the form submits.
 		 */
 		function seriesPicker(box){
-			var store = box.querySelector("textarea"), list = box.querySelector("ul"), search = box.querySelector("input");
-			var known = {};   // externalId -> the series, or null when DataHub has none it may read
-			var ids = () => store.value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
-			var save = next => { store.value = next.join("\n"); draw(); };
+			var store = box.querySelector("input[type=hidden]"), list = box.querySelector("ul"), search = box.querySelector("input[type=text]");
+			var chosen;   // the series, null when DataHub has none it may read, undefined while looking
 
 			function draw(){
+				var id = store.value;
 				list.innerHTML = "";
-				ids().forEach(id => {
-					var ts = known[id];
+				if(id){
 					var li = document.createElement("li");
-					if(ts === null) li.className = "missing";
+					if(chosen === null) li.className = "missing";
 					var name = Object.assign(document.createElement("span"), { className: "flow-series-name",
-						textContent: ts ? ts.name || id : id });
+						textContent: chosen ? chosen.name || id : id });
 					var detail = Object.assign(document.createElement("span"), { className: "flow-series-id",
-						textContent: ts === null ? L("flows.series.missing") : ts ? id + (ts.unit ? " · " + ts.unit : "") : "" });
+						textContent: chosen === null ? L("flows.series.missing") : chosen ? id + (chosen.unit ? " · " + chosen.unit : "") : "" });
 					var remove = Object.assign(document.createElement("button"), { type: "button",
 						className: "flow-series-remove", textContent: "×", title: L("flows.series.remove") });
-					remove.addEventListener("click", () => save(ids().filter(i => i !== id)));
+					remove.addEventListener("click", () => {
+						store.value = "";
+						draw();
+						search.focus();
+					});
 					li.append(name, detail, remove);
 					list.appendChild(li);
-				});
-				list.hidden = list.childElementCount === 0;
+				}
+				list.hidden = !id;
+				search.hidden = !!id;
+				search.required = !id && search.hasAttribute("data-required");
 			}
 
-			var unresolved = ids().filter(id => !(id in known) && id.indexOf("${") < 0);
-			if(unresolved.length){
-				FlowApi.api("/timeseries/byids", { items: unresolved.map(id => ({ externalId: id })) })
-					.then(json => {
-						unresolved.forEach(id => { known[id] = null; });
-						(json.items || []).forEach(ts => { known[ts.externalId] = ts; });
-					})
+			if(store.value){
+				FlowApi.api("/timeseries/byids", { items: [{ externalId: store.value }] })
+					.then(json => { chosen = (json.items || []).filter(ts => ts.externalId === store.value)[0] || null; })
 					.catch(err => FlowApi.flashError(err, "flows.error.load"))
 					.then(draw);
 			}
@@ -419,13 +426,13 @@
 			new SearchDropdown(search, {
 				minChars: 0,
 				emptyText: L("flows.series.none"),
-				source: query => searchSeries(query, picked, ids()),
+				source: query => searchSeries(query, picked),
 				applySelection: (label, el) => {
 					el.value = "";
-					var ts = picked[label];
-					if(!ts) return;
-					known[ts.externalId] = ts;
-					save(ids().concat([ts.externalId]));
+					if(!picked[label]) return;
+					chosen = picked[label];
+					store.value = chosen.externalId;
+					draw();
 				}
 			});
 		}
@@ -477,6 +484,7 @@
 				return L("flows.settings") + (path[1] ? " › " + (labels[path[1]] ? L(labels[path[1]]) : path[1]) : "");
 			}
 			var top = { name: "flows.column.name", dataSet: "flows.field.dataset", description: "description",
+				externalId: "flows.problem.externalId",
 				processors: "flows.problem.processors", connections: "flows.problem.connections" };
 			return top[path[0]] ? L(top[path[0]]) : path.join(" › ");
 		}
@@ -822,7 +830,12 @@
 		function refuse(err, fallbackKey){
 			if(err instanceof DataHubProblem && err.status === 403 && err.slug === "forbidden") readOnly();
 			var list = problemsOf(err);
-			if(list.length) showProblems(list);
+			if(list.length){
+				showProblems(list);
+				Flash.error(L(list.length === 1 ? "flows.validate.failed.one" : "flows.validate.failed", [list.length]),
+					{ details: list.map(problemText) });
+				return;
+			}
 			// The service's own refusals that the shared reader only knows by status, which would
 			// say "signed out" for a short-lived token or "unavailable" for a full instance.
 			if(err instanceof DataHubProblem && err.slug === "token-expiring"){ Flash.error(L("flows.error.token.expiring")); return; }
@@ -952,11 +965,7 @@
 		}
 
 		function addProcessor(type){
-			var id = newId(type);
-			def.processors = def.processors || [];
-			def.processors.push({ id: id, type: type, properties: {} });
-			changed();
-			new ProcessorForm(processorById(id), byType[type]);
+			new ProcessorForm({ id: newId(type), type: type, properties: {} }, byType[type], true);
 		}
 
 		function connect(){
