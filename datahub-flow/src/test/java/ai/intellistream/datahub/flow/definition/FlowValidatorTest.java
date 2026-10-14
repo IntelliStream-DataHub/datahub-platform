@@ -253,7 +253,7 @@ class FlowValidatorTest {
     }
 
     @Test
-    void aScheduleNeedsACronAWindowAndParameterDefaults() {
+    void aScheduleNeedsACronAndParameterDefaultsButNotAWindow() {
         List<ValidationProblem> problems = problems(tree -> {
             ObjectNode trigger = (ObjectNode) tree.get("trigger");
             trigger.put("cron", "every hour");
@@ -262,7 +262,7 @@ class FlowValidatorTest {
             ((ObjectNode) tree.get("parameters").get("limit")).remove("default");
         });
         assertThat(problems).extracting(ValidationProblem::pointer).containsExactlyInAnyOrder(
-                "#/trigger/cron", "#/trigger/timezone", "#/trigger/window", "#/parameters/limit");
+                "#/trigger/cron", "#/trigger/timezone", "#/parameters/limit");
     }
 
     @Test

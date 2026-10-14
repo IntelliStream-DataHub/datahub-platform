@@ -81,7 +81,8 @@ public record FlowDefinition(Integer schemaVersion, String externalId, String da
      * @param cron     for a schedule: Spring's six-field cron expression
      * @param timezone for a schedule: the zone the cron expression is read in
      * @param window   ISO-8601 duration, or a {@code ${parameters.<name>}} reference to one: the tick
-     *                 at T covers {@code [T - window, T)}
+     *                 at T covers {@code [T - window, T)}. Optional for a schedule, whose tick at T
+     *                 then covers the time since the tick before it
      * @param delay    ISO-8601 duration after the tick before the run starts, so late data arrives
      */
     public record Trigger(String type, String cron, String timezone, String window, String delay) {
