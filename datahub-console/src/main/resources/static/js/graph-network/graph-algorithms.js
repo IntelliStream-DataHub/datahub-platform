@@ -130,7 +130,7 @@ function louvain(G, resolution = 1) {
 // Clusters of clusters: Louvain again on the graph of clusters, where two clusters are linked as
 // strongly as the relationships between them. Gives the bundles a second level to branch at.
 function superClusters(G, comm) {
-    const k = Math.max(-1, ...comm) + 1;
+    const k = maxOf(comm, -1) + 1;
     const adj = Array.from({ length: k }, () => new Map());
     G.adj.forEach((row, i) => row.forEach((w, j) => { const a = comm[i], b = comm[j]; adj[a].set(b, (adj[a].get(b) || 0) + w); }));
     const ids = Array.from({ length: k }, (_, i) => String(i));
@@ -329,7 +329,9 @@ function sampledBetweenness(G, k) {
     return { node: Array.from(cb, x => x * scale), edge, key };
 }
 // 0..1, square-root scaled so a few hubs don't flatten everyone else.
-function normalise(v) { const max = Math.max(...v, 1e-12); return v.map(x => Math.sqrt(Math.max(0, x) / max)); }
+function normalise(v) { const max = maxOf(v, 1e-12); return v.map(x => Math.sqrt(Math.max(0, x) / max)); }
+// The largest of a list and floor: Math.max(...list) overflows the call stack past about 100,000 values.
+function maxOf(list, floor) { let m = floor; for (const x of list) if (x > m) m = x; return m; }
 
-window.GraphAlgorithms = { CONTAINMENT, withSeed, buildGraph, renumber, modularity, louvain, superClusters, contextHomes, withContext, straighten, hierarchyClusters, betweenness, normalise };
+window.GraphAlgorithms = { CONTAINMENT, withSeed, buildGraph, renumber, modularity, louvain, superClusters, contextHomes, withContext, straighten, hierarchyClusters, betweenness, normalise, maxOf };
 })();

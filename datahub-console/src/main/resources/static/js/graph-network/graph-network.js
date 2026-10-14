@@ -58,6 +58,8 @@ class GraphNetwork {
             onEdgePick: edge => this.openEdgeForm(edge),
             picking: () => !this.addEdgeModeEnabled,
             tr: (key, args) => args ? $L(key, null, args) : $L(key),
+            // A big graph brings resources into Cytoscape as they come into view; a filter hides them too.
+            onWindow: () => { if (this.filter && this.filter.state) this.filter.apply(); },
         });
 
         // Re-theme the graph live when the user toggles the colour theme (the toggle sets
@@ -95,7 +97,7 @@ class GraphNetwork {
             this.resetTooltipAndSelection();
         });
 
-        this.cy.on('mouseover', 'node.dot', (event) => {
+        this.cy.on('mouseover', 'node.dot, node.agg', (event) => {
             this.container.style.cursor = 'pointer';
             this.showNodeTooltip(event.target);
         });
@@ -707,10 +709,15 @@ class GraphNetwork {
             });
         this.labels = this.labels.concat(this.standardLabels);
 
-        this.cy.batch(() => {
-            data.nodes.forEach(node => this.addNode(node));
-            data.edges.forEach(edge => this.addEdge(edge));
-        });
+        if (data.nodes.length > this.view.bigAbove) {
+            // Too many for Cytoscape at once: the drawing keeps them and shows what is in view.
+            this.view.loadBig(data.nodes.map(node => this.nodeData(node)), data.edges.map(edge => this.edgeData(edge)));
+        } else {
+            this.cy.batch(() => {
+                data.nodes.forEach(node => this.addNode(node));
+                data.edges.forEach(edge => this.addEdge(edge));
+            });
+        }
         // Drawn now rather than when the adds' queued redraw comes round, so the graph is on screen
         // when the load promise resolves.
         this.refreshQueued = false;
@@ -725,18 +732,32 @@ class GraphNetwork {
         this.filter.refreshOptions();
     }
 
+    nodeData(node){
+        return {
+            id: "node-" + node.id,
+            label: node.name,             // node name (also used by the filter + hover tooltip)
+            labels: node.labels,
+            externalId: node.externalId,
+            dataSetId: node.dataSetId,    // the dataset this node lives in, so a node created
+                                          // off it can default to the same one (see toNodeData)
+            color: this.getColor(node),   // the node's label colour (forms and the filter use it)
+        };
+    }
+
+    edgeData(edge){
+        return {
+            id: "edge-" + edge.id,      // Unique identifier for the edge
+            source: "node-" + edge.start,  // ID of the source node
+            target: "node-" + edge.end,   // ID of the target node
+            label: edge.type,
+            metadata: edge.metadata     // relationship properties; drives the flow animation
+        };
+    }
+
     addNode(node){
         const added = this.cy.add({
             group: 'nodes',  // specify that you are adding a node
-            data: {
-                id: "node-" + node.id,
-                label: node.name,             // node name (also used by the filter + hover tooltip)
-                labels: node.labels,
-                externalId: node.externalId,
-                dataSetId: node.dataSetId,    // the dataset this node lives in, so a node created
-                                              // off it can default to the same one (see toNodeData)
-                color: this.getColor(node),   // the node's label colour (forms and the filter use it)
-            },
+            data: this.nodeData(node),
         });
         // Every path that adds a node redraws, placing it beside its neighbours.
         this.relayout();
@@ -746,13 +767,7 @@ class GraphNetwork {
     addEdge(edge){
         const added = this.cy.add({
             group: 'edges', // Define that you're adding an edge
-            data: {
-                id: "edge-" + edge.id,      // Unique identifier for the edge
-                source: "node-" + edge.start,  // ID of the source node
-                target: "node-" + edge.end,   // ID of the target node
-                label: edge.type,
-                metadata: edge.metadata     // relationship properties; drives the flow animation
-            }
+            data: this.edgeData(edge)
         });
         // Redraw here rather than at the call sites: every path that draws an edge — initial load,
         // save response, fetch-related, and creating a relation by hand — is then routed, and a
@@ -865,12 +880,16 @@ class GraphNetwork {
         return match ? match.color : "#999999";
     }
 
+    // A big graph keeps what is out of view in the drawing rather than in Cytoscape; for those, a stand-in
+    // answers whether it is in the graph and where.
     findNodeById(id){
-        return this.cy.getElementById("node-" + id);
+        const el = this.cy.getElementById("node-" + id);
+        return el.nonempty() || !this.view.isBig() ? el : this.view.standIn("node-" + id);
     }
 
     findEdgeById(id){
-        return this.cy.getElementById("edge-" + id);
+        const el = this.cy.getElementById("edge-" + id);
+        return el.nonempty() || !this.view.isBig() ? el : this.view.standIn("edge-" + id);
     }
 
     toNodeData(node) {
@@ -915,6 +934,7 @@ class GraphNetwork {
             noEdgeEventsInDraw: true, // prevent firing of edge events while drawing
             disableBrowserGestures: true, // disable browser gestures while using the extension
             handleNodes: 'node.dot', // selector for which nodes to be handles
+            canConnect: (source, target) => !source.same(target) && target.hasClass('dot'),   // not a big graph's group dot
             edgeParams: (sourceNode, targetNode) => {
                 return {classes: 'new-edge-handle'};
             }
@@ -1096,12 +1116,14 @@ class GraphFilter {
     }
 
     refreshOptions() {
+        // A big graph's resources are mostly out of view, so the lists come from the drawing's store.
+        const all = this.network.view.modelData();
         const presentLabels = new Set();
-        this.cy.nodes().forEach(n => (n.data('labels') || []).forEach(l => presentLabels.add(l)));
+        (all ? all.nodes : this.cy.nodes().map(n => n.data())).forEach(d => (d.labels || []).forEach(l => presentLabels.add(l)));
 
         const presentRelTypes = new Set();
-        this.cy.edges().forEach(e => {
-            const t = e.data('label');
+        (all ? all.edges : this.cy.edges().map(e => e.data())).forEach(d => {
+            const t = d.label;
             if (t) presentRelTypes.add(t);
         });
 
@@ -1184,7 +1206,7 @@ class GraphFilter {
                 n.toggleClass('filtered-out', hide);   // hides the canvas node (display:none)
                 if (hide !== wasHidden) changed = true;
             });
-            this.cy.edges().forEach(e => {
+            this.cy.edges().not('.agg').forEach(e => {
                 const typeOk = !types || types.has(e.data('label') || '');
                 const endpointsVisible = !e.source().hasClass('filtered-out')
                     && !e.target().hasClass('filtered-out');

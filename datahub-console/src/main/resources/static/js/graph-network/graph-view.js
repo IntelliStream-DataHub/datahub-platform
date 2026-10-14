@@ -18,6 +18,9 @@
 
     The arrangement is remembered per graph in this browser: known resources go back where they were,
     and only new ones are placed, so adding or editing something never moves the rest.
+
+    A graph of more than BIG_ABOVE resources is drawn group by group: zoomed out, each group is one dot,
+    and a group opens into its resources as it is zoomed into (see "big graphs" below).
  */
 (function () {
 'use strict';
@@ -241,6 +244,9 @@ const HIT_PX = 6;       // how near a click must be to a line, on screen
 // Wheel zoom: a mouse notch zooms 25 %, a touchpad's small steps zoom in proportion (a 75 px step
 // doubles), and a touchpad pinch, which arrives as a wheel with Ctrl held, follows the fingers.
 const NOTCH = 1.25, WHEEL_DOUBLE = 75;
+// Big graphs: above BIG_ABOVE resources, a group opens once it is OPEN_PX across on screen, the ones
+// nearest the middle first, while at most SHOWN_MAX resources are shown.
+const BIG_ABOVE = 5000, OPEN_PX = 90, SHOWN_MAX = 8000;
 
 /**
  * opts:
@@ -249,6 +255,7 @@ const NOTCH = 1.25, WHEEL_DOUBLE = 75;
  *   saveKey()     the localStorage key of this graph's arrangement, or null to remember nothing
  *   onEdgePick(e) a relation was clicked (after choosing, when several meet there)
  *   tr(key, args) localized text
+ *   onWindow()    a big graph brought resources into Cytoscape or took them out
  */
 function createGraphView(container, opts) {
     let cy = null, cyWebgl = false;
@@ -258,6 +265,10 @@ function createGraphView(container, opts) {
     let scratch = null, viewMoving = false, viewTimer = 0, lodLast = 0, lodTimer = 0;
     let flowList = null, flowRAF = 0, flowEvery = 1, flowTick = 0, flowRecent = [], flowStopped = false;
     let pageScrolling = false, pageScrollTimer = 0, destroyed = false;
+    let big = null, winTimer = 0;
+    // A group's colour. Past the twelfth group they are grey, except in a big graph, where hundreds of group
+    // dots in grey would say nothing: there the colours go round again.
+    const colourOf = c => CLUSTER[c] || (big && c >= 0 ? CLUSTER[c % CLUSTER.length] : OTHER);
     const PATHS = new Map();
 
     // The canvases: outlines under the graph, names and flows over it, and the chooser for relations that
@@ -338,7 +349,7 @@ function createGraphView(container, opts) {
             if (best) comm[i] = best[0];
         });
         A.contextHomes(G).forEach((h, i) => { if (comm[i] < 0 && comm[h] >= 0) comm[i] = comm[h]; });
-        let next = Math.max(-1, ...comm) + 1;
+        let next = A.maxOf(comm, -1) + 1;
         comm.forEach((c, i) => { if (c < 0) comm[i] = next++; });
         return comm;
     }
@@ -411,17 +422,22 @@ function createGraphView(container, opts) {
         return new Map(G.ids.map(id => [id, options.get(id)[choice.get(id)]]));
     }
     // Dots sized by importance, coloured by group, with an icon for the resource's type.
+    function lookOf(i, comm, pal) {
+        const imp = info.importance[i], d = 8 + 30 * imp, id = G.ids[i];
+        return { w: d, h: d, fs: 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: glyph(G.nodes.get(id).type, pal.ink), c: comm[i], short: SHORT.get(id) };
+    }
+    const edgeLookOf = (e, k, comm) => ({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
     function applyLook(comm) {
-        const pal = palette(), imp = info.importance;
+        const pal = palette();
         cy.batch(() => {
             G.ids.forEach((id, i) => {
-                const n = cy.getElementById(id), d = 8 + 30 * imp[i];
-                n.data({ w: d, h: d, fs: 8 + 11 * imp[i], imp: imp[i], dot: CLUSTER[comm[i]] || OTHER, icon: glyph(G.nodes.get(id).type, pal.ink), c: comm[i], short: SHORT.get(id) });
+                const n = cy.getElementById(id);
+                n.data(lookOf(i, comm, pal));
                 if (!n.hasClass('dot')) n.addClass('dot');
             });
             G.edges.forEach((e, k) => {
                 const el = cy.getElementById(e.id);
-                el.data({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
+                el.data(edgeLookOf(e, k, comm));
                 if (e.ctx !== el.hasClass('ctx')) el.toggleClass('ctx', e.ctx);
             });
         });
@@ -762,7 +778,7 @@ function createGraphView(container, opts) {
         const fillA = opts.theme() === 'light' ? 0.12 : 0.09, lit = selectedGroups();
         shapes.forEach((g, k) => {
             if (!g.path) return;
-            const col = CLUSTER[k] || OTHER, on = lit && lit.has(k), lw = (on ? 2.4 : 1.2) / z, sa = on ? 0.9 : 0.35;
+            const col = colourOf(k), on = lit && lit.has(k), lw = (on ? 2.4 : 1.2) / z, sa = on ? 0.9 : 0.35;
             ctx.globalAlpha = on ? fillA * 1.6 : fillA; ctx.fillStyle = col; ctx.fill(g.union || g.path);
             if (g.links) {
                 ctx.globalAlpha = on ? 0.95 : 0.6; ctx.strokeStyle = col; ctx.lineWidth = (on ? 2.4 : 1.6) / z; ctx.setLineDash([7 / z, 5 / z]);
@@ -806,7 +822,7 @@ function createGraphView(container, opts) {
             if (r.x2 < 0 || r.x1 > w || r.y2 < 0 || r.y1 > h || placed.concat(named).some(o => r.x1 < o.x2 && r.x2 > o.x1 && r.y1 < o.y2 && r.y2 > o.y1)) return;
             placed.push(r);
             ctx.lineWidth = 3; ctx.strokeStyle = pal.outline; ctx.strokeText(text, cx, top);
-            ctx.fillStyle = opts.theme() === 'light' ? pal.label : (CLUSTER[k] || OTHER); ctx.fillText(text, cx, top);
+            ctx.fillStyle = opts.theme() === 'light' ? pal.label : colourOf(k); ctx.fillText(text, cx, top);
         });
     }
 
@@ -816,7 +832,7 @@ function createGraphView(container, opts) {
     const hiddenName = n => n.hasClass('dim') || n.hasClass('tut-dim') || !shown(n);
     function shownLabels(z, pan, w, h) {
         const cell = 48, grid = new Map(), names = new Set();
-        const nodes = cy.nodes('.dot').toArray().sort((a, b) => (b.data('imp') || 0) - (a.data('imp') || 0) || (a.id() < b.id() ? -1 : 1));
+        const nodes = cy.nodes('.dot, .agg').toArray().sort((a, b) => (b.data('imp') || 0) - (a.data('imp') || 0) || (a.id() < b.id() ? -1 : 1));
         const hit = r => {
             for (let gx = Math.floor(r.x1 / cell); gx <= Math.floor(r.x2 / cell); gx++) for (let gy = Math.floor(r.y1 / cell); gy <= Math.floor(r.y2 / cell); gy++) {
                 for (const o of grid.get(gx + ',' + gy) || []) if (r.x1 < o.x2 && r.x2 > o.x1 && r.y1 < o.y2 && r.y2 > o.y1) return true;
@@ -871,7 +887,7 @@ function createGraphView(container, opts) {
             ctx.lineWidth = 3; ctx.lineCap = 'round';
             m.groups.forEach((g, j) => {
                 const a0 = -Math.PI / 2 + j * 2 * Math.PI / k + gap / 2, a1 = a0 + 2 * Math.PI / k - gap;
-                ctx.strokeStyle = CLUSTER[g] || OTHER; ctx.beginPath(); ctx.arc(x, y, r, a0, a1); ctx.stroke();
+                ctx.strokeStyle = colourOf(g); ctx.beginPath(); ctx.arc(x, y, r, a0, a1); ctx.stroke();
             });
             ctx.lineCap = 'butt';
         });
@@ -1022,6 +1038,11 @@ function createGraphView(container, opts) {
             { selector: 'edge.hl.in', style: cyWebgl ? { 'line-color': pal.in, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.inFrom, pal.in], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.in, 'width': 1.8 } },
             { selector: 'edge.hov', style: { 'opacity': 1, 'width': 2.2, 'z-index': 10, 'underlay-opacity': 0.16 } },
             { selector: 'edge:selected', style: { 'opacity': 1, 'width': 2.6, 'z-index': 11, 'line-fill': 'solid', 'line-color': pal.pick, 'underlay-color': pal.pick, 'underlay-padding': 4, 'underlay-opacity': 0.2 } },
+            // A big graph's shut groups: one dot each, filled with the group's colour faded into the page, and a
+            // line between linked groups, wider the more relations it stands for.
+            { selector: 'node.agg', style: { 'width': 'data(w)', 'height': 'data(w)', 'background-color': 'data(fill)', 'border-width': 2, 'border-color': 'data(dot)', 'border-opacity': 1 } },
+            { selector: 'node.agg.root', style: { 'border-width': 4, 'border-color': pal.label } },
+            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'width': e => Math.min(6, 1 + Math.log2(e.data('n') || 1)), 'opacity': 0.55, 'line-fill': 'solid', 'line-color': pal.line } },
             // Drawing a new relation (edge-handles).
             { selector: '.eh-source, .eh-target', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
             { selector: '.eh-handle', style: { 'width': 10, 'height': 10, 'background-color': pal.accent, 'background-image': 'none' } },
@@ -1066,7 +1087,7 @@ function createGraphView(container, opts) {
     // measured on the curve Cytoscape draws. One opens straight away; several get a short list to choose from.
     function edgesNear(P, tol) {
         const out = [];
-        cy.edges().not(TEMP).forEach(e => {
+        cy.edges().not(TEMP).not('.agg').forEach(e => {
             if (!shownEdge(e)) return;
             const pts = edgePath(e);
             let d = Infinity;
@@ -1145,7 +1166,14 @@ function createGraphView(container, opts) {
             viewMoving = true; clearTimeout(viewTimer); viewTimer = setTimeout(() => { viewMoving = false; drawHulls(); }, 160);
             scheduleLod(); redrawSoon();
             if (reducedMotion() || flowStopped) drawFlow(0, true);
+            if (big) { clearTimeout(winTimer); winTimer = setTimeout(windowNow, 160); }
         });
+        cy.on('tap', 'node.agg', e => openGroup(e.target.data('c')));
+        // A big graph's store follows what GraphNetwork adds to Cytoscape and removes from it (a new resource,
+        // a deleted relation), apart from what the view itself brings in and takes out.
+        const tracked = el => big && !big.windowing && !el.is(TEMP) && !el.hasClass('agg');
+        cy.on('add', e => { const el = e.target; if (!tracked(el)) return; if (el.isNode()) { big.nodes.set(el.id(), Object.assign({}, el.data())); big.pos.set(el.id(), { ...el.position() }); } else big.edges.set(el.id(), Object.assign({}, el.data())); });
+        cy.on('remove', e => { const el = e.target; if (!tracked(el)) return; if (el.isNode()) { big.nodes.delete(el.id()); big.pos.delete(el.id()); } else big.edges.delete(el.id()); });
         cy.on('position', 'node', e => { posVersion++; e.target.connectedEdges().forEach(x => PATHS.delete(x.id())); redrawSoon(); });
         // Dimming and the tutorial's highlight hide names, so a class change redraws them.
         cy.on('class', 'node', redrawSoon);
@@ -1167,8 +1195,228 @@ function createGraphView(container, opts) {
         });
     }
 
+    // ---- big graphs ---------------------------------------------------------------------------------------
+    // Above BIG_ABOVE resources the graph is kept here as plain data, and Cytoscape holds only what is on
+    // screen. Zoomed out, each group is one dot, about as large as the group will be, with one line for each
+    // pair of linked groups. A group that grows to OPEN_PX across opens into its resources and the relations
+    // among them; a relation to a group still shut is drawn to that group's dot. Cytoscape draws about 5,000
+    // elements at 60 frames a second and 100,000 at 3, and a removed element keeps most of its memory, so
+    // elements are made as they come into view and dropped as they leave. A group is laid out the first time
+    // it opens: the overview needs only where each group sits.
+    function loadBig(nodes, edges) {
+        big = { nodes: new Map(nodes.map(d => [d.id, d])), edges: new Map(edges.map(d => [d.id, d])), pos: new Map(), groups: null, comm: null, open: new Set(), inner: null, windowing: false };
+        cy.minZoom(0.002);
+    }
+    // A group's room: its resources at the grouped layout's spacing fill a circle about this wide.
+    const groupRadius = n => 24 * Math.sqrt(n) + 20;
+    const own = d => { const { id, source, target, parent, ...rest } = d; return rest; };   // data Cytoscape may update in place
+    function bigRefresh() {
+        const before = current ? new Map(current.ids.map((id, i) => [id, current.comm[i]])) : null;
+        G = A.buildGraph({
+            nodes: [...big.nodes.values()].map(d => ({ id: d.id, name: d.label || '', labels: labelsOf(d.labels) })),
+            edges: [...big.edges.values()].map(d => ({ id: d.id, source: d.source, target: d.target, type: d.label || '', metadata: d.metadata })),
+        });
+        SHORT = shortNames();
+        analyse();
+        const comm = before ? keptGroups(before) : freshGroups(), pal = palette();
+        G.ids.forEach((id, i) => Object.assign(big.nodes.get(id), lookOf(i, comm, pal)));
+        G.edges.forEach((e, k) => Object.assign(big.edges.get(e.id), edgeLookOf(e, k, comm), { ctx: e.ctx }));
+        const member = groupMembers(comm);
+        MULTI = multiOf(comm);
+        current = { ids: G.ids, comm, member };
+        big.comm = new Map(G.ids.map((id, i) => [id, comm[i]]));
+        const members = new Map();
+        G.ids.forEach((id, i) => { if (!members.has(comm[i])) members.set(comm[i], []); members.get(comm[i]).push(id); });
+        big.inner = new Map();
+        G.edges.forEach(e => { const c = big.comm.get(e.source); if (!e.ctx && c === big.comm.get(e.target)) { if (!big.inner.has(c)) big.inner.set(c, []); big.inner.get(c).push(e); } });
+        const first = !big.groups;
+        if (first) bigGroups(members); else regroup(members);
+        // What is on screen now takes the new looks; a resource added since the last drawing gets its place.
+        cy.batch(() => {
+            cy.nodes().not(TEMP).not('.agg').forEach(n => {
+                const d = big.nodes.get(n.id());
+                if (!d) return;
+                if (!big.pos.has(n.id()) || !n.hasClass('dot')) { const g = big.groups.get(big.comm.get(n.id())); if (g && g.laid) placeInGroup(g, [n.id()]); if (big.pos.has(n.id())) n.position({ ...big.pos.get(n.id()) }); }
+                n.data(own(d)); n.addClass('dot');
+            });
+            cy.edges().not(TEMP).not('.agg').forEach(e => { const d = big.edges.get(e.id()); if (!d) return; e.data(own(d)); e.addClass('straight'); e.toggleClass('ctx', !!d.ctx); });
+        });
+        if (first) fitBig();
+        windowNow();
+    }
+    // Where each group sits: fcose on the graph of groups, each as wide as its room, linked as strongly as
+    // the relations between them; then any two rooms that still overlap are pushed apart.
+    function bigGroups(members) {
+        big.groups = new Map();
+        // A group is named after its head: the resource highest in the tree, else the most important one.
+        const t = info.tree, kids = new Set(t.parent.filter(p => p >= 0)), rank = i => (fellBack || (t.parent[i] < 0 && !kids.has(i)) ? 1e9 : t.treeDepth[i]);
+        const head = ids => ids.reduce((a, b) => {
+            const ia = G.index.get(a), ib = G.index.get(b), da = rank(ia), db = rank(ib);
+            return db < da || (db === da && info.importance[ib] > info.importance[ia]) ? b : a;
+        });
+        members.forEach((ids, c) => big.groups.set(c, { c, ids, r: groupRadius(ids.length), x: 0, y: 0, laid: false, name: G.nodes.get(head(ids)).name }));
+        const w = new Map();
+        G.edges.forEach(e => { if (e.ctx) return; const a = big.comm.get(e.source), b = big.comm.get(e.target); if (a === b) return; const k = a < b ? a + ',' + b : b + ',' + a; w.set(k, (w.get(k) || 0) + 1); });
+        const els = [...big.groups.values()].map(g => ({ group: 'nodes', data: { id: 'g' + g.c, d: 2 * g.r } }))
+            .concat([...w.keys()].map((k, j) => { const [a, b] = k.split(','); return { group: 'edges', data: { id: 'l' + j, source: 'g' + a, target: 'g' + b } }; }));
+        const hc = cytoscape({ headless: true, styleEnabled: true, elements: els, style: [{ selector: 'node', style: { width: 'data(d)', height: 'data(d)' } }] });
+        A.withSeed(13, () => hc.layout({ name: 'fcose', quality: 'default', randomize: true, animate: false, fit: false, nodeDimensionsIncludeLabels: false, packComponents: false,
+            numIter: 2500, nodeSeparation: 40, gravity: 0.4, gravityRange: 3.8, nodeRepulsion: n => 4500 + 30 * n.data('d'),
+            idealEdgeLength: e => (e.source().data('d') + e.target().data('d')) / 2 + 30, edgeElasticity: 0.3 }).run());
+        hc.nodes().forEach(n => { const g = big.groups.get(+n.id().slice(1)); g.x = n.position().x; g.y = n.position().y; });
+        hc.destroy();
+        separate([...big.groups.values()]);
+    }
+    // Push overlapping rooms apart until none overlap, or a few hundred rounds; with only some moving
+    // (moving), the rest stay put. Where the layout crowds groups (hundreds linked to one site want to sit in
+    // a ring round it), they spread out from the crowd and end up packed close together.
+    function separate(gs, moving) {
+        const GAP = 20, cell = 2 * A.maxOf(gs.map(g => g.r), 1) + GAP, may = g => !moving || moving.has(g.c);
+        for (let round = 0; round < 400; round++) {
+            const grid = new Map();
+            gs.forEach(g => { const k = Math.floor(g.x / cell) + ',' + Math.floor(g.y / cell); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(g); });
+            let moved = false;
+            gs.forEach(a => {
+                const gx = Math.floor(a.x / cell), gy = Math.floor(a.y / cell);
+                for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) (grid.get((gx + dx) + ',' + (gy + dy)) || []).forEach(b => {
+                    if (b.c <= a.c || (!may(a) && !may(b))) return;
+                    const vx = b.x - a.x, vy = b.y - a.y, d = Math.hypot(vx, vy) || 1e-3, need = a.r + b.r + GAP - d;
+                    if (need <= 0) return;
+                    const ux = d > 1e-3 ? vx / d : 1, uy = d > 1e-3 ? vy / d : 0, sa = may(a) ? (may(b) ? 0.5 : 1) : 0, sb = 1 - sa;
+                    a.x -= ux * need * sa; a.y -= uy * need * sa; b.x += ux * need * sb; b.y += uy * need * sb; moved = true;
+                });
+            });
+            if (!moved) break;
+        }
+    }
+    // After an edit: the groups keep their places and inner layouts. A resource new to a laid-out group goes
+    // beside its neighbours there; a new group goes beside the groups it is linked to.
+    function regroup(members) {
+        const fresh = new Set();
+        big.groups.forEach((g, c) => { if (!members.has(c)) big.groups.delete(c); });
+        members.forEach((ids, c) => {
+            const g = big.groups.get(c);
+            if (g) { const known = new Set(g.ids); g.ids = ids; if (g.laid) placeInGroup(g, ids.filter(id => !known.has(id) || !big.pos.has(id))); return; }
+            const near = [];
+            ids.forEach(id => G.adj[G.index.get(id)].forEach((_, j) => { const o = big.groups.get(big.comm.get(G.ids[j])); if (o && o.c !== c) near.push(o); }));
+            const at = near.length ? near.reduce((s, o) => ({ x: s.x + o.x / near.length, y: s.y + o.y / near.length }), { x: 0, y: 0 }) : { x: 0, y: 0 };
+            big.groups.set(c, { c, ids, r: groupRadius(ids.length), x: at.x + 1, y: at.y + 1, laid: false, name: G.nodes.get(ids[0]).name });
+            fresh.add(c);
+        });
+        if (fresh.size) separate([...big.groups.values()], fresh);
+    }
+    function placeInGroup(g, ids) {
+        ids.forEach((id, k) => {
+            const near = [];
+            G.adj[G.index.get(id)].forEach((_, j) => { const p = big.pos.get(G.ids[j]); if (p && big.comm.get(G.ids[j]) === g.c) near.push(p); });
+            const c = near.length ? near.reduce((s, p) => ({ x: s.x + p.x / near.length, y: s.y + p.y / near.length }), { x: 0, y: 0 }) : { x: g.x, y: g.y };
+            big.pos.set(id, { x: c.x + 30 * Math.cos(k * 2.4 + 1), y: c.y + 30 * Math.sin(k * 2.4 + 1) });
+        });
+    }
+    // A group's resources, laid out as the grouped layout lays out a group, then fitted into its room.
+    function layoutGroup(g) {
+        g.laid = true;
+        if (g.ids.length === 1) { big.pos.set(g.ids[0], { x: g.x, y: g.y }); return; }
+        const d = id => big.nodes.get(id).w || 20;
+        const els = g.ids.map(id => ({ group: 'nodes', data: { id, w: d(id) } })).concat((big.inner.get(g.c) || []).map(e => ({ group: 'edges', data: { id: e.id, source: e.source, target: e.target } })));
+        const hc = cytoscape({ headless: true, styleEnabled: true, elements: els, style: [{ selector: 'node', style: { width: 'data(w)', height: 'data(w)' } }] });
+        A.withSeed(7, () => hc.layout({ name: 'fcose', quality: 'proof', randomize: true, animate: false, fit: false, nodeDimensionsIncludeLabels: false, packComponents: false,
+            numIter: 2500, tile: true, nodeSeparation: GROUPED.sep, gravity: GROUPED.grav, gravityRange: GROUPED.gr, nodeRepulsion: n => 4500 + 260 * n.data('w'),
+            idealEdgeLength: e => GROUPED.intra + (e.source().data('w') + e.target().data('w')) / 2, edgeElasticity: 0.55 }).run());
+        const ps = g.ids.map(id => ({ ...hc.getElementById(id).position() }));
+        hc.destroy();
+        const cx = ps.reduce((s, p) => s + p.x, 0) / ps.length, cyy = ps.reduce((s, p) => s + p.y, 0) / ps.length;
+        const r0 = Math.max(1, ...ps.map((p, k) => Math.hypot(p.x - cx, p.y - cyy) + d(g.ids[k]) / 2));
+        const s = Math.min(1, (g.r - FLOAT_PAD) / r0);
+        g.ids.forEach((id, k) => big.pos.set(id, { x: g.x + (ps[k].x - cx) * s, y: g.y + (ps[k].y - cyy) * s }));
+    }
+    function aggNode(g) {
+        const pal = palette(), col = colourOf(g.c), d = Math.max(12, 1.2 * g.r), most = big.most || 1;
+        return { group: 'nodes', classes: 'agg' + (rootId && big.comm.get(rootId) === g.c ? ' root' : ''), grabbable: false, selectable: false, position: { x: g.x, y: g.y },
+            data: { id: 'agg:' + g.c, c: g.c, n: g.ids.length, w: d, h: d, fill: mixHex(col, pal.bg, 0.5), dot: col, fs: 1e6, imp: Math.sqrt(g.ids.length / most), short: g.name, label: g.name, labels: [opts.tr('graph.group.size', [g.ids.length])] } };
+    }
+    // Bring Cytoscape in line with the view: the open groups' resources and the relations among them, a dot
+    // for every shut group, and one line from a shown resource to each shut group it is linked to, and
+    // between two shut groups. A hub's relations to a shut group are left out, as they are hidden anyway.
+    function windowNow() {
+        clearTimeout(winTimer); winTimer = 0;
+        if (!big || !big.groups || !cy || destroyed) return;
+        big.most = A.maxOf([...big.groups.values()].map(o => o.ids.length), 1);
+        const z = cy.zoom(), ext = cy.extent(), m = 0.15 * Math.max(ext.w, ext.h), mx = (ext.x1 + ext.x2) / 2, my = (ext.y1 + ext.y2) / 2;
+        const near = [...big.groups.values()].filter(g => 2 * g.r * z >= OPEN_PX && g.x + g.r > ext.x1 - m && g.x - g.r < ext.x2 + m && g.y + g.r > ext.y1 - m && g.y - g.r < ext.y2 + m)
+            .sort((a, b) => Math.hypot(a.x - mx, a.y - my) - Math.hypot(b.x - mx, b.y - my) || a.c - b.c);
+        const open = new Set();
+        let total = 0;
+        for (const g of near) { if (total && total + g.ids.length > SHOWN_MAX) break; open.add(g.c); total += g.ids.length; }
+        open.forEach(c => { const g = big.groups.get(c); if (!g.laid) layoutGroup(g); });
+        big.open = open;
+        const shownNode = id => open.has(big.comm.get(id));
+        const wantNodes = new Set(), wantEdges = new Set(), agg = new Map();
+        open.forEach(c => big.groups.get(c).ids.forEach(id => wantNodes.add(id)));
+        G.edges.forEach(e => {
+            const a = shownNode(e.source), b = shownNode(e.target);
+            if (a && b) { wantEdges.add(e.id); return; }
+            if (e.ctx) return;
+            const ga = big.comm.get(e.source), gb = big.comm.get(e.target);
+            let s, t;
+            if (a) { s = e.source; t = 'agg:' + gb; } else if (b) { s = 'agg:' + ga; t = e.target; } else if (ga !== gb) { s = 'agg:' + Math.min(ga, gb); t = 'agg:' + Math.max(ga, gb); } else return;
+            const k = 'agge:' + s + '|' + t, o = agg.get(k);
+            if (o) o.n++; else agg.set(k, { s, t, n: 1 });
+        });
+        big.windowing = true;
+        cy.batch(() => {
+            // Leaving: what a resource or relation says now is kept for when it comes back.
+            const out = cy.nodes('.dot').filter(n => !wantNodes.has(n.id()));
+            out.connectedEdges().not('.agg').forEach(e => { big.edges.set(e.id(), Object.assign(big.edges.get(e.id()) || {}, e.data())); });
+            out.forEach(n => { big.nodes.set(n.id(), Object.assign(big.nodes.get(n.id()) || {}, n.data())); big.pos.set(n.id(), { ...n.position() }); });
+            cy.remove(out);
+            cy.remove(cy.nodes('.agg').filter(n => open.has(n.data('c')) || !big.groups.has(n.data('c'))));
+            cy.edges('.agg').forEach(e => { const w = agg.get(e.id()); if (!w) cy.remove(e); else if (w.n !== e.data('n')) e.data('n', w.n); });
+            // Arriving.
+            const add = [];
+            big.groups.forEach(g => { if (!open.has(g.c) && cy.getElementById('agg:' + g.c).empty()) add.push(aggNode(g)); });
+            wantNodes.forEach(id => { if (cy.getElementById(id).empty()) add.push({ group: 'nodes', data: { ...big.nodes.get(id) }, position: { ...(big.pos.get(id) || { x: 0, y: 0 }) }, classes: 'dot' + (id === rootId ? ' root' : '') }); });
+            cy.add(add);
+            const addE = [];
+            wantEdges.forEach(id => { if (cy.getElementById(id).empty()) { const d = big.edges.get(id); addE.push({ group: 'edges', data: { ...d }, classes: 'straight' + (d.ctx ? ' ctx' : '') }); } });
+            agg.forEach((w, k) => { if (cy.getElementById(k).empty()) addE.push({ group: 'edges', data: { id: k, source: w.s, target: w.t, n: w.n }, classes: 'agg' }); });
+            cy.add(addE);
+        });
+        big.windowing = false;
+        if (selectedId && cy.getElementById(selectedId).empty()) clearSel();
+        else if (selectedId) select(selectedId);
+        posVersion++; PATHS.clear(); flowDirty();
+        if (opts.onWindow) opts.onWindow();
+        applyLod(); drawHulls();
+    }
+    function bigBox() {
+        let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+        big.groups.forEach(g => { x1 = Math.min(x1, g.x - g.r); y1 = Math.min(y1, g.y - g.r); x2 = Math.max(x2, g.x + g.r); y2 = Math.max(y2, g.y + g.r); });
+        return { x1, y1, x2, y2 };
+    }
+    function fitBig() {
+        const b = bigBox(), W = cy.width(), H = cy.height();
+        if (!isFinite(b.x1)) return;
+        const z = Math.min(FIT_MAX_ZOOM, (W - 2 * PAD) / Math.max(1, b.x2 - b.x1), (H - 2 * PAD) / Math.max(1, b.y2 - b.y1));
+        cy.viewport({ zoom: z, pan: { x: W / 2 - z * (b.x1 + b.x2) / 2, y: H / 2 - z * (b.y1 + b.y2) / 2 } });
+    }
+    // A shut group's dot was clicked: zoom until the group fills most of the view, which opens it.
+    function openGroup(c) {
+        const g = big && big.groups.get(c);
+        if (!g) return;
+        const W = cy.width(), H = cy.height(), z = Math.min(cy.maxZoom(), 0.8 * Math.min(W, H) / (2 * g.r));
+        cy.animate({ zoom: z, pan: { x: W / 2 - z * g.x, y: H / 2 - z * g.y } }, { duration: reducedMotion() ? 0 : 300 });
+    }
+    // For GraphNetwork: whether a resource or relation is in the graph, and a stand-in for one out of view.
+    function standIn(id) {
+        const d = big && (big.nodes.get(id) || big.edges.get(id)), has = !!d;
+        return { length: has ? 1 : 0, nonempty: () => has, empty: () => !has, id: () => id, data: k => (d ? (k ? d[k] : d) : undefined),
+            position: () => { const p = (big && big.pos.get(id)) || (d && big.groups && big.groups.get(big.comm.get(id))) || { x: 0, y: 0 }; return { x: p.x, y: p.y }; } };
+    }
+
     // ---- drawing --------------------------------------------------------------------------------------------
     function fit() {
+        if (big) { if (big.groups) fitBig(); return; }
         const nodes = graphNodes().filter(shown);
         if (!nodes.length) return;
         cy.fit(nodes, PAD);
@@ -1185,6 +1433,7 @@ function createGraphView(container, opts) {
     // only new ones and keeps the groups as they were.
     function refresh() {
         if (!cy || destroyed) return;
+        if (big) { bigRefresh(); return; }
         const before = current ? new Map(current.ids.map((id, i) => [id, current.comm[i]])) : null;
         G = readGraph();
         if (!G.ids.length) { current = null; MULTI = []; NAMED = new Set(); drawHulls(); drawLabels(); drawFlow(0, true); return; }
@@ -1222,6 +1471,7 @@ function createGraphView(container, opts) {
     // resource dragged by hand stays where it was dropped; the others follow their groups.
     function afterMove(id) {
         if (!current) return;
+        if (big) { const n = cy.getElementById(id); if (n.nonempty() && big.nodes.has(id)) big.pos.set(id, { ...n.position() }); posVersion++; applyLod(); drawHulls(); return; }
         if (id && G.index.has(id)) MOVED.add(id);
         placeFloaters(current.comm, current.member);
         drawLines(current.comm, current.member);
@@ -1230,6 +1480,12 @@ function createGraphView(container, opts) {
         saveArrangement();
     }
     function rearrange() {
+        if (big) {
+            big.groups = null; big.pos.clear(); current = null; MOVED = new Set();
+            big.windowing = true; cy.remove(cy.elements().not(TEMP)); big.windowing = false;
+            bigRefresh();
+            return;
+        }
         const key = opts.saveKey();
         if (key) dropArrangement(KEY_PREFIX + key);
         MOVED = new Set();
@@ -1251,22 +1507,30 @@ function createGraphView(container, opts) {
         const pal = palette();
         cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G && G.nodes.get(n.id()); if (g) n.data('icon', glyph(g.type, pal.ink)); }));
         cy.style().fromJson(style()).update();
+        // A big graph's resources out of view take the new icons too, and the group dots are made again in
+        // the new colours.
+        if (big && G) {
+            big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = glyph(g.type, pal.ink); });
+            big.windowing = true; cy.remove(cy.nodes('.agg')); big.windowing = false;
+            windowNow();
+        }
         redraw();
     }
     function setRoot(id) {
         cy.nodes('.root').removeClass('root');
         rootId = id;
         if (id) cy.getElementById(id).addClass('root');
+        if (big && id && big.comm) cy.getElementById('agg:' + big.comm.get(id)).addClass('root');   // shut in its group
     }
     // Forget what was drawn, so the next refresh restores or lays out the whole graph.
-    function reset() { current = null; selectedId = null; MULTI = []; NAMED = new Set(); MOVED = new Set(); PATHS.clear(); hidePick(); }
+    function reset() { current = null; selectedId = null; MULTI = []; NAMED = new Set(); MOVED = new Set(); PATHS.clear(); hidePick(); if (big && cy) cy.minZoom(0.02); big = null; clearTimeout(winTimer); }
     function resize() { if (!cy || destroyed) return; cy.resize(); applyLod(); drawHulls(); drawFlow(0, true); startFlow(); }
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => resize()) : null;
     function destroy() {
         destroyed = true;
         if (ro) ro.disconnect();
         cancelAnimationFrame(frame); cancelAnimationFrame(flowRAF);
-        clearTimeout(viewTimer); clearTimeout(lodTimer); clearTimeout(hullTimer); clearTimeout(pageScrollTimer);
+        clearTimeout(viewTimer); clearTimeout(lodTimer); clearTimeout(hullTimer); clearTimeout(pageScrollTimer); clearTimeout(winTimer);
         container.removeEventListener('wheel', onWheel, { capture: true });
         window.removeEventListener('scroll', onScroll);
         document.removeEventListener('visibilitychange', onVisible);
@@ -1286,9 +1550,12 @@ function createGraphView(container, opts) {
         get cy() { return cy; },
         get webgl() { return cyWebgl; },
         refresh, rearrange, redraw, applyTheme, select, clearSel, setRoot, reset, fit, destroy, hidePick,
+        // Big graphs: GraphNetwork hands them over instead of adding them to Cytoscape.
+        bigAbove: BIG_ABOVE, isBig: () => !!big, loadBig, standIn,
+        modelData: () => (big ? { nodes: [...big.nodes.values()], edges: [...big.edges.values()] } : null),
         refreshFlows: () => { cy.edges().forEach(e => { const m = { metadata: e.data('metadata') }; e.data('flow', flowOf(m)); }); flowReset(); },
         // For tests and the tutorial: what is drawn and how.
-        state: () => ({ groups: current ? current.comm.slice() : [], ids: current ? current.ids.slice() : [], multi: MULTI.map(m => ({ id: m.id, groups: m.groups.slice() })), hubs: G ? [...G.hubs].map(i => G.ids[i]) : [], moved: [...MOVED], named: [...NAMED], fellBack, member: current ? [...current.member] : [], selected: selectedId, root: rootId }),
+        state: () => ({ groups: current ? current.comm.slice() : [], ids: current ? current.ids.slice() : [], multi: MULTI.map(m => ({ id: m.id, groups: m.groups.slice() })), hubs: G ? [...G.hubs].map(i => G.ids[i]) : [], moved: [...MOVED], named: [...NAMED], fellBack, member: current ? [...current.member] : [], selected: selectedId, root: rootId, big: !!big, open: big ? [...big.open] : [], groupCount: big && big.groups ? big.groups.size : 0 }),
         edgesNear: (p, tol) => edgesNear(p, tol === undefined ? HIT_PX / cy.zoom() : tol),
     };
 }
