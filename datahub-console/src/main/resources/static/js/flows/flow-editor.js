@@ -66,6 +66,12 @@
 				this.formElement.querySelectorAll("[data-series]").forEach(seriesPicker);
 				this.formElement.querySelectorAll("select[data-lookup='dataset']")
 					.forEach(select => fillDataSets(select, select.dataset.current, L("flows.field.dataset.flow")));
+				var at = "processors/" + def.processors.indexOf(this.spec);
+				markProblems(this.formElement, p => {
+					var path = problemPath(p.field);
+					if(path.slice(0, 2).join("/") !== at) return undefined;
+					return path[2] === "properties" ? "f_" + path[3] : path[2] === "retry" ? "__retryAttempts" : null;
+				});
 			}
 
 			schemaProperties(){
@@ -238,6 +244,13 @@
 			render(){
 				super.render();
 				fillDataSets(this.formElement.elements.dataSet, def.dataSet);
+				var fields = { name: "name", description: "description", dataSet: "dataSet" };
+				markProblems(this.formElement, p => {
+					var path = problemPath(p.field);
+					if(path.length === 1 && fields[path[0]]) return fields[path[0]];
+					if(path[0] !== "trigger" && path[0] !== "execution") return undefined;
+					return path[1] === "type" ? "triggerType" : path[1] || null;
+				});
 			}
 
 			getFormFields(){
@@ -432,6 +445,86 @@
 
 		var writable = null;
 
+		/** A problem's JSON Pointer (#/processors/0/properties/max) as its segments. */
+		function problemPath(field){
+			return String(field || "").replace(/^#?\//, "").split("/").filter(Boolean)
+				.map(s => s.replace(/~1/g, "/").replace(/~0/g, "~"));
+		}
+
+		/** Where a problem is, in words: Clip › Max, Flow settings › Window, Name. */
+		function problemPlace(field){
+			var path = problemPath(field);
+			var spec;
+			if(path[0] === "processors" && (spec = def.processors[Number(path[1])])){
+				var where = labelOf(spec);
+				if(path[2] === "properties" && path[3]){
+					var schema = (byType[spec.type] && byType[spec.type].properties && byType[spec.type].properties.properties || {})[path[3]];
+					return where + " › " + (schema && schema.title || path[3]);
+				}
+				if(path[2] === "terminate") return where + " › " + L("flows.field.terminate");
+				if(path[2] === "retry") return where + " › " + L("flows.field.retry");
+				return where;
+			}
+			var c;
+			if(path[0] === "connections" && (c = (def.connections || [])[Number(path[1])])){
+				var name = id => processorById(id) ? labelOf(processorById(id)) : id;
+				return L("flows.problem.connection", [name(c.from), c.relationship || "?", name(c.to)]);
+			}
+			if(path[0] === "trigger" || path[0] === "execution"){
+				var labels = { cron: "flows.field.cron", timezone: "flows.field.timezone", window: "flows.field.window",
+					delay: "flows.field.delay", type: "flows.field.trigger", maxConcurrentRuns: "flows.field.max.concurrent",
+					maxAttempts: "flows.field.max.attempts" };
+				return L("flows.settings") + (path[1] ? " › " + (labels[path[1]] ? L(labels[path[1]]) : path[1]) : "");
+			}
+			var top = { name: "flows.column.name", dataSet: "flows.field.dataset", description: "description",
+				processors: "flows.problem.processors", connections: "flows.problem.connections" };
+			return top[path[0]] ? L(top[path[0]]) : path.join(" › ");
+		}
+
+		/** A problem in words, for the list and the flash. */
+		function problemText(p){
+			var place = p.field ? problemPlace(p.field) : "";
+			return (place ? place + ": " : "") + p.message;
+		}
+
+		/**
+		 * Shows the problems that belong in a form next to their fields. {@code fieldOf} names a
+		 * problem's field, null for the form as a whole, or undefined when it is not this form's.
+		 */
+		function markProblems(form, fieldOf){
+			problems.forEach(p => {
+				var name = fieldOf(p);
+				if(name === undefined) return;
+				var note = Object.assign(document.createElement("p"), { className: "flow-field-error", textContent: p.message });
+				var input = name ? form.elements[name] : null;
+				if(!input || !input.closest){
+					form.insertBefore(note, form.firstChild);
+					return;
+				}
+				input.classList.add("error");
+				var anchor = input.closest(".flow-series") || input;
+				anchor.insertAdjacentElement("afterend", note);
+				var fold = anchor.closest("details");
+				if(fold) fold.open = true;
+			});
+		}
+
+		/** Opens where a problem can be fixed. */
+		function openProblem(p){
+			var path = problemPath(p.field);
+			var spec;
+			if(path[0] === "processors" && (spec = def.processors[Number(path[1])])){
+				new ProcessorForm(spec, byType[spec.type]);
+			} else if(path[0] === "connections" && cy && cy.$id("c:" + path[1]).length){
+				cy.elements().unselect();
+				cy.$id("c:" + path[1]).select();
+			} else if(!flow && (path[0] === "name" || path[0] === "dataSet")){
+				el("flow-new").elements[path[0]].focus();
+			} else if(path[0] !== "processors" && path[0] !== "connections"){
+				new FlowSettingsForm();
+			}
+		}
+
 		/**
 		 * The datasets the user may write, which a flow can belong to: those datahub-api lists for
 		 * them, narrowed by their write grants. Loaded once per page.
@@ -520,7 +613,7 @@
 		function problemProcessors(){
 			var ids = {};
 			problems.forEach(p => {
-				var m = /^\/processors\/(\d+)/.exec(p.field || "");
+				var m = /^#?\/processors\/(\d+)/.exec(p.field || "");
 				if(m && def.processors[Number(m[1])]) ids[def.processors[Number(m[1])].id] = true;
 			});
 			return ids;
@@ -592,6 +685,10 @@
 			cy.on("select", "node[kind = 'processor'], edge", function(e){
 				selected = e.target.data();
 				el("flow-remove").disabled = false;
+				if(selected.kind === "processor"){
+					el("flow-connect-from").value = selected.pid;
+					drawRelationships();
+				}
 			});
 			cy.on("unselect", function(){
 				selected = null;
@@ -609,22 +706,36 @@
 
 		function drawToolbar(){
 			var ids = (def.processors || []).map(p => ({ value: p.id, label: labelOf(p) }));
-			fillSelect(el("flow-connect-from"), ids, true);
-			fillSelect(el("flow-connect-to"), ids, true);
+			fillSelect(el("flow-connect-from"), [{ value: "", label: L("flows.connect.from") }].concat(ids), true);
 			drawRelationships();
 		}
 
+		/** The outcomes of the processor connected from, and where they can go: any other processor. */
 		function drawRelationships(){
-			var spec = processorById(el("flow-connect-from").value);
-			fillSelect(el("flow-connect-rel"), spec ? relationshipsOf(spec).map(r => ({ value: r, label: r })) : [], true);
+			var from = el("flow-connect-from").value;
+			var spec = processorById(from);
+			var rels = spec ? relationshipsOf(spec) : [];
+			var relSelect = el("flow-connect-rel");
+			fillSelect(relSelect, (rels.length === 1 ? [] : [{ value: "", label: L("flows.connect.outcome") }])
+				.concat(rels.map(r => ({ value: r, label: r }))), true);
+			relSelect.disabled = !spec;
+			var others = (def.processors || []).filter(p => p.id !== from).map(p => ({ value: p.id, label: labelOf(p) }));
+			fillSelect(el("flow-connect-to"), [{ value: "", label: L("flows.connect.to") }].concat(others), true);
+			el("flow-connect-to").disabled = !spec;
+			drawConnectButton();
+		}
+
+		function drawConnectButton(){
+			el("flow-connect").disabled = !(el("flow-connect-from").value && el("flow-connect-rel").value && el("flow-connect-to").value);
 		}
 
 		function drawProblems(){
 			var list = el("flow-problems");
 			list.innerHTML = "";
 			problems.forEach(p => {
-				var li = document.createElement("li");
-				li.textContent = (p.field ? p.field + ": " : "") + p.message;
+				var li = Object.assign(document.createElement("li"), { textContent: problemText(p), tabIndex: 0 });
+				li.addEventListener("click", () => openProblem(p));
+				li.addEventListener("keydown", e => { if(e.key === "Enter") openProblem(p); });
 				list.appendChild(li);
 			});
 			list.hidden = problems.length === 0;
@@ -727,7 +838,8 @@
 						var series = answer.series && answer.series.length ? " " + L("flows.validate.series", [answer.series.join(", ")]) : "";
 						Flash.info(L("flows.validate.ok") + series);
 					} else {
-						Flash.error(L("flows.validate.failed", [answer.problems.length]));
+						Flash.error(L(answer.problems.length === 1 ? "flows.validate.failed.one" : "flows.validate.failed",
+							[answer.problems.length]), { details: answer.problems.map(problemText) });
 					}
 				})
 				.catch(err => refuse(err, "flows.error.validate"));
@@ -993,6 +1105,8 @@
 		on("flow-json-apply", applyJson);
 		on("flow-settings", () => new FlowSettingsForm());
 		el("flow-connect-from").addEventListener("change", drawRelationships);
+		el("flow-connect-rel").addEventListener("change", drawConnectButton);
+		el("flow-connect-to").addEventListener("change", drawConnectButton);
 		var onNewFlow = () => {
 			var form = el("flow-new");
 			def.name = form.elements.name.value.trim();
