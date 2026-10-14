@@ -338,3 +338,24 @@
 .flow-series input {
 	width: 100%;
 }
+
+/* Connect: From… Outcome… → To…, readable before anything is chosen. */
+.flow-toolbar select[data-type^="flow-connect"] {
+	min-width: 9rem;
+}
+
+/* A problem opens where it can be fixed. */
+.flow-problems li {
+	cursor: pointer;
+}
+.flow-problems li:hover,
+.flow-problems li:focus {
+	text-decoration: underline;
+}
+
+/* A problem next to the field it is about. */
+.flow-field-error {
+	margin: 2px 0 var(--space);
+	color: var(--input-error-fg);
+	font-size: 12px;
+}
