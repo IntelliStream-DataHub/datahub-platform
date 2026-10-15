@@ -249,6 +249,11 @@ const NOTCH = 1.25, WHEEL_DOUBLE = 75;
 // Big graphs: above BIG_ABOVE resources, a group opens once it is OPEN_PX across on screen, the ones
 // nearest the middle first, while at most SHOWN_MAX resources are shown.
 const BIG_ABOVE = 5000, OPEN_PX = 90, SHOWN_MAX = 3500;
+// A shut group's dot is as large as the group will be at the moment it opens, and smaller the further out
+// the view is (down to DOT_MIN of that), so a zoomed-out network has room between its groups and their
+// names instead of dots packed edge to edge.
+const DOT_MIN = 0.4, DOT_GAMMA = 0.5;
+const dotScale = (r, z) => Math.max(DOT_MIN, Math.min(1, Math.pow(2 * r * z / OPEN_PX, DOT_GAMMA)));
 // How long one piece of a big graph's work may hold the page before letting it draw and respond.
 const SLICE_MS = 25, COMMIT_MS = 250, COMMIT_MAX = 1500;
 
@@ -1076,7 +1081,9 @@ function createGraphView(container, opts) {
             // own colour once it opens.
             { selector: 'node.agg', style: { 'width': 'data(w)', 'height': 'data(w)', 'background-color': 'data(fill)', 'border-width': 1.5, 'border-color': 'data(dot)', 'border-opacity': 1 } },
             { selector: 'node.agg.root', style: { 'border-width': 4, 'border-color': pal.label } },
-            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'width': e => Math.min(6, 1 + Math.log2(e.data('n') || 1)), 'opacity': 0.55, 'line-fill': 'solid', 'line-color': pal.line } },
+            // The lines between shut groups are what makes the zoomed-out view read as a network, so they are
+            // drawn a little stronger than a single relation.
+            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'width': e => Math.min(6, 1.3 + Math.log2(e.data('n') || 1)), 'opacity': 0.8, 'line-fill': 'solid', 'line-color': pal.line } },
             // Drawing a new relation (edge-handles).
             { selector: '.eh-source, .eh-target', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
             { selector: '.eh-handle', style: { 'width': 10, 'height': 10, 'background-color': pal.accent, 'background-image': 'none' } },
@@ -1200,7 +1207,7 @@ function createGraphView(container, opts) {
             viewMoving = true; clearTimeout(viewTimer); viewTimer = setTimeout(() => { viewMoving = false; drawHulls(); }, 160);
             scheduleLod(); redrawSoon();
             if (reducedMotion() || flowStopped) drawFlow(0, true);
-            if (big) { clearTimeout(winTimer); winTimer = setTimeout(windowNow, 160); }
+            if (big) { sizeDots(); clearTimeout(winTimer); winTimer = setTimeout(windowNow, 160); }
         });
         cy.on('tap', 'node.agg', e => openGroup(e.target.data('c')));
         // A big graph's store follows what GraphNetwork adds to Cytoscape and removes from it (a new resource,
@@ -1404,9 +1411,9 @@ function createGraphView(container, opts) {
         g.ids.forEach((id, k) => big.pos.set(id, { x: g.x + (ps[k].x - cx) * s, y: g.y + (ps[k].y - cyy) * s }));
     }
     function aggNode(g) {
-        const pal = palette(), col = colourOf(g.c), d = Math.max(12, 1.2 * g.r), most = big.most || 1;
+        const pal = palette(), col = colourOf(g.c), full = Math.max(12, 1.2 * g.r), d = full * dotScale(g.r, cy.zoom()), most = big.most || 1;
         return { group: 'nodes', classes: 'agg' + (rootId && big.comm.get(rootId) === g.c ? ' root' : ''), grabbable: false, selectable: false, position: { x: g.x, y: g.y },
-            data: { id: 'agg:' + g.c, c: g.c, n: g.ids.length, w: d, h: d, fill: mixHex(col, pal.bg, 0.32), dot: mixHex(col, pal.bg, 0.7), fs: 1e6, imp: Math.sqrt(g.ids.length / most), short: g.name, label: g.name, labels: [opts.tr('graph.group.size', [g.ids.length])] } };
+            data: { id: 'agg:' + g.c, c: g.c, n: g.ids.length, w: d, h: d, full, r: g.r, fill: mixHex(col, pal.bg, 0.32), dot: mixHex(col, pal.bg, 0.7), fs: 1e6, imp: Math.sqrt(g.ids.length / most), short: g.name, label: g.name, labels: [opts.tr('graph.group.size', [g.ids.length])] } };
     }
     // Bring Cytoscape in line with the view: the open groups' resources and the relations among them, a dot
     // for every shut group, and one line from a shown resource to each shut group it is linked to, and
@@ -1559,6 +1566,14 @@ function createGraphView(container, opts) {
         });
         big.windowing = false;
         big.synced = true;
+    }
+    // The shut groups' dots follow the zoom (dotScale); only once it has moved by a few per cent.
+    function sizeDots() {
+        if (!big || !big.groups || !cy) return;
+        const z = cy.zoom();
+        if (big.dotZ && Math.abs(Math.log(z / big.dotZ)) < 0.03) return;
+        big.dotZ = z;
+        cy.batch(() => cy.nodes('.agg').forEach(n => { const d = n.data('full') * dotScale(n.data('r'), z); if (Math.abs(d - n.data('w')) > 0.5) n.data({ w: d, h: d }); }));
     }
     function bigBox() {
         let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
