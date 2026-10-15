@@ -93,8 +93,13 @@ class ClickHouseArrowReadIT {
             w.add(id, T0 + i * 1000L, values[i]);
         }
         DatapointFrame f = DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0);
-        insert(type, FrameMerger.merge(type, List.of(f), 1_000_000));
+        insert(type, relay(type, List.of(f)));
         return f;
+    }
+
+    /** The frames' batches relayed into one stream, as the consumer inserts them. */
+    private static byte[] relay(DatapointValueType type, List<DatapointFrame> frames) {
+        return FrameMerger.stream(type, frames.stream().map(f -> FrameMerger.batches(f, ZSTD)).toList());
     }
 
     private static void insert(DatapointValueType type, byte[] stream) throws Exception {
@@ -243,7 +248,7 @@ class ClickHouseArrowReadIT {
             parts.add(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0));
         }
         for (DatapointFrame part : parts) {
-            insert(DatapointValueType.TEXT, FrameMerger.merge(DatapointValueType.TEXT, List.of(part), 1_000_000));
+            insert(DatapointValueType.TEXT, relay(DatapointValueType.TEXT, List.of(part)));
         }
         List<DatapointFrame> frames = read(DatapointValueType.TEXT, 1100, window(null, null), 0);
         assertEquals(rows, timestamps(frames).size());
@@ -268,7 +273,7 @@ class ClickHouseArrowReadIT {
 
         ddl("DELETE FROM datapoints_mixed WHERE timeseries_id = 1500");
         assertTrue(read(DatapointValueType.MIXED, 1500, window(null, null), 0).isEmpty());
-        service.insertArrowStream("t", DatapointValueType.MIXED, FrameMerger.merge(DatapointValueType.MIXED, frames, 1_000_000));
+        service.insertArrowStream("t", DatapointValueType.MIXED, relay(DatapointValueType.MIXED, frames), true);
         List<DatapointFrame> again = read(DatapointValueType.MIXED, 1500, window(null, null), 0);
         assertEquals(List.of("1.5", "FAULT", "2.5"), values(again));
         assertEquals(List.of(T0, T0 + 1000, T0 + 2000), timestamps(again));
@@ -282,8 +287,7 @@ class ClickHouseArrowReadIT {
         w.addFloat(1200, hour, 0);
         w.addFloat(1200, hour + 60_000, 10);
         w.addFloat(1200, hour + 120_000, 20);
-        insert(DatapointValueType.FLOAT, FrameMerger.merge(DatapointValueType.FLOAT,
-                List.of(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0)), 1_000_000));
+        insert(DatapointValueType.FLOAT, relay(DatapointValueType.FLOAT, List.of(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0))));
 
         RetrieveFilter f = window(hour, hour + 3_600_000);
         f.setAggregates(List.of("avg"));
@@ -311,8 +315,7 @@ class ClickHouseArrowReadIT {
             for (int r = start; r < Math.min(rows, start + 50_000); r++) {
                 w.addFloat(1400, T0 + r * 1000L, r);
             }
-            insert(DatapointValueType.FLOAT, FrameMerger.merge(DatapointValueType.FLOAT,
-                    List.of(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0)), 1_000_000));
+            insert(DatapointValueType.FLOAT, relay(DatapointValueType.FLOAT, List.of(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0))));
         }
         RetrieveFilter f = window(T0, T0 + rows * 1000L);
         f.setAggregates(List.of("avg"));
@@ -332,8 +335,7 @@ class ClickHouseArrowReadIT {
         long hour = 1_700_002_800_000L;
         w.addMixed(1300, hour, "4");
         w.addMixed(1300, hour + 60_000, "FAULT");
-        insert(DatapointValueType.MIXED, FrameMerger.merge(DatapointValueType.MIXED,
-                List.of(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0)), 1_000_000));
+        insert(DatapointValueType.MIXED, relay(DatapointValueType.MIXED, List.of(DatapointFrame.parseAll(w.build(ZSTD), ZSTD).get(0))));
 
         RetrieveFilter f = window(hour, hour + 3_600_000);
         f.setAggregates(List.of("max"));

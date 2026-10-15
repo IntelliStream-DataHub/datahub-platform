@@ -115,7 +115,12 @@ removed; datapoints now flow through the shared partitioned topic.
 `POST /timeseries/data/binary` exists to move this document's first limit, the api parsing every
 value, off the api and onto the client. The client resolves each series once, checks and sorts the
 values, writes them as Arrow IPC frames in the schema the ClickHouse table wants, compresses each
-Arrow buffer with zstd in-band, and posts them; the api validates a frame and forwards its bytes. Arrow IPC
+Arrow buffer with zstd in-band, and posts them; the api validates a frame and forwards its bytes;
+the consumer relays the frames' record batches into one Arrow stream per tenant and value type and
+hands it to ClickHouse over an uncompressed HTTP body, so a buffer the client compressed is first
+decompressed by ClickHouse itself. The consumer decodes a frame only when a series in it has a live
+subscriber, for the fan-out; a frame compressed as a whole (compression `1`) is decompressed once
+and its batches relayed plain, under the transport compression every other insert gets. Arrow IPC
 rather than ClickHouse Native because the two parse at the same speed on these tables once frames
 hold a thousand points, so the tie went to the format that also suits reads and that any
 Arrow-capable tool can produce. `FrameLimits` and `ArrowSchemaCanon` in `datahub-api-model` are
@@ -202,7 +207,7 @@ Each was implemented, both services rebuilt and the run repeated, not argued fro
 |---|---|---|
 | Requests of 2M or 3.2M points instead of 1M | 3.99M and 3.86M against 3.82M points/s | Flat; already past per-request overhead |
 | Raise the 3.2M request cap to 4M | 3.46M points/s, p99 six times worse | Worse. Reverted |
-| Consumer merge to 4M rows, receive batch to 64 MiB | 10.6M against 11.0M baseline | No change. Reverted |
+| Consumer merge to 4M rows, receive batch to 64 MiB | 10.6M against 11.0M baseline | No change. Reverted; the merge itself has since gone, the consumer relays the frames' batches as they came |
 | `max_insert_threads` and `max_threads` to 12 | 16.9M and 18.2M raised, 18.1M and 17.7M not | Inside run-to-run spread. Reverted |
 | Concurrent request posting in the Rust SDK | 3.81M against 3.63M, in-call 9.40M against 8.34M | Kept, 4 in flight, only matters above 3.2M points per call |
 
@@ -439,6 +444,6 @@ already.
 | 9 | Set the namespace `autoTopicCreation` policy to partitioned | Closes the non-partitioned auto-create race | Low | Pulsar |
 | 10 | Raise fanout partitions and measure entry-filter CPU on the brokers | Subscription-path headroom | Low to medium | Fan-out |
 | 11 | Cluster-routing abstraction: a client registry plus a tenant-to-cluster map | Makes sharding possible later without a rewrite | Medium | Pulsar |
-| 12 | ~~Binary-first bulk ingest contract: Arrow IPC frames, compressed per frame by the client, carried untouched through a topic of their own and merged by the consumer~~ **Built.** See [the binary ingest path](#the-binary-ingest-path-measured) above for the decision and the measurement | Very high rate class only | High | API, Pulsar, ClickHouse |
+| 12 | ~~Binary-first bulk ingest contract: Arrow IPC frames, compressed per frame by the client, carried untouched through a topic of their own and relayed by the consumer~~ **Built.** See [the binary ingest path](#the-binary-ingest-path-measured) above for the decision and the measurement | Very high rate class only | High | API, Pulsar, ClickHouse |
 | 13 | Shard ClickHouse, with a Distributed table or consumer-side routing, plus tiered storage | Very high rate class only | High | ClickHouse |
 | 14 | Shard across Pulsar clusters | True horizontal scale, only if a load test proves it necessary | High | Pulsar |

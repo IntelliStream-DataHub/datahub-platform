@@ -20,6 +20,7 @@ import ai.intellistream.datahub.util.SavedDatapointsStats;
 import com.clickhouse.client.api.Client;
 import com.clickhouse.client.api.ClientConfigProperties;
 import com.clickhouse.client.api.insert.InsertResponse;
+import com.clickhouse.client.api.insert.InsertSettings;
 import com.clickhouse.client.api.query.GenericRecord;
 import com.clickhouse.client.api.query.QueryResponse;
 import com.clickhouse.client.api.query.QuerySettings;
@@ -90,14 +91,21 @@ public class ClickHouseDatapointService extends ClickHouseService{
     }
 
     /**
-     * Binary frame path: an Arrow IPC stream in the value type's canonical schema, already merged
-     * by the consumer, streamed to the type's table as it is. A byte-array stream so the client can
-     * rewind it on a retry, which the piped stream of the RowBinary path cannot.
+     * Binary frame path: an Arrow IPC stream in the value type's canonical schema, the frames'
+     * record batches relayed by the consumer, streamed to the type's table as it is. A byte-array
+     * stream so the client can rewind it on a retry, which the piped stream of the RowBinary path
+     * cannot. {@code compressed} says every record batch carries its buffers zstd-compressed
+     * in-band, as the SDK sends them: the body then goes over HTTP as it is, since compressing zstd
+     * output again costs CPU for nothing, and ClickHouse decodes the buffers itself. Otherwise the
+     * transport compression of every other insert applies.
      */
-    public void insertArrowStream(String tenantId, DatapointValueType type, byte[] stream) {
+    public void insertArrowStream(String tenantId, DatapointValueType type, byte[] stream, boolean compressed) {
         Client client = getClickhouseClient(tenantId);
+        InsertSettings settings = compressed
+                ? new InsertSettings().setInputStreamCopyBufferSize(BUFFER_SIZE).compressClientRequest(false)
+                : getSettings();
         try (InsertResponse r = client.insert(type.tableName(), new ByteArrayInputStream(stream),
-                ClickHouseFormat.ArrowStream, getSettings()).get(30, TimeUnit.SECONDS)) {
+                ClickHouseFormat.ArrowStream, settings).get(30, TimeUnit.SECONDS)) {
             log.debug("Arrow stream written to {}. Server Time: {}", type.tableName(), r.getServerTime());
         } catch (Exception e) {
             log.error("Failed to insert an Arrow stream into ClickHouse table: {}", type.tableName(), e);

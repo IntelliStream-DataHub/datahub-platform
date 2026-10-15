@@ -69,7 +69,6 @@ class ClickHouseArrowReadPerformanceIT {
     static Client client;
     static Client plainClient;
     static ClickHouseDatapointService service;
-    static ClickHouseDatapointService plainService;
 
     @BeforeAll
     static void setUp() {
@@ -108,9 +107,6 @@ class ClickHouseArrowReadPerformanceIT {
         when(tenantConfigService.getConfig(anyString())).thenReturn(new Tenant());
         when(pool.getClient(any(Tenant.class))).thenReturn(client);
         service = new ClickHouseDatapointService(tenantConfigService, mock(ValkeyService.class), pool);
-        ClickHouseClientPool plainPool = mock(ClickHouseClientPool.class);
-        when(plainPool.getClient(any(Tenant.class))).thenReturn(plainClient);
-        plainService = new ClickHouseDatapointService(tenantConfigService, mock(ValkeyService.class), plainPool);
     }
 
     @AfterAll
@@ -143,8 +139,8 @@ class ClickHouseArrowReadPerformanceIT {
         report("text: Arrow parse here, in-band decoded", TEXT_ROWS, () -> parse(service, DatapointValueType.TEXT, TEXT_ID, TEXT_ROWS));
         report("200 series of 100 rows, relayed one by one", (long) TINY_SERIES * TINY_ROWS, () -> tiny(service));
         byte[] arrow = arrowInsert(INSERT_ROWS);
-        report("insert 1M floats as Arrow, pool transport", INSERT_ROWS, () -> insert(service, arrow));
-        report("insert 1M floats as Arrow, no compression", INSERT_ROWS, () -> insert(plainService, arrow));
+        report("insert 1M floats as Arrow, buffers zstd in-band, body as is", INSERT_ROWS, () -> insert(service, arrow, true));
+        report("insert 1M floats as Arrow, transport zstd on top of that", INSERT_ROWS, () -> insert(service, arrow, false));
     }
 
     interface Stage {
@@ -282,7 +278,7 @@ class ClickHouseArrowReadPerformanceIT {
         return out;
     }
 
-    /** One Arrow stream of {@code rows} float points, as the consumer sends a merged block. */
+    /** One Arrow stream of {@code rows} float points in frames of 100 000, relayed as the consumer sends them. */
     static byte[] arrowInsert(int rows) {
         List<DatapointFrame> frames = new ArrayList<>();
         for (int start = 0; start < rows; start += 100_000) {
@@ -292,12 +288,12 @@ class ClickHouseArrowReadPerformanceIT {
             }
             frames.add(DatapointFrame.parseAll(w.build(new ZstdPayloadCodec(1)), new ZstdPayloadCodec(1)).get(0));
         }
-        return FrameMerger.merge(DatapointValueType.FLOAT, frames, rows);
+        return FrameMerger.stream(DatapointValueType.FLOAT, frames.stream().map(f -> FrameMerger.batches(f, new ZstdPayloadCodec(1))).toList());
     }
 
     /** The same rows again each run: a ReplacingMergeTree takes them as a new part at the same cost. */
-    static long insert(ClickHouseDatapointService svc, byte[] arrow) {
-        svc.insertArrowStream("t", DatapointValueType.FLOAT, arrow);
+    static long insert(ClickHouseDatapointService svc, byte[] arrow, boolean compressed) {
+        svc.insertArrowStream("t", DatapointValueType.FLOAT, arrow, compressed);
         return arrow.length;
     }
 
