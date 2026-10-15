@@ -97,8 +97,12 @@ class FetchRelatedStreamingTest {
     }
 
     private void streams(NodeModel... nodes) {
+        streamsCappedAt(0, nodes);
+    }
+
+    private void streamsCappedAt(long cappedAt, NodeModel... nodes) {
         var prepared = new ResourceService.PreparedNetwork(new RelatedResourcesForm(),
-                GraphReadScope.readEverything(), labels);
+                GraphReadScope.readEverything(), labels, cappedAt);
         when(service.prepareRelatedResources(any())).thenReturn(prepared);
         doAnswer(inv -> {
             NetworkSink sink = inv.getArgument(1);
@@ -149,7 +153,7 @@ class FetchRelatedStreamingTest {
     @Test
     void aNetworkWithNoNodesIsStillAWholeDocument() throws Exception {
         var prepared = new ResourceService.PreparedNetwork(new RelatedResourcesForm(),
-                GraphReadScope.readEverything(), Set.of());
+                GraphReadScope.readEverything(), Set.of(), 0);
         when(service.prepareRelatedResources(any())).thenReturn(prepared);
 
         JsonNode actual = mapper.readTree(fetch("application/json").getResponse().getContentAsByteArray());
@@ -172,13 +176,31 @@ class FetchRelatedStreamingTest {
 
     @Test
     void xmlStillComesFromTheWholeNetwork() throws Exception {
-        when(service.fetchRelatedResources(any())).thenReturn(
+        when(service.prepareRelatedResources(any())).thenReturn(new ResourceService.PreparedNetwork(
+                new RelatedResourcesForm(), GraphReadScope.readEverything(), labels, 5_000));
+        when(service.readRelatedResources(any())).thenReturn(
                 new ResourceNetwork(new HashSet<>(List.of(site)), new HashSet<>(), new HashSet<>()));
 
-        fetch("application/xml");
+        MvcResult result = fetch("application/xml");
 
-        verify(service).fetchRelatedResources(any());
-        verify(service, never()).prepareRelatedResources(any());
+        verify(service).readRelatedResources(any());
+        verify(service, never()).streamRelatedResources(any(), any());
+        assertThat(result.getResponse().getHeader("X-Network-Cap")).isEqualTo("5000");
+    }
+
+    /** A network cut short looks the same as a small one, so a response the playground limit cut short says so. */
+    @Test
+    void aCappedReadSaysWhichCapCutIt() throws Exception {
+        streamsCappedAt(5_000, site);
+
+        assertThat(fetch(null).getResponse().getHeader("X-Network-Cap")).isEqualTo("5000");
+    }
+
+    @Test
+    void anUncappedReadCarriesNoCap() throws Exception {
+        streams(site);
+
+        assertThat(fetch(null).getResponse().getHeader("X-Network-Cap")).isNull();
     }
 
     @Test

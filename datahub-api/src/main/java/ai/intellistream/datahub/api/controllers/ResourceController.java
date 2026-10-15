@@ -55,6 +55,9 @@ import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 @Slf4j
 public class ResourceController {
 
+    /** Header on a fetch-related response that the playground limit cut short; its value is the limit. */
+    static final String NETWORK_CAP_HEADER = "X-Network-Cap";
+
     private final ResourceService resourceService;
     private final Validator validator;
     private final JsonMapper jsonMapper;
@@ -134,7 +137,9 @@ public class ResourceController {
                     ### Large networks
                     Without a `limit`, the nearest 5,000 resources come back. Send `limit: -1` to
                     get the whole network: it is sent while it is read, so a network of any size
-                    can be fetched.
+                    can be fetched. A playground tenant gets at most the deployment's limit (5,000
+                    by default); when that limit cuts a response short, the response carries an
+                    `X-Network-Cap` header with the limit.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Returns the starting resource plus every resource and relationship reached within `depth` hops.",
@@ -153,13 +158,17 @@ public class ResourceController {
             @RequestBody RelatedResourcesForm form,
             @Parameter(hidden = true) @RequestHeader(value = HttpHeaders.ACCEPT, required = false) String accept,
             HttpServletResponse response) throws IOException {
-        // XML is not sent piece by piece: it is built whole and returned, as before.
-        if (prefersXml(accept)) {
-            return new ResponseEntity<>(resourceService.fetchRelatedResources(form), HttpStatus.OK);
-        }
         // Step one: the checks that can fail with a proper error (not found, no access), made before
         // anything is sent. Once the first byte is sent, the status is fixed at 200.
         ResourceService.PreparedNetwork prepared = resourceService.prepareRelatedResources(form);
+        // A network that was cut short looks the same as a small one, so say so, and by which limit.
+        if (prepared.cappedAt() > 0) {
+            response.setHeader(NETWORK_CAP_HEADER, Long.toString(prepared.cappedAt()));
+        }
+        // XML is not sent piece by piece: it is built whole and returned, as before.
+        if (prefersXml(accept)) {
+            return new ResponseEntity<>(resourceService.readRelatedResources(prepared), HttpStatus.OK);
+        }
         // Step two: send the network as JSON while it is read from Neo4j, so even a large one uses
         // little memory. A failure from here on can only cut the download short.
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);

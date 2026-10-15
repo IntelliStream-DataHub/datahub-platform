@@ -37,7 +37,9 @@ public class RelatedResourcesForm {
     /**
      * Safety cap on the number of nodes loaded. {@code -1} means unbounded, which works for a
      * network of any size. When the component is larger than this, the nearest {@code limit} nodes
-     * are returned (plus every relationship between them).
+     * are returned (plus every relationship between them). A deployment may limit this for some
+     * tenants (the playground) whatever is asked for; the default limit is 5,000, and a response the
+     * limit cut short carries an {@code X-Network-Cap} header with it.
      */
     private Integer limit = 5000;
 

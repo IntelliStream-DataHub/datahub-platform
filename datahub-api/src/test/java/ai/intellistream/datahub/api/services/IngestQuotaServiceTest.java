@@ -45,7 +45,7 @@ class IngestQuotaServiceTest {
         return new TenantLimits(0, 0, 0, 0,
                 eventsPerDay, 0, 0, 0, 0,
                 0, maxEventsTotal, 0, 0,
-                0, 0);
+                0, 0, 0);
     }
 
     @BeforeEach

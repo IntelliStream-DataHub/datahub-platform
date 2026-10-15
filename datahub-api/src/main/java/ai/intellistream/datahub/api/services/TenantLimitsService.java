@@ -103,6 +103,7 @@ public class TenantLimitsService {
             return null;
         }
         TenantLimits base = fromDefaults();
+        long maxResources = longOr(rs, "max_resources", base.maxResources());
         return new TenantLimits(
                 intOr(rs, "write_per_minute_per_tenant", base.writePerMinutePerTenant()),
                 intOr(rs, "read_per_minute_per_tenant", base.readPerMinutePerTenant()),
@@ -113,12 +114,15 @@ public class TenantLimitsService {
                 longOr(rs, "edges_per_day", base.edgesPerDay()),
                 longOr(rs, "datapoints_per_day", base.datapointsPerDay()),
                 longOr(rs, "ingest_bytes_per_day", base.ingestBytesPerDay()),
-                longOr(rs, "max_resources", base.maxResources()),
+                maxResources,
                 longOr(rs, "max_events_total", base.maxEventsTotal()),
                 longOr(rs, "max_datapoints_total", base.maxDatapointsTotal()),
                 longOr(rs, "max_text_datapoints_total", base.maxTextDatapointsTotal()),
                 intOr(rs, "max_ws_sockets_per_tenant", base.maxWsSocketsPerTenant()),
-                intOr(rs, "max_ws_sockets_per_user", base.maxWsSocketsPerUser()));
+                intOr(rs, "max_ws_sockets_per_user", base.maxWsSocketsPerUser()),
+                // Only a playground tenant has this limit, and a playground tenant is one with a
+                // resource ceiling: lifting the ceiling (0) lifts this too.
+                TenantLimits.unlimited(maxResources) ? 0 : base.maxNetworkNodes());
     }
 
     /** A NULL column means "inherit"; the column being absent entirely means an older schema. */
@@ -159,6 +163,7 @@ public class TenantLimitsService {
                 ceilings ? lifetime.getMaxDatapointsTotal() : 0,
                 ceilings ? lifetime.getMaxTextDatapointsTotal() : 0,
                 sockets ? websocket.getMaxSocketsPerTenant() : 0,
-                sockets ? websocket.getMaxSocketsPerUser() : 0);
+                sockets ? websocket.getMaxSocketsPerUser() : 0,
+                ceilings && !TenantLimits.unlimited(lifetime.getMaxResources()) ? lifetime.getMaxNetworkNodes() : 0);
     }
 }

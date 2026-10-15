@@ -143,6 +143,44 @@ class TenantLimitsServiceTest {
         verify(jdbcTemplate, times(2)).query(anyString(), any(ResultSetExtractor.class));
     }
 
+    /**
+     * The network read limit is a playground rule: it is on only when the playground's lifetime
+     * ceilings are, and a tenant whose resource ceiling is lifted is not a playground tenant and has
+     * no such limit.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void theNetworkCapIsOffUnlessThePlaygroundCeilingsAreOn() {
+        when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenReturn(null);
+
+        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isZero();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void aPlaygroundTenantHasTheNetworkCap() {
+        defaults.getLifetime().setEnabled(true);
+        when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenReturn(null);
+
+        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isEqualTo(5_000L);
+    }
+
+    @Test
+    void liftingTheResourceCeilingLiftsTheNetworkCap() throws Exception {
+        defaults.getLifetime().setEnabled(true);
+        rowWith(Map.of("max_resources", 0L));
+
+        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isZero();
+    }
+
+    @Test
+    void aRowThatKeepsTheResourceCeilingKeepsTheNetworkCap() throws Exception {
+        defaults.getLifetime().setEnabled(true);
+        rowWith(Map.of("write_per_minute_per_tenant", 42));
+
+        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isEqualTo(5_000L);
+    }
+
     @Test
     @SuppressWarnings("unchecked")
     void tenantsAreCachedIndependently() {
