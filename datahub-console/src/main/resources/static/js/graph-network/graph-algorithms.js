@@ -26,6 +26,12 @@ function withSeed(seed, fn) {
     Math.random = mulberry32(seed);
     try { return fn(); } finally { Math.random = saved; }
 }
+// The long computations come as generators that pause between steps, so a large graph can be worked
+// through a slice at a time without holding the page; drain runs one straight through.
+function drain(steps) { let r; do { r = steps.next(); } while (!r.done); return r.value; }
+// The orders localeCompare gives, from one collator each: localeCompare sets one up on every call, which
+// over the 100,000 names or relations of a large graph took about a second in Firefox.
+const BY_NAME = new Intl.Collator().compare, BY_NUMBER = new Intl.Collator(undefined, { numeric: true }).compare;
 
 // ---- the graph ------------------------------------------------------------------------------------
 // g = { nodes: [{ id, name, labels }], edges: [{ id, source, target, type }] }. Ids stay strings: node
@@ -36,7 +42,7 @@ function buildGraph(g) {
     g.nodes.forEach(n => nodes.set(String(n.id), { ...n, id: String(n.id), name: String(n.name || ''), labels: (n.labels || []).map(l => String(l).toUpperCase()) }));
     const edges = g.edges.map((e, i) => ({ ...e, id: String(e.id != null ? e.id : 'e' + i), source: String(e.source), target: String(e.target) }))
         .filter(e => nodes.has(e.source) && nodes.has(e.target) && e.source !== e.target);
-    const ids = [...nodes.keys()].sort((a, b) => nodes.get(a).name.localeCompare(nodes.get(b).name) || (a < b ? -1 : a > b ? 1 : 0));
+    const ids = [...nodes.keys()].sort((a, b) => BY_NAME(nodes.get(a).name, nodes.get(b).name) || (a < b ? -1 : a > b ? 1 : 0));
     const index = new Map(ids.map((id, i) => [id, i]));
     edges.forEach(e => {
         const end = CONTAINMENT[e.type];
@@ -182,10 +188,11 @@ function straighten(points, beta) {
 // a subtree. Resources without a parent join the cluster most of their neighbours are in. The depth
 // is the one whose clusters explain the links best (highest modularity). A context hub's containment
 // is not part of the tree: a plant that holds everything says nothing about how to group it.
-function hierarchyClusters(G) {
+function hierarchyClusters(G) { return drain(hierarchyClustersSteps(G)); }
+function* hierarchyClustersSteps(G) {
     const isDs = i => G.nodes.get(G.ids[i]).type === 'DATASET';
     const parent = new Array(G.ids.length).fill(-1);
-    const hier = G.edges.filter(e => e.parent && !e.ctx).sort((a, b) => String(a.id).localeCompare(String(b.id), undefined, { numeric: true }));
+    const hier = G.edges.filter(e => e.parent && !e.ctx).sort((a, b) => BY_NUMBER(String(a.id), String(b.id)));
     const anc = (a, b) => { for (let x = b, k = 0; x >= 0 && k < 64; x = parent[x], k++) if (x === a) return true; return false; };
     // A resource can belong to several parents. It is drawn once, under the parent whose part of the plant
     // it has the most other relations with (that parent, or its other children); a tie goes to the oldest
@@ -213,6 +220,7 @@ function hierarchyClusters(G) {
     const hasKid = new Set(parent.filter(p => p >= 0));
     const hasTree = hasKid.size > 0;
     if (!hasTree) return { comm: G.ids.map(() => 0), depth: 0, parent, treeDepth: depth, parents, shared };
+    yield;
     let best = null;
     // From cut 0, where each tree is one cluster: with the plant set aside as context, its lines are the
     // roots, and a line's valves belong with it.
@@ -245,6 +253,7 @@ function hierarchyClusters(G) {
         const filled = comm.map((c, i) => c === -1 ? 'solo' + i : c);
         const r = renumber(filled), q = modularity(G, r);
         if (!best || q > best.q + 1e-9) best = { comm: r, depth: cut, q };
+        yield;
     }
     best.comm = withContext(G, best.comm);
     best.parent = parent; best.treeDepth = depth; best.parents = parents; best.shared = shared;
@@ -257,8 +266,9 @@ function hierarchyClusters(G) {
 // Exact up to EXACT_BETWEENNESS resources; above, it takes the cost of a search from every resource, so
 // it is estimated from PIVOTS of them (Brandes and Pich 2007), which ranks the important ones the same.
 const EXACT_BETWEENNESS = 2000, PIVOTS = 256;
-function betweenness(G) {
-    if (G.ids.length > EXACT_BETWEENNESS) return sampledBetweenness(G, PIVOTS);
+function betweenness(G) { return drain(betweennessSteps(G)); }
+function* betweennessSteps(G) {
+    if (G.ids.length > EXACT_BETWEENNESS) return yield* sampledBetweennessSteps(G, PIVOTS);
     const n = G.ids.length, nb = G.adj.map(row => [...row.keys()]);
     const cb = new Float64Array(n), eb = new Map();
     const key = (a, b) => a < b ? a + ',' + b : b + ',' + a;
@@ -291,7 +301,7 @@ function betweenness(G) {
 }
 // The same sums from k sources picked at random (seeded), scaled up by n / k. Neighbours are kept in flat
 // arrays and predecessors are found again from the distances, so a search allocates nothing.
-function sampledBetweenness(G, k) {
+function* sampledBetweennessSteps(G, k) {
     const n = G.ids.length, start = new Int32Array(n + 1);
     G.adj.forEach((row, i) => { start[i + 1] = start[i] + row.size; });
     const to = new Int32Array(start[n]);
@@ -323,9 +333,13 @@ function sampledBetweenness(G, k) {
             }
             cb[w] += delta[w];
         }
+        yield;
     }
     const scale = n / k / 2, key = (a, b) => a < b ? a + ',' + b : b + ',' + a, edge = new Map();
-    for (let v = 0; v < n; v++) for (let p = start[v]; p < start[v + 1]; p++) { const kk = key(v, to[p]); edge.set(kk, (edge.get(kk) || 0) + ce[p] * scale); }
+    for (let v = 0; v < n; v++) {
+        for (let p = start[v]; p < start[v + 1]; p++) { const kk = key(v, to[p]); edge.set(kk, (edge.get(kk) || 0) + ce[p] * scale); }
+        if (v % 5000 === 4999) yield;
+    }
     return { node: Array.from(cb, x => x * scale), edge, key };
 }
 // 0..1, square-root scaled so a few hubs don't flatten everyone else.
@@ -333,5 +347,5 @@ function normalise(v) { const max = maxOf(v, 1e-12); return v.map(x => Math.sqrt
 // The largest of a list and floor: Math.max(...list) overflows the call stack past about 100,000 values.
 function maxOf(list, floor) { let m = floor; for (const x of list) if (x > m) m = x; return m; }
 
-window.GraphAlgorithms = { CONTAINMENT, withSeed, buildGraph, renumber, modularity, louvain, superClusters, contextHomes, withContext, straighten, hierarchyClusters, betweenness, normalise, maxOf };
+window.GraphAlgorithms = { CONTAINMENT, withSeed, drain, buildGraph, renumber, modularity, louvain, superClusters, contextHomes, withContext, straighten, hierarchyClusters, hierarchyClustersSteps, betweenness, betweennessSteps, normalise, maxOf };
 })();

@@ -64,7 +64,8 @@ class GraphNetwork {
             picking: () => !this.addEdgeModeEnabled,
             tr: (key, args) => args ? $L(key, null, args) : $L(key),
             // A big graph brings resources into Cytoscape as they come into view; a filter hides them too.
-            onWindow: () => { if (this.filter && this.filter.state) this.filter.apply(); },
+            // Resources brought into view arrive unfiltered, so the filter only has work while it is set.
+            onWindow: () => { if (this.filter && this.filter.state && this.filter.isSet()) this.filter.apply(); },
         });
 
         // Re-theme the graph live when the user toggles the colour theme (the toggle sets
@@ -1194,6 +1195,8 @@ class GraphFilter {
         if (this.panel) this.panel.querySelectorAll('.gf-list').forEach(l => { l.innerHTML = ''; });
     }
 
+    isSet() { return !!(this.state.name || this.state.activeLabels || this.state.activeRelTypes); }
+
     apply() {
         const q = (this.state.name || '').trim().toLowerCase();
         const labels = this.state.activeLabels;
@@ -1219,7 +1222,7 @@ class GraphFilter {
             });
         });
         // Keep the sub-nav button lit while any constraint is active, even with the panel closed.
-        const filtered = !!(this.state.name || this.state.activeLabels || this.state.activeRelTypes);
+        const filtered = this.isSet();
         if (this.btn) this.btn.classList.toggle('has-filter', filtered);
         // Names, outlines and flows are drawn on canvases of their own, which follow what is shown.
         if (changed) this.network.refreshLabels();
