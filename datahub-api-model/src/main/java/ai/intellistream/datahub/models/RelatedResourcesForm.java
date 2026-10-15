@@ -35,9 +35,9 @@ public class RelatedResourcesForm {
     private List<String> relationshipTypes;
 
     /**
-     * Safety cap on the number of nodes loaded. {@code -1} means unbounded. When the component is
-     * larger than this, the nearest {@code limit} nodes are returned (plus every relationship
-     * between them).
+     * Safety cap on the number of nodes loaded. {@code -1} means unbounded, which works for a
+     * network of any size. When the component is larger than this, the nearest {@code limit} nodes
+     * are returned (plus every relationship between them).
      */
     private Integer limit = 5000;
 

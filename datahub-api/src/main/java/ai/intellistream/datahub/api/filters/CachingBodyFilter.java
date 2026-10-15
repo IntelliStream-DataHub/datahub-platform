@@ -27,8 +27,10 @@ public class CachingBodyFilter implements Filter {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
 
         // Neither cached nor logged: a body of up to 64 MiB that the controller reads once has
-        // nothing to gain from a second copy, and a request log must never carry it.
-        if (StreamingEndpoints.isBinaryDatapointInsert(httpRequest)) {
+        // nothing to gain from a second copy, and a request log must never carry it. The network read
+        // is skipped because its response is large: copying it to log it would put the whole network
+        // in memory again.
+        if (StreamingEndpoints.isBinaryDatapointInsert(httpRequest) || StreamingEndpoints.isNetworkRead(httpRequest)) {
             chain.doFilter(request, response);
             return;
         }

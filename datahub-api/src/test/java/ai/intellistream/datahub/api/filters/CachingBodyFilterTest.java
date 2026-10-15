@@ -12,6 +12,8 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.ArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,6 +86,21 @@ class CachingBodyFilterTest {
 
         assertThatThrownBy(() -> filter.doFilter(post("/timeseries/data/binary"), response, exploding))
                 .isInstanceOf(ServletException.class);
+    }
+
+    /** The network read's response can be 100 MB or more; copying it to log it would hold it all in memory. */
+    @Test
+    void theNetworkReadIsPassedThroughUnwrapped() throws Exception {
+        List<Object> seen = new ArrayList<>();
+        FilterChain recording = (req, res) -> {
+            seen.add(req);
+            seen.add(res);
+        };
+        MockHttpServletRequest request = post("/resources/fetch-related");
+
+        filter.doFilter(request, response, recording);
+
+        assertThat(seen).containsExactly(request, response);
     }
 
     @Test

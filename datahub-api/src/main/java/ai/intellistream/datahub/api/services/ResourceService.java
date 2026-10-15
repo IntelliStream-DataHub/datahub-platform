@@ -26,6 +26,7 @@ import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.asset.GraphReadScope;
+import ai.intellistream.datahub.asset.NetworkSink;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.InvalidResourceException;
 import ai.intellistream.datahub.jpa.domains.*;
@@ -1216,6 +1217,41 @@ public class ResourceService {
 
     @Transactional(readOnly = true)
     public ResourceNetwork fetchRelatedResources(@Valid RelatedResourcesForm form) {
+        resolveRelatedStart(form);
+        return neo4JService.fetchRelatedNodes(
+                form.getId(), form.getDepth(), form.getRelationshipTypes(),
+                form.getLimit(), form.getExcludedLabels(), graphReadScope());
+    }
+
+    /**
+     * What the database has to answer for a fetch-related call, answered before anything is sent:
+     * the start resource exists and the caller may read it, which datasets the caller may see, and
+     * the label list. {@link #streamRelatedResources} then only reads Neo4j.
+     */
+    public record PreparedNetwork(RelatedResourcesForm form, GraphReadScope scope, Set<Label> labels) {
+    }
+
+    /**
+     * Step one of a fetch-related call: every check that can fail with a proper error (not found, no
+     * access) is made here, before the response starts. Once the first byte is sent, the status is
+     * fixed at 200, so these checks cannot wait. Runs in its own short database transaction, which
+     * ends before the network is sent, so a long download does not hold a database connection.
+     */
+    @Transactional(readOnly = true)
+    public PreparedNetwork prepareRelatedResources(@Valid RelatedResourcesForm form) {
+        resolveRelatedStart(form);
+        return new PreparedNetwork(form, graphReadScope(), neo4JService.networkLabels());
+    }
+
+    /** Step two: reads the prepared network from Neo4j and hands each edge, then each resource, to {@code sink}. */
+    public void streamRelatedResources(PreparedNetwork prepared, NetworkSink sink) {
+        RelatedResourcesForm form = prepared.form();
+        neo4JService.streamRelatedNodes(
+                form.getId(), form.getDepth(), form.getRelationshipTypes(),
+                form.getLimit(), form.getExcludedLabels(), prepared.scope(), sink);
+    }
+
+    private void resolveRelatedStart(RelatedResourcesForm form) {
         if(form.getId() == null){
             NodeEntity n = nodeRepository.findByExternalId(form.getExternalId());
             if(n != null){
@@ -1233,9 +1269,6 @@ public class ResourceService {
         NodeEntity start = nodeRepository.findById(form.getId()).orElseThrow(() ->
                 new ObjectNotFoundException("Resource with id: " + form.getId() + " not found."));
         dataSecurity.assertCanRead(start);
-        return neo4JService.fetchRelatedNodes(
-                form.getId(), form.getDepth(), form.getRelationshipTypes(),
-                form.getLimit(), form.getExcludedLabels(), graphReadScope());
     }
 
     /**

@@ -15,6 +15,7 @@ import ai.intellistream.datahub.repositories.node.PolicyRepository;
 import ai.intellistream.datahub.repositories.node.TimeseriesRepository;
 import jakarta.validation.Validator;
 import org.junit.jupiter.api.Test;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -79,7 +80,7 @@ class FilterCursorRejectionTest {
     void resourcesFilterRejectsAMalformedCursor() throws Exception {
         ResourceService service = mock(ResourceService.class);
         when(service.filter(any())).thenThrow(malformedCursor());
-        assertRejects(mvcFor(new ResourceController(service, mock(Validator.class))), "/resources/filter");
+        assertRejects(mvcFor(new ResourceController(service, mock(Validator.class), JsonMapper.builder().build())), "/resources/filter");
     }
 
     @Test
