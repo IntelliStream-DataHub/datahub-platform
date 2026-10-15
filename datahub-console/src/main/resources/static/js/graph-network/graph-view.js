@@ -30,7 +30,9 @@ const MIN_LABEL_PX = 10, PAD = 30, FIT_MAX_ZOOM = 1.4;
 // Names grow with the zoom only up to a comfortable size: a hub's stops at 18 px on screen, a leaf's at
 // 13 px. Zooming in then shows more names rather than bigger ones.
 const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12;
-const labelPx = (n, z) => Math.min(n.data('fs') * z, MAX_LABEL_PX(n.data('imp')));
+const GROUP_LABEL_PX = imp => 12 + 3 * (imp || 0), GROUP_LABEL_GAP = 10;
+// A shut group's name keeps one modest size however far out the view is: it is a signpost, not a heading.
+const labelPx = (n, z) => (n.hasClass('agg') ? GROUP_LABEL_PX(n.data('imp')) : Math.min(n.data('fs') * z, MAX_LABEL_PX(n.data('imp'))));
 // Above this many resources names are re-picked only once a pan or zoom settles, and above the second
 // the lines inside a group are drawn straight, which keeps the WebGL renderer at 60 frames a second.
 const SETTLE_ABOVE = 1000, STRAIGHT_ABOVE = 3000;
@@ -246,7 +248,7 @@ const HIT_PX = 6;       // how near a click must be to a line, on screen
 const NOTCH = 1.25, WHEEL_DOUBLE = 75;
 // Big graphs: above BIG_ABOVE resources, a group opens once it is OPEN_PX across on screen, the ones
 // nearest the middle first, while at most SHOWN_MAX resources are shown.
-const BIG_ABOVE = 5000, OPEN_PX = 90, SHOWN_MAX = 8000;
+const BIG_ABOVE = 5000, OPEN_PX = 90, SHOWN_MAX = 3500;
 // How long one piece of a big graph's work may hold the page before letting it draw and respond.
 const SLICE_MS = 25, COMMIT_MS = 250, COMMIT_MAX = 1500;
 
@@ -841,6 +843,26 @@ function createGraphView(container, opts) {
     function shownLabels(z, pan, w, h) {
         const cell = 48, grid = new Map(), names = new Set();
         const nodes = cy.nodes('.dot, .agg').toArray().sort((a, b) => (b.data('imp') || 0) - (a.data('imp') || 0) || (a.id() < b.id() ? -1 : 1));
+        // A shut group's name goes where it covers no other group's dot and stands a little apart from the
+        // other names; where groups are packed, most go unnamed until the view comes closer, like towns on
+        // a map. Names under every dot of a packed overview read as one mass of text.
+        const dots = new Map();
+        cy.nodes('.agg').forEach(n => {
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = n.data('w') * z / 2;
+            if (x < -r - 50 || y < -r - 50 || x > w + r + 50 || y > h + r + 50) return;
+            const c = { n, x, y, r };
+            for (let gx = Math.floor((x - r) / cell); gx <= Math.floor((x + r) / cell); gx++) for (let gy = Math.floor((y - r) / cell); gy <= Math.floor((y + r) / cell); gy++) { const k = gx + ',' + gy; if (!dots.has(k)) dots.set(k, []); dots.get(k).push(c); }
+        });
+        const coversDot = (rect, own) => {
+            for (let gx = Math.floor(rect.x1 / cell); gx <= Math.floor(rect.x2 / cell); gx++) for (let gy = Math.floor(rect.y1 / cell); gy <= Math.floor(rect.y2 / cell); gy++) {
+                for (const c of dots.get(gx + ',' + gy) || []) {
+                    if (c.n === own) continue;
+                    const dx = c.x - Math.max(rect.x1, Math.min(c.x, rect.x2)), dy = c.y - Math.max(rect.y1, Math.min(c.y, rect.y2));
+                    if (dx * dx + dy * dy < c.r * c.r) return true;
+                }
+            }
+            return false;
+        };
         const hit = r => {
             for (let gx = Math.floor(r.x1 / cell); gx <= Math.floor(r.x2 / cell); gx++) for (let gy = Math.floor(r.y1 / cell); gy <= Math.floor(r.y2 / cell); gy++) {
                 for (const o of grid.get(gx + ',' + gy) || []) if (r.x1 < o.x2 && r.x2 > o.x1 && r.y1 < o.y2 && r.y2 > o.y1) return true;
@@ -854,8 +876,10 @@ function createGraphView(container, opts) {
             if (x < -50 || y < -50 || x > w + 50 || y > h + 50) continue;
             const tw = textW(n.data('short') || '', px, 600), top = y + n.data('h') * z / 2 + Math.min(3 * z, 4);
             const r = { x1: x - tw / 2 - 2, x2: x + tw / 2 + 2, y1: top, y2: top + px * 1.25 };
-            if (hit(r)) continue;
-            put(r); names.add(n.id());
+            const group = n.hasClass('agg');
+            if (hit(r) || (group && coversDot(r, n))) continue;
+            put(group ? { x1: r.x1 - GROUP_LABEL_GAP, x2: r.x2 + GROUP_LABEL_GAP, y1: r.y1 - GROUP_LABEL_GAP / 2, y2: r.y2 + GROUP_LABEL_GAP / 2 } : r);
+            names.add(n.id());
         }
         return names;
     }
@@ -1048,7 +1072,9 @@ function createGraphView(container, opts) {
             { selector: 'edge:selected', style: { 'opacity': 1, 'width': 2.6, 'z-index': 11, 'line-fill': 'solid', 'line-color': pal.pick, 'underlay-color': pal.pick, 'underlay-padding': 4, 'underlay-opacity': 0.2 } },
             // A big graph's shut groups: one dot each, filled with the group's colour faded into the page, and a
             // line between linked groups, wider the more relations it stands for.
-            { selector: 'node.agg', style: { 'width': 'data(w)', 'height': 'data(w)', 'background-color': 'data(fill)', 'border-width': 2, 'border-color': 'data(dot)', 'border-opacity': 1 } },
+            // Shut groups in muted colours: hundreds of them in full colour read as confetti. A group shows its
+            // own colour once it opens.
+            { selector: 'node.agg', style: { 'width': 'data(w)', 'height': 'data(w)', 'background-color': 'data(fill)', 'border-width': 1.5, 'border-color': 'data(dot)', 'border-opacity': 1 } },
             { selector: 'node.agg.root', style: { 'border-width': 4, 'border-color': pal.label } },
             { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'width': e => Math.min(6, 1 + Math.log2(e.data('n') || 1)), 'opacity': 0.55, 'line-fill': 'solid', 'line-color': pal.line } },
             // Drawing a new relation (edge-handles).
@@ -1380,7 +1406,7 @@ function createGraphView(container, opts) {
     function aggNode(g) {
         const pal = palette(), col = colourOf(g.c), d = Math.max(12, 1.2 * g.r), most = big.most || 1;
         return { group: 'nodes', classes: 'agg' + (rootId && big.comm.get(rootId) === g.c ? ' root' : ''), grabbable: false, selectable: false, position: { x: g.x, y: g.y },
-            data: { id: 'agg:' + g.c, c: g.c, n: g.ids.length, w: d, h: d, fill: mixHex(col, pal.bg, 0.5), dot: col, fs: 1e6, imp: Math.sqrt(g.ids.length / most), short: g.name, label: g.name, labels: [opts.tr('graph.group.size', [g.ids.length])] } };
+            data: { id: 'agg:' + g.c, c: g.c, n: g.ids.length, w: d, h: d, fill: mixHex(col, pal.bg, 0.32), dot: mixHex(col, pal.bg, 0.7), fs: 1e6, imp: Math.sqrt(g.ids.length / most), short: g.name, label: g.name, labels: [opts.tr('graph.group.size', [g.ids.length])] } };
     }
     // Bring Cytoscape in line with the view: the open groups' resources and the relations among them, a dot
     // for every shut group, and one line from a shown resource to each shut group it is linked to, and
