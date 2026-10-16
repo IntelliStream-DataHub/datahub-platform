@@ -80,7 +80,7 @@ class RunEventStreamTest {
 
     private static StoredRun run(String status) {
         return new StoredRun(RUN, 1L, "temp_hourly", 7L, 1, status, 1, 2, Instant.EPOCH, false, false,
-                false, 1 << 20, Duration.ofMinutes(15), null, null, null, null, "manual", "user-1",
+                false, Duration.ofMinutes(15), null, null, null, null, "manual", "user-1",
                 "user-1", Instant.EPOCH, null, null, null, null, null);
     }
 }

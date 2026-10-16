@@ -699,7 +699,7 @@ class RunCoordinatorIT {
     private UUID preview(Long flow, Integer version, String definition, Long dataSetId) {
         Instant end = Instant.parse("2026-10-12T01:00:00Z");
         return transaction.execute(s -> runs.insertPreview(new RunRepository.NewPreview(flow, version,
-                definition, dataSetId, 1 << 20, Duration.ofMinutes(15),
+                definition, dataSetId, Duration.ofMinutes(15),
                 new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "user-1")));
     }
 
@@ -748,11 +748,11 @@ class RunCoordinatorIT {
                             }
                             published.add(batch);
                             return java.util.concurrent.CompletableFuture.completedFuture(null);
-                        }), Duration.ofSeconds(5));
+                        }), Duration.ofSeconds(5), 64L << 20);
         RunEvents events = new RunEvents(runs, credentials,
                 "http://127.0.0.1:" + datahub.getAddress().getPort(), REQUEST_TIMEOUT, 20);
         RunCoordinator c = new RunCoordinator(runs, execution, events, transaction, null, null, JSON,
-                Long.MAX_VALUE, new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 4, 24,
+                new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 24,
                 backoff, backoff.isZero() ? Duration.ZERO : Duration.ofHours(6), Duration.ofSeconds(1)),
                 name, System::nanoTime);
         coordinators.add(c);
@@ -777,7 +777,7 @@ class RunCoordinatorIT {
         return transaction.execute(s -> {
             long id = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
             flows.deploy(id, 1, true, new Schedule(Schedule.MANUAL, null, null, null, null).toJson(JSON),
-                    maxConcurrent, maxAttempts, Duration.ofMinutes(15), 1 << 20,
+                    maxConcurrent, maxAttempts, Duration.ofMinutes(15),
                     FlowRepository.Identity.deployer("user-1"), "user-1", null, null);
             return id;
         });
@@ -800,7 +800,7 @@ class RunCoordinatorIT {
         Instant end = Instant.parse("2026-10-12T00:00:00Z").plus(Duration.ofHours(hour + 1));
         return transaction.execute(s -> runs.insert(new NewRun(flow, 1,
                 jdbc.queryForObject("SELECT max_attempts FROM flow.flow WHERE id = ?", Integer.class, flow),
-                1 << 20, Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end),
+                Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end),
                 null, "manual", "user-1", "user-1")));
     }
 

@@ -54,14 +54,14 @@ public record RunView(UUID id, String flow, Integer version, String status, int 
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public record DeploymentView(int version, boolean enabled, String disabledReason, JsonNode trigger,
                                  int maxConcurrentRuns, int maxAttempts, Duration timeout,
-                                 long memoryBytes, String identity, String runAs, String identityState,
+                                 String identity, String runAs, String identityState,
                                  String identityStateReason, String deployedBy, Instant deployedAt,
                                  Instant nextTick, Instant nextDueAt, Instant lastTick) {
 
         static DeploymentView of(Deployment d, JsonMapper json) {
             return new DeploymentView(d.version(), d.enabled(), d.disabledReason(),
                     tree(json, d.trigger()), d.maxConcurrentRuns(), d.maxAttempts(), d.timeout(),
-                    d.memoryBytes(), d.identityKind(),
+                    d.identityKind(),
                     d.identitySubject() != null ? d.identitySubject() : d.identityClientName(),
                     d.identityState(), d.identityStateReason(), d.deployedBy(), d.deployedAt(),
                     d.nextTick(), d.nextDueAt(), d.lastTick());

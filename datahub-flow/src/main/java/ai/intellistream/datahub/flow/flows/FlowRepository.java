@@ -174,7 +174,7 @@ public class FlowRepository {
      * @param trigger the trigger as deployed ({@code Schedule#toJson})
      */
     public record Deployment(int version, boolean enabled, String disabledReason, String trigger,
-                             int maxConcurrentRuns, int maxAttempts, Duration timeout, long memoryBytes,
+                             int maxConcurrentRuns, int maxAttempts, Duration timeout,
                              String identityKind, String identitySubject, String identityClientName,
                              String identityState, String identityStateReason, String deployedBy,
                              Instant deployedAt, Instant nextTick, Instant nextDueAt, Instant lastTick) {
@@ -184,14 +184,14 @@ public class FlowRepository {
     public Optional<Deployment> deployment(long flowId) {
         return jdbc.query("SELECT deployed_version, enabled, disabled_reason, trigger::text AS trigger, "
                         + "max_concurrent_runs, max_attempts, "
-                        + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, memory_bytes, "
+                        + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
                         + "identity_kind, identity_subject, identity_client_name, identity_state, "
                         + "identity_state_reason, deployed_by, deployed_at, next_tick, next_due_at, "
                         + "last_tick FROM flow.flow WHERE id = ? AND deployed_version IS NOT NULL",
                 (rs, n) -> new Deployment(rs.getInt("deployed_version"), rs.getBoolean("enabled"),
                         rs.getString("disabled_reason"), rs.getString("trigger"),
                         rs.getInt("max_concurrent_runs"), rs.getInt("max_attempts"),
-                        Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getLong("memory_bytes"),
+                        Duration.ofSeconds(rs.getLong("timeout_seconds")),
                         rs.getString("identity_kind"), rs.getString("identity_subject"),
                         rs.getString("identity_client_name"), rs.getString("identity_state"),
                         rs.getString("identity_state_reason"), rs.getString("deployed_by"),
@@ -233,13 +233,13 @@ public class FlowRepository {
      * up, only those missed while the service was down.
      */
     public void deploy(long flowId, int version, boolean enabled, String trigger, int maxConcurrentRuns,
-                       int maxAttempts, Duration timeout, long memoryBytes, Identity identity,
+                       int maxAttempts, Duration timeout, Identity identity,
                        String deployedBy, Instant nextTick, Instant nextDueAt) {
         String identityColumns = identity == null ? ""
                 : "identity_kind = ?, identity_subject = ?, identity_client_name = ?, "
                 + "identity_state = 'ok', identity_state_reason = NULL, ";
         List<Object> args = new ArrayList<>(List.of(version, enabled, trigger, maxConcurrentRuns,
-                maxAttempts, (double) timeout.toSeconds(), memoryBytes));
+                maxAttempts, (double) timeout.toSeconds()));
         if (identity != null) {
             args.add(identity.kind());
             args.add(identity.subject());
@@ -251,7 +251,7 @@ public class FlowRepository {
         args.add(flowId);
         jdbc.update("UPDATE flow.flow SET deployed_version = ?, enabled = ?, disabled_reason = NULL, "
                         + "trigger = ?::jsonb, max_concurrent_runs = ?, max_attempts = ?, "
-                        + "run_timeout = make_interval(secs => ?), memory_bytes = ?, "
+                        + "run_timeout = make_interval(secs => ?), "
                         + identityColumns
                         + "deployed_by = ?, deployed_at = now(), next_tick = ?, next_due_at = ?, "
                         + "last_tick = NULL WHERE id = ?",

@@ -27,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -81,6 +82,8 @@ public class RunExecution {
     private final JsonMapper json;
     private final RunRecords.Opener records;
     private final Duration ackWait;
+    /** What every run may hold on the heap: this instance's share per run slot (FlowConfig). */
+    private final long memoryCap;
     private final HttpClient http = HttpClient.newHttpClient();
 
     /** Compiled versions by tenant, flow and version; a definition is never compiled twice. */
@@ -99,18 +102,20 @@ public class RunExecution {
                         @Value("${datahub.api.url:http://localhost:8081}") String apiBaseUrl,
                         @Value("${datahub.flow.runs.request-timeout:PT30S}") Duration requestTimeout,
                         JsonMapper json, RunRecords.Opener records,
-                        @Value("${datahub.flow.records.ack-wait:PT30S}") Duration ackWait) {
+                        @Value("${datahub.flow.records.ack-wait:PT30S}") Duration ackWait,
+                        DataSize runMemoryCap) {
         this(compiler, executor, flows, jdbc, credentials, tenantId -> {
             // Read when the run starts, never cached: a secret changed a moment ago is the one used.
             Tenant tenant = tenants.getConfig(tenantId);
             return tenantConfig.current(tenant.getOrganizationName());
-        }, apiBaseUrl, requestTimeout, json, records, ackWait);
+        }, apiBaseUrl, requestTimeout, json, records, ackWait, runMemoryCap.toBytes());
     }
 
     RunExecution(FlowCompiler compiler, RunExecutor executor, FlowRepository flows, JdbcTemplate jdbc,
                  RunCredentials credentials, Function<String, Map<String, String>> tenantSecrets,
                  String apiBaseUrl, Duration requestTimeout, JsonMapper json, RunRecords.Opener records,
-                 Duration ackWait) {
+                 Duration ackWait, long memoryCap) {
+        this.memoryCap = memoryCap;
         this.compiler = compiler;
         this.executor = executor;
         this.flows = flows;
@@ -195,7 +200,7 @@ public class RunExecution {
         }
 
         RunRequest request = new RunRequest(claimed.id(), claimed.attempt(), claimed.window(),
-                parameters(claimed.parameters()), claimed.preview(), claimed.memoryBytes(), secret,
+                parameters(claimed.parameters()), claimed.preview(), memoryCap, secret,
                 run::shouldStop, dataSetId, datahub);
         RunRecords sink = records.open(run.tenantId, claimed.id(), claimed.attempt(),
                 flowExternalId == null ? "" : flowExternalId,

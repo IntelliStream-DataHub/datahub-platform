@@ -137,7 +137,7 @@ class RunControllerTest {
         deploy("{}").andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
         verify(flows, never()).deploy(anyLong(), anyInt(), anyBoolean(), anyString(), anyInt(), anyInt(),
-                any(), anyLong(), any(), anyString(), any(), any());
+                any(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -147,7 +147,7 @@ class RunControllerTest {
 
         deploy("{}").andExpect(status().isConflict());
         verify(flows, never()).deploy(anyLong(), anyInt(), anyBoolean(), anyString(), anyInt(), anyInt(),
-                any(), anyLong(), any(), anyString(), any(), any());
+                any(), any(), anyString(), any(), any());
     }
 
     @Test
@@ -162,8 +162,7 @@ class RunControllerTest {
 
         ArgumentCaptor<String> trigger = ArgumentCaptor.forClass(String.class);
         verify(flows).deploy(eq(FLOW_ID), eq(1), eq(true), trigger.capture(), eq(1), eq(2),
-                eq(Duration.ofMinutes(15)), eq(512L * 1024 * 1024), isNull(), eq("user-1"), isNull(),
-                isNull());
+                eq(Duration.ofMinutes(15)), isNull(), eq("user-1"), isNull(), isNull());
         assertThat(trigger.getValue()).isEqualTo("{\"type\":\"manual\"}");
         verify(offlineTokens, never()).remove(any(), anyLong());
     }
@@ -178,7 +177,7 @@ class RunControllerTest {
 
         deploy("{\"runAs\":\"ingest\"}").andExpect(status().isOk());
 
-        verify(flows).deploy(eq(FLOW_ID), eq(1), eq(true), anyString(), eq(1), eq(2), any(), anyLong(),
+        verify(flows).deploy(eq(FLOW_ID), eq(1), eq(true), anyString(), eq(1), eq(2), any(),
                 eq(Identity.client("ingest")), eq("user-1"), isNull(), isNull());
         verify(offlineTokens).remove(any(), eq(FLOW_ID));
     }
@@ -193,7 +192,7 @@ class RunControllerTest {
 
         deploy("{\"runAs\":\"admin-client\"}").andExpect(status().isForbidden());
         verify(flows, never()).deploy(anyLong(), anyInt(), anyBoolean(), anyString(), anyInt(), anyInt(),
-                any(), anyLong(), any(), anyString(), any(), any());
+                any(), any(), anyString(), any(), any());
         verify(offlineTokens, never()).remove(any(), anyLong());
     }
 
@@ -397,7 +396,7 @@ class RunControllerTest {
         callerIs(writer());
         UUID id = UUID.randomUUID();
         when(runs.find(id)).thenReturn(Optional.of(new StoredRun(id, FLOW_ID, "temp_hourly", DS_DEMO, 1,
-                "SUCCEEDED", 1, 1, Instant.EPOCH, false, true, false, 1024, Duration.ofMinutes(15),
+                "SUCCEEDED", 1, 1, Instant.EPOCH, false, true, false, Duration.ofMinutes(15),
                 null, null, "{}", null, "preview", "user-1", "user-1", Instant.EPOCH, null, null,
                 null, null, null)));
 
@@ -440,13 +439,13 @@ class RunControllerTest {
 
     private static Deployment deployment(boolean enabled) {
         return new Deployment(1, enabled, null, "{\"type\":\"manual\"}", 1, 2, Duration.ofMinutes(15),
-                512L * 1024 * 1024, "deployer", "user-1", null, "ok", null, "user-1", Instant.EPOCH,
+                "deployer", "user-1", null, "ok", null, "user-1", Instant.EPOCH,
                 null, null, null);
     }
 
     private static StoredRun stored(UUID id, long dataSetId, String status) {
         return new StoredRun(id, FLOW_ID, "temp_hourly", dataSetId, 1, status, 1, 2, Instant.EPOCH,
-                false, false, false, 1024, Duration.ofMinutes(15), null, null, "{}", null, "manual",
+                false, false, false, Duration.ofMinutes(15), null, null, "{}", null, "manual",
                 "user-1", "user-1", Instant.EPOCH, null, null, null, null, null);
     }
 }

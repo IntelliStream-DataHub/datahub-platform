@@ -39,7 +39,7 @@ public class RunRepository {
     private static final String RUN_COLUMNS = "r.id, r.flow_id, "
             + "coalesce(f.external_id, r.definition->>'externalId') AS flow_external_id, "
             + "coalesce(f.data_set_id, r.data_set_id) AS data_set_id, r.version, r.status, r.attempt, r.max_attempts, r.not_before, "
-            + "r.cancel_requested, r.preview, r.failure_event_owed, r.memory_bytes, "
+            + "r.cancel_requested, r.preview, r.failure_event_owed, "
             + "extract(epoch FROM r.run_timeout)::bigint AS timeout_seconds, r.owner, "
             + "r.window_start, r.window_end, r.parameters::text AS parameters, "
             + "r.processor_versions::text AS processor_versions, r.trigger, r.triggered_by, r.run_as, "
@@ -50,7 +50,7 @@ public class RunRepository {
             rs.getString("flow_external_id"), (Long) rs.getObject("data_set_id"),
             (Integer) rs.getObject("version"), rs.getString("status"), rs.getInt("attempt"),
             rs.getInt("max_attempts"), instant(rs, "not_before"), rs.getBoolean("cancel_requested"),
-            rs.getBoolean("preview"), rs.getBoolean("failure_event_owed"), rs.getLong("memory_bytes"),
+            rs.getBoolean("preview"), rs.getBoolean("failure_event_owed"),
             Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("owner"),
             window(rs), rs.getString("parameters"), rs.getString("processor_versions"),
             rs.getString("trigger"), rs.getString("triggered_by"), rs.getString("run_as"),
@@ -67,25 +67,25 @@ public class RunRepository {
     public record StoredRun(UUID id, Long flowId, String flowExternalId, Long dataSetId, Integer version,
                             String status, int attempt, int maxAttempts, Instant notBefore,
                             boolean cancelRequested, boolean preview, boolean failureEventOwed,
-                            long memoryBytes, Duration timeout, String owner, TimeWindow window,
+                            Duration timeout, String owner, TimeWindow window,
                             String parameters, String processorVersions, String trigger,
                             String triggeredBy, String runAs, Instant createdAt, Instant startedAt,
                             Instant finishedAt, String errorCode, String error, String stats) {
     }
 
     /** What a new run is created with. */
-    public record NewRun(long flowId, int version, int maxAttempts, long memoryBytes, Duration timeout,
+    public record NewRun(long flowId, int version, int maxAttempts, Duration timeout,
                          TimeWindow window, String parameters, String trigger, String triggeredBy,
                          String runAs) {
     }
 
     /** A deployed, enabled flow whose schedule is due, locked for this transaction. */
     public record DueFlow(long id, int version, String trigger, Instant nextTick, int maxAttempts,
-                          long memoryBytes, Duration timeout, String runAs) {
+                          Duration timeout, String runAs) {
     }
 
     /** A pending run that may be claimed, locked for this transaction. */
-    public record Candidate(UUID id, Long flowId, long memoryBytes, boolean preview) {
+    public record Candidate(UUID id, Long flowId, boolean preview) {
     }
 
     /**
@@ -93,7 +93,7 @@ public class RunRepository {
      * unsaved {@code definition} with the dataset it was resolved to.
      */
     public record NewPreview(Long flowId, Integer version, String definition, Long dataSetId,
-                             long memoryBytes, Duration timeout, TimeWindow window, String parameters,
+                             Duration timeout, TimeWindow window, String parameters,
                              String triggeredBy) {
     }
 
@@ -104,7 +104,7 @@ public class RunRepository {
 
     /** A run this instance now owns, and how long its lease has left by the database's clock. */
     public record Claimed(UUID id, Long flowId, Integer version, String definition, int attempt,
-                          int maxAttempts, long memoryBytes, Duration timeout, TimeWindow window,
+                          int maxAttempts, Duration timeout, TimeWindow window,
                           String parameters, boolean preview, String runAs, Duration leaseLeft) {
     }
 
@@ -124,7 +124,7 @@ public class RunRepository {
 
     public List<DueFlow> lockDueSchedules(int limit) {
         return jdbc.query("SELECT id, deployed_version, trigger::text AS trigger, next_tick, "
-                        + "max_attempts, memory_bytes, extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
+                        + "max_attempts, extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
                         + "coalesce(identity_subject, identity_client_name) AS run_as "
                         // A deployment whose identity Keycloak refused gets no runs until it is
                         // deployed afresh: each would only fail the same way.
@@ -132,8 +132,7 @@ public class RunRepository {
                         + "ORDER BY next_due_at LIMIT ? FOR UPDATE SKIP LOCKED",
                 (rs, n) -> new DueFlow(rs.getLong("id"), rs.getInt("deployed_version"),
                         rs.getString("trigger"), instant(rs, "next_tick"), rs.getInt("max_attempts"),
-                        rs.getLong("memory_bytes"), Duration.ofSeconds(rs.getLong("timeout_seconds")),
-                        rs.getString("run_as")),
+                        Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("run_as")),
                 limit);
     }
 
@@ -147,10 +146,10 @@ public class RunRepository {
     public UUID insert(NewRun run) {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, "
-                        + "memory_bytes, run_timeout, window_start, window_end, parameters, trigger, "
-                        + "triggered_by, run_as) VALUES (?, ?, ?, 'PENDING', 1, ?, ?, "
+                        + "run_timeout, window_start, window_end, parameters, trigger, "
+                        + "triggered_by, run_as) VALUES (?, ?, ?, 'PENDING', 1, ?, "
                         + "make_interval(secs => ?), ?, ?, ?::jsonb, ?, ?, ?)",
-                id, run.flowId(), run.version(), run.maxAttempts(), run.memoryBytes(),
+                id, run.flowId(), run.version(), run.maxAttempts(),
                 (double) run.timeout().toSeconds(),
                 run.window() == null ? null : timestamp(run.window().start()),
                 run.window() == null ? null : timestamp(run.window().end()),
@@ -167,12 +166,12 @@ public class RunRepository {
     public UUID insertPreview(NewPreview preview) {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO flow.run (id, flow_id, version, definition, data_set_id, status, "
-                        + "attempt, max_attempts, preview, memory_bytes, run_timeout, window_start, "
+                        + "attempt, max_attempts, preview, run_timeout, window_start, "
                         + "window_end, parameters, trigger, triggered_by, run_as) VALUES (?, ?, ?, "
-                        + "?::jsonb, ?, 'PENDING', 1, 1, true, ?, make_interval(secs => ?), ?, ?, "
+                        + "?::jsonb, ?, 'PENDING', 1, 1, true, make_interval(secs => ?), ?, ?, "
                         + "?::jsonb, 'preview', ?, ?)",
                 id, preview.flowId(), preview.version(), preview.definition(), preview.dataSetId(),
-                preview.memoryBytes(), (double) preview.timeout().toSeconds(),
+                (double) preview.timeout().toSeconds(),
                 timestamp(preview.window().start()), timestamp(preview.window().end()),
                 preview.parameters() == null ? "{}" : preview.parameters(), preview.triggeredBy(),
                 preview.triggeredBy());
@@ -187,12 +186,12 @@ public class RunRepository {
      * created it has, so that instance claims it by its id.
      */
     public List<Candidate> lockPending(int limit, UUID only) {
-        String sql = "SELECT id, flow_id, memory_bytes, preview FROM flow.run WHERE status = 'PENDING' "
+        String sql = "SELECT id, flow_id, preview FROM flow.run WHERE status = 'PENDING' "
                 + "AND not_before <= now() AND NOT cancel_requested"
                 + (only == null ? " AND NOT preview" : " AND id = ?")
                 + " ORDER BY window_start, created_at LIMIT ? FOR UPDATE SKIP LOCKED";
         RowMapper<Candidate> mapper = (rs, n) -> new Candidate(rs.getObject("id", UUID.class),
-                (Long) rs.getObject("flow_id"), rs.getLong("memory_bytes"), rs.getBoolean("preview"));
+                (Long) rs.getObject("flow_id"), rs.getBoolean("preview"));
         return only == null ? jdbc.query(sql, mapper, limit) : jdbc.query(sql, mapper, only, limit);
     }
 
@@ -232,12 +231,12 @@ public class RunRepository {
                         + "lease_expires_at = now() + make_interval(secs => ?), started_at = now(), "
                         + "finished_at = NULL WHERE id = ? AND status = 'PENDING' RETURNING id, "
                         + "flow_id, version, definition::text AS definition, attempt, max_attempts, "
-                        + "memory_bytes, extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
+                        + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
                         + "window_start, window_end, parameters::text AS parameters, preview, run_as, "
                         + "(extract(epoch FROM lease_expires_at - now()) * 1000)::bigint AS lease_ms",
                 (rs, n) -> new Claimed(rs.getObject("id", UUID.class), (Long) rs.getObject("flow_id"),
                         (Integer) rs.getObject("version"), rs.getString("definition"),
-                        rs.getInt("attempt"), rs.getInt("max_attempts"), rs.getLong("memory_bytes"),
+                        rs.getInt("attempt"), rs.getInt("max_attempts"),
                         Duration.ofSeconds(rs.getLong("timeout_seconds")), window(rs),
                         rs.getString("parameters"), rs.getBoolean("preview"), rs.getString("run_as"),
                         Duration.ofMillis(rs.getLong("lease_ms"))),
