@@ -298,7 +298,7 @@ function createGraphView(container, opts) {
         const c = opts.colors(), dark = opts.theme() !== 'light';
         const p = dark
             ? { label: '#e9f1f4', ink: '#0b1217', pick: '#ffffff', flowText: '#8a80a0', out: '#ffb85c', in: '#7fb2ff' }
-            : { label: '#16303b', ink: '#ffffff', pick: '#17313d', flowText: '#675d80', out: '#c46a00', in: '#2a5fd1' };
+            : { label: '#16303b', ink: '#16303b', pick: '#17313d', flowText: '#675d80', out: '#c46a00', in: '#2a5fd1' };
         p.bg = canvasBg(); p.outline = p.bg;
         p.line = c.edge; p.accent = c.accent; p.tutorial = c.tutorial;
         p.fadeFrom = mixHex(p.line, p.bg, 0.3); p.outFrom = mixHex(p.out, p.bg, 0.3); p.inFrom = mixHex(p.in, p.bg, 0.3);

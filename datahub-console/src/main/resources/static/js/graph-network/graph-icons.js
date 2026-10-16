@@ -18,8 +18,9 @@
 'use strict';
 
 // ---- the drawings ------------------------------------------------------------------------------------
-// SVG bodies on a 16 x 16 grid, with INK standing in for the theme's ink colour.
-const S = "fill='none' stroke='INK' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'";
+// SVG bodies on a 16 x 16 grid, with INK standing in for the theme's ink colour. The lines are thin, like a
+// P&ID drawing's.
+const S = "fill='none' stroke='INK' stroke-width='0.8' stroke-linecap='round' stroke-linejoin='round'";
 const valve = y => `M2 ${y} 14 ${y + 6.4}V${y}L2 ${y + 6.4}z`;
 const SYMBOLS = {
     pump: `<circle cx='8' cy='9' r='4.8' ${S}/><path d='M8 4.2h5.8M5 12.8l-1.6 2.3M11 12.8l1.6 2.3' ${S}/>`,
@@ -38,7 +39,7 @@ const SYMBOLS = {
     'heat-exchanger': `<circle cx='8' cy='8' r='5.6' ${S}/><path d='M1.4 8h3.2l1.4-2.8 2.8 5.6L10.2 8h4.4' ${S}/>`,
     column: `<rect x='5' y='1.2' width='6' height='13.6' rx='3' ${S}/><path d='M5 5.6h6M5 8h6M5 10.4h6' ${S}/>`,
     motor: `<circle cx='8' cy='8' r='5.6' ${S}/><path d='M5.4 10.6V5.4L8 8.6l2.6-3.2v5.2' ${S}/>`,
-    filter: `<path d='M8 1.8 14.2 8 8 14.2 1.8 8z' ${S}/><path d='M8 2.6v10.8' fill='none' stroke='INK' stroke-width='1.3' stroke-dasharray='1.6 1.4'/>`,
+    filter: `<path d='M8 1.8 14.2 8 8 14.2 1.8 8z' ${S}/><path d='M8 2.6v10.8' fill='none' stroke='INK' stroke-width='0.7' stroke-dasharray='1.6 1.4'/>`,
     manifold: `<path d='M2 4.6h12M4 4.6v7.8M8 4.6v7.8M12 4.6v7.8' ${S}/>`,
     reservoir: `<path d='M1.6 7.2c2-1.6 4.4-1.6 6.4 0s4.4 1.6 6.4 0M1.6 11.2c2-1.6 4.4-1.6 6.4 0s4.4 1.6 6.4 0' ${S}/><path d='M8 1.4v4' ${S}/>`,
     line: `<path d='M1.6 8h10.6M9.4 4.8 13.2 8l-3.8 3.2' ${S}/>`,
@@ -51,11 +52,11 @@ const SYMBOLS = {
 };
 // One icon per kind of resource: the "simple" style, and what the symbols fall back to.
 const SIMPLE = {
-    ASSET: "<path d='M8 1.8 13.6 4.9v6.2L8 14.2 2.4 11.1V4.9z M2.4 4.9 8 8l5.6-3.1 M8 8v6.2' fill='none' stroke='INK' stroke-width='1.6' stroke-linejoin='round'/>",
-    TIMESERIES: "<path d='M2 11.5 5.5 7.5l2.8 2.4L14 4' fill='none' stroke='INK' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
-    FUNCTION: "<path d='M10.5 2.5c-2 0-2.6 1.2-3 3.2L6.2 12c-.3 1.4-1 2-2.2 2 M4.5 6.5h6' fill='none' stroke='INK' stroke-width='1.6' stroke-linecap='round'/>",
-    DATASET: "<ellipse cx='8' cy='4' rx='5' ry='2' fill='none' stroke='INK' stroke-width='1.5'/><path d='M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4' fill='none' stroke='INK' stroke-width='1.5'/>",
-    POLICY: "<path d='M8 1.8 13 3.6v3.9c0 3-2.1 5.4-5 6.4-2.9-1-5-3.4-5-6.4V3.6z' fill='none' stroke='INK' stroke-width='1.6' stroke-linejoin='round'/>",
+    ASSET: "<path d='M8 1.8 13.6 4.9v6.2L8 14.2 2.4 11.1V4.9z M2.4 4.9 8 8l5.6-3.1 M8 8v6.2' fill='none' stroke='INK' stroke-width='0.85' stroke-linejoin='round'/>",
+    TIMESERIES: "<path d='M2 11.5 5.5 7.5l2.8 2.4L14 4' fill='none' stroke='INK' stroke-width='0.95' stroke-linecap='round' stroke-linejoin='round'/>",
+    FUNCTION: "<path d='M10.5 2.5c-2 0-2.6 1.2-3 3.2L6.2 12c-.3 1.4-1 2-2.2 2 M4.5 6.5h6' fill='none' stroke='INK' stroke-width='0.85' stroke-linecap='round'/>",
+    DATASET: "<ellipse cx='8' cy='4' rx='5' ry='2' fill='none' stroke='INK' stroke-width='0.8'/><path d='M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4' fill='none' stroke='INK' stroke-width='0.8'/>",
+    POLICY: "<path d='M8 1.8 13 3.6v3.9c0 3-2.1 5.4-5 6.4-2.9-1-5-3.4-5-6.4V3.6z' fill='none' stroke='INK' stroke-width='0.85' stroke-linejoin='round'/>",
     DEFAULT: "<circle cx='8' cy='8' r='2.6' fill='INK'/>",
 };
 const simpleKey = type => SIMPLE[type] ? type : (type === 'RESOURCE' ? 'ASSET' : 'DEFAULT');
@@ -63,7 +64,7 @@ const simpleKey = type => SIMPLE[type] ? type : (type === 'RESOURCE' ? 'ASSET' :
 // the letters are in a font every system has.
 function bubble(letters) {
     const fs = letters.length <= 2 ? 5.8 : letters.length === 3 ? 4.6 : 3.7;
-    return `<circle cx='8' cy='8' r='6.6' ${S}/><text x='8' y='${8 + fs * 0.36}' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-weight='700' font-size='${fs}' fill='INK'>${letters}</text>`;
+    return `<circle cx='8' cy='8' r='6.6' ${S}/><text x='8' y='${8 + fs * 0.36}' text-anchor='middle' font-family='Arial,Helvetica,sans-serif' font-weight='600' font-size='${fs}' fill='INK'>${letters}</text>`;
 }
 
 // ---- which symbol a resource gets -------------------------------------------------------------------
