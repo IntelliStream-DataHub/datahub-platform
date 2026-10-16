@@ -84,6 +84,17 @@ public class RunRepository {
                           Duration timeout, String runAs) {
     }
 
+    /**
+     * One deployed flow and what its runs are doing now: how many are running and queued, and its
+     * latest finished run. The input to the Runs overview.
+     */
+    public record BoardRow(long id, String externalId, String name, int deployedVersion, boolean enabled,
+                           String disabledReason, String identityState, Instant nextDueAt, int running,
+                           String runningOn, Instant runningSince, int queued, int retrying,
+                           Instant oldestWaiting, UUID lastRunId, String lastStatus, String lastErrorCode,
+                           Instant lastFinishedAt) {
+    }
+
     /** A pending run that may be claimed, locked for this transaction. */
     public record Candidate(UUID id, Long flowId, boolean preview) {
     }
@@ -390,12 +401,12 @@ public class RunRepository {
     }
 
     /**
-     * A page of runs in {@code readable} datasets, newest first, optionally of one flow and only
-     * those in one of {@code statuses} (all when null), after the run created at
-     * {@code afterCreated} with id {@code afterId}. Previews only with {@code previews}.
+     * A page of runs in {@code readable} datasets, newest first, optionally of one flow, after the
+     * run created at {@code afterCreated} with id {@code afterId}. Previews only with
+     * {@code previews}.
      */
-    public List<StoredRun> list(DataSets readable, Long flowId, boolean previews, List<String> statuses,
-                                Instant afterCreated, UUID afterId, int limit) {
+    public List<StoredRun> list(DataSets readable, Long flowId, boolean previews, Instant afterCreated,
+                                UUID afterId, int limit) {
         if (!readable.all() && readable.ids().isEmpty()) {
             return List.of();
         }
@@ -413,10 +424,6 @@ public class RunRepository {
             sql.append(" AND r.flow_id = ?");
             args.add(flowId);
         }
-        if (statuses != null) {
-            sql.append(" AND r.status = ANY (?)");
-            args.add(statuses.toArray(String[]::new));
-        }
         if (afterCreated != null) {
             sql.append(" AND (r.created_at, r.id) < (?, ?)");
             args.add(timestamp(afterCreated));
@@ -425,6 +432,56 @@ public class RunRepository {
         sql.append(" ORDER BY r.created_at DESC, r.id DESC LIMIT ?");
         args.add(limit);
         return jdbc.query(sql.toString(), RUN, args.toArray());
+    }
+
+    /**
+     * The deployed flows in {@code readable} datasets, by external id after {@code afterExternalId},
+     * each with its runs in hand and its latest finished run. Previews are nobody's runs and are
+     * left out. The runs in hand are counted over the active runs only (the partial indexes hold
+     * just those), so the cost follows the work in progress and not the history.
+     */
+    public List<BoardRow> board(DataSets readable, String afterExternalId, int limit) {
+        if (!readable.all() && readable.ids().isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sql = new StringBuilder("SELECT f.id, f.external_id, f.name, f.deployed_version, "
+                + "f.enabled, f.disabled_reason, f.identity_state, f.next_due_at, "
+                + "coalesce(r.running, 0) AS running, r.running_on, r.running_since, "
+                + "coalesce(p.queued, 0) AS queued, coalesce(p.retrying, 0) AS retrying, p.oldest_waiting, "
+                + "l.id AS last_id, l.status AS last_status, l.error_code AS last_error, "
+                + "l.finished_at AS last_finished FROM flow.flow f "
+                + "LEFT JOIN (SELECT flow_id, count(*) AS running, "
+                + "string_agg(DISTINCT owner, ', ') AS running_on, min(started_at) AS running_since "
+                + "FROM flow.run WHERE status = 'RUNNING' AND NOT preview GROUP BY flow_id) r "
+                + "ON r.flow_id = f.id "
+                + "LEFT JOIN (SELECT flow_id, count(*) AS queued, count(*) FILTER (WHERE attempt > 1) AS retrying, "
+                // Waiting, not backing off: a run in its retry wait is not behind, it is told to wait.
+                + "min(created_at) FILTER (WHERE not_before <= now()) AS oldest_waiting "
+                + "FROM flow.run WHERE status = 'PENDING' AND NOT preview GROUP BY flow_id) p "
+                + "ON p.flow_id = f.id "
+                + "LEFT JOIN LATERAL (SELECT id, status, error_code, finished_at FROM flow.run "
+                + "WHERE flow_id = f.id AND NOT preview AND status IN ('SUCCEEDED', 'FAILED') "
+                + "ORDER BY created_at DESC LIMIT 1) l ON true "
+                + "WHERE f.deployed_version IS NOT NULL");
+        List<Object> args = new ArrayList<>();
+        if (!readable.all()) {
+            sql.append(" AND f.data_set_id = ANY (?)");
+            args.add(readable.ids().toArray(Long[]::new));
+        }
+        if (afterExternalId != null) {
+            sql.append(" AND f.external_id > ?");
+            args.add(afterExternalId);
+        }
+        sql.append(" ORDER BY f.external_id LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), (rs, n) -> new BoardRow(rs.getLong("id"),
+                rs.getString("external_id"), rs.getString("name"), rs.getInt("deployed_version"),
+                rs.getBoolean("enabled"), rs.getString("disabled_reason"), rs.getString("identity_state"),
+                instant(rs, "next_due_at"), rs.getInt("running"), rs.getString("running_on"),
+                instant(rs, "running_since"), rs.getInt("queued"), rs.getInt("retrying"),
+                instant(rs, "oldest_waiting"), rs.getObject("last_id", UUID.class),
+                rs.getString("last_status"), rs.getString("last_error"), instant(rs, "last_finished")),
+                args.toArray());
     }
 
     /** A pending run is cancelled at once; true when it was. */

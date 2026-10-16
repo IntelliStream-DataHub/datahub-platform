@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -77,10 +76,20 @@ public class RunController {
     @GetMapping("/runs")
     public DataWrapper<RunView> list(@RequestParam(required = false) String flow,
                                      @RequestParam(defaultValue = "false") boolean preview,
-                                     @RequestParam(required = false) List<String> status,
                                      @RequestParam(required = false) String cursor,
                                      @RequestParam(required = false) Integer limit) {
-        return runs.list(flow, preview, status, cursor, limit);
+        return runs.list(flow, preview, cursor, limit);
+    }
+
+    /**
+     * One row per deployed flow the caller may read: what is running and queued, the latest finished
+     * run, and a health of {@code PROBLEM}, {@code WARNING}, {@code OK} or {@code OFF} with the
+     * reasons, in pages by external id.
+     */
+    @GetMapping("/runs/overview")
+    public DataWrapper<RunView.BoardEntry> overview(@RequestParam(required = false) String cursor,
+                                                    @RequestParam(required = false) Integer limit) {
+        return runs.board(cursor, limit);
     }
 
     @GetMapping("/runs/{id}")
