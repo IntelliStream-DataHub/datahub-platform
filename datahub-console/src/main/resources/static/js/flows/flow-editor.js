@@ -340,7 +340,6 @@
 					</div>
 					<div class="flow-inline">
 						<input type="text" name="timeout" value="${v(friendlyDuration(x.timeout))}" placeholder="15m"/>
-						<input type="text" name="memory" value="${v(x.memory)}" placeholder="512MB"/>
 					</div>
 					<p class="field-hint">${L("flows.field.parameters.help")}</p>`;
 			}
@@ -358,7 +357,6 @@
 				var execution = {};
 				["maxConcurrentRuns", "maxAttempts"].forEach(k => { if(val(k)) execution[k] = Number(val(k)); });
 				if(val("timeout")) execution.timeout = isoDuration(val("timeout"));
-				if(val("memory")) execution.memory = val("memory");
 				if(Object.keys(execution).length) def.execution = execution; else delete def.execution;
 				changed();
 				this.cancelButtonElement.dispatchEvent(new Event("click"));
