@@ -1,22 +1,21 @@
 /*
- * What is running and what is waiting: GET {flow}/runs?status=… for the runs in hand, the runs
- * queued, and the latest finished ones, across the flows the user may read.
+ * How the flows are doing: GET {flow}/runs/overview answers with one row per deployed flow the user
+ * may read, each with what it has running and queued, its latest finished run, and a health the
+ * service works out (PROBLEM, WARNING, OK or OFF) with the reasons. Flows with a problem or
+ * something to watch are listed first; the fine ones are folded away, since the point is to see at
+ * a glance that all is well, and where it is not.
  *
- * What a queued run is waiting for is only stated when the data says it: a run in its retry
- * back-off has a time it is not started before. Any other queued run is waiting to be started, by a
- * free slot on an instance and the next sweep, and by an earlier run of its flow when the flow
- * allows only one at a time; the page does not guess which.
- *
- * Refreshes every few seconds while anything is running or queued, and stops when nothing is, or
- * after ten minutes, so an idle page does not keep asking; Refresh starts it again.
+ * Refreshes every few seconds while anything is running or queued, and stops when nothing is, after
+ * ten minutes, or while the browser tab is hidden; Refresh starts it again.
  */
 (function(){
 	"use strict";
 
-	var PAGE = 200;
-	var RECENT = 20;
 	var EVERY = 5000;
 	var FOR_AT_MOST = 10 * 60 * 1000;
+	var PAGE = 200;
+	var MAX_PAGES = 25;
+	var ORDER = { PROBLEM: 0, WARNING: 1, OK: 2, OFF: 3 };
 
 	function L(key, args){ return args ? $L(key, null, args) : $L(key); }
 
@@ -24,7 +23,7 @@
 		return value ? window.formatLocalTime(value) : "";
 	}
 
-	/** 45 s, 3 min 20 s, 1 h 4 min: how long a run has run or waited. */
+	/** 45 s, 3 min 20 s, 1 h 4 min: how long something has waited. */
 	function span(ms){
 		var s = Math.max(0, Math.round(ms / 1000));
 		if(s < 60) return s + " s";
@@ -38,12 +37,10 @@
 		var page = document.querySelector('[data-type="runs-page"]');
 		if(!page) return;
 		var el = function(type){ return page.querySelector('[data-type="' + type + '"]'); };
-		var summary = el("runs-summary");
-		var refresh = el("runs-refresh");
 		var timer = null;
 		var until = 0;
 
-		function cell(tr, text, href){
+		function cell(tr, text, href, cls){
 			var td = document.createElement("td");
 			if(href){
 				td.appendChild(Object.assign(document.createElement("a"), { href: href, textContent: text }));
@@ -51,104 +48,113 @@
 				td.textContent = text;
 				td.title = text;
 			}
+			if(cls) td.className = cls;
 			tr.appendChild(td);
 		}
 
-		function windowText(run){
-			return run.window ? time(run.window.start) + " – " + time(run.window.end) : "";
+		function reasonText(entry, reason){
+			var args = reason === "SWITCHED_OFF" ? [entry.disabledReason || ""]
+				: reason === "OVERDUE" ? [time(entry.nextDueAt)] : null;
+			return L("flows.runs.reason." + reason, args);
 		}
 
-		function flowCell(tr, run){
-			cell(tr, run.flow + (run.preview ? " (" + L("flows.runs.preview") + ")" : ""),
-				"/flows/" + FlowApi.seg(run.flow) + "/runs/" + FlowApi.seg(run.id));
+		function stateText(entry){
+			var text = L("flows.runs.health." + entry.health);
+			if(entry.reasons.length){
+				text += ": " + entry.reasons.map(function(r){ return reasonText(entry, r); }).join("; ");
+			}
+			return text;
 		}
 
-		function fill(type, runs, draw){
-			var table = el(type);
-			var body = table.querySelector("tbody");
-			body.textContent = "";
-			runs.forEach(function(run){
-				var tr = document.createElement("tr");
-				draw(tr, run);
-				body.appendChild(tr);
-			});
-			table.hidden = runs.length === 0;
-			el(type + "-empty").hidden = runs.length > 0;
+		function runningText(entry){
+			if(!entry.running) return "0";
+			return entry.runningOn ? L("flows.runs.running.on", [entry.running, entry.runningOn]) : String(entry.running);
 		}
 
-		function drawRunning(now){
-			return function(tr, run){
-				flowCell(tr, run);
-				cell(tr, windowText(run));
-				cell(tr, time(run.startedAt));
-				cell(tr, run.startedAt ? span(now - Date.parse(run.startedAt)) : "");
-				cell(tr, run.owner || "");
-			};
+		function queuedText(entry, now){
+			if(!entry.queued) return "0";
+			return entry.waitingSince
+				? L("flows.runs.queued.oldest", [entry.queued, span(now - Date.parse(entry.waitingSince))])
+				: String(entry.queued);
 		}
 
-		function drawQueued(now){
-			return function(tr, run){
-				flowCell(tr, run);
-				cell(tr, windowText(run));
-				cell(tr, span(now - Date.parse(run.createdAt)));
-				cell(tr, run.attempt + " / " + run.maxAttempts);
-				cell(tr, run.notBefore && Date.parse(run.notBefore) > now
-					? L("flows.runs.retry.at", [time(run.notBefore)]) : L("flows.runs.waiting"));
-			};
+		function lastText(entry){
+			if(!entry.lastRun) return L("flows.runs.last.none");
+			var last = entry.lastRun;
+			return last.status + (last.errorCode ? " (" + last.errorCode + ")" : "")
+				+ (last.finishedAt ? ", " + time(last.finishedAt) : "");
 		}
 
-		function drawRecent(tr, run){
-			flowCell(tr, run);
-			cell(tr, windowText(run));
-			cell(tr, run.status + (run.errorCode ? " (" + run.errorCode + ")" : ""));
-			cell(tr, time(run.finishedAt));
+		function row(entry, now, withNext){
+			var tr = document.createElement("tr");
+			cell(tr, entry.name && entry.name !== entry.flow ? entry.name + " (" + entry.flow + ")" : entry.flow,
+				"/flows/" + FlowApi.seg(entry.flow));
+			cell(tr, stateText(entry), null, "runs-" + entry.health.toLowerCase());
+			cell(tr, runningText(entry));
+			cell(tr, queuedText(entry, now));
+			cell(tr, lastText(entry), entry.lastRun ? "/flows/" + FlowApi.seg(entry.flow) + "/runs/" + FlowApi.seg(entry.lastRun.id) : null);
+			if(withNext) cell(tr, entry.nextDueAt ? time(entry.nextDueAt) : L("flows.runs.next.manual"));
+			return tr;
 		}
 
-		/** The order the instances take queued runs in: earliest window first. */
-		function queueOrder(a, b){
-			var wa = a.window ? Date.parse(a.window.start) : 0;
-			var wb = b.window ? Date.parse(b.window.start) : 0;
-			return wa - wb || Date.parse(a.createdAt) - Date.parse(b.createdAt);
+		/** Every page of the overview: one row per deployed flow, so it is bounded by the flows. */
+		function loadAll(){
+			var all = [];
+			function next(cursor, n){
+				return FlowApi.get("/runs/overview?limit=" + PAGE + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""))
+					.then(function(wrapper){
+						(wrapper.items || []).forEach(function(e){ all.push(e); });
+						return wrapper.nextCursor && n < MAX_PAGES ? next(wrapper.nextCursor, n + 1) : all;
+					});
+			}
+			return next(null, 1);
 		}
 
-		function summarise(running, queued, runningMore, queuedMore){
-			var owners = {};
-			running.forEach(function(r){ owners[r.owner || "?"] = (owners[r.owner || "?"] || 0) + 1; });
-			var names = Object.keys(owners).sort();
-			var instances = names.map(function(n){ return n + ": " + owners[n]; }).join(", ");
-			summary.textContent = L("flows.runs.summary", [
-				running.length + (runningMore ? "+" : ""), queued.length + (queuedMore ? "+" : "")])
-				+ (instances ? " " + L("flows.runs.summary.instances", [instances]) : "");
-		}
-
-		function load(){
+		function draw(entries){
 			var now = Date.now();
-			return Promise.all([
-				FlowApi.get("/runs?status=RUNNING&preview=true&limit=" + PAGE),
-				FlowApi.get("/runs?status=PENDING&limit=" + PAGE),
-				FlowApi.get("/runs?status=SUCCEEDED&status=FAILED&status=CANCELLED&limit=" + RECENT)
-			]).then(function(answers){
-				var running = (answers[0].items || []).slice().sort(function(a, b){
-					return (a.startedAt ? Date.parse(a.startedAt) : 0) - (b.startedAt ? Date.parse(b.startedAt) : 0);
-				});
-				var queued = (answers[1].items || []).slice().sort(queueOrder);
-				fill("runs-running", running, drawRunning(now));
-				fill("runs-queued", queued, drawQueued(now));
-				fill("runs-recent", answers[2].items || [], drawRecent);
-				summarise(running, queued, !!answers[0].nextCursor, !!answers[1].nextCursor);
-				return running.length + queued.length;
+			entries.sort(function(a, b){
+				return ORDER[a.health] - ORDER[b.health] || a.flow.localeCompare(b.flow);
 			});
+			var look = entries.filter(function(e){ return e.health === "PROBLEM" || e.health === "WARNING"; });
+			var fine = entries.filter(function(e){ return e.health === "OK" || e.health === "OFF"; });
+			var count = function(h){ return entries.filter(function(e){ return e.health === h; }).length; };
+			var running = entries.reduce(function(n, e){ return n + e.running; }, 0);
+			var queued = entries.reduce(function(n, e){ return n + e.queued; }, 0);
+
+			el("runs-summary").textContent = L("flows.runs.summary", [entries.length, count("PROBLEM"),
+				count("WARNING"), count("OK"), count("OFF"), running, queued]);
+
+			var attention = el("runs-attention");
+			var body = attention.querySelector("tbody");
+			body.textContent = "";
+			look.forEach(function(e){ body.appendChild(row(e, now, false)); });
+			attention.hidden = look.length === 0;
+			el("runs-attention-empty").hidden = look.length > 0;
+
+			var details = el("runs-fine");
+			var fineBody = el("runs-fine-table").querySelector("tbody");
+			fineBody.textContent = "";
+			fine.forEach(function(e){ fineBody.appendChild(row(e, now, true)); });
+			el("runs-fine-title").textContent = L("flows.runs.fine", [fine.length]);
+			details.hidden = fine.length === 0;
+			return running + queued;
 		}
 
 		function tick(){
 			timer = null;
 			if(!document.body.contains(page)) return;
-			var next = function(busy){
-				if(busy > 0 && Date.now() < until) timer = setTimeout(tick, EVERY);
-			};
 			// A tab nobody is looking at asks for nothing, and picks up again when it is shown.
 			if(document.hidden){ timer = setTimeout(tick, EVERY); return; }
-			load().then(next).catch(function(err){ FlowApi.flashError(err, "flows.error.load"); });
+			loadAll().then(function(entries){
+				var busy = draw(entries);
+				if(busy > 0 && Date.now() < until) timer = setTimeout(tick, EVERY);
+			}).catch(function(err){
+				if(err instanceof DataHubProblem && err.status === 404){
+					Flash.error(L("flows.runs.service.old"));
+				} else {
+					FlowApi.flashError(err, "flows.error.load");
+				}
+			});
 		}
 
 		function start(){
@@ -157,7 +163,7 @@
 			tick();
 		}
 
-		refresh.addEventListener("click", start);
+		el("runs-refresh").addEventListener("click", start);
 		window.i18nReady.then(start);
 	});
 })();
