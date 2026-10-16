@@ -352,7 +352,7 @@ class BrowserPayloadContractTest {
                         new TypeReference<DataWrapper<IdCollection>>() {},
                         "static/js/right-form-content/base_form_abstract.js"),
 
-                // The Flows section's Needs-attention list and the count on its header entry: the
+                // The Flows section's Failed-runs list and the count on its header entry: the
                 // run-failed lifecycles whose latest event is open.
                 new Payload("POST /events/latest (flows needing attention)", """
                         {"filter":{"type":["flow"],"subType":["run-failed"]},"status":["open"],

@@ -897,7 +897,7 @@ public class ClickHouseEventService extends ClickHouseService {
                 results.add(createEventModel(reader.next(), reader));
             }
         } catch (Exception e) {
-            // A 5xx, not an empty page: an empty "needs attention" list reads as "all clear".
+            // A 5xx, not an empty page: an empty "failed runs" list reads as "all clear".
             log.error("Failed to retrieve the latest events from ClickHouse", e);
             throw new RuntimeException("Failed to retrieve the latest events from ClickHouse", e);
         }

@@ -1,7 +1,7 @@
 /*
  * The count on the Flows entry: flow runs that failed after their last attempt and that nobody has
  * re-run or dismissed. Each is a run-failed event lifecycle in datahub-api whose latest event is
- * still open, so the count is POST /events/latest — the same query the Needs-attention page lists.
+ * still open, so the count is POST /events/latest — the same query the Failed-runs page lists.
  *
  * In the site-wide bundle because the entry is in the header of every page. It does nothing on a
  * page without the entry, which the layout renders only for a tenant with flows.
@@ -11,7 +11,7 @@
 
 	var PAGE = 100;
 
-	/** The body both this count and the Needs-attention page send. */
+	/** The body both this count and the Failed-runs page send. */
 	window.flowAttentionQuery = function(cursor, limit){
 		var query = { filter: { type: ["flow"], subType: ["run-failed"] }, status: ["open"],
 			limit: limit || PAGE };

@@ -100,8 +100,8 @@ class FlowsTemplateTest {
     @MethodSource("pages")
     void theSameKeysSayDifferentThingsInNorwegian(String template, String selector, String[] dataTypes) {
         if (template.equals("flows/nav")) {
-            assertThat(render(template, selector, Locale.ENGLISH)).contains("Needs attention");
-            assertThat(render(template, selector, Locale.forLanguageTag("nb"))).contains("Trenger oppmerksomhet");
+            assertThat(render(template, selector, Locale.ENGLISH)).contains("Failed runs");
+            assertThat(render(template, selector, Locale.forLanguageTag("nb"))).contains("Mislykkede kjøringer");
             return;
         }
         assertThat(render(template, selector, Locale.ENGLISH))

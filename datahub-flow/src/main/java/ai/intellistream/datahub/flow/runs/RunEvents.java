@@ -31,7 +31,7 @@ import java.util.UUID;
  * The {@code run-failed} lifecycle events of the plan's <em>Failed runs</em>: one lifecycle per flow
  * and window, as DataHub events sharing an {@code externalId} — {@code open} when a run fails after
  * its last attempt, {@code resolved} when a later run of the same window succeeds, and
- * {@code dismissed} when someone dismisses it. The console's <em>Needs attention</em> list is the
+ * {@code dismissed} when someone dismisses it. The console's <em>Failed runs</em> list is the
  * lifecycles whose latest event is {@code open}, read straight from the events API
  * ({@code POST /events/latest}), so there is no store of notifications here.
  *

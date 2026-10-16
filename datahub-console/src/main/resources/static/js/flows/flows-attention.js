@@ -1,5 +1,5 @@
 /*
- * Needs attention: the run-failed lifecycles whose latest event is open, grouped per flow.
+ * Failed runs: the run-failed lifecycles whose latest event is open, grouped per flow.
  *
  *   POST {api}/events/latest      the open lifecycles (window.flowAttentionQuery, as the nav count)
  *   POST {flow}/runs/{id}/rerun   re-run the failed window with the deployed version; its success
