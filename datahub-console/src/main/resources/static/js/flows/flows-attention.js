@@ -4,9 +4,10 @@
  *   POST {api}/events/latest      the open lifecycles (window.flowAttentionQuery, as the nav count)
  *   POST {flow}/runs/{id}/rerun   re-run the failed window with the deployed version; its success
  *                                 writes the resolved event, so the row leaves the list on its own.
- *                                 "Re-run all" does this for every listed window, one after another,
- *                                 then follows the list until those runs have finished: a re-run only
- *                                 queues, and a flow works through its queue one run at a time
+ *   POST {flow}/flows/{id}/runs/rerun   "Re-run all": queues the listed failed windows of a flow in one
+ *                                 request, then follows the list until those runs have finished: the
+ *                                 service starts them as its slots free up, and a flow with a limit on
+ *                                 runs at once works through its queue within that limit
  *   POST {api}/events/create      dismiss: a dismissed event in the same lifecycle, written as the
  *                                 person dismissing, who needs write on the flow's dataset
  */
@@ -41,6 +42,7 @@
 		var rerunAllButton = page.querySelector('[data-type="attention-rerun-all"]');
 		var progress = page.querySelector('[data-type="attention-progress"]');
 		var following = false;
+		var RERUN_BATCH = 1000;
 		var groups = {};   // flow -> its header row, so later pages add to the same group
 		var rerunnable = [];   // {flow, runId, button} of every listed window that has a run to re-run
 
@@ -201,29 +203,42 @@
 			tick();
 		}
 
-		/** Re-runs every listed window, one after another, and stays here: the rows leave as the runs succeed. */
+		/**
+		 * Queues a re-run of every listed window, one request per flow (and per thousand windows):
+		 * the service puts them all in its queue in one go and starts them as fast as its slots
+		 * allow. Stays here: the rows leave as the runs succeed.
+		 */
 		function rerunAll(){
 			rerunAllButton.disabled = true;
 			loadAll().then(function(ok){
 				var todo = pending();
 				if(!ok || todo.length === 0 || !confirm(L("flows.attention.rerun.all.confirm", [todo.length]))) return;
-				var started = 0, failed = 0, reasons = [];
-				return todo.reduce(function(chain, r){
+				var byFlow = {};
+				todo.forEach(function(r){ (byFlow[r.flow] = byFlow[r.flow] || []).push(r); });
+				var queued = 0, failed = 0, reasons = [];
+				var batches = [];
+				Object.keys(byFlow).forEach(function(flow){
+					for(var i = 0; i < byFlow[flow].length; i += RERUN_BATCH){
+						batches.push({ flow: flow, rows: byFlow[flow].slice(i, i + RERUN_BATCH) });
+					}
+				});
+				return batches.reduce(function(chain, batch){
 					return chain.then(function(){
-						r.button.disabled = true;
-						return FlowApi.post("/runs/" + FlowApi.seg(r.runId) + "/rerun", {}).then(function(){
-							r.started = true;
-							started++;
+						return FlowApi.post("/flows/" + FlowApi.seg(batch.flow) + "/runs/rerun",
+							{ runs: batch.rows.map(function(r){ return r.runId; }) }).then(function(answer){
+							// A window that already has a later run is not queued again, but is as good as
+							// started: it leaves the list when that run succeeds.
+							batch.rows.forEach(function(r){ r.started = true; r.button.disabled = true; });
+							queued += answer.requeued;
 						}).catch(function(err){
-							r.button.disabled = false;
-							failed++;
-							reasons.push(r.flow + ": " + (err && err.message ? err.message : L("flows.error.run")));
+							failed += batch.rows.length;
+							reasons.push(batch.flow + ": " + (err && err.message ? err.message : L("flows.error.run")));
 						});
 					});
 				}, Promise.resolve()).then(function(){
-					if(failed === 0) Flash.info(L("flows.attention.rerun.all.done", [started]));
-					else Flash.error(L("flows.attention.rerun.all.partial", [started, failed]), { details: reasons });
-					if(started > 0) follow();
+					if(failed === 0) Flash.info(L("flows.attention.rerun.all.done", [queued]));
+					else Flash.error(L("flows.attention.rerun.all.partial", [queued, failed]), { details: reasons });
+					if(queued > 0 || failed < todo.length) follow();
 				});
 			}).finally(function(){
 				rerunAllButton.disabled = false;
