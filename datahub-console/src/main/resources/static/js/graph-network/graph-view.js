@@ -32,7 +32,7 @@ const MIN_LABEL_PX = 10, PAD = 30, FIT_MAX_ZOOM = 1.4;
 const MAX_ZOOM = 8, GROUP_ZOOM = 4;
 // Names grow with the zoom only up to a comfortable size: a hub's stops at 18 px on screen, a leaf's at
 // 13 px. Zooming in then shows more names rather than bigger ones.
-const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12;
+const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12, DOT_COVER_PX = 8;
 const GROUP_LABEL_PX = imp => 12 + 3 * (imp || 0), GROUP_LABEL_GAP = 10;
 // Pills, in units of their name's font size: the padding at each end, the room for the icon, the widest a
 // pill gets (a longer name ends in "…"), and its height. Below PILL_MIN_PX on screen a pill shows no name.
@@ -43,7 +43,13 @@ const DIM_NODE = 0.45, DIM_NAME = 0.5, DIM_LINE = 0.25;
 // The diagram: up to this many resources, and the gaps between its columns and between resources in one.
 const DIAGRAM_MAX = 5000, DIAGRAM_RANK_GAP = 60, DIAGRAM_GAP = 10, DIAGRAM_WRAP = 16;
 // A shut group's name keeps one modest size however far out the view is: it is a signpost, not a heading.
-const labelPx = (n, z) => (n.hasClass('agg') ? GROUP_LABEL_PX(n.data('imp')) : Math.min(n.data('fs') * z, MAX_LABEL_PX(n.data('imp'))));
+// A resource's name grows with its dot as the view zooms, up to MAX_LABEL_PX, and past that more slowly (with
+// the square root), so it stays in proportion to a dot seen close up without filling the screen.
+const labelPx = (n, z) => {
+    if (n.hasClass('agg')) return GROUP_LABEL_PX(n.data('imp'));
+    const px = n.data('fs') * z, cap = MAX_LABEL_PX(n.data('imp'));
+    return px <= cap ? px : cap * Math.sqrt(px / cap);
+};
 // Above this many resources names are re-picked only once a pan or zoom settles, and above the second
 // the lines inside a group are drawn straight, which keeps the WebGL renderer at 60 frames a second.
 const SETTLE_ABOVE = 1000, STRAIGHT_ABOVE = 3000;
@@ -982,12 +988,14 @@ function createGraphView(container, opts) {
     function shownLabels(z, pan, w, h) {
         const cell = 48, grid = new Map(), names = new Set();
         const nodes = cy.nodes('.dot, .agg').toArray().sort((a, b) => (b.data('imp') || 0) - (a.data('imp') || 0) || (a.id() < b.id() ? -1 : 1));
-        // A shut group's name goes where it covers no other group's dot and stands a little apart from the
-        // other names; where groups are packed, most go unnamed until the view comes closer, like towns on
-        // a map. Names under every dot of a packed overview read as one mass of text.
+        // A name goes where it covers no other dot, and a shut group's name also stands a little apart from the
+        // other names; where dots are packed, most go unnamed until the view comes closer, like towns on a map.
+        // Names across every dot of a packed overview read as one mass of text. Dots too small to make out
+        // (under DOT_COVER_PX across) may be covered.
         const dots = new Map();
-        cy.nodes('.agg').forEach(n => {
-            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = n.data('w') * z / 2;
+        cy.nodes('.agg, .dot').forEach(n => {
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = (n.hasClass('pill') ? n.data('h') : n.data('w')) * z / 2;
+            if (2 * r < DOT_COVER_PX || !shown(n)) return;
             if (x < -r - 50 || y < -r - 50 || x > w + r + 50 || y > h + r + 50) return;
             const c = { n, x, y, r };
             for (let gx = Math.floor((x - r) / cell); gx <= Math.floor((x + r) / cell); gx++) for (let gy = Math.floor((y - r) / cell); gy <= Math.floor((y + r) / cell); gy++) { const k = gx + ',' + gy; if (!dots.has(k)) dots.set(k, []); dots.get(k).push(c); }
@@ -1016,7 +1024,7 @@ function createGraphView(container, opts) {
             const tw = textW(n.data('short') || '', px, 600), top = y + n.data('h') * z / 2 + Math.min(3 * z, 4);
             const r = { x1: x - tw / 2 - 2, x2: x + tw / 2 + 2, y1: top, y2: top + px * 1.25 };
             const group = n.hasClass('agg');
-            if (hit(r) || (group && coversDot(r, n))) continue;
+            if (hit(r) || coversDot(r, n)) continue;
             put(group ? { x1: r.x1 - GROUP_LABEL_GAP, x2: r.x2 + GROUP_LABEL_GAP, y1: r.y1 - GROUP_LABEL_GAP / 2, y2: r.y2 + GROUP_LABEL_GAP / 2 } : r);
             names.add(n.id());
         }
