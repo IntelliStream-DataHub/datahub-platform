@@ -132,6 +132,19 @@ function windowTurn(pts) {
     return worst * 180 / Math.PI;
 }
 
+// ---- how the graph is shown -------------------------------------------------------------------------
+// Chosen in the View menu (graph-network.js) and kept in this browser, for every graph. The first choice of
+// each is the default.
+const VIEW_KEY = 'dh.graph.view.v1';
+const VIEW_CHOICES = { layout: ['network', 'diagram'], nodes: ['dots', 'pills'], size: ['importance', 'same'], lines: ['curved', 'straight'], flows: ['on', 'off'] };
+function readView() {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch (e) { o = null; }
+    const v = {};
+    Object.entries(VIEW_CHOICES).forEach(([k, choices]) => { v[k] = o && choices.includes(o[k]) ? o[k] : choices[0]; });
+    return v;
+}
+
 // ---- remembering the arrangement ----------------------------------------------------------------------
 // Every resource's position and group is saved after each drawing and each drag, in this browser's
 // localStorage. Browsers give a site about 5 MB, shared with the console's other settings, so arrangements
@@ -261,6 +274,7 @@ function createGraphView(container, opts) {
     let scratch = null, viewMoving = false, viewTimer = 0, lodLast = 0, lodTimer = 0;
     let flowList = null, flowRAF = 0, flowEvery = 1, flowTick = 0, flowRecent = [], flowStopped = false;
     let pageScrolling = false, pageScrollTimer = 0, destroyed = false;
+    let V = readView();
     let big = null, winTimer = 0, winGen = 0, winBusy = false;
     // A group's colour. Past the twelfth group they are grey, except in a big graph, where hundreds of group
     // dots in grey would say nothing: there the colours go round again.
@@ -423,10 +437,11 @@ function createGraphView(container, opts) {
         }
         return new Map(G.ids.map(id => [id, options.get(id)[choice.get(id)]]));
     }
-    // Dots sized by importance, coloured by group, with an icon for the resource's type.
+    // Dots sized by importance, or all one size, coloured by group, with an icon for what the resource is. A
+    // big graph's dots are always sized by importance: there the size is what tells its hubs apart.
     function lookOf(i, comm, pal) {
-        const imp = info.importance[i], d = 8 + 30 * imp, id = G.ids[i];
-        return { w: d, h: d, fs: 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pal.ink), c: comm[i], short: SHORT.get(id) };
+        const imp = info.importance[i], same = V.size === 'same' && !big, d = same ? 16 : 8 + 30 * imp, id = G.ids[i];
+        return { w: d, h: d, fs: same ? 10.5 : 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pal.ink), c: comm[i], short: SHORT.get(id) };
     }
     const edgeLookOf = (e, k, comm) => ({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
     function applyLook(comm) {
@@ -564,7 +579,10 @@ function createGraphView(container, opts) {
     }
     function drawLines(comm, member) {
         const edges = graphEdges();
-        edges.removeClass('lay faint straight curved').removeData('cpw cpd _first bend');
+        edges.removeClass('lay faint straight curved cross').removeData('cpw cpd _first bend');
+        // Straight lines, if chosen: every line straight, and those between groups drawn as strongly as the
+        // curved bundles would be, so the structure still shows.
+        const plain = V.lines === 'straight';
         const sup = A.superClusters(G, comm);
         // Group centres and spreads, for the trunks between groups.
         const cen = new Map(), clustersIn = new Map(), scen = new Map();
@@ -577,7 +595,7 @@ function createGraphView(container, opts) {
         // Fans: at every resource, its lines grouped by direction. A direction holding FAN_MIN lines or more
         // leaves the resource as one trunk and splits towards each end, like a palm frond.
         const fanOf = new Map();
-        graphNodes().forEach(h => {
+        if (!plain) graphNodes().forEach(h => {
             const es = h.connectedEdges().not(TEMP).not('.ctx').filter(e => e.source().id() !== e.target().id());
             if (es.length < FAN_MIN) return;
             const hp = h.position();
@@ -607,6 +625,7 @@ function createGraphView(container, opts) {
             const sN = e.source(), tN = e.target(), cs = sN.data('c'), ct = tN.data('c');
             const P = sN.position(), Q = tN.position();
             const ms = member.has(sN.id()) && cen.has(cs), mt = member.has(tN.id()) && cen.has(ct);
+            if (plain) { e.addClass(straight ? 'faint straight' : 'faint'); if (ms && mt && cs !== ct) e.addClass('cross'); return; }
             let path = null;
             if (ms && mt && cs !== ct) {
                 const ss = sup[cs], st = sup[ct], viaSup = ss !== st && clustersIn.get(ss).size > 1 && clustersIn.get(st).size > 1;
@@ -1004,6 +1023,7 @@ function createGraphView(container, opts) {
     }
     function animatedEdges() {
         if (flowList) return flowList;
+        if (V.flows === 'off') return (flowList = []);
         const first = e => (e.selected() || e.hasClass('hov') ? 2 : e.hasClass('hl') ? 1 : 0);
         flowList = cy.edges().filter(e => !!e.data('flow')).toArray().sort((a, b) => first(b) - first(a) || (b.data('imp') || 0) - (a.data('imp') || 0));
         return flowList;
@@ -1081,6 +1101,7 @@ function createGraphView(container, opts) {
                 'width': e => 1.1 + 1.2 * (e.data('imp') || 0), 'opacity': 1,
                 // A wide, faint band under each line: where strands run together the bands stack into a trunk.
                 'underlay-color': pal.line, 'underlay-padding': 4, 'underlay-opacity': 0.12 } },
+            { selector: 'edge.cross', style: { 'width': e => 1.1 + 1.2 * (e.data('imp') || 0), 'opacity': 1 } },
             // Direction without arrowheads: every line fades from faint at its start to full at its end. The
             // WebGL renderer draws no gradients, so there lines are solid until something is selected.
             ...(fade ? [{ selector: 'edge', style: { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.fadeFrom, pal.line], 'line-gradient-stop-positions': [0, 100] } }] : []),
@@ -1690,6 +1711,24 @@ function createGraphView(container, opts) {
         drawHulls();
         saveArrangement();
     }
+    // A choice from the View menu: kept for every graph, and applied to this one with as little redrawn as it
+    // takes. Size and lines keep every resource where it is.
+    function setOptions(o) {
+        const was = V, next = { ...V };
+        Object.entries(o || {}).forEach(([k, val]) => { if (VIEW_CHOICES[k] && VIEW_CHOICES[k].includes(val)) next[k] = val; });
+        V = next;
+        try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch (e) { /* storage blocked: the choice lasts until the page closes */ }
+        if (!cy || destroyed) return;
+        if (was.flows !== V.flows) flowReset();
+        if (big || !current) return;
+        if (was.size !== V.size) { applyLook(current.comm); boostHubLabels(); }
+        if (was.size !== V.size || was.lines !== V.lines) {
+            drawLines(current.comm, current.member);
+            posVersion++;
+            applyLod();
+            drawHulls();
+        }
+    }
     function rearrange() {
         if (big) {
             big.groups = null; big.pos.clear(); current = null; MOVED = new Set();
@@ -1771,6 +1810,7 @@ function createGraphView(container, opts) {
         get cy() { return cy; },
         get webgl() { return cyWebgl; },
         refresh, rearrange, redraw, applyTheme, select, clearSel, setRoot, reset, fit, destroy, hidePick,
+        options: () => ({ ...V }), setOptions,
         // Big graphs: GraphNetwork hands them over instead of adding them to Cytoscape.
         bigAbove: BIG_ABOVE, isBig: () => !!big, loadBig, standIn,
         modelData: () => (big ? { nodes: [...big.nodes.values()], edges: [...big.edges.values()] } : null),

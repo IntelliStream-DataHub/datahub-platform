@@ -954,9 +954,14 @@ class GraphNetwork {
     // The rows of the menu: what each shows, its choices, and how it reads and sets the current one.
     // A row marked small applies only to graphs drawn whole, not to a big graph drawn group by group.
     viewChoices() {
+        const option = (key, label, choices, small) => ({ key, label, small, choices,
+            get: () => this.view.options()[key], set: v => this.view.setOptions({ [key]: v }) });
         return [
+            option('size', 'graph.view.size', [['importance', 'graph.view.size.importance'], ['same', 'graph.view.size.same']], true),
+            option('lines', 'graph.view.lines', [['curved', 'graph.view.lines.curved'], ['straight', 'graph.view.lines.straight']], true),
             { key: 'icons', label: 'graph.icons', get: () => GraphIcons.style(), set: v => GraphIcons.setStyle(v),
               choices: [['symbols', 'graph.icons.symbols'], ['simple', 'graph.icons.simple'], ['none', 'graph.icons.none']] },
+            option('flows', 'graph.view.flows', [['on', 'graph.view.flows.on'], ['off', 'graph.view.flows.off']]),
         ];
     }
 
