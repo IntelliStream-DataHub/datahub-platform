@@ -896,12 +896,50 @@ function createGraphView(container, opts) {
     }
     // Names on their own canvas, in screen pixels, under the dot like Cytoscape would place them. A resource
     // in several groups wears a ring split into its groups' colours.
+    // The icons inside the dots. Cytoscape's WebGL renderer paints a node into a texture once and stretches it as
+    // the view zooms in, which blurs an icon, so the dots are plain circles and their icons are drawn here instead.
+    // Each icon is drawn once for each size it appears at on screen, in device pixels, into a small canvas that every
+    // dot showing it then copies, so it is sharp at any zoom and costs one copy a dot.
+    const iconImages = new Map(), iconBitmaps = new Map();
+    function iconBitmap(src, devPx) {
+        let img = iconImages.get(src);
+        if (!img) {
+            if (iconImages.size > 500) { iconImages.clear(); iconBitmaps.clear(); }
+            img = new Image(); img.onload = redrawSoon; img.src = src; iconImages.set(src, img);
+        }
+        if (!img.complete || !img.naturalWidth) return null;
+        const size = Math.max(8, Math.min(256, Math.ceil(devPx / 4) * 4)), k = size + '|' + src;
+        let c = iconBitmaps.get(k);
+        if (!c) {
+            if (iconBitmaps.size > 2000) iconBitmaps.clear();
+            c = document.createElement('canvas'); c.width = c.height = size;
+            c.getContext('2d').drawImage(img, 0, 0, size, size);
+            iconBitmaps.set(k, c);
+        }
+        return c;
+    }
+    function drawDotIcons(ctx, z, pan, w, h, dpr) {
+        cy.nodes('.dot').forEach(n => {
+            if (n.hasClass('noicon') || !shown(n)) return;
+            const src = n.data('icon');
+            if (!src || src === 'none') return;
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, s = n.data('w') * z * 0.58;
+            if (x + s < 0 || x - s > w || y + s < 0 || y - s > h) return;
+            const bmp = iconBitmap(src, s * dpr);
+            if (!bmp) return;
+            // As faint as the dot when a selection or the tutorial dims it.
+            ctx.globalAlpha = 0.85 * (n.hasClass('dim') || n.hasClass('tut-dim') ? 0.18 : 1);
+            ctx.drawImage(bmp, x - s / 2, y - s / 2, s, s);
+        });
+        ctx.globalAlpha = 1;
+    }
     function drawLabels() {
         if (!cy || destroyed) return;
         const { ctx, dpr, w, h } = sizeCanvas(labelCanvas);
         if (!current) return;
         const z = cy.zoom(), pan = cy.pan(), pal = palette();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawDotIcons(ctx, z, pan, w, h, dpr);
         MULTI.forEach(m => {
             const n = cy.getElementById(m.id);
             if (!n.length || hiddenName(n)) return;
@@ -1031,8 +1069,8 @@ function createGraphView(container, opts) {
             { selector: 'node', style: { 'label': '', 'overlay-opacity': 0, 'width': 10, 'height': 10, 'shape': 'ellipse', 'background-color': OTHER, 'border-width': 0 } },
             { selector: 'node[w]', style: { 'width': 'data(w)', 'height': 'data(h)' } },
             // Dots draw no names of their own: names go on a layer above the graph, so zooming never restyles a node.
-            { selector: 'node.dot', style: { 'background-color': 'data(dot)', 'background-image': 'data(icon)', 'background-width': '58%', 'background-height': '58%', 'background-image-opacity': 0.85 } },
-            { selector: 'node.noicon', style: { 'background-image': 'none' } },
+            // A dot is a plain circle; its icon is drawn on the name layer (drawDotIcons), where it stays sharp.
+            { selector: 'node.dot', style: { 'background-color': 'data(dot)' } },
             { selector: 'node.grp', style: { 'background-opacity': 0, 'border-width': 0 } },
             // Plain lines are straight; bezier only so that two relationships between one pair fan apart (a
             // quadratic curve bows half its control-point step, so twice the gap gives PAR_GAP lanes). A line
@@ -1682,6 +1720,7 @@ function createGraphView(container, opts) {
         const ink = palette().ink;
         cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G.nodes.get(n.id()); if (g) n.data('icon', iconOf(g, ink)); }));
         if (big) big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = iconOf(g, ink); });
+        redrawSoon();   // the icons are drawn on the name layer
     }
     const stopIcons = window.GraphIcons.subscribe(applyIcons);
     function applyTheme() {
