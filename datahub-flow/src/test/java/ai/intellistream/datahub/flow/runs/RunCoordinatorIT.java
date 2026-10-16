@@ -675,13 +675,37 @@ class RunCoordinatorIT {
         assertThat(stored.flowExternalId()).isEqualTo("unsaved_seen");
 
         Caller.DataSets seven = new Caller.DataSets(false, Set.of(7L));
-        assertThat(runs.list(seven, null, true, null, null, 10)).extracting(StoredRun::id)
+        assertThat(runs.list(seven, null, true, null, null, null, 10)).extracting(StoredRun::id)
                 .containsExactlyInAnyOrder(run, real);
         // Previews are shown apart: only on request.
-        assertThat(runs.list(seven, null, false, null, null, 10)).extracting(StoredRun::id)
+        assertThat(runs.list(seven, null, false, null, null, null, 10)).extracting(StoredRun::id)
                 .containsExactly(real);
-        assertThat(runs.list(new Caller.DataSets(false, Set.of(8L)), null, true, null, null, 10))
+        assertThat(runs.list(new Caller.DataSets(false, Set.of(8L)), null, true, null, null, null, 10))
                 .isEmpty();
+    }
+
+    @Test
+    void theRunListCanBeNarrowedToTheRunsInSomeStates() {
+        long flow = deployedFlow("states", wait(0, "states"), 2, 1);
+        UUID waiting = pending(flow, 0);
+        UUID going = pending(flow, 1);
+        UUID done = pending(flow, 2);
+        transaction.execute(s -> runs.claim(going, "instance-a", LEASE));
+        jdbc.update("UPDATE flow.run SET status = 'SUCCEEDED', finished_at = now() WHERE id = ?", done);
+        UUID preview = unsavedPreview("states_preview", wait(0, "states_preview"));
+        transaction.execute(s -> runs.claim(preview, "instance-b", LEASE));
+
+        Caller.DataSets all = Caller.DataSets.ALL;
+        assertThat(runs.list(all, null, false, List.of("PENDING"), null, null, 10)).extracting(StoredRun::id)
+                .containsExactly(waiting);
+        assertThat(runs.list(all, null, false, List.of("PENDING", "RUNNING"), null, null, 10))
+                .extracting(StoredRun::id).containsExactlyInAnyOrder(waiting, going);
+        // The running run says which instance holds it; a preview holds a slot too, so it is shown on request.
+        assertThat(runs.list(all, null, true, List.of("RUNNING"), null, null, 10)).extracting(StoredRun::owner)
+                .containsExactlyInAnyOrder("instance-a", "instance-b");
+        assertThat(runs.list(all, null, false, List.of("RUNNING"), null, null, 10)).extracting(StoredRun::id)
+                .containsExactly(going);
+        assertThat(runs.list(all, null, false, null, null, null, 10)).hasSize(3);
     }
 
     // ---------------------------------------------------------------- fixtures

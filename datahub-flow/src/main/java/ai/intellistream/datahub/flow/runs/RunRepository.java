@@ -390,12 +390,12 @@ public class RunRepository {
     }
 
     /**
-     * A page of runs in {@code readable} datasets, newest first, optionally of one flow, after the
-     * run created at {@code afterCreated} with id {@code afterId}. Previews only with
-     * {@code previews}.
+     * A page of runs in {@code readable} datasets, newest first, optionally of one flow and only
+     * those in one of {@code statuses} (all when null), after the run created at
+     * {@code afterCreated} with id {@code afterId}. Previews only with {@code previews}.
      */
-    public List<StoredRun> list(DataSets readable, Long flowId, boolean previews, Instant afterCreated,
-                                UUID afterId, int limit) {
+    public List<StoredRun> list(DataSets readable, Long flowId, boolean previews, List<String> statuses,
+                                Instant afterCreated, UUID afterId, int limit) {
         if (!readable.all() && readable.ids().isEmpty()) {
             return List.of();
         }
@@ -412,6 +412,10 @@ public class RunRepository {
         if (flowId != null) {
             sql.append(" AND r.flow_id = ?");
             args.add(flowId);
+        }
+        if (statuses != null) {
+            sql.append(" AND r.status = ANY (?)");
+            args.add(statuses.toArray(String[]::new));
         }
         if (afterCreated != null) {
             sql.append(" AND (r.created_at, r.id) < (?, ?)");

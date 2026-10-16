@@ -19,13 +19,15 @@ import java.util.UUID;
  *                          resolved
  * @param processorVersions every processor type in its flow with the version that ran
  * @param stats             the record count, the failing processor if any, and the run's log
+ * @param owner             the instance holding the run while it is running, null otherwise
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RunView(UUID id, String flow, Integer version, String status, int attempt,
                       int maxAttempts, String trigger, String triggeredBy, String runAs,
                       boolean preview, Window window, JsonNode parameters, JsonNode processorVersions,
                       String errorCode, String error, JsonNode stats, boolean cancelRequested,
-                      Instant notBefore, Instant createdAt, Instant startedAt, Instant finishedAt) {
+                      Instant notBefore, Instant createdAt, Instant startedAt, Instant finishedAt,
+                      String owner) {
 
     /** {@code [start, end)} in data time. */
     public record Window(Instant start, Instant end) {
@@ -39,7 +41,7 @@ public record RunView(UUID id, String flow, Integer version, String status, int 
                 tree(json, run.processorVersions()), run.errorCode(), run.error(),
                 tree(json, run.stats()), run.cancelRequested(),
                 "PENDING".equals(run.status()) ? run.notBefore() : null, run.createdAt(),
-                run.startedAt(), run.finishedAt());
+                run.startedAt(), run.finishedAt(), run.owner());
     }
 
     private static JsonNode tree(JsonMapper json, String text) {
