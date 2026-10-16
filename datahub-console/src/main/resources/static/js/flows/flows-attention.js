@@ -3,7 +3,8 @@
  *
  *   POST {api}/events/latest      the open lifecycles (window.flowAttentionQuery, as the nav count)
  *   POST {flow}/runs/{id}/rerun   re-run the failed window with the deployed version; its success
- *                                 writes the resolved event, so the row leaves the list on its own
+ *                                 writes the resolved event, so the row leaves the list on its own.
+ *                                 "Re-run all" does this for every listed window, one after another
  *   POST {api}/events/create      dismiss: a dismissed event in the same lifecycle, written as the
  *                                 person dismissing, who needs write on the flow's dataset
  */
@@ -35,7 +36,9 @@
 		var empty = page.querySelector('[data-type="attention-empty"]');
 		var more = page.querySelector('[data-type="attention-more"]');
 		var cursor = null;
+		var rerunAllButton = page.querySelector('[data-type="attention-rerun-all"]');
 		var groups = {};   // flow -> its header row, so later pages add to the same group
+		var rerunnable = [];   // {flow, runId, button} of every listed window that has a run to re-run
 
 		function groupRow(flow){
 			if(groups[flow]) return groups[flow];
@@ -92,6 +95,7 @@
 					}).catch(function(err){ rerun.disabled = false; FlowApi.flashError(err, "flows.error.run"); });
 				});
 				actions.append(view, rerun);
+				rerunnable.push({ flow: flow, runId: m.runId, button: rerun, row: tr });
 			}
 			var dismissBtn = button("flows.attention.dismiss", "secondary");
 			dismissBtn.addEventListener("click", function(){
@@ -108,18 +112,65 @@
 			after.after(tr);
 		}
 
+		/** The windows still waiting for a re-run: listed, with a run, and not re-run from here yet. */
+		function pending(){
+			return rerunnable.filter(function(r){ return r.row.isConnected && !r.started; });
+		}
+
+		function showRerunAll(){
+			rerunAllButton.hidden = pending().length === 0;
+		}
+
+		/** Loads one page; resolves to whether it did, so a failing load is not retried forever. */
 		function load(){
 			more.disabled = true;
-			FlowApi.api("/events/latest", window.flowAttentionQuery(cursor, 100))
+			return FlowApi.api("/events/latest", window.flowAttentionQuery(cursor, 100))
 				.then(function(page){
 					(page.items || []).forEach(row);
 					cursor = page.nextCursor || null;
 					more.hidden = !cursor;
 					empty.hidden = tbody.children.length > 0;
+					showRerunAll();
+					return true;
 				})
-				.catch(function(err){ FlowApi.flashError(err, "flows.error.load"); })
+				.catch(function(err){ FlowApi.flashError(err, "flows.error.load"); return false; })
 				.finally(function(){ more.disabled = false; });
 		}
+
+		function loadAll(){
+			return cursor ? load().then(function(ok){ return ok ? loadAll() : false; }) : Promise.resolve(true);
+		}
+
+		/** Re-runs every listed window, one after another, and stays here: the rows leave as the runs succeed. */
+		function rerunAll(){
+			rerunAllButton.disabled = true;
+			loadAll().then(function(ok){
+				var todo = pending();
+				if(!ok || todo.length === 0 || !confirm(L("flows.attention.rerun.all.confirm", [todo.length]))) return;
+				var started = 0, failed = 0, reasons = [];
+				return todo.reduce(function(chain, r){
+					return chain.then(function(){
+						r.button.disabled = true;
+						return FlowApi.post("/runs/" + FlowApi.seg(r.runId) + "/rerun", {}).then(function(){
+							r.started = true;
+							started++;
+						}).catch(function(err){
+							r.button.disabled = false;
+							failed++;
+							reasons.push(r.flow + ": " + (err && err.message ? err.message : L("flows.error.run")));
+						});
+					});
+				}, Promise.resolve()).then(function(){
+					if(failed === 0) Flash.info(L("flows.attention.rerun.all.done", [started]));
+					else Flash.error(L("flows.attention.rerun.all.partial", [started, failed]), { details: reasons });
+				});
+			}).finally(function(){
+				rerunAllButton.disabled = false;
+				showRerunAll();
+			});
+		}
+
+		rerunAllButton.addEventListener("click", rerunAll);
 
 		more.addEventListener("click", load);
 		window.i18nReady.then(load);
