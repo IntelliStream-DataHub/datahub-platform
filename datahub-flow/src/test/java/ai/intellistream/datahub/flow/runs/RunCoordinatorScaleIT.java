@@ -1,0 +1,651 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package ai.intellistream.datahub.flow.runs;
+
+import ai.intellistream.datahub.flow.api.ProcessContext;
+import ai.intellistream.datahub.flow.api.ProcessException;
+import ai.intellistream.datahub.flow.api.ProcessSession;
+import ai.intellistream.datahub.flow.api.Processor;
+import ai.intellistream.datahub.flow.api.ProcessorDescriptor;
+import ai.intellistream.datahub.flow.api.PropertyDescriptor;
+import ai.intellistream.datahub.flow.api.PropertyType;
+import ai.intellistream.datahub.flow.api.Relationship;
+import ai.intellistream.datahub.flow.api.TimeWindow;
+import ai.intellistream.datahub.flow.definition.FlowValidator;
+import ai.intellistream.datahub.flow.engine.FlowCompiler;
+import ai.intellistream.datahub.flow.engine.RunExecutor;
+import ai.intellistream.datahub.flow.flows.FlowRepository;
+import ai.intellistream.datahub.flow.records.RunRecords;
+import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
+import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.tenant.FlowSchemaCheck;
+import ai.intellistream.datahub.tenant.PostgresTenant;
+import ai.intellistream.datahub.tenant.StatelessRoutingDataSource;
+import ai.intellistream.datahub.tenant.Tenant;
+import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantContext;
+import ai.intellistream.datahub.tenant.TenantFeatures;
+import ai.intellistream.datahub.testsupport.SharedPostgres;
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.json.JsonMapper;
+
+import javax.sql.DataSource;
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+/**
+ * The coordinator at a size a tenant would actually have, and across tenants: hundreds of
+ * scheduled flows shared by two instances, one instance sweeping ten tenants through the real
+ * tenant loops and the real routing datasource, a long outage caught up on, an instance that dies
+ * with a scheduled run in hand, and one that is stopped on purpose.
+ *
+ * <p>Like {@link RunCoordinatorIT}, the loops are driven by hand so that what takes a minute in
+ * production takes seconds here, and the clock that decides leases is the database's. Unlike it,
+ * every statement goes through {@link StatelessRoutingDataSource} keyed on {@link TenantContext},
+ * so a tenant mix-up anywhere in the run path would write into the wrong database and show up in
+ * the counts.
+ */
+@Tag("integration")
+class RunCoordinatorScaleIT {
+
+    private static final JsonMapper JSON = JsonMapper.builder().build();
+    private static final Duration LEASE = Duration.ofSeconds(2);
+    private static final Duration HEARTBEAT = Duration.ofMillis(300);
+    private static final Duration REQUEST_TIMEOUT = Duration.ofMillis(300);
+    private static final AtomicInteger DATABASES = new AtomicInteger();
+    private static final Schedule EVERY_MINUTE = new Schedule(Schedule.SCHEDULE, "0 * * * * *",
+            ZoneOffset.UTC, Duration.ofMinutes(1), null);
+
+    /** Every Work invocation: the tenant its definition names, and the tenant on its thread. */
+    private static final Queue<String[]> SEEN = new ConcurrentLinkedQueue<>();
+    /** Hold runs until released; a run stopped while held fails, as it did not finish. */
+    private static final AtomicBoolean HOLD = new AtomicBoolean();
+    private static final Map<String, AtomicInteger> RUNNING = new ConcurrentHashMap<>();
+    private static final Map<String, AtomicInteger> MOST = new ConcurrentHashMap<>();
+
+    private TenantConfigService registry;
+    /** Routed to the tenant on the thread, as in the service. */
+    private JdbcTemplate jdbc;
+    private TransactionTemplate transaction;
+    private RunRepository runs;
+    private FlowRepository flows;
+    private FlowSchemaCheck schemaCheck;
+    private HttpServer datahub;
+    private final List<RunCoordinator> coordinators = new ArrayList<>();
+    private final Set<RunCoordinator> heartbeating = ConcurrentHashMap.newKeySet();
+    private ScheduledExecutorService heartbeats;
+    /** Each records sink opened, by run: the tenant it was opened for. */
+    private final Map<UUID, String> recordsOpenedFor = new ConcurrentHashMap<>();
+    /** Each identity asked for, as tenant/flowId. */
+    private final List<String> identitiesAsked = new CopyOnWriteArrayList<>();
+
+    @BeforeEach
+    void setUp() throws IOException {
+        registry = mock(TenantConfigService.class);
+        registry.cachedTenants = new LinkedHashMap<>();
+        when(registry.getConfig(anyString())).thenAnswer(i -> registry.cachedTenants.get(i.<String>getArgument(0)));
+        DataSource routing = new StatelessRoutingDataSource(registry);
+        jdbc = new JdbcTemplate(routing);
+        transaction = new TransactionTemplate(new DataSourceTransactionManager(routing));
+        runs = new RunRepository(jdbc);
+        flows = new FlowRepository(jdbc);
+        schemaCheck = new FlowSchemaCheck(jdbc);
+
+        datahub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        datahub.createContext("/", exchange -> {
+            String answer = exchange.getRequestURI().getPath().equals("/datasets/byids")
+                    ? "{\"items\":[{\"id\":\"7\",\"externalId\":\"ds\"}]}" : "{\"items\":[]}";
+            byte[] body = answer.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        datahub.start();
+
+        heartbeats = Executors.newSingleThreadScheduledExecutor();
+        heartbeats.scheduleWithFixedDelay(() -> heartbeating.forEach(c -> {
+            try {
+                c.heartbeatAll();
+            } catch (RuntimeException ignored) {
+                // a failed heartbeat is what self-fencing is for
+            }
+        }), HEARTBEAT.toMillis(), HEARTBEAT.toMillis(), TimeUnit.MILLISECONDS);
+        HOLD.set(false);
+        SEEN.clear();
+    }
+
+    @AfterEach
+    void tearDown() {
+        heartbeats.shutdownNow();
+        HOLD.set(false);
+        coordinators.forEach(RunCoordinator::shutdown);
+        datahub.stop(0);
+        RUNNING.clear();
+        MOST.clear();
+    }
+
+    // ---------------------------------------------------------------- scale
+
+    @Test
+    void twoInstancesRunTwoHundredScheduledFlowsAndEveryTickRunsExactlyOnce() throws Exception {
+        String tenant = tenant("tenant-a");
+        int flowCount = 200;
+        int ticks = 10;
+        Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofMinutes(ticks - 1));
+        for (int i = 0; i < flowCount; i++) {
+            scheduledFlow(tenant, "flow-" + i, work(20, tenant, "scale"), 1, first);
+        }
+        RunCoordinator a = coordinator("a", 16);
+        RunCoordinator b = coordinator("b", 16);
+        heartbeating.add(a);
+        heartbeating.add(b);
+        int expected = flowCount * ticks;
+
+        long started = System.nanoTime();
+        in(tenant, () -> {
+            a.sweep(tenant);
+            return null;
+        });
+        long firstSweepMs = (System.nanoTime() - started) / 1_000_000;
+        int afterFirstSweep = in(tenant, () -> count(null));
+        Set<String> owners = ConcurrentHashMap.newKeySet();
+        sweepUntil(List.of(a, b), () -> in(tenant, () -> {
+            owners.addAll(jdbc.queryForList("SELECT DISTINCT owner FROM flow.run WHERE owner IS NOT NULL", String.class));
+            return settled(expected);
+        }), Duration.ofMinutes(3));
+        long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+
+        in(tenant, () -> {
+            int total = count(null);
+            assertThat(total).isGreaterThanOrEqualTo(expected);
+            assertThat(count("SUCCEEDED")).isEqualTo(total);
+            assertThat(jdbc.queryForObject("SELECT count(DISTINCT (flow_id, window_start)) FROM flow.run",
+                    Integer.class)).as("every tick of every flow ran once").isEqualTo(total);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1", Integer.class))
+                    .as("no run needed a second attempt").isZero();
+            // The schedule moved on with the runs: each flow's last tick is its latest window.
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow f WHERE last_tick <> "
+                    + "(SELECT max(window_end) FROM flow.run r WHERE r.flow_id = f.id)", Integer.class)).isZero();
+            return null;
+        });
+        assertThat(SEEN).hasSizeGreaterThanOrEqualTo(expected)
+                .allSatisfy(seen -> assertThat(seen[1]).isEqualTo(seen[0]));
+        assertThat(owners).as("both instances took runs").contains("a", "b");
+        assertThat(MOST.get("scale").get()).as("never more than the two instances' slots").isLessThanOrEqualTo(32);
+        System.out.printf("scale: %d flows x %d ticks = %d runs on two instances in %d ms (%.0f runs/s, at most %d"
+                        + " at once); the first sweep created %d runs in %d ms%n",
+                flowCount, ticks, expected, elapsedMs, expected * 1000.0 / elapsedMs, MOST.get("scale").get(),
+                afterFirstSweep, firstSweepMs);
+    }
+
+    /** One sweep starts as many pending runs as the instance has free slots, and a full instance starts none. */
+    @Test
+    void aSweepFillsTheFreeSlotsAndNoMore() {
+        String tenant = tenant("tenant-a");
+        long flow = manualFlow(tenant, "burst", hold(), 100);
+        for (int i = 0; i < 20; i++) {
+            pending(tenant, flow, i);
+        }
+        HOLD.set(true);
+        RunCoordinator a = coordinator("a", 8);
+        heartbeating.add(a);
+
+        a.sweepAll();
+        assertThat(a.running()).isEqualTo(8);
+        assertThat(in(tenant, () -> count("RUNNING"))).isEqualTo(8);
+        a.sweepAll();
+        assertThat(a.running()).as("full: a sweep claims nothing more").isEqualTo(8);
+
+        HOLD.set(false);
+        sweepUntil(List.of(a), () -> in(tenant, () -> count("SUCCEEDED") == 20), Duration.ofSeconds(30));
+    }
+
+    // ---------------------------------------------------------------- tenants
+
+    @Test
+    void oneInstanceSweepsTenTenantsWithoutLeakingAcrossTheirDatabases() {
+        List<String> tenants = new ArrayList<>();
+        for (int t = 0; t < 10; t++) {
+            String tenant = tenant("tenant-" + t);
+            tenants.add(tenant);
+            Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofMinutes(1));
+            for (int i = 0; i < 10; i++) {
+                scheduledFlow(tenant, tenant + "-flow-" + i, work(10, tenant, "tenants"), 1, first);
+            }
+        }
+        RunCoordinator a = coordinator("a", 8);
+        heartbeating.add(a);
+
+        sweepUntil(List.of(a), () -> tenants.stream().allMatch(t -> in(t, () -> settled(20))),
+                Duration.ofMinutes(2));
+
+        for (String tenant : tenants) {
+            in(tenant, () -> {
+                int total = count(null);
+                assertThat(total).as("%s has its own twenty runs", tenant).isGreaterThanOrEqualTo(20);
+                assertThat(count("SUCCEEDED")).isEqualTo(total);
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow WHERE external_id NOT LIKE ?",
+                        Integer.class, tenant + "-flow-%")).as("only %s's flows are in its database", tenant).isZero();
+                return null;
+            });
+        }
+        // The thread that ran each definition was in the tenant the definition belongs to.
+        assertThat(SEEN).hasSizeGreaterThanOrEqualTo(200)
+                .allSatisfy(seen -> assertThat(seen[1]).as("a run of %s ran as %s", seen[0], seen[1]).isEqualTo(seen[0]));
+        // Its records went to the tenant whose database holds the run, and nowhere else.
+        assertThat(recordsOpenedFor).hasSizeGreaterThanOrEqualTo(200);
+        Map<String, List<UUID>> opened = new LinkedHashMap<>();
+        recordsOpenedFor.forEach((run, tenant) -> opened.computeIfAbsent(tenant, t -> new ArrayList<>()).add(run));
+        opened.forEach((tenant, ids) -> {
+            for (String other : tenants) {
+                int found = in(other, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE id = ANY (?)",
+                        Integer.class, (Object) ids.toArray(UUID[]::new)));
+                assertThat(found).as("runs whose records were opened for %s, found in %s's database", tenant, other)
+                        .isEqualTo(other.equals(tenant) ? ids.size() : 0);
+            }
+        });
+        // Its identity was asked for under the tenant that owns the flow.
+        assertThat(identitiesAsked).isNotEmpty().allSatisfy(asked -> {
+            String tenant = asked.substring(0, asked.indexOf('/'));
+            long flowId = Long.parseLong(asked.substring(asked.indexOf('/') + 1));
+            String externalId = in(tenant, () -> flows.findById(flowId).orElseThrow().externalId());
+            assertThat(externalId).startsWith(tenant + "-flow-");
+        });
+    }
+
+    /**
+     * The instance's run slots are shared: a tenant with a queue of long runs takes its share, and
+     * the tenant behind it in the registry gets a slot in the same sweep, not once the queue drains.
+     */
+    @Test
+    void aTenantWithALongQueueDoesNotKeepTheNextTenantWaiting() {
+        String busy = tenant("tenant-busy");
+        String quiet = tenant("tenant-quiet");
+        long busyFlow = manualFlow(busy, "busy", work(1000, busy, "busy"), 24);
+        for (int i = 0; i < 24; i++) {
+            pending(busy, busyFlow, i);
+        }
+        long quietFlow = manualFlow(quiet, "quiet", work(1, quiet, "quiet"), 1);
+        UUID quietRun = pending(quiet, quietFlow, 0);
+        RunCoordinator a = coordinator("a", 8);
+        heartbeating.add(a);
+
+        Instant started = in(quiet, runs::now);
+        sweepUntil(List.of(a), () -> in(busy, () -> count("SUCCEEDED") == 24) && in(quiet, () -> count("SUCCEEDED") == 1),
+                Duration.ofMinutes(1));
+
+        StoredRun quietDone = in(quiet, () -> runs.find(quietRun).orElseThrow());
+        Duration waited = Duration.between(started, quietDone.startedAt());
+        assertThat(quietDone.status()).isEqualTo("SUCCEEDED");
+        System.out.printf("fairness: the quiet tenant's run started %d ms after the busy tenant's 24 one-second"
+                + " runs began competing for 8 slots%n", waited.toMillis());
+        assertThat(waited).as("the quiet tenant gets its share of the first sweep, not a slot once the busy "
+                + "tenant is drained").isLessThan(Duration.ofSeconds(1));
+    }
+
+    // ---------------------------------------------------------------- downtime
+
+    /**
+     * Nothing bounds how far back a schedule catches up: three hours down is 180 runs for one
+     * per-minute flow, created oldest first, {@code catch-up} per sweep.
+     */
+    @Test
+    void threeHoursOfDowntimeBecomeOneRunPerMissedTickOverSeveralSweeps() {
+        String tenant = tenant("tenant-a");
+        Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofHours(3));
+        scheduledFlow(tenant, "catch-up", work(0, tenant, "catch-up"), 1, first);
+        RunCoordinator a = coordinator("a", 1);
+
+        int created = 0;
+        int sweeps = 0;
+        int batch;
+        while ((batch = in(tenant, a::createScheduledRuns)) > 0) {
+            assertThat(batch).isLessThanOrEqualTo(24);
+            created += batch;
+            sweeps++;
+        }
+
+        assertThat(created).isBetween(181, 182);
+        assertThat(sweeps).isEqualTo((created + 23) / 24);
+        in(tenant, () -> {
+            List<Timestamp> windows = jdbc.queryForList("SELECT window_end FROM flow.run ORDER BY created_at, window_end",
+                    Timestamp.class);
+            assertThat(windows).hasSize(windows.stream().distinct().toList().size()).isSorted();
+            assertThat(windows.getFirst().toInstant()).isEqualTo(first);
+            return null;
+        });
+        System.out.printf("catch-up: 3 h of downtime for one per-minute flow became %d pending runs over %d sweeps%n",
+                created, sweeps);
+    }
+
+    // ---------------------------------------------------------------- crashes
+
+    @Test
+    void anInstanceThatDiesWithAScheduledRunLosesItToAnotherAndTheScheduleGoesOn() throws Exception {
+        String tenant = tenant("tenant-a");
+        Instant tick = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES);
+        long flow = scheduledFlow(tenant, "survivor", hold(), 1, tick);
+        HOLD.set(true);
+        RunCoordinator a = coordinator("a", 1);
+        RunCoordinator b = coordinator("b", 1);
+        heartbeating.add(b);
+
+        // a sweeps once: the tick becomes a run that a claims and holds. Then a dies: it never
+        // renews, never hands anything back, and nothing it does from here on may be recorded.
+        in(tenant, () -> {
+            a.sweep(tenant);
+            return a.claim(tenant, null);
+        });
+        UUID run = in(tenant, () -> jdbc.queryForObject("SELECT id FROM flow.run ORDER BY window_start LIMIT 1",
+                UUID.class));
+        assertThat(in(tenant, () -> runs.find(run).orElseThrow().status())).isEqualTo("RUNNING");
+
+        Thread.sleep(LEASE.plusMillis(300).toMillis());
+        b.reapAll();
+        StoredRun requeued = in(tenant, () -> runs.find(run).orElseThrow());
+        assertThat(requeued.status()).isEqualTo("PENDING");
+        assertThat(requeued.attempt()).isEqualTo(2);
+        assertThat(requeued.errorCode()).isEqualTo("LEASE_LOST");
+        await(() -> a.running() == 0);
+
+        HOLD.set(false);
+        b.sweepAll();
+        await(() -> "SUCCEEDED".equals(in(tenant, () -> runs.find(run).orElseThrow().status())));
+        StoredRun done = in(tenant, () -> runs.find(run).orElseThrow());
+        assertThat(done.attempt()).isEqualTo(2);
+        assertThat(done.errorCode()).isNull();
+
+        // The next tick comes due (moved to now rather than waiting out the minute): b creates and
+        // runs it, and the dead instance's tick is not repeated.
+        in(tenant, () -> jdbc.update("UPDATE flow.flow SET next_tick = now(), next_due_at = now() WHERE id = ?", flow));
+        sweepUntil(List.of(b), () -> in(tenant, () -> settled(2)), Duration.ofSeconds(30));
+        in(tenant, () -> {
+            int total = count(null);
+            assertThat(count("SUCCEEDED")).as("runs: %s", jdbc.queryForList(
+                    "SELECT status, attempt, error_code, error, window_start, window_end FROM flow.run ORDER BY created_at"))
+                    .isEqualTo(total);
+            assertThat(jdbc.queryForObject("SELECT count(DISTINCT window_start) FROM flow.run", Integer.class))
+                    .as("each tick ran once").isEqualTo(total);
+            assertThat(jdbc.queryForObject("SELECT max(window_end) FROM flow.run", Timestamp.class).toInstant())
+                    .isAfter(tick);
+            return null;
+        });
+    }
+
+    @Test
+    void aStoppingInstanceHandsItsRunsBackAndAnotherFinishesThemOnTheSameAttempt() {
+        String tenant = tenant("tenant-a");
+        long flow = manualFlow(tenant, "handed-back", hold(), 3);
+        for (int i = 0; i < 3; i++) {
+            pending(tenant, flow, i);
+        }
+        HOLD.set(true);
+        RunCoordinator a = coordinator("a", 3);
+        RunCoordinator b = coordinator("b", 3);
+        heartbeating.add(a);
+        heartbeating.add(b);
+
+        assertThat(in(tenant, () -> a.claim(tenant, null))).hasSize(3);
+        a.shutdown();
+        in(tenant, () -> {
+            assertThat(count("PENDING")).isEqualTo(3);
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt = 1 AND owner IS NULL",
+                    Integer.class)).isEqualTo(3);
+            return null;
+        });
+
+        HOLD.set(false);
+        assertThat(in(tenant, () -> b.claim(tenant, null))).hasSize(3);
+        await(() -> in(tenant, () -> count("SUCCEEDED") == 3));
+        assertThat(in(tenant, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1",
+                Integer.class))).isZero();
+    }
+
+    // ---------------------------------------------------------------- fixtures
+
+    /** A tenant with a database of its own, in the registry the loops read. */
+    private String tenant(String id) {
+        String url = SharedPostgres.newDatabase("scale_it_" + DATABASES.incrementAndGet());
+        PostgresTenant postgres = new PostgresTenant();
+        postgres.setJdbcUrl(url);
+        postgres.setUsername(SharedPostgres.username());
+        postgres.setPassword(SharedPostgres.password());
+        TenantFeatures features = new TenantFeatures();
+        features.setFlowFeatureEnabled(true);
+        Tenant tenant = new Tenant();
+        tenant.setOrganizationId(id);
+        tenant.setOrganizationName(id);
+        tenant.setPostgresTenant(postgres);
+        tenant.setFeatures(features);
+        registry.cachedTenants.put(id, tenant);
+        return id;
+    }
+
+    private <T> T in(String tenant, java.util.function.Supplier<T> work) {
+        return TenantContext.callWith(tenant, work);
+    }
+
+    private long manualFlow(String tenant, String externalId, String processor, int maxConcurrent) {
+        return flow(tenant, externalId, processor, maxConcurrent,
+                new Schedule(Schedule.MANUAL, null, null, null, null), null);
+    }
+
+    private long scheduledFlow(String tenant, String externalId, String processor, int maxConcurrent, Instant nextTick) {
+        return flow(tenant, externalId, processor, maxConcurrent, EVERY_MINUTE, nextTick);
+    }
+
+    private long flow(String tenant, String externalId, String processor, int maxConcurrent, Schedule schedule,
+                      Instant nextTick) {
+        String definition = """
+                { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
+                  "processors": [ %s ], "connections": [] }
+                """.formatted(externalId, externalId, processor);
+        return in(tenant, () -> transaction.execute(s -> {
+            long id = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
+            flows.deploy(id, 1, true, schedule.toJson(JSON), maxConcurrent, 2, Duration.ofMinutes(15),
+                    FlowRepository.Identity.deployer("user-1"), "user-1", nextTick,
+                    nextTick == null ? null : schedule.dueAt(nextTick));
+            return id;
+        }));
+    }
+
+    private UUID pending(String tenant, long flow, int hour) {
+        Instant end = Instant.parse("2026-10-12T00:00:00Z").plus(Duration.ofHours(hour + 1));
+        return in(tenant, () -> transaction.execute(s -> runs.insert(new NewRun(flow, 1, 2,
+                Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "manual",
+                "user-1", "user-1"))));
+    }
+
+    private RunCoordinator coordinator(String name, int maxRunning) {
+        List<Processor> processors = List.of(new Work(), new Hold());
+        FlowCompiler compiler = new FlowCompiler(new FlowValidator(processors, FlowValidator.Limits.DEFAULTS));
+        RunCredentials credentials = (tenant, flowId) -> {
+            identitiesAsked.add(tenant + "/" + flowId);
+            return () -> "token:" + tenant + ":" + flowId;
+        };
+        String api = "http://127.0.0.1:" + datahub.getAddress().getPort();
+        RunExecution execution = new RunExecution(compiler, new RunExecutor(Clock.systemUTC(), d -> { }), flows,
+                jdbc, credentials, tenant -> Map.of(), api, REQUEST_TIMEOUT, JSON,
+                (tenant, run, attempt, flow, version) -> {
+                    recordsOpenedFor.put(run, tenant);
+                    return new RunRecords(run, attempt, flow, version, 100_000, Clock.systemUTC(),
+                            batch -> CompletableFuture.completedFuture(null));
+                }, Duration.ofSeconds(5), 64L << 20);
+        RunEvents events = new RunEvents(runs, credentials, api, REQUEST_TIMEOUT, 20);
+        RunCoordinator c = new RunCoordinator(runs, execution, events, transaction, registry, schemaCheck, JSON,
+                new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 24,
+                Duration.ZERO, Duration.ZERO, Duration.ofSeconds(1)), name, System::nanoTime);
+        coordinators.add(c);
+        return c;
+    }
+
+    /** Each instance sweeps every tenant, over and over, until {@code done} or {@code timeout}. */
+    private static void sweepUntil(List<RunCoordinator> instances, BooleanSupplier done, Duration timeout) {
+        AtomicBoolean finished = new AtomicBoolean();
+        List<Thread> sweepers = instances.stream().map(c -> Thread.ofVirtual().start(() -> {
+            while (!finished.get()) {
+                c.sweepAll();
+                sleep(10);
+            }
+        })).toList();
+        try {
+            long until = System.nanoTime() + timeout.toNanos();
+            while (!done.getAsBoolean()) {
+                if (System.nanoTime() > until) {
+                    throw new AssertionError("Not done within " + timeout);
+                }
+                sleep(100);
+            }
+        } finally {
+            finished.set(true);
+            sweepers.forEach(t -> {
+                try {
+                    t.join();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+        }
+        // A sweep that was in flight when the condition held may have started one more run.
+        await(done);
+    }
+
+    /**
+     * Whether the current tenant has at least {@code atLeast} runs and none still pending or
+     * running, asked in one statement: three counts would be three snapshots, and a sweep that
+     * commits between them can make a run that is still going look finished.
+     */
+    private boolean settled(int atLeast) {
+        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT count(*) >= ? AND count(*) FILTER "
+                + "(WHERE status IN ('PENDING', 'RUNNING')) = 0 FROM flow.run", Boolean.class, atLeast));
+    }
+
+    /** Runs of the current tenant with {@code status}, or all of them for null. */
+    private int count(String status) {
+        return status == null
+                ? jdbc.queryForObject("SELECT count(*) FROM flow.run", Integer.class)
+                : jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE status = ?", Integer.class, status);
+    }
+
+    private static void await(BooleanSupplier condition) {
+        long until = System.nanoTime() + Duration.ofSeconds(15).toNanos();
+        while (!condition.getAsBoolean()) {
+            if (System.nanoTime() > until) {
+                throw new AssertionError("Condition not met within 15 s");
+            }
+            sleep(50);
+        }
+    }
+
+    private static String work(int millis, String tenant, String key) {
+        return """
+                { "id": "w", "type": "test.work", "properties": { "millis": %d, "tenant": "%s", "key": "%s" } }
+                """.formatted(millis, tenant, key);
+    }
+
+    private static String hold() {
+        return """
+                { "id": "h", "type": "test.hold" }
+                """;
+    }
+
+    private static void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    // ---------------------------------------------------------------- processors
+
+    /**
+     * Records the tenant on its thread against the one its definition names, counts runs at once
+     * per key, waits {@code millis} unless stopped, and makes one item so the run has records.
+     */
+    static final class Work implements Processor {
+        @Override
+        public ProcessorDescriptor describe() {
+            return ProcessorDescriptor.builder("test.work", "1.0.0")
+                    .property(PropertyDescriptor.builder("millis", PropertyType.NUMBER).defaultValue(0).build())
+                    .property(PropertyDescriptor.builder("tenant", PropertyType.STRING).defaultValue("").build())
+                    .property(PropertyDescriptor.builder("key", PropertyType.STRING).defaultValue("k").build())
+                    .relationship(new Relationship("success", "Never used", Relationship.Unconnected.TERMINATE))
+                    .build();
+        }
+
+        @Override
+        public void onTrigger(ProcessContext context, ProcessSession session) {
+            SEEN.add(new String[]{context.property("tenant").asString(), TenantContext.getTenantId()});
+            String key = context.property("key").asString();
+            int now = RUNNING.computeIfAbsent(key, k -> new AtomicInteger()).incrementAndGet();
+            MOST.computeIfAbsent(key, k -> new AtomicInteger()).accumulateAndGet(now, Math::max);
+            try {
+                long until = System.nanoTime() + context.property("millis").asDouble().longValue() * 1_000_000;
+                while (System.nanoTime() < until && !context.isCancelled()) {
+                    sleep(5);
+                }
+            } finally {
+                RUNNING.get(key).decrementAndGet();
+            }
+            session.transfer(session.create(), "success");
+        }
+    }
+
+    /** Waits until released; stopped before that, it fails, since it did not get its work done. */
+    static final class Hold implements Processor {
+        @Override
+        public ProcessorDescriptor describe() {
+            return ProcessorDescriptor.builder("test.hold", "1.0.0")
+                    .relationship(new Relationship("success", "Never used", Relationship.Unconnected.TERMINATE))
+                    .build();
+        }
+
+        @Override
+        public void onTrigger(ProcessContext context, ProcessSession session) {
+            while (HOLD.get() && !context.isCancelled()) {
+                sleep(20);
+            }
+            if (context.isCancelled()) {
+                throw new ProcessException("Stopped before finishing.");
+            }
+            session.transfer(session.create(), "success");
+        }
+    }
+}
