@@ -1,12 +1,12 @@
 /*
     The drawing of the network view, for GraphNetwork (graph-network.js).
 
-    Resources are dots sized by importance (betweenness) with an icon for their type, grouped by the
-    data's containment tree (BELONGS_TO, PART_OF): a parent's sections are laid out together inside one
-    more group, and each group is outlined. A resource with parents in several groups sits between them
-    and every group reaches out to it. Lines between groups run as curved bundles through the groups;
-    the names drawn are the ones that read at the current zoom. Without a usable tree, Louvain finds the
-    groups instead.
+    Resources are dots sized by importance (betweenness) with an icon for what they are (a pump, a valve:
+    see graph-icons.js), grouped by the data's containment tree (BELONGS_TO, PART_OF): a parent's
+    sections are laid out together inside one more group, and each group is outlined. A resource with
+    parents in several groups sits between them and every group reaches out to it. Lines between groups
+    run as curved bundles through the groups; the names drawn are the ones that read at the current
+    zoom. Without a usable tree, Louvain finds the groups instead.
 
     A context hub, linked to half the graph or more (the plant everything is part of), is grouped with
     the resources nothing else connects, and its lines are drawn only while one of their ends is
@@ -40,21 +40,8 @@ const SETTLE_ABOVE = 1000, STRAIGHT_ABOVE = 3000;
 // Group colours chosen to stay apart on both themes and from the line colour.
 const CLUSTER = ['#f2a65a', '#8fb9ff', '#e98bd0', '#9ad66f', '#ffd166', '#c3a6ff', '#ff8f8f', '#5fd4c4', '#d4b483', '#7fc8f8', '#f7a1c4', '#b8e986'];
 const OTHER = '#9aa9b2';
-const GLYPH = {
-    ASSET: "<path d='M8 1.8 13.6 4.9v6.2L8 14.2 2.4 11.1V4.9z M2.4 4.9 8 8l5.6-3.1 M8 8v6.2' fill='none' stroke='INK' stroke-width='1.6' stroke-linejoin='round'/>",
-    TIMESERIES: "<path d='M2 11.5 5.5 7.5l2.8 2.4L14 4' fill='none' stroke='INK' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
-    FUNCTION: "<path d='M10.5 2.5c-2 0-2.6 1.2-3 3.2L6.2 12c-.3 1.4-1 2-2.2 2 M4.5 6.5h6' fill='none' stroke='INK' stroke-width='1.6' stroke-linecap='round'/>",
-    DATASET: "<ellipse cx='8' cy='4' rx='5' ry='2' fill='none' stroke='INK' stroke-width='1.5'/><path d='M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4' fill='none' stroke='INK' stroke-width='1.5'/>",
-    POLICY: "<path d='M8 1.8 13 3.6v3.9c0 3-2.1 5.4-5 6.4-2.9-1-5-3.4-5-6.4V3.6z' fill='none' stroke='INK' stroke-width='1.6' stroke-linejoin='round'/>",
-    DEFAULT: "<circle cx='8' cy='8' r='2.6' fill='INK'/>",
-};
-const TYPE_FOR_GLYPH = t => GLYPH[t] ? t : (t === 'RESOURCE' ? 'ASSET' : 'DEFAULT');
-const iconCache = new Map();
-function glyph(type, ink) {
-    const k = type + ink;
-    if (!iconCache.has(k)) iconCache.set(k, 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'>${GLYPH[TYPE_FOR_GLYPH(type)].replace(/INK/g, ink)}</svg>`));
-    return iconCache.get(k);
-}
+// The icon inside a resource's dot comes from graph-icons.js, which also remembers the chosen style.
+const iconOf = (g, ink) => window.GraphIcons.iconSrc(g, ink);
 
 // a over b at alpha k, as '#rrggbb'.
 function mixHex(a, b, k) {
@@ -439,7 +426,7 @@ function createGraphView(container, opts) {
     // Dots sized by importance, coloured by group, with an icon for the resource's type.
     function lookOf(i, comm, pal) {
         const imp = info.importance[i], d = 8 + 30 * imp, id = G.ids[i];
-        return { w: d, h: d, fs: 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: glyph(G.nodes.get(id).type, pal.ink), c: comm[i], short: SHORT.get(id) };
+        return { w: d, h: d, fs: 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pal.ink), c: comm[i], short: SHORT.get(id) };
     }
     const edgeLookOf = (e, k, comm) => ({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
     function applyLook(comm) {
@@ -1688,16 +1675,22 @@ function createGraphView(container, opts) {
         applyLod();
         drawHulls();
     }
+    // Every resource's icon again, after a theme switch or a change of icon style; in a big graph also the
+    // resources out of view, which take theirs when they are drawn.
+    function applyIcons() {
+        if (!cy || destroyed || !G) return;
+        const ink = palette().ink;
+        cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G.nodes.get(n.id()); if (g) n.data('icon', iconOf(g, ink)); }));
+        if (big) big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = iconOf(g, ink); });
+    }
+    const stopIcons = window.GraphIcons.subscribe(applyIcons);
     function applyTheme() {
         if (!cy || destroyed) return;
         palCache = null;
-        const pal = palette();
-        cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G && G.nodes.get(n.id()); if (g) n.data('icon', glyph(g.type, pal.ink)); }));
+        applyIcons();
         cy.style().fromJson(style()).update();
-        // A big graph's resources out of view take the new icons too, and the group dots are made again in
-        // the new colours.
+        // A big graph's group dots are made again in the new colours.
         if (big && G) {
-            big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = glyph(g.type, pal.ink); });
             big.windowing = true; cy.remove(cy.nodes('.agg')); big.windowing = false;
             big.synced = false;
             windowNow();
@@ -1716,6 +1709,7 @@ function createGraphView(container, opts) {
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => resize()) : null;
     function destroy() {
         destroyed = true;
+        stopIcons();
         if (ro) ro.disconnect();
         cancelAnimationFrame(frame); cancelAnimationFrame(flowRAF);
         clearTimeout(viewTimer); clearTimeout(lodTimer); clearTimeout(hullTimer); clearTimeout(pageScrollTimer); clearTimeout(winTimer);
