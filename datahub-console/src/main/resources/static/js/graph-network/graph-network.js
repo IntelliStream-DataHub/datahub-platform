@@ -1,8 +1,7 @@
-// Graph palette, in one place — referenced by the Cytoscape stylesheet (buildStyle) and the
-// select handlers below. Two variants: the light one mirrors the intellistream.ai hero graph
-// (solid colour pills — border matches the fill — with thin blue-grey connectors on a white
-// canvas); the dark one keeps the console's dark canvas. The active palette is picked from
-// <html data-theme> and re-applied live on theme change (see applyTheme()).
+// Graph palette, in one place — read by the drawing (graph-view.js) for the relation lines and the
+// interaction colours. Two variants: the light one mirrors the intellistream.ai hero graph (thin
+// blue-grey connectors on a white canvas); the dark one keeps the console's dark canvas. The active
+// palette is picked from <html data-theme> and re-applied live on theme change (see applyTheme()).
 const GRAPH_PALETTES = {
     light: {
         nodeSurface: '#ffffff',  // node fill — white pill in light theme
@@ -31,132 +30,67 @@ function graphPalette() {
     return document.documentElement.getAttribute('data-theme') === 'light'
         ? GRAPH_PALETTES.light : GRAPH_PALETTES.dark;
 }
-// Reassigned by applyTheme() when the theme toggles; the select handlers read it live.
+// Reassigned by applyTheme() when the theme toggles; the drawing reads it live.
 let GRAPH_COLORS = graphPalette();
 
-// The built-in resource types. In a node's label, these are shown first (in this order) and
-// coloured with their label colour; any other (custom) label names are sorted after and dimmed.
-const STANDARD_TYPES = ['ASSET', 'FUNCTION', 'TIMESERIES', 'RESOURCE', 'DATASET', 'POLICY'];
-
-// Spacing between successive arcs joining the same pair of nodes, in px — see fanParallelEdges().
-const ARC_STEP = 30;
-// The sign of a control-point distance that puts an arc to the RIGHT of the edge's own direction
-// of travel. Cytoscape measures the distance perpendicular to source → target, so "right of
-// travel" is one fixed sign in the edge's own frame no matter which way it points. Flip this to +1
-// if the handedness reads backwards on screen; it mirrors the whole scheme and nothing else.
-const RIGHT_OF_TRAVEL = -1;
-// How far the two directions of travel may differ in count before direction-based sides are given
-// up in favour of plain left/right balancing.
-const MAX_DIRECTION_IMBALANCE = 1;
+// The view of a graph of resources: the drawing itself is graph-view.js (dots grouped by the
+// BELONGS_TO tree, curved bundles, outlines, names); this class loads the graph from datahub-api
+// and wires it to the console: the node's action menu, the relation and resource forms, drawing a
+// new relation, the filter, and the hooks the guided tutorial uses.
+// How many resources a network load asks for: all of them. The api stops at 5,000 unless told
+// otherwise, which left anything larger cut off at its nearest 5,000. It streams the network now, and
+// the view draws a large one group by group (graph-view.js, big mode), so the whole network is fetched.
+const NETWORK_LIMIT = -1;
 
 class GraphNetwork {
 
     constructor(obj) {
         this.rootId = null;
+        this.loadedId = null;
         this.queryDepth = obj.queryDepth || 5;
         this.container = obj.container;
-        this.layouts = {
-            dagre: {
-                name: 'dagre',
-                rankDir: 'TB',
-                nodeSep: 40,
-                edgeSep: 20,
-                rankSep: 135,   // rank gap = edge length in a TB layout
-                animate: true,
-                animationDuration: 300,
-                fit: true,
-                padding: 30,
-            },
-            // Force-directed layout (the "force" button). Tuned to spread nodes apart and keep
-            // edges from bunching/overlapping: strong repulsion, long ideal edges, generous node
-            // separation, label-aware node sizing, and a high-quality multi-iteration solve.
-            fcose: {
-                name: 'fcose',
-                quality: 'proof',
-                randomize: false,
-                animate: true,
-                animationDuration: 300,
-                fit: true,
-                padding: 40,
-                nodeDimensionsIncludeLabels: true,
-                packComponents: true,
-                numIter: 2500,
-                nodeRepulsion: 450000,
-                idealEdgeLength: 85,
-                edgeElasticity: 0.45,
-                nodeSeparation: 150,
-                gravity: 0.25,
-                gravityRange: 3.8,
-            },
-        };
-        this.activeLayout = 'dagre';
-        // fcose options used when expanding a node's relations (fit:false so the view doesn't
-        // zoom out). Same overlap-avoiding tuning as the force button, plus the longer edges.
-        this.layoutOptions = {
-            name: 'fcose',
-            quality: 'proof',
-            randomize: false,
-            animate: true,
-            animationDuration: 300,
-            fit: false, // prevents zooming out when expanding nodes
-            nodeDimensionsIncludeLabels: true,
-            packComponents: true,
-            numIter: 2500,
-            nodeRepulsion: 8192 * 64,
-            idealEdgeLength: 169,
-            edgeElasticity: 0.45,
-            nodeSeparation: 120,
-            gravity: 0.25,
-        };
+        // A page makes a new GraphNetwork in the same container whenever another root is picked. The
+        // one before lets go of the container first, so canvases and listeners don't pile up.
+        if (this.container.__graphNetwork) this.container.__graphNetwork.destroy();
+        this.container.__graphNetwork = this;
         this.labels = [];
-        this.cy = this.setup();
-
-        // Node labels are HTML overlays (cytoscape-node-html-label) so each label can style its
-        // type tokens individually (colour + weight) and truncate the type line and the name
-        // line independently — see renderNodeLabel.
-        this.nodeHtmlLabelTPL = data => this.renderNodeLabel(data);
-        // Query 'node' (every node keeps a label element), NOT 'node:visible'. Visibility is driven
-        // through the label content (data.gfHidden -> empty), because cytoscape recomputes :visible
-        // lazily and a batched show leaves the plugin unable to re-create a removed label. Registered
-        // exactly once here; all later updates flow through data/style events (never re-registered).
-        this.cy.nodeHtmlLabel([{ query: 'node', tpl: this.nodeHtmlLabelTPL }]);
-
-        // Overlay layer + state for the edge "data flow" travelers (see refreshEdgeAnimations).
-        this.travelerLayer = Object.assign(document.createElement('div'), { className: 'dh-edge-traveler-layer' });
-        this.container.append(this.travelerLayer);
-        this.edgeTravelers = [];
-        this.travelerRAF = null;
+        GRAPH_COLORS = graphPalette();   // the theme may have changed while no graph was open
+        this.view = createGraphView(this.container, {
+            colors: () => GRAPH_COLORS,
+            theme: () => document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark',
+            // The arrangement is remembered per graph: the resource it was opened from, and how deep.
+            saveKey: () => this.loadedId == null ? null : this.loadedId + '|' + this.queryDepth,
+            onEdgePick: edge => this.openEdgeForm(edge),
+            picking: () => !this.addEdgeModeEnabled,
+            tr: (key, args) => args ? $L(key, null, args) : $L(key),
+            // A big graph brings resources into Cytoscape as they come into view; a filter hides them too.
+            // Resources brought into view arrive unfiltered, so the filter only has work while it is set.
+            onWindow: () => { if (this.filter && this.filter.state && this.filter.isSet()) this.filter.apply(); },
+        });
 
         // Re-theme the graph live when the user toggles the colour theme (the toggle sets
-        // data-theme on <html>; see layout/main.html). Per-node fills/widths are bypass
-        // styles and survive the stylesheet swap, so only the chrome (borders, edges,
-        // canvas-facing colours) flips.
+        // data-theme on <html>; see layout/main.html).
         this.themeObserver = new MutationObserver(() => this.applyTheme());
         this.themeObserver.observe(document.documentElement, {
             attributes: true,
             attributeFilter: ['data-theme']
         });
 
-        this.cy.on('click', (event) => {
-            if(event.originalEvent.target.closest(".node-selector") != null){
-                event.stopPropagation();
-            }
-        });
-
         // Clicking away closes the node's action menu: on the canvas, an edge, or anywhere else
         // on the page. Capture phase, so a handler that stops propagation cannot keep it open.
         // A press on another node closes it too, and that node's tap opens its own.
-        document.addEventListener('pointerdown', (event) => {
+        this.onDocumentPointerDown = (event) => {
             if (this.activeTooltip && !this.activeTooltip.contains(event.target)) {
                 this.removeTooltip();
             }
-        }, true);
+        };
+        document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
 
         this.cy.on('grab', 'node', (e) => {
             this.removeTooltip();
         });
 
-        this.cy.on('tap', 'node', (event) => {
+        this.cy.on('tap', 'node.dot', (event) => {
             this.removeTooltip();
             const node = event.target;
             this.setupTooltip(node);
@@ -169,7 +103,7 @@ class GraphNetwork {
             this.resetTooltipAndSelection();
         });
 
-        this.cy.on('mouseover', 'node', (event) => {
+        this.cy.on('mouseover', 'node.dot, node.agg', (event) => {
             this.container.style.cursor = 'pointer';
             this.showNodeTooltip(event.target);
         });
@@ -178,65 +112,75 @@ class GraphNetwork {
             this.container.style.cursor = 'default';
             this.hideNodeTooltip();
         });
-        this.cy.on('select', 'node', (evt) => {
-            const node = evt.target;
-            // Get and style all connected edges
-            node.connectedEdges().style({
-                'line-color': GRAPH_COLORS.accent,
-                'line-style': 'dashed',
-                'line-dash-pattern': [6, 3],
-                'target-arrow-color': GRAPH_COLORS.accent,
-                'source-arrow-color': GRAPH_COLORS.accent
-            });
-            // The node fills with its colour on select; flag it so its label re-renders white.
-            // The plugin re-renders a node's label on a data change, so we just set data here —
-            // adding a second label spec would stack an overlapping (fuzzy) label.
-            node.data('sel', true);
-        });
-        this.cy.on('unselect', 'node', (evt) => {
-            const node = evt.target;
-            // Reset style of previously connected edges
-            node.connectedEdges()
-                .removeStyle('line-color')
-                .removeStyle('line-style')
-                .removeStyle('target-arrow-color')
-                .removeStyle('source-arrow-color')
-                .removeStyle('line-dash-pattern');
-            node.data('sel', false);
-        });
-
-
-        this.cy.on('click', 'edge', event => {
-            if(event.isPropagationStopped()) return;
-
-            const edge = event.target;
-            new ResourceEditEdgeForm({
-                entityId: edge.id().replace("edge-", ""),
-                network: this,
-                afterSave: data => {
-                    for(let i = 0; i < data.relations.length; i++){
-                        const relation = data.relations[i];
-                        const edge = this.cy.getElementById("edge-" + relation.id);
-                        edge.data('label', relation.type);
-                        edge.data('metadata', relation.metadata || {});   // reflect the edited metadata
-                        edge.move({
-                            source: "node-" + relation.start,
-                            target: "node-" + relation.end
-                        });
-                    }
-                    // Start/refresh (or stop) the "data flow" animation for the edited edge.
-                    this.refreshEdgeAnimations();
-                },
-                afterDelete: data => {
-                    this.cy.$('#edge-' + data.entityId).remove();
-                }
-            }).render();
-        });
+        // Selecting a resource dims everything but it and its neighbours, and colours its relations
+        // by direction: one colour where they leave it, another where they arrive.
+        this.cy.on('select', 'node.dot', (evt) => this.view.select(evt.target.id()));
+        this.cy.on('unselect', 'node.dot', () => this.view.clearSel());
 
         this.createAddRelationsBtn();
-        console.log("Graph network created");
-        this.createLayoutButtons();
+        this.createRearrangeBtn();
         this.filter = new GraphFilter(this);
+    }
+
+    // The Cytoscape instance belongs to the drawing.
+    get cy() {
+        return this.view.cy;
+    }
+
+    // Let go of the container: the drawing, its canvases and listeners, and this class's buttons.
+    destroy() {
+        this.destroyed = true;
+        this.removeTooltip();
+        this.hideNodeTooltip();
+        this.themeObserver.disconnect();
+        document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
+        if (this.eh) this.eh.destroy();
+        [this.addRelBtn, this.rearrangeBtn].forEach(btn => btn && btn.remove());
+        this.view.destroy();
+        if (this.container.__graphNetwork === this) delete this.container.__graphNetwork;
+    }
+
+    // A relation was clicked (or chosen, where several meet): open its edit form.
+    openEdgeForm(edge) {
+        if (this.addEdgeModeEnabled) return;
+        new ResourceEditEdgeForm({
+            entityId: edge.id().replace("edge-", ""),
+            network: this,
+            afterSave: data => {
+                for(let i = 0; i < data.relations.length; i++){
+                    const relation = data.relations[i];
+                    const edge = this.cy.getElementById("edge-" + relation.id);
+                    edge.data('label', relation.type);
+                    edge.data('metadata', relation.metadata || {});   // reflect the edited metadata
+                    edge.move({
+                        source: "node-" + relation.start,
+                        target: "node-" + relation.end
+                    });
+                }
+                // A reversed or re-pointed relation takes a new path, and its "data flow" label
+                // may have started or stopped.
+                this.relayout();
+            },
+            afterDelete: data => {
+                this.cy.$('#edge-' + data.entityId).remove();
+                this.relayout();
+            }
+        }).render();
+    }
+
+    // Draw again after resources or relations were added, removed or changed. Known resources stay
+    // where they are and only new ones are placed. The forms add a node and its relations one call
+    // at a time, so the redraw waits until they are all in.
+    relayout() {
+        if (this.refreshQueued) return;
+        this.refreshQueued = true;
+        queueMicrotask(() => {
+            if (!this.refreshQueued || this.destroyed) return;
+            this.refreshQueued = false;
+            this.view.refresh();
+            // Something added while a filter is on is hidden like the rest.
+            if (this.filter) this.filter.apply();
+        });
     }
 
     resetTooltipAndSelection(){
@@ -256,25 +200,20 @@ class GraphNetwork {
         }
     }
 
-    // Hover tooltip showing a node's full name — only when the canvas label is truncated
-    // (the node's name is wider than the label's max width), since the canvas text has no
-    // native title tooltip.
+    // Hover tooltip with a resource's full name and types. The canvas shows a shortened name (the part
+    // its parent already says is dropped), and only where names don't overlap, so the full one is here.
     showNodeTooltip(node){
-        if(!this.isLabelTruncated(node)) return;
         const label = node.data('label') || '';
         this.hideNodeTooltip();
-        const zoom = this.cy.zoom();
+        if(!label) return;
+        const types = (Array.isArray(node.data('labels')) ? node.data('labels') : []).join(', ');
         const rpos = node.renderedPosition();
-        const gap = (node.renderedHeight() / 2) + 8 * zoom;
         this.nodeTooltip = Object.assign(document.createElement('div'), {
             className: 'dh-node-tooltip',
-            textContent: label
+            innerHTML: window.escapeHtml(label) + (types ? `<span class="dh-node-tooltip-types">${window.escapeHtml(types)}</span>` : '')
         });
         this.nodeTooltip.style.left = rpos.x + 'px';
-        this.nodeTooltip.style.top = (rpos.y - gap) + 'px';
-        // Scale with the zoom so the tooltip stays proportional to the nodes.
-        this.nodeTooltip.style.transformOrigin = 'bottom center';
-        this.nodeTooltip.style.transform = `translate(-50%, -100%) scale(${zoom})`;
+        this.nodeTooltip.style.top = (rpos.y - node.renderedHeight() / 2 - 8) + 'px';
         this.container.append(this.nodeTooltip);
     }
 
@@ -283,18 +222,6 @@ class GraphNetwork {
             this.nodeTooltip.remove();
             this.nodeTooltip = null;
         }
-    }
-
-    // True when the node's name is wider than the pill's inner width (data(w) minus the label
-    // padding), i.e. the name is actually ellipsised — so the hover tooltip only shows then.
-    isLabelTruncated(node){
-        const label = node.data('label') || '';
-        if(!label) return false;
-        const maxW = (node.data('w') || 120) - 12;
-        const ctx = this._labelMeasureCtx
-            || (this._labelMeasureCtx = document.createElement('canvas').getContext('2d'));
-        ctx.font = "700 11px 'Manrope', Arial, sans-serif";
-        return ctx.measureText(label).width > maxW;
     }
 
     // --- Guided-tutorial targeting hook --------------------------------------
@@ -369,6 +296,7 @@ class GraphNetwork {
             const t0 = performance.now();
             let lastReload = -Infinity;
             const tick = () => {
+                if(this.destroyed) return resolve(null);   // another root was opened meanwhile
                 const node = this.nodeByExternalId(externalId);
                 if(node) return resolve(node);
                 const elapsed = performance.now() - t0;
@@ -437,9 +365,8 @@ class GraphNetwork {
         // Font Awesome button bar (was a hand-drawn SVG) so it aligns to the node and styles
         // cleanly; see the .dh-node-actions rules in all.css.
         this.hideNodeTooltip();   // don't stack the hover tooltip under the action menu
-        const zoom = this.cy.zoom();
         const rpos = node.renderedPosition();
-        const gap = (node.renderedHeight() / 2) + 12 * zoom;
+        const gap = (node.renderedHeight() / 2) + 10;
         // Show/hide relations is a single toggle: if the node already has visible outgoing
         // neighbours, the button hides them; otherwise it expands (fetches + shows) them.
         const relationsShown = node.outgoers('node').filter(':visible').nonempty();
@@ -458,13 +385,12 @@ class GraphNetwork {
                 <button type="button" class="dh-node-action" data-action="edit" title="Edit node"><i class="fa-solid fa-pen"></i></button>
                 <button type="button" class="dh-node-action" data-action="clone" title="Clone node"><i class="fa-solid fa-clone"></i></button>`
         });
+        // Full size at any zoom: a zoomed-out network has dots a few pixels wide, and a toolbar scaled
+        // with them could not be used. The caret (bottom-centre) points at the node.
         this.activeTooltip.style.left = rpos.x + 'px';
         this.activeTooltip.style.top = (rpos.y - gap) + 'px';
-        // Scale the toolbar with the zoom so it stays proportional to the node it hangs off.
-        // The caret (bottom-centre) is the anchor, so it keeps pointing at the node as it scales.
-        // (The tooltip is torn down on zoom/pan, so setting this once at open time is enough.)
         this.activeTooltip.style.transformOrigin = 'bottom center';
-        this.activeTooltip.style.transform = `translate(-50%, -100%) scale(${zoom})`;
+        this.activeTooltip.style.transform = 'translate(-50%, -100%)';
         this.container.append(this.activeTooltip);
 
         // Cytoscape uses mouseup for click events, so the button handlers listen on mouseup.
@@ -472,19 +398,15 @@ class GraphNetwork {
             this.removeTooltip();
             const n = this.cy.$('#' + node.id());
             if (n.outgoers('node').filter(':visible').nonempty()) {
-                // relations are showing → hide them (flag empties their HTML labels too)
-                const kids = n.outgoers('node');
-                kids.hide();
-                kids.data('gfHidden', true);
-                kids.emit('data');
+                // relations are showing → hide them
+                n.outgoers('node').hide();
             } else {
                 // relations are hidden or not yet loaded → expand + show
                 this.fetchAndAddRelatedNodes(node.id().replace("node-", ""));
-                const kids = n.outgoers('node');
-                kids.show();
-                kids.data('gfHidden', false);
-                kids.emit('data');
+                n.outgoers('node').show();
             }
+            // Names, outlines and flows follow what is shown.
+            this.refreshLabels();
         });
 
         const sourceNode = this.toNodeData(node);
@@ -500,8 +422,7 @@ class GraphNetwork {
                 afterSave: data => {
                     this.addNode(data);
                     this.addRelatedEdges(data);
-                    const layout = this.cy.elements().layout(this.layoutOptions);
-                    layout.run();
+                    this.relayout();
                 }
             });
             resourceRelForm.render();
@@ -518,8 +439,7 @@ class GraphNetwork {
                     this.addNode({ id: ts.id, name: ts.name, labels: ['TIMESERIES'], externalId: ts.externalId,
                                    dataSetId: ts.dataSetId });
                     this.addRelatedEdges(ts);
-                    const layout = this.cy.elements().layout(this.layoutOptions);
-                    layout.run();
+                    this.relayout();
                 }
             });
             tsForm.render();
@@ -540,8 +460,7 @@ class GraphNetwork {
                         start: sourceNode.id,
                         end: obj.id
                     });
-                    const layout = this.cy.elements().layout(this.layoutOptions);
-                    layout.run();
+                    this.relayout();
                 }
             });
             dataSetForm.render();
@@ -576,8 +495,7 @@ class GraphNetwork {
                         start: sourceNode.id,
                         end: p.id
                     });
-                    const layout = this.cy.elements().layout(this.layoutOptions);
-                    layout.run();
+                    this.relayout();
                 }
             }).render();
         };
@@ -622,15 +540,14 @@ class GraphNetwork {
                         label: data.name,
                         labels: data.labels,
                         externalId: data.externalId,
-                        color: this.getColor(data),
-                        w: this.nodeWidth(data.name)
+                        color: this.getColor(data)
                     });
-                    // The data() change above triggers the plugin to re-render this node's
-                    // label with the updated name/types; no explicit re-register needed.
+                    // A new name or type changes the drawn name and icon.
+                    this.relayout();
                 },
                 afterDelete: data => {
                     this.cy.$('#node-' + data.entityId).remove();
-                    this.refreshLabels();
+                    this.relayout();
                 }
             };
 
@@ -648,9 +565,9 @@ class GraphNetwork {
                         this.cy.$('#node-' + p.id).data({
                             name: p.name,
                             label: p.name,
-                            externalId: p.externalId,
-                            w: this.nodeWidth(p.name)
+                            externalId: p.externalId
                         });
+                        this.relayout();
                     }
                 }).render();
                 return;
@@ -670,6 +587,7 @@ class GraphNetwork {
                         // Rich rows (resources list) keep their dot/chips: update just the name span.
                         if(listElem){ const nameEl = listElem.querySelector('.dl-name'); (nameEl || listElem).textContent = item.name; }
                     })
+                    this.relayout();
                 }
                 new TimeseriesEditForm(formConfig).render();
                 return;
@@ -683,6 +601,7 @@ class GraphNetwork {
                         labels: data.labels,
                         externalId: data.externalId
                     });
+                    this.relayout();
                     const section = document.querySelector(`section[id^="section-root-"][id$="-list"]`);
                     const listElem = section && section.querySelector(`li[data-id = "${data.id}"]`);
                     if(listElem){ const nameEl = listElem.querySelector('.dl-name'); (nameEl || listElem).textContent = data.name; }
@@ -698,6 +617,7 @@ class GraphNetwork {
                     labels: data.labels,
                     externalId: data.externalId
                 });
+                this.relayout();
                 const section = document.querySelector(`section[id^="section-root-"][id$="-list"]`);
                 const listElem = section.querySelector(`li[data-root-id = "${data.id}"]`);
                 listElem.textContent = data.name;
@@ -715,8 +635,7 @@ class GraphNetwork {
                 afterSave: data => {
                     this.addNode(data);
                     this.addRelatedEdges(data);
-                    const layout = this.cy.elements().layout(this.layoutOptions);
-                    layout.run();
+                    this.relayout();
                 }
             });
             resourceCloneForm.render();
@@ -740,234 +659,27 @@ class GraphNetwork {
 
     }
 
-    setup() {
-        return cytoscape({
-            container: this.container, // container to render in
-            elements: [],
-            style: this.buildStyle(GRAPH_COLORS),
-            wheelSensitivity: 2,
-            // Cap zoom-in so a layout `fit` on a tiny graph (one or two nodes — e.g. the tour's
-            // "your resource" beat) doesn't blow a single node up to fill the whole canvas. fit
-            // respects maxZoom, so small graphs settle at a readable size with breathing room
-            // instead of one giant pill; larger graphs are unaffected.
-            maxZoom: 1.4,
-        });
-    }
-
-    // The Cytoscape stylesheet, parameterised by a palette so it can be rebuilt on theme
-    // change. Nodes are white content-width pills with a fat border in the node's label
-    // colour (data(color)); edges are thin, arrow-less curved connectors with an italic
-    // relationship label.
-    buildStyle(c) {
-        return [
-            {
-                selector: 'node',
-                style: {
-                    'shape': 'round-rectangle',
-                    'corner-radius': '16px',
-                    'background-color': c.nodeSurface,   // white pill (light) / dark chip (dark theme)
-                    'border-style': 'solid',
-                    'border-color': 'data(color)',   // thin border in the node's label colour
-                    'border-width': 2,
-                    // No native (canvas) label — the HTML overlay (renderNodeLabel) draws the
-                    // text, so we don't render canvas text on top of it. The node is a fixed-height
-                    // pill sized to a per-node width (data(w), computed from the name in addNode).
-                    'width': 'data(w)',
-                    'height': '34px',
-                    'transition-property': 'outline-color outline-width overlay-opacity overlay-padding',
-                    'transition-duration': '0.2s'
-                }
-            },
-            {
-                selector: 'edge',
-                style: {
-                    'width': 1,
-                    'line-color': c.edge,
-                    'curve-style': 'unbundled-bezier',
-                    // Per-edge so parallel relationships fan onto distinct arcs instead of
-                    // stacking on the same curve. Defaults to BASE_CURVE (see addEdge) and is
-                    // widened by fanParallelEdges(); data survives an applyTheme restyle.
-                    'control-point-distances': 'data(cpd)',
-                    'control-point-weights': [0.5],
-                    // Relations are directed, so show which way. Scaled up because the arrow is
-                    // sized off the 1px line width and would otherwise be too small to read; the
-                    // selected/hover/tutorial rules below already recolour it.
-                    'target-arrow-shape': 'triangle',
-                    'target-arrow-color': c.edge,
-                    'arrow-scale': 1.6,
-                    'text-rotation': 'autorotate',
-                    'text-margin-y': 0,
-                    'font-size': '9px',
-                    'font-style': 'italic',
-                    'text-background-padding': '2px',
-                    'text-background-color': c.textBg,
-                    'text-background-opacity': 0.85,
-                    'color': c.edgeText,
-                    'label': 'data(label)'
-                }
-            },
-            {
-                selector: 'node:selected',
-                style: {
-                    'background-color': 'data(color)',   // fill with the label colour when selected
-                    'outline-color': c.selected,
-                    'outline-width': 3,
-                    'outline-style': 'solid',
-                    'outline-opacity': 1
-                }
-            },
-            {
-                selector: 'edge:selected, .eh-hover',
-                style: {
-                    'width': 2,
-                    'line-color': c.accent,
-                    'target-arrow-color': c.accent,
-                    'source-arrow-color': c.accent
-                }
-            },
-            {
-                selector: '.eh-source',
-                style: { 'border-width': 4, 'border-color': c.accent }
-            },
-            {
-                selector: '.eh-target',
-                style: { 'border-width': 4, 'border-color': c.accent }
-            },
-            {
-                selector: '.eh-ghost-edge.eh-preview-active',
-                style: { 'opacity': 0 }
-            },
-            {
-                selector: '.eh-preview, .eh-ghost-edge',
-                style: {
-                    'line-color': c.accent,
-                    'target-arrow-color': c.accent,
-                    'source-arrow-color': c.accent
-                }
-            },
-            {
-                selector: '.filtered-out',
-                style: { 'display': 'none' }
-            },
-            {
-                // Tutorial highlight: glow a focused node in the Navy brand accent.
-                selector: 'node.tut-highlight',
-                style: { 'border-width': 4, 'border-color': c.tutorial, 'border-opacity': 1 }
-            },
-            {
-                selector: 'edge.tut-highlight',
-                style: { 'line-color': c.tutorial, 'width': 4, 'target-arrow-color': c.tutorial }
-            },
-            {
-                // Tutorial: dim everything outside the highlighted focus.
-                selector: '.tut-dim',
-                style: { 'opacity': 0.18 }
-            },
-        ];
-    }
-
-    // Re-pick the palette from <html data-theme> and swap the stylesheet. Per-node bypass styles
-    // (fill) are preserved by Cytoscape across the swap, and the native label colour comes from
-    // the stylesheet, so labels re-theme automatically.
+    // Re-pick the palette from <html data-theme> and redraw with it.
     applyTheme() {
         GRAPH_COLORS = graphPalette();
-        // Use fromJson().update() (not cy.style(sheet)) — the latter mis-renders existing
-        // edges on a live restyle (they balloon in width and lose their curve).
-        this.cy.style().fromJson(this.buildStyle(GRAPH_COLORS)).update();
-        // (Node-label colours are CSS-driven off <html data-theme>, so they re-theme on their own.)
+        this.view.applyTheme();
     }
 
-    // ---- Edge "data flow" animation -------------------------------------------------------
-    // For every edge whose metadata carries an "animate::datatype" entry, a small chip showing
-    // that value streams along the edge from the source node to the target node, like the
-    // travelling signals in the intellistream.ai hero graph. Rebuilt whenever the graph
-    // changes; positions are recomputed each frame from the live (pan/zoom-aware) geometry.
+    // Relations whose metadata carries an "animate::datatype" entry show that value travelling along
+    // the line from source to target, like the travelling signals in the intellistream.ai hero graph.
+    // The drawing reads the metadata again after an edit, so the label starts, changes or stops.
     refreshEdgeAnimations(){
-        if(!this.travelerLayer) return;
-        this.edgeTravelers.forEach(tr => tr.el.remove());
-        this.edgeTravelers = [];
-        this.cy.edges().forEach(edge => {
-            const meta = edge.data('metadata');
-            // Metadata added via the form is stored on the relationship with a "metadata_"
-            // prefix, so the key arrives as "metadata_animate::datatype" (fall back to the bare
-            // key in case it was set directly on the relationship).
-            const datatype = meta && (meta['metadata_animate::datatype'] || meta['animate::datatype']);
-            if(!datatype) return;
-            const s = edge.sourceEndpoint(), t = edge.targetEndpoint();
-            const len = Math.hypot(t.x - s.x, t.y - s.y);
-            const el = Object.assign(document.createElement('div'), {
-                className: 'dh-edge-traveler',
-                textContent: datatype
-            });
-            el.style.opacity = 0;
-            this.travelerLayer.append(el);
-            this.edgeTravelers.push({
-                edge,
-                el,
-                dur: Math.min(10000, Math.max(3200, len * 24)),   // ms — roughly constant speed (slow)
-                offset: Math.random()                            // desync travellers across edges
-            });
-        });
-        this.startTravelerLoop();
-    }
-
-    startTravelerLoop(){
-        if(this.travelerRAF || !this.edgeTravelers.length) return;
-        const step = ts => {
-            this.travelerRAF = null;
-            this.updateTravelers(ts);
-            if(this.edgeTravelers.length){
-                this.travelerRAF = requestAnimationFrame(step);
-            }
-        };
-        this.travelerRAF = requestAnimationFrame(step);
-    }
-
-    updateTravelers(ts){
-        const zoom = this.cy.zoom();
-        const pan = this.cy.pan();
-        this.edgeTravelers.forEach(tr => {
-            if(tr.edge.removed() || !tr.edge.visible()){
-                tr.el.style.opacity = 0;
-                return;
-            }
-            const t = ((ts / tr.dur) + tr.offset) % 1;
-            const p = this.edgePointAt(tr.edge, t);
-            const rx = p.x * zoom + pan.x;
-            const ry = p.y * zoom + pan.y;
-            // fade in near the source and out near the target so it doesn't pop at the nodes
-            // Fade in near the source and out near the target (solid at its peak — the
-            // subtlety comes from the colour, not from transparency).
-            const fade = Math.max(0, Math.min(1, t / 0.12, (1 - t) / 0.12));
-            // Scale with the zoom so the chip stays proportional to the graph.
-            tr.el.style.transform = `translate(${rx}px, ${ry}px) translate(-50%, -50%) scale(${zoom})`;
-            tr.el.style.opacity = fade;
-        });
-    }
-
-    // Point at parameter t (0..1) along the edge, modelled as a quadratic bezier whose control
-    // point is derived so the curve passes through Cytoscape's reported midpoint — matching the
-    // rendered unbundled-bezier curve. Returns model coordinates.
-    edgePointAt(edge, t){
-        const s = edge.sourceEndpoint();
-        const e = edge.targetEndpoint();
-        const m = edge.midpoint();
-        const cx = 2 * m.x - (s.x + e.x) / 2;
-        const cy = 2 * m.y - (s.y + e.y) / 2;
-        const u = 1 - t;
-        return {
-            x: u * u * s.x + 2 * u * t * cx + t * t * e.x,
-            y: u * u * s.y + 2 * u * t * cy + t * t * e.y
-        };
+        this.view.refreshFlows();
     }
 
     loadNetwork(id, isRootId){
         if(isRootId){
             this.rootId = id;
         }
+        this.loadedId = id;
         // Returns the load promise so callers can act once the graph is rendered
         // (e.g. select/highlight the root node).
-        return Api.post("/resources/fetch-related", { id: id, depth: this.queryDepth }).then( response => {
+        return Api.post("/resources/fetch-related", { id: id, depth: this.queryDepth, limit: NETWORK_LIMIT }).then( response => {
             if(response.status === 200){
                 return response.json();
             } else {
@@ -982,9 +694,13 @@ class GraphNetwork {
     }
 
     reload(data){
+        // A fetch that comes back after another root was picked has nothing left to draw into.
+        if (this.destroyed) return;
         // Replace, not append. Without this, re-loading the network (clicking a
         // different root, changing depth, etc.) tries to re-add nodes/edges that
         // are already on the canvas and Cytoscape rejects duplicate ids.
+        this.removeTooltip();
+        this.view.reset();
         this.cy.elements().remove();
 
         this.labels = data.labels;
@@ -999,169 +715,71 @@ class GraphNetwork {
             });
         this.labels = this.labels.concat(this.standardLabels);
 
-        for(let i = 0; i < data.nodes.length; i++){
-            const node = data.nodes[i];
-            this.addNode(node);
+        if (data.nodes.length > this.view.bigAbove) {
+            // Too many for Cytoscape at once: the drawing keeps them and shows what is in view.
+            this.view.loadBig(data.nodes.map(node => this.nodeData(node)), data.edges.map(edge => this.edgeData(edge)));
+        } else {
+            this.cy.batch(() => {
+                data.nodes.forEach(node => this.addNode(node));
+                data.edges.forEach(edge => this.addEdge(edge));
+            });
         }
-
-        for(let i = 0; i < data.edges.length; i++){
-            const edge = data.edges[i];
-            this.addEdge(edge);
-        }
-
-
-        let layout = this.cy.layout({...this.layouts[this.activeLayout], animate: false});
-        layout.run();
-
-        const node = this.findNodeById(this.rootId);
-        // Highlight the root node so the graph mirrors the left-menu selection
-        // (yellow outline + soft glow overlay + connected-edge styling, defined in
-        // the stylesheet and the 'select' handler). Centralized here so every page
-        // — timeseries, resources, datasets — gets it from a single root load.
-        if(node && node.nonempty()) node.select();
-        // Animate the view so that it centers on the node
-        this.cy.animate({
-            center: {
-                eles: node
-            },
-            duration: 500,  // duration in milliseconds for the animation
-            easing: 'ease-in-out'
-        });
+        // Drawn now rather than when the adds' queued redraw comes round, so the graph is on screen
+        // when the load promise resolves.
+        this.refreshQueued = false;
+        this.view.refresh();
+        // Ring the root so the graph mirrors the left-menu selection. It is not selected: selecting
+        // dims everything but its neighbours, which would hide most of the graph on open.
+        this.view.setRoot(this.rootId != null && this.findNodeById(this.rootId).nonempty() ? "node-" + this.rootId : null);
 
         // A freshly loaded root starts unfiltered; rebuild the option lists from the
         // new graph contents.
         this.filter.reset();
         this.filter.refreshOptions();
-        this.refreshEdgeAnimations();
+    }
+
+    nodeData(node){
+        return {
+            id: "node-" + node.id,
+            label: node.name,             // node name (also used by the filter + hover tooltip)
+            labels: node.labels,
+            externalId: node.externalId,
+            dataSetId: node.dataSetId,    // the dataset this node lives in, so a node created
+                                          // off it can default to the same one (see toNodeData)
+            color: this.getColor(node),   // the node's label colour (forms and the filter use it)
+        };
+    }
+
+    edgeData(edge){
+        return {
+            id: "edge-" + edge.id,      // Unique identifier for the edge
+            source: "node-" + edge.start,  // ID of the source node
+            target: "node-" + edge.end,   // ID of the target node
+            label: edge.type,
+            metadata: edge.metadata     // relationship properties; drives the flow animation
+        };
     }
 
     addNode(node){
-        const color = this.getColor(node);
-        return this.cy.add({
+        const added = this.cy.add({
             group: 'nodes',  // specify that you are adding a node
-            data: {
-                id: "node-" + node.id,
-                label: node.name,             // node name (also used by the filter + hover tooltip)
-                labels: node.labels,
-                externalId: node.externalId,
-                dataSetId: node.dataSetId,    // the dataset this node lives in, so a node created
-                                              // off it can default to the same one (see toNodeData)
-                color: color,                 // the node's border colour (its label colour)
-                w: this.nodeWidth(node.name), // pill width (the label is an HTML overlay)
-            },
+            data: this.nodeData(node),
         });
-    }
-
-    // Pill width, from the name length — the name is the widest line; the smaller type line fits
-    // within it (and both truncate with ellipsis if they overflow).
-    nodeWidth(name){
-        const nameW = (name || '').length * 6.6;   // ~11px bold
-        return Math.min(240, Math.max(90, Math.ceil(nameW) + 22));
-    }
-
-    // The HTML node label: a small type line (built-in types coloured + bold, custom types dimmed
-    // + normal weight, built-ins sorted first) over the bold node name. On selection the node
-    // fills with its colour, so the text flips to white. Both lines truncate with ellipsis.
-    renderNodeLabel(data){
-        // Hidden by the graph filter / relation collapse: render an empty label. The plugin keeps
-        // the label element (query 'node'), so this reliably hides and later restores it via a data
-        // change, with no create/remove churn (which caused fuzzy stacked text + orphaned labels).
-        if (data.gfHidden) return '';
-        const selected = !!data.sel;   // set by the select/unselect handlers; drives the .sel class
-        const w = (data.w || 120) - 12;
-        const labels = Array.isArray(data.labels) ? data.labels : (data.labels ? [data.labels] : []);
-        const rank = t => { const i = STANDARD_TYPES.indexOf(String(t).toUpperCase()); return i === -1 ? 999 : i; };
-        const sorted = [...labels].sort((a, b) => {
-            const ra = rank(a), rb = rank(b);
-            return ra !== rb ? ra - rb : String(a).localeCompare(String(b));
-        });
-        // Built-in types get the .dh-nl-type-std class (highlighted), custom names get
-        // .dh-nl-type-other (subtle). Colours (and the theme + selected variants) live in all.css.
-        const types = sorted.map(t => {
-            const up = String(t).toUpperCase();
-            const cls = STANDARD_TYPES.includes(up) ? 'dh-nl-type-std' : 'dh-nl-type-other';
-            return `<span class="${cls}">${window.escapeHtml(up)}</span>`;
-        }).join('<span class="dh-nl-sep">, </span>');
-        return `
-          <div class="dh-node-label${selected ? ' sel' : ''}" style="width:${w}px">
-            <div class="dh-nl-types">${types}</div>
-            <div class="dh-nl-name">${window.escapeHtml(data.label || '')}</div>
-          </div>`;
+        // Every path that adds a node redraws, placing it beside its neighbours.
+        this.relayout();
+        return added;
     }
 
     addEdge(edge){
         const added = this.cy.add({
             group: 'edges', // Define that you're adding an edge
-            data: {
-                id: "edge-" + edge.id,      // Unique identifier for the edge
-                source: "node-" + edge.start,  // ID of the source node
-                target: "node-" + edge.end,   // ID of the target node
-                label: edge.type,
-                cpd: RIGHT_OF_TRAVEL * ARC_STEP,   // bezier control-point distance; overwritten
-                                            // immediately by the fanParallelEdges() call below
-                metadata: edge.metadata     // relationship properties; drives the flow animation
-            }
+            data: this.edgeData(edge)
         });
-        // Re-fan here rather than at the call sites: every path that draws an edge — initial load,
-        // save response, fetch-related, and creating a relation by hand — then renders correctly
-        // without having to remember to ask for it.
-        this.fanParallelEdges(added);
+        // Redraw here rather than at the call sites: every path that draws an edge — initial load,
+        // save response, fetch-related, and creating a relation by hand — is then routed, and a
+        // second relation between the same pair gets its own lane.
+        this.relayout();
         return added;
-    }
-
-    // Fan the relationships between one pair of nodes onto separate arcs. Several edges between
-    // the same two nodes (always different relationship types — the DB enforces one edge per type
-    // per pair) would otherwise share one control point and stack exactly on top of each other,
-    // leaving all but one invisible.
-    //
-    // Arcs are placed by "right-hand drive": each edge bows to the right of the way it points, so
-    // the two directions separate onto opposite sides like the lanes of a road and the picture is
-    // balanced without having to read the arrowheads. Edges sharing a direction fan outward along
-    // their own side in ARC_STEP increments.
-    //
-    // That only balances while the traffic is roughly even. Once one direction outnumbers the
-    // other by more than MAX_DIRECTION_IMBALANCE — the all-one-way case especially — honouring
-    // direction would pile nearly every arc on one side, so the group falls back to alternating
-    // strict left/right (right first, widening every pair) and lets the arrowheads carry the
-    // direction on their own.
-    //
-    // Either way no two arcs share a (side, detour) pair, so a node pair can carry any number of
-    // relationships without two of them coinciding.
-    //
-    // Scoped to the pair the given edge belongs to; parallelEdges() is indexed, so this does not
-    // walk the graph. Driven off data(), so an applyTheme restyle cannot flatten the fan.
-    fanParallelEdges(edge){
-        if(edge.isLoop()) return;   // Cytoscape gives self-loops their own arc
-        // Stable order so arc positions don't jump between reloads.
-        const group = edge.parallelEdges()
-            .filter(candidate => !candidate.isLoop())
-            .sort((a, b) => a.id().localeCompare(b.id()));
-        if(group.length === 0) return;
-
-        // One end is picked as the reference so "forward" and "reverse" mean something stable
-        // across the group; which one it is does not matter, only that it is consistent.
-        const reference = group[0].data('source');
-        const runsForward = member => member.data('source') === reference;
-        const lanes = [group.filter(runsForward), group.filter(member => !runsForward(member))];
-
-        if(lanes.every(lane => lane.length > 0)
-                && Math.abs(lanes[0].length - lanes[1].length) <= MAX_DIRECTION_IMBALANCE){
-            lanes.forEach(lane => lane.forEach((member, i) => {
-                // Both lanes store the same sign: "right of travel" is fixed in the edge's own
-                // frame, and Cytoscape already mirrors the perpendicular when a pair of edges
-                // point opposite ways — which is exactly what puts the two lanes either side.
-                member.data('cpd', RIGHT_OF_TRAVEL * ARC_STEP * (i + 1));
-            }));
-            return;
-        }
-
-        group.forEach((member, i) => {
-            const side = i % 2 === 0 ? RIGHT_OF_TRAVEL : -RIGHT_OF_TRAVEL;
-            const distance = side * ARC_STEP * (Math.floor(i / 2) + 1);
-            // Here the side is absolute rather than relative to travel, so an edge pointing the
-            // other way needs its sign flipped to undo that same mirroring and land where meant.
-            member.data('cpd', runsForward(member) ? distance : -distance);
-        });
     }
 
     /**
@@ -1225,6 +843,7 @@ class GraphNetwork {
                 throw Error();
             }
         }).then( json => {
+            if (this.destroyed) return;
             const targetNode = this.findNodeById(nodeId);
 
             let newNodesHasBeenAdded = false;
@@ -1246,8 +865,7 @@ class GraphNetwork {
 
 
             if(newNodesHasBeenAdded){
-                const layout = this.cy.elements().layout(this.layoutOptions);
-                layout.run();
+                this.relayout();
             }
 
             // New labels/relationship types may have arrived with the expanded nodes.
@@ -1268,12 +886,16 @@ class GraphNetwork {
         return match ? match.color : "#999999";
     }
 
+    // A big graph keeps what is out of view in the drawing rather than in Cytoscape; for those, a stand-in
+    // answers whether it is in the graph and where.
     findNodeById(id){
-        return this.cy.getElementById("node-" + id);
+        const el = this.cy.getElementById("node-" + id);
+        return el.nonempty() || !this.view.isBig() ? el : this.view.standIn("node-" + id);
     }
 
     findEdgeById(id){
-        return this.cy.getElementById("edge-" + id);
+        const el = this.cy.getElementById("edge-" + id);
+        return el.nonempty() || !this.view.isBig() ? el : this.view.standIn("edge-" + id);
     }
 
     toNodeData(node) {
@@ -1289,38 +911,25 @@ class GraphNetwork {
         };
     }
 
+    // Redraw the names, outlines and flows after resources were shown, hidden or highlighted.
     refreshLabels() {
-        // Re-render every node's HTML label WITHOUT re-registering the plugin spec (re-registering
-        // stacked a second overlapping label layer -> fuzzy text, and left orphaned labels behind).
-        // Emitting 'data' runs the single registered template per node, which honours data.gfHidden
-        // (hidden -> empty, shown -> full) — reliable for both hiding and restoring.
-        this.cy.nodes().emit('data');
+        this.view.redraw();
     }
 
-    applyLayout(name) {
-        this.activeLayout = name;
-        this.layoutBtns.forEach(btn => btn.classList.toggle('active', btn.dataset.layout === name));
-        this.cy.layout({...this.layouts[name]}).run();
-    }
-
-    createLayoutButtons() {
-        const layouts = [
-            { key: 'dagre', icon: 'fa-sitemap', title: 'Hierarchical layout', css: 'layout-dagre-btn' },
-            { key: 'fcose', icon: 'fa-circle-nodes', title: 'Force-directed layout', css: 'layout-fcose-btn' },
-        ];
-        this.layoutBtns = [];
-        layouts.forEach(l => {
-            const btn = Object.assign(document.createElement('button'), {
-                className: `dh-btn secondary network-btns ${l.css}`,
-                title: l.title,
-                innerHTML: `<i class="fa fa-fw ${l.icon}"></i>`
-            });
-            btn.dataset.layout = l.key;
-            if (l.key === this.activeLayout) btn.classList.add('active');
-            btn.addEventListener('click', () => this.applyLayout(l.key));
-            this.container.appendChild(btn);
-            this.layoutBtns.push(btn);
+    // Forget this graph's saved arrangement and lay it out afresh. The only layout control: the
+    // arrangement is otherwise kept, so the picture stays the same from one load to the next.
+    createRearrangeBtn() {
+        this.rearrangeBtn = Object.assign(document.createElement('button'), {
+            type: 'button',
+            className: 'dh-btn secondary network-btns rearrange-btn',
+            title: $L('graph.rearrange'),
+            innerHTML: '<i class="fa fa-fw fa-circle-nodes"></i>'
         });
+        this.rearrangeBtn.addEventListener('click', () => {
+            this.removeTooltip();
+            this.view.rearrange();
+        });
+        this.container.appendChild(this.rearrangeBtn);
     }
 
     createAddRelationsBtn() {
@@ -1330,7 +939,8 @@ class GraphNetwork {
             snapThreshold: 5,
             noEdgeEventsInDraw: true, // prevent firing of edge events while drawing
             disableBrowserGestures: true, // disable browser gestures while using the extension
-            handleNodes: 'node', // selector for which nodes to be handles
+            handleNodes: 'node.dot', // selector for which nodes to be handles
+            canConnect: (source, target) => !source.same(target) && target.hasClass('dot'),   // not a big graph's group dot
             edgeParams: (sourceNode, targetNode) => {
                 return {classes: 'new-edge-handle'};
             }
@@ -1512,12 +1122,14 @@ class GraphFilter {
     }
 
     refreshOptions() {
+        // A big graph's resources are mostly out of view, so the lists come from the drawing's store.
+        const all = this.network.view.modelData();
         const presentLabels = new Set();
-        this.cy.nodes().forEach(n => (n.data('labels') || []).forEach(l => presentLabels.add(l)));
+        (all ? all.nodes : this.cy.nodes().map(n => n.data())).forEach(d => (d.labels || []).forEach(l => presentLabels.add(l)));
 
         const presentRelTypes = new Set();
-        this.cy.edges().forEach(e => {
-            const t = e.data('label');
+        (all ? all.edges : this.cy.edges().map(e => e.data())).forEach(d => {
+            const t = d.label;
             if (t) presentRelTypes.add(t);
         });
 
@@ -1583,14 +1195,16 @@ class GraphFilter {
         if (this.panel) this.panel.querySelectorAll('.gf-list').forEach(l => { l.innerHTML = ''; });
     }
 
+    isSet() { return !!(this.state.name || this.state.activeLabels || this.state.activeRelTypes); }
+
     apply() {
         const q = (this.state.name || '').trim().toLowerCase();
         const labels = this.state.activeLabels;
         const types = this.state.activeRelTypes;
 
-        const changedNodes = this.cy.collection();
+        let changed = false;
         this.cy.batch(() => {
-            this.cy.nodes().forEach(n => {
+            this.cy.nodes('.dot').forEach(n => {
                 const wasHidden = n.hasClass('filtered-out');
                 const name = (n.data('label') || '').toLowerCase();
                 const nLabels = n.data('labels') || [];
@@ -1598,10 +1212,9 @@ class GraphFilter {
                 const labelOk = !labels || nLabels.length === 0 || nLabels.some(l => labels.has(l));
                 const hide = !(nameOk && labelOk);
                 n.toggleClass('filtered-out', hide);   // hides the canvas node (display:none)
-                n.data('gfHidden', hide);              // empties its HTML label (see renderNodeLabel)
-                if (hide !== wasHidden) changedNodes.merge(n);
+                if (hide !== wasHidden) changed = true;
             });
-            this.cy.edges().forEach(e => {
+            this.cy.edges().not('.agg').forEach(e => {
                 const typeOk = !types || types.has(e.data('label') || '');
                 const endpointsVisible = !e.source().hasClass('filtered-out')
                     && !e.target().hasClass('filtered-out');
@@ -1609,11 +1222,9 @@ class GraphFilter {
             });
         });
         // Keep the sub-nav button lit while any constraint is active, even with the panel closed.
-        const filtered = !!(this.state.name || this.state.activeLabels || this.state.activeRelTypes);
+        const filtered = this.isSet();
         if (this.btn) this.btn.classList.toggle('has-filter', filtered);
-        // cy.batch() coalesces the data events the HTML-label plugin needs, so nudge only the nodes
-        // whose visibility flipped: the plugin re-runs their template (hidden -> empty, shown -> full).
-        // (Edges carry no HTML label.)
-        if (changedNodes.nonempty()) changedNodes.emit('data');
+        // Names, outlines and flows are drawn on canvases of their own, which follow what is shown.
+        if (changed) this.network.refreshLabels();
     }
 }

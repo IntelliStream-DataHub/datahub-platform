@@ -342,7 +342,7 @@ class BrowserPayloadContractTest {
                         "static/js/resource-list.js"),
 
                 new Payload("POST /resources/fetch-related (graph)", """
-                        {"id":"9223372036854775806","depth":3}""",
+                        {"id":"9223372036854775806","depth":3,"limit":-1}""",
                         new TypeReference<RelatedResourcesForm>() {},
                         "static/js/graph-network/graph-network.js"),
 
