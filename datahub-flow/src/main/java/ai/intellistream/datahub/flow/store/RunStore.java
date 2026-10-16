@@ -425,10 +425,14 @@ public class RunStore {
 
     // ---------------------------------------------------------------- history
 
-    /** Finished runs not yet in ClickHouse, oldest first. */
-    public List<StoredRun> unarchived(int most) {
-        List<String> ids = connection().sync().zrange("flow:unarchived", 0, most - 1);
-        return hashes(ids).stream().map(RunStore::stored).toList();
+    /**
+     * Takes finished runs that are not in ClickHouse yet, oldest first, for this caller to archive:
+     * they are hidden from other callers for {@code hide}, and come back if this one never says they
+     * are archived.
+     */
+    public List<StoredRun> takeUnarchived(int most, Duration hide) {
+        List<Object> ids = list("take_unarchived", String.valueOf(most), String.valueOf(hide.toSeconds()));
+        return hashes(ids.stream().map(Object::toString).toList()).stream().map(RunStore::stored).toList();
     }
 
     /** ClickHouse has these: they expire here after the finished TTL. */
@@ -439,11 +443,6 @@ public class RunStore {
         List<String> a = new ArrayList<>(List.of(String.valueOf(finishedTtl.toSeconds())));
         ids.forEach(id -> a.add(id.toString()));
         integer("archived", a.toArray(String[]::new));
-    }
-
-    /** Finished runs waiting for ClickHouse, which should not be many. */
-    public long unarchivedCount() {
-        return connection().sync().zcard("flow:unarchived");
     }
 
     // ---------------------------------------------------------------- plumbing
@@ -497,7 +496,7 @@ public class RunStore {
     }
 
     private static final List<String> NAMES = List.of("enqueue", "claim", "claim_one", "renew", "finish", "reap",
-            "cancel", "request_cancel", "sweep_deadlines", "sync_flow", "purge_flow", "archived", "event_paid");
+            "cancel", "request_cancel", "take_unarchived", "sweep_deadlines", "sync_flow", "purge_flow", "archived", "event_paid");
 
     /** Loads every script into the tenant's server, which forgets them when it restarts. */
     private void loadAll() {

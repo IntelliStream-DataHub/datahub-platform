@@ -209,3 +209,49 @@ CREATE OR REPLACE TABLE flow_run_event (
         ORDER BY (run_id, event_time)
         TTL toDateTime(event_time) + INTERVAL 90 DAY
         SETTINGS non_replicated_deduplication_window = 1000;
+
+-- Every finished flow run (intellistream-flow), one row each: the history. A run is tracked in the
+-- tenant's KVRocks while it is queued, running and for a short while after it ends; once it has
+-- ended it is written here and this is where it is read from for good. Run records are in
+-- flow_run_event, which this table's rows are the summary of.
+--
+-- A run archived twice (an archiver died after inserting) is one row once ClickHouse has merged:
+-- the sorting key is the run's identity, so ReplacingMergeTree keeps the latest of two. Reads take
+-- the latest per run themselves (LIMIT 1 BY run_id) and do not wait for the merge. A time that does
+-- not apply (a run that never started; a run of no window) is the epoch.
+--
+-- Expires with the tenant's flow retention (90 days by default), like flow_run_event, so a run never
+-- outlives its records or the other way round. This statement does not replace an existing table:
+-- applying the file again must not delete history.
+CREATE TABLE IF NOT EXISTS flow_run (
+    run_id             UUID,
+    -- 0 for a preview of a definition that was never saved.
+    flow_id            UInt64,
+    flow_external_id   LowCardinality(String),
+    data_set_id        UInt64,
+    version            UInt32,
+    status             LowCardinality(String),
+    attempt            UInt16,
+    max_attempts       UInt16,
+    preview            Bool,
+    trigger            LowCardinality(String),
+    triggered_by       String,
+    run_as             String,
+    window_start       DateTime64(3, 'UTC'),
+    window_end         DateTime64(3, 'UTC'),
+    parameters         String CODEC(ZSTD(3)),
+    processor_versions String CODEC(ZSTD(3)),
+    created_at         DateTime64(3, 'UTC'),
+    started_at         DateTime64(3, 'UTC'),
+    finished_at        DateTime64(3, 'UTC'),
+    error_code         LowCardinality(String),
+    error              String CODEC(ZSTD(3)),
+    stats              String CODEC(ZSTD(3)),
+
+    INDEX by_run run_id TYPE bloom_filter GRANULARITY 1
+)
+    ENGINE = ReplacingMergeTree(finished_at)
+        PARTITION BY toYYYYMM(created_at)
+        ORDER BY (data_set_id, flow_id, created_at, run_id)
+        TTL toDateTime(finished_at) + INTERVAL 90 DAY
+        SETTINGS non_replicated_deduplication_window = 1000;
