@@ -235,7 +235,7 @@ public class LimitsProperties {
          * networks of 100,000 resources again and again. A tenant whose {@code max_resources} is
          * lifted to 0 is not a playground tenant, so this does not apply to it.
          */
-        private long maxNetworkNodes = 5_000;
+        private long maxNetworkNodes = 10_000;
 
         public boolean isEnabled() {
             return enabled;
