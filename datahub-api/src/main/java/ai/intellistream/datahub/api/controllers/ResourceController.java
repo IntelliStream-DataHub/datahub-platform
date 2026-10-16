@@ -23,6 +23,7 @@ import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Valid;
@@ -31,13 +32,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.pulsar.client.api.PulsarClientException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -51,12 +55,17 @@ import ai.intellistream.datahub.api.controllers.errors.schema.ApiProblem;
 @Slf4j
 public class ResourceController {
 
+    /** Header on a fetch-related response that the playground limit cut short; its value is the limit. */
+    static final String NETWORK_CAP_HEADER = "X-Network-Cap";
+
     private final ResourceService resourceService;
     private final Validator validator;
+    private final JsonMapper jsonMapper;
 
-    public ResourceController(ResourceService resourceService, Validator validator){
+    public ResourceController(ResourceService resourceService, Validator validator, JsonMapper jsonMapper){
         this.resourceService = resourceService;
         this.validator = validator;
+        this.jsonMapper = jsonMapper;
     }
 
     @Tag(name = "Resources")
@@ -124,6 +133,13 @@ public class ResourceController {
                     node's columns, so graph-sourced nodes are typed but sparsely populated —
                     a Timeseries here carries no `unit` or `securityCategories`; fetch it by id
                     for the full record.
+
+                    ### Large networks
+                    Without a `limit`, the nearest 5,000 resources come back. Send `limit: -1` to
+                    get the whole network: it is sent while it is read, so a network of any size
+                    can be fetched. A playground tenant gets at most the deployment's limit (10,000
+                    by default); when that limit cuts a response short, the response carries an
+                    `X-Network-Cap` header with the limit.
                     """
     )
     @ApiResponse(responseCode = "200", description = "Returns the starting resource plus every resource and relationship reached within `depth` hops.",
@@ -138,9 +154,48 @@ public class ResourceController {
                     schema = @Schema(implementation = ApiProblem.class)
             ))
     @RequestMapping(value = "/fetch-related", method = RequestMethod.POST, produces = { "application/json", "application/xml" })
-    public ResponseEntity<?> fetchRelatedResources(@RequestBody RelatedResourcesForm form) {
-        ResourceNetwork network = resourceService.fetchRelatedResources(form);
-        return new ResponseEntity<>(network, HttpStatus.OK);
+    public ResponseEntity<?> fetchRelatedResources(
+            @RequestBody RelatedResourcesForm form,
+            @Parameter(hidden = true) @RequestHeader(value = HttpHeaders.ACCEPT, required = false) String accept,
+            HttpServletResponse response) throws IOException {
+        // Step one: the checks that can fail with a proper error (not found, no access), made before
+        // anything is sent. Once the first byte is sent, the status is fixed at 200.
+        ResourceService.PreparedNetwork prepared = resourceService.prepareRelatedResources(form);
+        // A network that was cut short looks the same as a small one, so say so, and by which limit.
+        if (prepared.cappedAt() > 0) {
+            response.setHeader(NETWORK_CAP_HEADER, Long.toString(prepared.cappedAt()));
+        }
+        // XML is not sent piece by piece: it is built whole and returned, as before.
+        if (prefersXml(accept)) {
+            return new ResponseEntity<>(resourceService.readRelatedResources(prepared), HttpStatus.OK);
+        }
+        // Step two: send the network as JSON while it is read from Neo4j, so even a large one uses
+        // little memory. A failure from here on can only cut the download short.
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        NetworkJsonWriter writer = new NetworkJsonWriter(jsonMapper, response.getOutputStream());
+        resourceService.streamRelatedResources(prepared, writer);
+        writer.finish(prepared.labels());
+        return null;
+    }
+
+    /**
+     * Whether the caller wants XML rather than JSON: only when its Accept header ranks XML higher. A
+     * wildcard or no Accept header gets JSON, as before.
+     */
+    private static boolean prefersXml(String accept) {
+        if (accept == null || accept.isBlank()) {
+            return false;
+        }
+        double json = 0, xml = 0;
+        for (MediaType type : MediaType.parseMediaTypes(accept)) {
+            if (type.isCompatibleWith(MediaType.APPLICATION_JSON)) {
+                json = Math.max(json, type.getQualityValue());
+            }
+            if (type.isCompatibleWith(MediaType.APPLICATION_XML) || type.isCompatibleWith(MediaType.TEXT_XML)) {
+                xml = Math.max(xml, type.getQualityValue());
+            }
+        }
+        return xml > json;
     }
 
     @Tag(name = "Resources")

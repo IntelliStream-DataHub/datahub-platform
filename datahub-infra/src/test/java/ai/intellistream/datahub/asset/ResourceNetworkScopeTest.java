@@ -152,14 +152,6 @@ class ResourceNetworkScopeTest {
         assertThat(network.edges()).hasSize(1);
     }
 
-    @Test
-    @DisplayName("the two-argument overload is unfiltered, for the internal connectivity read")
-    void defaultOverloadIsUnfiltered() {
-        ResourceNetwork network = ResourceNetwork.from(twoNodesAcrossADatasetBoundary(), Set.of());
-
-        assertThat(externalIds(network)).containsExactly("pump_a", "secret_b");
-    }
-
     /**
      * An orphan node carries no dataset to match a grant against, so only an all-datasets reader
      * may see it — the rule {@code DataSecurity.hasReadPermissionToDataSet} applies everywhere else.

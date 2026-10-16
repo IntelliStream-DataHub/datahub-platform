@@ -47,20 +47,40 @@ public class Neo4j implements AutoCloseable {
      * @throws RuntimeException if TenantContext is empty.
      */
     public Session getSession() {
+        return getSession(currentTenantId());
+    }
+
+    public Session getSession(@NotNull String tenantId) {
+        Neo4jTenant config = tenantConfigService.getConfig(tenantId).getNeo4jTenant();
+        return driverFor(config).session(SessionConfig.forDatabase(config.getDatabaseName()));
+    }
+
+    /**
+     * A session for reading only. For reads that open their own transaction instead of using
+     * {@code executeRead} (see {@code Neo4JService.traverse}): marking the session read-only still lets
+     * a Neo4j cluster send them to a read replica, as {@code executeRead} would.
+     */
+    public Session getReadSession() {
+        Neo4jTenant config = tenantConfigService.getConfig(currentTenantId()).getNeo4jTenant();
+        return driverFor(config).session(SessionConfig.builder()
+                .withDatabase(config.getDatabaseName())
+                .withDefaultAccessMode(AccessMode.READ)
+                .build());
+    }
+
+    private static String currentTenantId() {
         String tenantId = TenantContext.getTenantId();
         if (tenantId == null || tenantId.isBlank()) {
             throw new RuntimeException("Neo4j Multi-tenancy Error: No Tenant ID found in" +
                     "TenantContext. Ensure the request went through the TenantFilter.");
         }
-        return getSession(tenantId);
+        return tenantId;
     }
 
-    public Session getSession(@NotNull String tenantId) {
-        Neo4jTenant config = tenantConfigService.getConfig(tenantId).getNeo4jTenant();
-        Driver driver = drivers.computeIfAbsent(
+    private Driver driverFor(Neo4jTenant config) {
+        return drivers.computeIfAbsent(
                 config.getHost() + "|" + config.getUsername(),
                 key -> createDriver(config));
-        return driver.session(SessionConfig.forDatabase(config.getDatabaseName()));
     }
 
     private Driver createDriver(Neo4jTenant config) {

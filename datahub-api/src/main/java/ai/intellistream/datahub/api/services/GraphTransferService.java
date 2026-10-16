@@ -126,13 +126,18 @@ public class GraphTransferService {
         var form = new RelatedResourcesForm();
         form.setId(id);
         form.setDepth(-1);
-        // One node past the cap: enough to detect an oversized component without loading all of it.
-        form.setLimit(GraphFileCodec.MAX_NODES + 1);
-        ResourceNetwork network = resourceService.fetchRelatedResources(form);
-        if (network.nodes().size() > GraphFileCodec.MAX_NODES) {
+        // A playground tenant may not export more of a network than it may read. A network bigger than
+        // that is refused like any other export that is too large, never cut short: the export
+        // promises that nothing is exported partially.
+        long cap = resourceService.networkCap();
+        int allowed = TenantLimits.unlimited(cap) ? GraphFileCodec.MAX_NODES : (int) Math.min(cap, GraphFileCodec.MAX_NODES);
+        // Ask for one resource more than may be exported: if that many come back, the network is too
+        // big, and it was found out without reading all of it.
+        form.setLimit(allowed + 1);
+        ResourceNetwork network = resourceService.fetchWholeRelatedResources(form);
+        if (network.nodes().size() > allowed) {
             throw new GraphTransferLimitException(
-                    "The graph component has more than " + GraphFileCodec.MAX_NODES
-                            + " nodes and cannot be exported.");
+                    "The graph component has more than " + allowed + " nodes and cannot be exported.");
         }
         if (network.edges().size() > GraphFileCodec.MAX_RELATIONS) {
             throw new GraphTransferLimitException(
