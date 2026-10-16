@@ -43,6 +43,11 @@ public class TenantConfigService {
     @Value("${datahub.features.chat:false}")
     private boolean chatFeatureDefault;
 
+    // Flows run tenant pipelines on a service of their own, so a tenant gets them only when its
+    // Vault tenant-config sets flow=true (or the deployment overrides this default).
+    @Value("${datahub.features.flow:false}")
+    private boolean flowFeatureDefault;
+
     // Shares the keystore/truststore the startup loader used, so a Vault listener that requires
     // mutual TLS keeps accepting the five-minute refresh after boot.
     private final HttpClient httpClient;
@@ -161,6 +166,9 @@ public class TenantConfigService {
         }
         if (features.getChatFeatureEnabled() == null) {
             features.setChatFeatureEnabled(chatFeatureDefault);
+        }
+        if (features.getFlowFeatureEnabled() == null) {
+            features.setFlowFeatureEnabled(flowFeatureDefault);
         }
     }
 

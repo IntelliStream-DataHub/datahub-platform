@@ -124,7 +124,7 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
     "valkey":     { "host": "$VALKEY_HOST", "port": 6379, "user": "default", "password": "changeme" },
     "kvrocks":    { "host": "${KV_HOST%%:*}", "port": 6666 },
     "file-storage": { "host": "localhost", "root-path": "/tmp/datahub/foo/files", "trash-path": "/tmp/datahub/foo/trash" },
-    "tenant-config": { "files": true, "chat": true }
+    "tenant-config": { "files": true, "chat": true, "flow": true }
   },
   "bar": {
     "org-id": "$BAR_ID",
@@ -135,7 +135,7 @@ vault kv put "$MOUNT/tenant-resources" - <<JSON
     "valkey":     { "host": "$VALKEY_HOST", "port": 6379, "user": "default", "password": "changeme" },
     "kvrocks":    { "host": "${KV_HOST%%:*}", "port": 6666 },
     "file-storage": { "host": "localhost", "root-path": "/tmp/datahub/bar/files", "trash-path": "/tmp/datahub/bar/trash" },
-    "tenant-config": { "files": true, "chat": true }
+    "tenant-config": { "files": true, "chat": true, "flow": true }
   }
 }
 JSON

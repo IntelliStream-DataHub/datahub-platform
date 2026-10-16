@@ -21,8 +21,14 @@ public final class SettingsScopes {
     /** Which model the tenant's AI assistant runs on, and what it may spend. */
     public static final String LLM = "llm";
 
+    /**
+     * The credentials flows use: named secrets, and the registered clients a flow's runs may act
+     * as. Write-only — a holder of read sees names, never values.
+     */
+    public static final String FLOW = "flow";
+
     /** Every scope this platform knows, for a client rendering what it may do. */
-    public static final List<String> ALL = List.of(LLM);
+    public static final List<String> ALL = List.of(LLM, FLOW);
 
     private SettingsScopes() {
     }

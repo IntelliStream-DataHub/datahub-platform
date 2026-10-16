@@ -25,6 +25,9 @@ public class TenantFeatures {
     @JsonProperty("chat")
     private Boolean chatFeatureEnabled;
 
+    @JsonProperty("flow")
+    private Boolean flowFeatureEnabled;
+
     @JsonIgnore
     public boolean isPolicyFeatureEnabled() {
         return Boolean.TRUE.equals(policyFeatureEnabled);
@@ -38,6 +41,11 @@ public class TenantFeatures {
     @JsonIgnore
     public boolean isChatFeatureEnabled() {
         return Boolean.TRUE.equals(chatFeatureEnabled);
+    }
+
+    @JsonIgnore
+    public boolean isFlowFeatureEnabled() {
+        return Boolean.TRUE.equals(flowFeatureEnabled);
     }
 
 }
