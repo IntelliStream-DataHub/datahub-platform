@@ -20,7 +20,10 @@
 				<h2 th:text="#{flows}"></h2>
 				<p class="flows-intro" th:text="#{flows.list.intro}"></p>
 			</div>
-			<a class="dh-btn primary" data-type="flows-create" th:href="@{/flows(new='')}" th:text="#{flows.create}"></a>
+			<div class="flows-header-actions">
+				<a class="dh-btn secondary" data-type="flows-lookup" th:href="@{/flows(tab='lookup')}" th:text="#{flows.nav.lookup}"></a>
+				<a class="dh-btn primary" data-type="flows-create" th:href="@{/flows(new='')}" th:text="#{flows.create}"></a>
+			</div>
 		</header>
 
 		<table class="listing slim pointer w100" data-type="flows-table">
@@ -31,6 +34,7 @@
 					<th th:text="#{flows.column.version}"></th>
 					<th th:text="#{flows.column.deployment}"></th>
 					<th th:text="#{flows.column.updated}"></th>
+					<th></th>
 				</tr>
 			</thead>
 			<tbody></tbody>
