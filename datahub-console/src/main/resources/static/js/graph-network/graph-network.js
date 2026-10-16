@@ -961,6 +961,7 @@ class GraphNetwork {
             option('nodes', 'graph.view.nodes', [['dots', 'graph.view.nodes.dots'], ['pills', 'graph.view.nodes.pills']], true),
             option('size', 'graph.view.size', [['importance', 'graph.view.size.importance'], ['same', 'graph.view.size.same']], true),
             option('lines', 'graph.view.lines', [['curved', 'graph.view.lines.curved'], ['straight', 'graph.view.lines.straight']], true),
+            option('arrows', 'graph.view.arrows', [['on', 'graph.view.arrows.on'], ['off', 'graph.view.arrows.off']], true),
             { key: 'icons', label: 'graph.icons', get: () => GraphIcons.style(), set: v => GraphIcons.setStyle(v),
               choices: [['symbols', 'graph.icons.symbols'], ['simple', 'graph.icons.simple'], ['none', 'graph.icons.none']] },
             option('flows', 'graph.view.flows', [['on', 'graph.view.flows.on'], ['off', 'graph.view.flows.off']]),

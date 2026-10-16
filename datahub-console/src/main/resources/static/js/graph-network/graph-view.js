@@ -151,7 +151,7 @@ function windowTurn(pts) {
 // Chosen in the View menu (graph-network.js) and kept in this browser, for every graph. The first choice of
 // each is the default.
 const VIEW_KEY = 'dh.graph.view.v1';
-const VIEW_CHOICES = { layout: ['network', 'diagram'], nodes: ['dots', 'pills'], size: ['importance', 'same'], lines: ['curved', 'straight'], flows: ['on', 'off'] };
+const VIEW_CHOICES = { layout: ['network', 'diagram'], nodes: ['dots', 'pills'], size: ['importance', 'same'], lines: ['curved', 'straight'], arrows: ['on', 'off'], flows: ['on', 'off'] };
 // The diagram is laid out by dagre, which is loaded the first time it is needed. A page whose last choice was
 // the diagram starts loading it at once, so it is there by the time the graph arrives.
 let dagreLoading = null;
@@ -1265,6 +1265,9 @@ function createGraphView(container, opts) {
             // quadratic curve bows half its control-point step, so twice the gap gives PAR_GAP lanes). A line
             // inside a group is drawn at 60 %, so the lines between groups, drawn solid, stand out from them.
             { selector: 'edge', style: { 'width': 1, 'line-color': pal.line, 'curve-style': 'bezier', 'control-point-step-size': 2 * PAR_GAP, 'opacity': 0.6, 'overlay-opacity': 0 } },
+            // Direction at a glance: a small arrowhead where a line arrives, in the line's colour. Lines drawn as
+            // haystacks (a graph past STRAIGHT_ABOVE, a big graph's groups) cannot carry one.
+            { selector: 'edge', style: { 'target-arrow-shape': V.arrows === 'on' ? 'triangle' : 'none', 'target-arrow-color': pal.line, 'arrow-scale': 0.75 } },
             { selector: 'edge.lay, edge.straight', style: { 'curve-style': 'haystack', 'haystack-radius': 0 } },
             { selector: 'edge.curved', style: { 'curve-style': 'unbundled-bezier', 'control-point-weights': 'data(cpw)', 'control-point-distances': 'data(cpd)', 'edge-distances': 'node-position',
                 'width': e => 1.1 + 1.2 * (e.data('imp') || 0), 'opacity': 1,
@@ -1289,8 +1292,10 @@ function createGraphView(container, opts) {
             // The selected resource's lines: one colour where they leave it, another where they arrive.
             { selector: 'edge.hl.out', style: cyWebgl ? { 'line-color': pal.out, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.outFrom, pal.out], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.out, 'width': 1.8 } },
             { selector: 'edge.hl.in', style: cyWebgl ? { 'line-color': pal.in, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.inFrom, pal.in], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.in, 'width': 1.8 } },
+            { selector: 'edge.hl.out', style: { 'target-arrow-color': pal.out } },
+            { selector: 'edge.hl.in', style: { 'target-arrow-color': pal.in } },
             { selector: 'edge.hov', style: { 'opacity': 1, 'width': 2.2, 'z-index': 10, 'underlay-opacity': 0.16 } },
-            { selector: 'edge:selected', style: { 'opacity': 1, 'width': 2.6, 'z-index': 11, 'line-fill': 'solid', 'line-color': pal.pick, 'underlay-color': pal.pick, 'underlay-padding': 4, 'underlay-opacity': 0.2 } },
+            { selector: 'edge:selected', style: { 'opacity': 1, 'width': 2.6, 'z-index': 11, 'line-fill': 'solid', 'line-color': pal.pick, 'target-arrow-color': pal.pick, 'underlay-color': pal.pick, 'underlay-padding': 4, 'underlay-opacity': 0.2 } },
             // A big graph's shut groups: one dot each, filled with the group's colour faded into the page, and a
             // line between linked groups, wider the more relations it stands for.
             // Shut groups in muted colours: hundreds of them in full colour read as confetti. A group shows its
@@ -1299,7 +1304,7 @@ function createGraphView(container, opts) {
             { selector: 'node.agg.root', style: { 'border-width': 4, 'border-color': pal.label } },
             // The lines between shut groups are what makes the zoomed-out view read as a network, so they are
             // drawn a little stronger than a single relation.
-            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'width': e => Math.min(6, 1.3 + Math.log2(e.data('n') || 1)), 'opacity': 0.8, 'line-fill': 'solid', 'line-color': pal.line } },
+            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'target-arrow-shape': 'none', 'width': e => Math.min(6, 1.3 + Math.log2(e.data('n') || 1)), 'opacity': 0.8, 'line-fill': 'solid', 'line-color': pal.line } },
             // Drawing a new relation (edge-handles).
             { selector: '.eh-source, .eh-target', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
             { selector: '.eh-handle', style: { 'width': 10, 'height': 10, 'background-color': pal.accent, 'background-image': 'none' } },
@@ -1311,7 +1316,7 @@ function createGraphView(container, opts) {
             { selector: '.filtered-out', style: { 'display': 'none' } },
             // The guided tutorial's highlight and dimming.
             { selector: 'node.tut-highlight', style: { 'border-width': 4, 'border-color': pal.tutorial, 'border-opacity': 1 } },
-            { selector: 'edge.tut-highlight', style: { 'line-fill': 'solid', 'line-color': pal.tutorial, 'width': 4, 'opacity': 1 } },
+            { selector: 'edge.tut-highlight', style: { 'line-fill': 'solid', 'line-color': pal.tutorial, 'target-arrow-color': pal.tutorial, 'width': 4, 'opacity': 1 } },
             { selector: '.tut-dim', style: { 'opacity': 0.18 } },
             { selector: 'node.tut-dim', style: dimNode(0.18) },
         ];
@@ -1413,11 +1418,21 @@ function createGraphView(container, opts) {
     // WebGL where the browser has WebGL 2: Cytoscape's WebGL renderer holds 60 frames a second at every size
     // measured (to 5,000 resources); it draws long curves as short straight pieces and leaves out glow and
     // gradients. ?renderer=canvas in the address forces the canvas renderer.
+    // Cytoscape's WebGL renderer blends an arrowhead with the background of the graph's container, white when
+    // the container has none of its own; this one is transparent, so the outlines below show through. A dimmed
+    // arrowhead would glow white, so the renderer is given the page's background instead.
+    function arrowBlend() {
+        const d = cyWebgl && cy.renderer && cy.renderer().drawing, hex = palette().bg;
+        if (!d || !/^#[0-9a-f]{6}$/i.test(hex)) return;
+        const n = parseInt(hex.slice(1), 16);
+        d.bgColor = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
     function makeCy() {
         cyWebgl = hasWebgl() && !/[?&]renderer=canvas\b/.test(location.search);
         cy = cytoscape(Object.assign({ container: host, elements: [], style: [], minZoom: 0.02, maxZoom: 4, boxSelectionEnabled: false, selectionType: 'single' },
             cyWebgl ? { webgl: true } : {}));
         cy.style().fromJson(style()).update();
+        arrowBlend();
         cy.on('viewport', () => {
             hidePick();
             viewMoving = true; clearTimeout(viewTimer); viewTimer = setTimeout(() => { viewMoving = false; drawHulls(); }, 160);
@@ -1907,6 +1922,7 @@ function createGraphView(container, opts) {
         try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch (e) { /* storage blocked: the choice lasts until the page closes */ }
         if (!cy || destroyed) return;
         if (was.flows !== V.flows) flowReset();
+        if (was.arrows !== V.arrows) cy.style().fromJson(style()).update();
         if (big || !current) return;
         // A new way of drawing is laid out afresh, or put back as it was last left. So is a new size of pill:
         // the pills would overlap where they stand.
@@ -1959,6 +1975,7 @@ function createGraphView(container, opts) {
     function applyTheme() {
         if (!cy || destroyed) return;
         palCache = null;
+        arrowBlend();
         applyIcons();
         cy.style().fromJson(style()).update();
         // A big graph's group dots are made again in the new colours.
