@@ -64,6 +64,9 @@ for m in api console; do                       # whichever this host runs
 done
 #   (or build from a checkout of the tag: ./gradlew bootJar, then
 #    datahub-$m/build/libs/datahub-$m-$VERSION.jar)
+# The analysis host also gets the RVM converter binary, for the console's 3D viewer (optional;
+# see tools/rvm-converter/README.md for the build):
+#   install -d /opt/datahub/bin && install -m 755 rvm-converter /opt/datahub/bin/
 
 # Unit, placement drop-ins, env, Spring config
 install -m 644 systemd/datahub@.service /etc/systemd/system/

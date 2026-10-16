@@ -2108,91 +2108,58 @@ td.findings-group-message{
 }
 .dh-flash-details li{ list-style: none; }
 
-/* Graph node HTML labels (cytoscape-node-html-label) render inside a transform-scaled layer,
-   which makes the browser drop sub-pixel text anti-aliasing so the text looks soft. Push it
-   toward cleaner grayscale AA + precise glyph rendering. (The residual softness is inherent to
-   scaling HTML labels; fully crisp text would mean canvas-native labels.) */
-[class^="cy-node-html"],
-[class^="cy-node-html"] * {
-	-webkit-font-smoothing: antialiased;
-	-moz-osx-font-smoothing: grayscale;
-	text-rendering: geometricPrecision;
-}
-
-/* Graph node HTML label (renderNodeLabel in graph-network.js): a small uppercase type line
-   over the bold node name. Both lines truncate with an ellipsis within the node's width. */
-.dh-node-label{
-	text-align: center;
-	font-family: 'Manrope', Arial, sans-serif;
-	line-height: 1.15;
-}
-.dh-nl-types{
-	font-size: 7px;
-	letter-spacing: 0.04em;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-}
-.dh-nl-sep{ opacity: 0.4; }
-/* Built-in types (ASSET/FUNCTION/...): highlighted with one shared colour, heavier + larger. */
-.dh-nl-type-std{
-	font-weight: 900;
-	font-size: 8px;
-	color: #8ec3e0;
-}
-html[data-theme="light"] .dh-nl-type-std{ color: #005984; }
-/* Custom label names: subtle. */
-.dh-nl-type-other{
-	font-weight: 400;
-	/* Dark theme: a brighter muted grey so custom types stay subtle but legible on the dark node. */
-	color: #8a949a;
-}
-html[data-theme="light"] .dh-nl-type-other{
-	/* Light theme: rgb(58, 66, 69) — subtle grey on the white node. */
-	color: #3a4245;
-}
-.dh-nl-name{
-	font-size: 11px;
-	font-weight: 700;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	color: #e8f1f6;
-}
-html[data-theme="light"] .dh-nl-name{ color: #17313d; }
-/* A selected node fills with its colour, so its label text goes white. */
-.dh-node-label.sel .dh-nl-name,
-.dh-node-label.sel .dh-nl-type-std{ color: #ffffff; }
-.dh-node-label.sel .dh-nl-type-other{ color: rgba(255, 255, 255, 0.65); }
-
-/* Edge "data flow" travelers: a small chip carrying a datatype value that streams from the
-   source node to the target node along edges tagged with an "animate::datatype" metadata key
-   (built in graph-network.js). The layer sits over the canvas; chips are positioned per frame. */
-.dh-edge-traveler-layer{
+/* The network view (graph-view.js): Cytoscape draws into its own host, with the group outlines on a
+   canvas under it and the names and moving flow labels on canvases over it. None of the canvases
+   take the pointer; the graph underneath does. */
+.dh-graph-cy,
+.dh-graph-layer{
 	position: absolute;
 	top: 0;
 	left: 0;
 	width: 100%;
 	height: 100%;
-	overflow: hidden;
-	pointer-events: none;
-	z-index: 10;
 }
-.dh-edge-traveler{
-	position: absolute;
-	top: 0;
-	left: 0;
-	color: #8a80a0;   /* dark-theme default: muted grey-purple text on the dark canvas */
-	font: 600 9px/1.45 'Manrope', Arial, sans-serif;
-	letter-spacing: 0.02em;
-	white-space: nowrap;
-	/* Just text — no background/shadow (cheaper per frame, and subtler). */
-	will-change: transform, opacity;
-}
-/* Light theme: a deeper grey-purple so the text reads on the white canvas. */
-html[data-theme="light"] .dh-edge-traveler{ color: #675d80; }
+.dh-graph-layer{ pointer-events: none; }
 
-/* Hover tooltip showing a node's full name when its canvas label is truncated. */
+/* Where several relations meet under a click: a short list to choose the one to open. */
+.dh-graph-pick{
+	position: absolute;
+	z-index: 20;
+	min-width: 220px;
+	max-width: 360px;
+	padding: 6px;
+	background: var(--menu-bg);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 8px;
+	box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+	font: 400 12px/1.4 'Manrope', Arial, sans-serif;
+}
+.dh-graph-pick[hidden]{ display: none; }
+.dh-graph-pick-h{
+	margin: 2px 6px 6px;
+	font-weight: 700;
+	color: var(--text-muted, var(--text));
+}
+.dh-graph-pick ul{ margin: 0; padding: 0; list-style: none; }
+.dh-graph-pick button{
+	display: block;
+	width: 100%;
+	padding: 5px 6px;
+	text-align: left;
+	background: none;
+	border: 0;
+	border-radius: 5px;
+	color: inherit;
+	font: inherit;
+	cursor: pointer;
+}
+.dh-graph-pick button:hover,
+.dh-graph-pick button:focus-visible{ background: var(--body-bg); outline: none; }
+.dh-graph-pick i{ opacity: 0.75; }
+.dh-graph-pick-more{ padding: 4px 6px; opacity: 0.7; }
+
+/* Hover tooltip with a resource's full name and its types. */
 .dh-node-tooltip{
 	position: absolute;
 	transform: translate(-50%, -100%);
@@ -2205,6 +2172,12 @@ html[data-theme="light"] .dh-edge-traveler{ color: #675d80; }
 	pointer-events: none;
 	z-index: 1000;
 	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.28);
+}
+.dh-node-tooltip-types{
+	display: block;
+	font-weight: 400;
+	font-size: 10px;
+	opacity: 0.75;
 }
 
 /* Edge form: the "animate data flow" control (checkbox + datatype field + click-to-open help),
@@ -2238,11 +2211,12 @@ html[data-theme="light"] .dh-edge-traveler{ color: #675d80; }
 	margin: 0;
 }
 .h80px{ height: 80px; }
-/* Floating graph canvas buttons (add-relation + layout toggles): clean square icon buttons on a
+/* Floating graph canvas buttons (add-relation + rearrange): clean square icon buttons on a
    themed surface so they're legible over the white/dark canvas, with an accent-filled active state.
    Overrides the heavy .dh-btn.secondary block they're built with. */
 .dh-btn.network-btns{
 	position: absolute;
+	z-index: 5;   /* over the graph's canvases */
 	right: 10px;
 	width: 36px;
 	height: 36px;
@@ -2269,8 +2243,7 @@ html[data-theme="light"] .dh-edge-traveler{ color: #675d80; }
 	border-color: var(--accent);
 }
 .add-rel-btn{ top:10px; }
-.layout-dagre-btn{ top:50px; }
-.layout-fcose-btn{ top:90px; }
+.rearrange-btn{ top:50px; }
 /* Graph filter: a panel in the shared right-form slide-out. Two grouped listings (node types +
    relation types) built on the .data-list base listing; every type shown by default, uncheck to
    hide. The .right-form > * rules already give it the panel chrome (width, slide, shadow). */

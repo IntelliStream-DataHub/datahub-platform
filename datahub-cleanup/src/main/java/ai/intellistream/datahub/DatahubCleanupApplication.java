@@ -7,10 +7,13 @@ import ai.intellistream.datahub.cleanup.subscription.SubscriptionCleanupProperti
 import ai.intellistream.datahub.config.PulsarVaultSecrets;
 import ai.intellistream.datahub.config.MetricsTlsVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
+import ai.intellistream.datahub.repositories.event.EventDimensionRepository;
+import ai.intellistream.datahub.services.ValkeyService;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.context.annotation.Import;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -33,6 +36,13 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * module's {@code cleanup} package; the Neo4j and Valkey clients in {@code config} connect lazily
  * and stay unused.
  *
+ * <p>Two beans outside those packages are imported one by one rather than by scanning their whole
+ * package. {@code EventDimensionRepository} is a plain {@code @Repository} class, not a Spring Data
+ * interface, so {@code @EnableJpaRepositories} does not pick it up, and the event-dimension rebuild
+ * writes through it. {@code ValkeyService} is a constructor argument of every {@code clickhouse}
+ * service; nothing the rebuild calls ever uses it, so its connection is never opened, but without it
+ * the context fails to start.
+ *
  * <p>Run as a SINGLE instance — two janitors deleting concurrently is wasteful and racy.
  */
 @SpringBootApplication
@@ -48,6 +58,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
         "ai.intellistream.datahub.clickhouse",
         "ai.intellistream.datahub.cleanup"
 })
+@Import({EventDimensionRepository.class, ValkeyService.class})
 public class DatahubCleanupApplication {
 
     public static void main(String[] args) {

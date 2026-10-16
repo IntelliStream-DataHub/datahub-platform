@@ -24,9 +24,23 @@ class StreamingEndpointsTest {
             "GET,  /resources/import,         false",
             "POST, /resources/importer,       false",
             "POST, /resources/create,         false",
+            // Its response is sent as it is read, but its request is size-limited like any other.
+            "POST, /resources/fetch-related,  false",
     })
     void matchesOnlyTheStreamingEndpoints(String method, String uri, boolean expected) {
         assertThat(StreamingEndpoints.matches(new MockHttpServletRequest(method, uri))).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "POST, /resources/fetch-related,   true",
+            "POST, /resources/fetch-related/,  true",
+            "GET,  /resources/fetch-related,   false",
+            "POST, /resources/fetch-nearest,   false",
+            "POST, /resources/filter,          false",
+    })
+    void recognisesTheNetworkRead(String method, String uri, boolean expected) {
+        assertThat(StreamingEndpoints.isNetworkRead(new MockHttpServletRequest(method, uri))).isEqualTo(expected);
     }
 
     @ParameterizedTest

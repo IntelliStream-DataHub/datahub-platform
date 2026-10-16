@@ -21,18 +21,11 @@ import java.util.Set;
 public record ResourceNetwork(Set<NodeModel> nodes, Set<EdgeProxy> edges, Set<Label> labels) {
 
     /**
-     * Maps the result of {@code apoc.path.subgraphAll}. The procedure returns a single record with
-     * two list columns: {@code nodes} (every node in the component) and {@code relationships}
-     * (every relationship between those nodes). Both are already de-duplicated by APOC, but we
-     * still collect into {@link Set}s to be defensive.
-     */
-    public static ResourceNetwork from(List<Record> records, Set<Label> labels){
-        return from(records, labels, GraphReadScope.readEverything());
-    }
-
-    /**
-     * As above, but drops what {@code scope} does not permit: any node in a dataset the caller
-     * cannot read, and any relationship with an endpoint that is not itself visible.
+     * Builds a network from query rows that each hold a list of {@code nodes} and a list of
+     * {@code relationships}, as the nearest-N query returns them
+     * ({@code Neo4JService.fetchNearestNodesByEndLabel}). The whole-network reads do not use this; they
+     * read piece by piece (see {@link NetworkSink}). Resources in datasets {@code scope} does not allow
+     * are left out, and so is any relation with an end that is left out.
      *
      * <p>The filtering happens here, before {@link #attachRelatedResources}, and that ordering is
      * the point. {@code relatedResources} is derived from the edge set, so filtering afterwards

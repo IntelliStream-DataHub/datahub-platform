@@ -47,7 +47,7 @@ class RateLimitFilterTest {
     /** Rate limits only; the quota and lifetime figures are unlimited here. */
     private static TenantLimits limitsOf(int writeTenant, int readTenant, int writeUser, int readUser) {
         return new TenantLimits(writeTenant, readTenant, writeUser, readUser,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     @BeforeEach

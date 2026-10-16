@@ -22,7 +22,8 @@ public record TenantLimits(
         long maxDatapointsTotal,
         long maxTextDatapointsTotal,
         int maxWsSocketsPerTenant,
-        int maxWsSocketsPerUser) {
+        int maxWsSocketsPerUser,
+        long maxNetworkNodes) {
 
     public static boolean unlimited(long limit) {
         return limit <= 0;

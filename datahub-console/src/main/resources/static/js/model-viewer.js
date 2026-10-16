@@ -7,7 +7,7 @@
  * a bearer token.
  *
  *   GET {api}/files/download/{externalId} -> the model bytes
- *   GET {rvm-converter}/models/gltf?rvm={externalId}&attributes={externalId} -> an AVEVA model as GLB
+ *   GET {analysis}/models/gltf?rvm={externalId}&attributes={externalId} -> an AVEVA model as GLB
  *
  * The vendored library is a megabyte, so it is injected on first open rather than loaded with the
  * files page. Browsing files costs nothing until someone actually opens a model.
@@ -47,9 +47,9 @@ window.ModelViewer = (function () {
 	// AVEVA writes the extension in upper case, so match either.
 	var RVM_PATTERN = /\.rvm$/i;
 
-	/** The converter service's base URL; blank when this deployment runs none. */
+	/** The analysis service hosts the converter; its base URL is blank when this deployment runs none. */
 	function converterUrl() {
-		var meta = document.querySelector('meta[name="datahub-rvm-converter-url"]');
+		var meta = document.querySelector('meta[name="datahub-analysis-url"]');
 		return (meta ? meta.content : "").replace(/\/+$/, "");
 	}
 
@@ -208,7 +208,7 @@ window.ModelViewer = (function () {
 		});
 	}
 
-	// The converter is a service of its own, so window.Api cannot address it; the token is the same.
+	// The converter lives in the analysis service, which window.Api cannot address; the token is the same.
 	function convert(rvm, attributes) {
 		var query = "?rvm=" + encodeURIComponent(rvm)
 			+ (attributes ? "&attributes=" + encodeURIComponent(attributes) : "");

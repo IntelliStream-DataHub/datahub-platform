@@ -51,6 +51,18 @@ public final class StreamingEndpoints {
         return uri.equals("/timeseries/data/binary") || uri.equals("/timeseries/data/list/binary");
     }
 
+    /**
+     * The network read ({@code POST /resources/fetch-related}). Its response can be 100 MB or more and
+     * is sent while it is read, so the body-cache filter must not copy it into memory to log it. Its
+     * request is small, and is size-limited like any other.
+     */
+    public static boolean isNetworkRead(HttpServletRequest request) {
+        String uri = path(request);
+        return uri != null
+                && "POST".equalsIgnoreCase(request.getMethod())
+                && (uri.equals("/resources/fetch-related") || uri.equals("/resources/fetch-related/"));
+    }
+
     private static String path(HttpServletRequest request) {
         String uri = request.getRequestURI();
         if (uri == null) {

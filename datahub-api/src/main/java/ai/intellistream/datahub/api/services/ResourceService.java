@@ -26,6 +26,7 @@ import ai.intellistream.datahub.api.controllers.errors.ResourceDeleteException;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.GraphDataWrapper;
 import ai.intellistream.datahub.asset.GraphReadScope;
+import ai.intellistream.datahub.asset.NetworkSink;
 import ai.intellistream.datahub.asset.ResourceNetwork;
 import ai.intellistream.datahub.errors.InvalidResourceException;
 import ai.intellistream.datahub.jpa.domains.*;
@@ -1216,6 +1217,89 @@ public class ResourceService {
 
     @Transactional(readOnly = true)
     public ResourceNetwork fetchRelatedResources(@Valid RelatedResourcesForm form) {
+        capNetwork(form);
+        return fetchWholeRelatedResources(form);
+    }
+
+    /**
+     * What the database has to answer for a fetch-related call, answered before anything is sent:
+     * the start resource exists and the caller may read it, which datasets the caller may see, the
+     * label list, and {@code cappedAt}: the playground limit, if it lowered what was asked for
+     * (otherwise 0). {@link #streamRelatedResources} or {@link #readRelatedResources} then only
+     * reads Neo4j.
+     */
+    public record PreparedNetwork(RelatedResourcesForm form, GraphReadScope scope, Set<Label> labels, long cappedAt) {
+    }
+
+    /**
+     * Step one of a fetch-related call: every check that can fail with a proper error (not found, no
+     * access) is made here, before the response starts. Once the first byte is sent, the status is
+     * fixed at 200, so these checks cannot wait. Runs in its own short database transaction, which
+     * ends before the network is sent, so a long download does not hold a database connection.
+     */
+    @Transactional(readOnly = true)
+    public PreparedNetwork prepareRelatedResources(@Valid RelatedResourcesForm form) {
+        resolveRelatedStart(form);
+        long cappedAt = capNetwork(form);
+        return new PreparedNetwork(form, graphReadScope(), neo4JService.networkLabels(), cappedAt);
+    }
+
+    /** Step two, for XML: reads the prepared network whole, since XML is not sent piece by piece. */
+    public ResourceNetwork readRelatedResources(PreparedNetwork prepared) {
+        RelatedResourcesForm form = prepared.form();
+        return neo4JService.fetchRelatedNodes(
+                form.getId(), form.getDepth(), form.getRelationshipTypes(),
+                form.getLimit(), form.getExcludedLabels(), prepared.scope());
+    }
+
+    /** Step two: reads the prepared network from Neo4j and hands each edge, then each resource, to {@code sink}. */
+    public void streamRelatedResources(PreparedNetwork prepared, NetworkSink sink) {
+        RelatedResourcesForm form = prepared.form();
+        neo4JService.streamRelatedNodes(
+                form.getId(), form.getDepth(), form.getRelationshipTypes(),
+                form.getLimit(), form.getExcludedLabels(), prepared.scope(), sink);
+    }
+
+    /**
+     * The network without the playground limit. Only for the graph export: it has a size limit of its
+     * own and must refuse a network that is too large rather than return part of it, so it checks
+     * {@link #networkCap()} itself.
+     */
+    @Transactional(readOnly = true)
+    public ResourceNetwork fetchWholeRelatedResources(@Valid RelatedResourcesForm form) {
+        resolveRelatedStart(form);
+        return neo4JService.fetchRelatedNodes(
+                form.getId(), form.getDepth(), form.getRelationshipTypes(),
+                form.getLimit(), form.getExcludedLabels(), graphReadScope());
+    }
+
+    /** The most resources this tenant may get from one network read, or 0 for no limit. */
+    public long networkCap() {
+        return tenantLimitsService.current().maxNetworkNodes();
+    }
+
+    /**
+     * Applies the playground limit ({@link TenantLimits#maxNetworkNodes()}). When the tenant has one
+     * and the request asks for everything ({@code -1}), for nothing in particular, or for more than
+     * the limit, the request is lowered to the limit, and as with any limit the nearest resources are
+     * the ones returned. A tenant without the limit gets what it asks for.
+     *
+     * @return the limit, if it lowered the request, so the caller can be told; otherwise 0
+     */
+    private long capNetwork(RelatedResourcesForm form) {
+        long cap = networkCap();
+        if (TenantLimits.unlimited(cap)) {
+            return 0;
+        }
+        Integer asked = form.getLimit();
+        if (asked == null || asked < 0 || asked > cap) {
+            form.setLimit((int) Math.min(cap, Integer.MAX_VALUE));
+            return cap;
+        }
+        return 0;
+    }
+
+    private void resolveRelatedStart(RelatedResourcesForm form) {
         if(form.getId() == null){
             NodeEntity n = nodeRepository.findByExternalId(form.getExternalId());
             if(n != null){
@@ -1233,9 +1317,6 @@ public class ResourceService {
         NodeEntity start = nodeRepository.findById(form.getId()).orElseThrow(() ->
                 new ObjectNotFoundException("Resource with id: " + form.getId() + " not found."));
         dataSecurity.assertCanRead(start);
-        return neo4JService.fetchRelatedNodes(
-                form.getId(), form.getDepth(), form.getRelationshipTypes(),
-                form.getLimit(), form.getExcludedLabels(), graphReadScope());
     }
 
     /**

@@ -229,6 +229,14 @@ public class LimitsProperties {
         private long maxDatapointsTotal = 1_000_000_000;
         private long maxTextDatapointsTotal = 100_000;
 
+        /**
+         * The most resources one network read ({@code POST /resources/fetch-related}) returns to a
+         * playground tenant, whatever it asks for. Without it, a free playground could download
+         * networks of 100,000 resources again and again. A tenant whose {@code max_resources} is
+         * lifted to 0 is not a playground tenant, so this does not apply to it.
+         */
+        private long maxNetworkNodes = 10_000;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -267,6 +275,14 @@ public class LimitsProperties {
 
         public void setMaxTextDatapointsTotal(long maxTextDatapointsTotal) {
             this.maxTextDatapointsTotal = maxTextDatapointsTotal;
+        }
+
+        public long getMaxNetworkNodes() {
+            return maxNetworkNodes;
+        }
+
+        public void setMaxNetworkNodes(long maxNetworkNodes) {
+            this.maxNetworkNodes = maxNetworkNodes;
         }
     }
 

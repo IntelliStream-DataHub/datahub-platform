@@ -116,7 +116,14 @@ services:
     volumes: ["kvrocksdata:/var/lib/kvrocks"]
 
   pulsar:
-    image: docker.io/apachepulsar/pulsar:5.0.0
+    # Built, not pulled: the broker needs datahub-pulsar-filter's EntryFilter baked in (see
+    # deploy/pulsar/Dockerfile). Without it, WebSocket subscribers receive messages belonging
+    # to other subscriptions — every REST call still looks correct, so it presents as a
+    # data-isolation bug rather than an outage.
+    build:
+      context: .
+      dockerfile: deploy/pulsar/Dockerfile
+    image: datahub-pulsar:local
     # Plaintext standalone broker — no OAuth2, no TLS. The app must run with
     # datahub.pulsar.tls.enabled=false and the pulsar.service.url overrides
     # documented in GETTING_STARTED.md.
@@ -132,6 +139,10 @@ services:
     hostname: pulsar
     environment:
       PULSAR_PREFIX_useHostNameAsBookieID: "true"
+      # Load the EntryFilter baked in above. The name must match `name:` in the NAR's
+      # entry_filter.yml; the directory is where the Dockerfile put it.
+      PULSAR_PREFIX_entryFiltersDirectory: /pulsar/filters
+      PULSAR_PREFIX_entryFilterNames: datahub-pulsar-filter
       # Standalone runs the broker, bookie and ZooKeeper in ONE JVM, and its defaults are
       # sized for a real deployment — left alone it is the single largest consumer in this
       # stack (measured: 2.5GB). Capping heap + direct memory keeps the whole dev stack on a

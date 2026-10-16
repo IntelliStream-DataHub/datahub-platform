@@ -188,7 +188,7 @@ class GraphTransferServiceImportTest {
                 networkEdges.add(new EdgeProxy(i, i - 1, i, "FLOWS_TO", 9L, new java.util.HashMap<>()));
             }
         }
-        when(resourceService.fetchRelatedResources(any())).thenReturn(
+        when(resourceService.fetchWholeRelatedResources(any())).thenReturn(
                 new ai.intellistream.datahub.asset.ResourceNetwork(networkNodes, networkEdges, new java.util.HashSet<>()));
 
         var prepared = service.prepareExport(1L);

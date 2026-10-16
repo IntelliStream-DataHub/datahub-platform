@@ -373,7 +373,14 @@ already exist). It provisions:
   groups (without the write grant you can browse but not save
   datasets/resources/timeseries);
 - two test users, **`foo`** / **`foo`** and **`bar`** / **`bar`**, one per demo
-  tenant, each holding all three roles;
+  tenant, each holding all three roles and Keycloak's built-in **`offline_access`** role.
+  Deploying a flow takes an offline token for the deployer, which needs that role. A user
+  whose realm roles are listed explicitly, as these are, does not inherit it from
+  `default-roles-datahub`;
+- the **`intellistream-flow`** confidential client (secret `changeme-flow`, callback
+  `http://localhost:8084/*`). The flow service uses it to send a deployer to Keycloak and
+  receive the offline token its runs act with. It keeps Keycloak's default client scopes,
+  which include the optional `offline_access` and `organization`;
 - two client-credentials clients for the SDKs, **`datahub-service-foo`** /
   `changeme-foo` and **`datahub-service-bar`** / `changeme-bar`, one per demo tenant
   (see [Machine-to-machine tokens](#machine-to-machine-tokens) below).
@@ -382,6 +389,11 @@ The realm uses the real Keycloak **Organizations** feature, one organization per
 their ids pinned to `11111111-1111-1111-1111-111111111111` (`foo`) and
 `22222222-2222-2222-2222-222222222222` (`bar`) so they match the tenants `vault-seed.sh` writes.
 `OrganizationValidator` reads `organization.<alias>.id` into the tenant context.
+
+Each organization carries the same group tree: `/datasets/*` and `/datasets/data_set_demo`
+(`read`, `write`), `/datahub/tenant-admin`, `/flows/{read,write}` (who may see and change
+flows), and `/settings/{llm,flow,*}/{read,write}`. The post-import step below puts each tenant's
+user in all of them except `/settings/*`.
 
 ### The post-import step (automatic)
 
@@ -593,7 +605,7 @@ layout the app uses after the master merge — three secrets, written by
 | Path | Read by | Contents |
 |------|---------|----------|
 | `tenant-resources` | api, consumers, console | Per-tenant connection registry — one nested JSON object per tenant (`foo`, `bar`) with `org-id`, `postgresql`, `clickhouse`, `neo4j`, `valkey`, `kvrocks`, `file-storage`, `pulsar`, and `tenant-config`. The source of truth for all backend connections. |
-| `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). |
+| `datahub-platform` | api, consumers, console | Flat dotted keys: the global Pulsar broker (`pulsar.host`, OAuth2 client/admin creds, `pulsar.internal-tenant`) and the JWT `keycloak.issuer` (the console reads its issuer from here too). `pulsar.issuer-url` is optional: when it is missing or blank, Pulsar uses `keycloak.issuer`. Set it only when the broker trusts a different issuer. |
 | `datahub-console` | console | Flat dotted keys: the OAuth2 login client (`oauth.client-id`/`-secret`/`-provider`/`-scope`/`-redirect-uri`, role JSON-paths), `console.datahub-url`, the Spring Session Valkey store (`http.session.valkey.*`), and the chat defaults a tenant lands on when it says nothing (`llm.effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions`). No model and no credential — those are per tenant, and none of these are ceilings. |
 | `tenant-config/<org-name>` | console, api (and written by the api for **Settings → AI assistant**) | One secret per tenant, split into sections by key prefix. Today the only section is `llm.*`: `llm.provider`, `llm.api-key`, `llm.model`, `llm.base-url` name the model, and `llm.effort`, `llm.reasoning-effort`, `llm.max-output-tokens`, `llm.max-iterations`, `llm.turn-timeout`, `llm.instructions` say how to run it. Keyed by organization name, as `tenant-resources` is. A tenant without one has no chat panel. |
 

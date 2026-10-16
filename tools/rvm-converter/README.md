@@ -98,8 +98,8 @@ Two things this exposed, both about presentation rather than data:
 
 ## Calling it from Java
 
-`datahub-rvm-converter` wraps this binary as `RvmConverter`, the piece the service below is built
-around:
+`datahub-analysis` wraps this binary as `RvmConverter` (package `analysis.rvm`), the piece the
+endpoint below is built around:
 
 ```java
 RvmConversion result = new RvmConverter(binary, Duration.ofMinutes(5))
@@ -128,7 +128,8 @@ retried by asking again.
 
 The shape that fits is [datahub-analysis](../../datahub-analysis): a small stateless service that
 validates the caller's JWT, fetches what it needs from the api through the SDK with that same
-token, works in-process and returns the result, called from the browser with CORS.
+token, works in-process and returns the result, called from the browser with CORS. So the
+conversion lives there, as one more endpoint, rather than as a service of its own.
 
 The GLB is kept, but not by the service: the console saves it beside the RVM, as an ordinary
 upload made with the viewer's own token (see below). No state lives on the conversion path.
@@ -137,11 +138,11 @@ Two things would reopen it, on their own merits rather than by analogy: models l
 35 ms becomes 30 seconds, so the person who clicked can no longer wait, or **bulk conversion** of a
 whole model library, which is a batch tool and not the interactive path.
 
-## The service around it
+## The endpoint around it
 
-`datahub-rvm-converter` is the service, on the `datahub-analysis` shape: stateless, no database, an
-OAuth2 resource server validating the caller's own JWT and forwarding it to the api through the SDK,
-so the api's per-dataset ACLs decide what may be converted. Port 8083.
+`datahub-analysis` serves the conversion, next to the relationship analysis: stateless, no database,
+an OAuth2 resource server validating the caller's own JWT and forwarding it to the api through the
+SDK, so the api's per-dataset ACLs decide what may be converted. Port 8082.
 
 ```
 GET /models/gltf?rvm=<externalId>&attributes=<externalId>   ->  model/gltf-binary
@@ -152,8 +153,10 @@ one: without it the geometry is identical and every node loses its tag, discipli
 The caller names it rather than the service hunting for it, because the console already lists a
 model's folder to find its companions.
 
-Point `rvm.converter.binary` at the binary built here. It is statically linked, so the image needs
-nothing else to run it.
+Point `rvm.converter.binary` (default `/opt/datahub/bin/rvm-converter`) at the binary built here,
+on every host that runs `datahub-analysis`. It is statically linked, so the image needs nothing else
+to run it. Without it the endpoint answers 422 and the console reports that the model could not be
+converted.
 
 ## From the console
 
@@ -170,6 +173,7 @@ A deleted file keeps its external id, so that next save meets a conflict on the 
 under `<rvm external id>_glb_<suffix>`.
 Without write access to the folder the model is still shown, with a notice that it was not saved.
 
-The console finds the service through `datahub.rvm-converter.url` (default
-`http://localhost:8083`). Set it blank to hide the button in a deployment without the service. The
-service in turn must list the console origin in `cors.allowed-origins`.
+The console reaches the converter through `datahub.analysis.url` (default `http://localhost:8082`),
+the same property the Analyze tab uses. Set it blank in a deployment without the analysis service
+and the button is hidden. The service in turn must list the console origin in
+`cors.allowed-origins`.

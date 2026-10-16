@@ -34,6 +34,7 @@ public final class DatahubClient {
     private final PolicyService policies;
     private final GovernanceService governance;
     private final TenantService tenant;
+    private final MeService me;
 
     public DatahubClient(DatahubConfig config) {
         this(config, HttpClient.newHttpClient());
@@ -63,6 +64,7 @@ public final class DatahubClient {
         this.policies = new PolicyService(api);
         this.governance = new GovernanceService(api);
         this.tenant = new TenantService(api);
+        this.me = new MeService(api);
 
         // Durable ingest buffering (off unless the config opts in). Datapoints and events each get
         // their own spool file under the buffer directory, sharing the same retention bounds.
@@ -157,5 +159,10 @@ public final class DatahubClient {
     /** Your own tenant: enabled features and self-administered settings. */
     public TenantService tenant() {
         return tenant;
+    }
+
+    /** What your own token may do: its organization groups and the datasets it may read or write. */
+    public MeService me() {
+        return me;
     }
 }
