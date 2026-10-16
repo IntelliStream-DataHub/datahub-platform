@@ -273,6 +273,9 @@ const HIT_PX = 6;       // how near a click must be to a line, on screen
 // Wheel zoom: a mouse notch zooms 25 %, a touchpad's small steps zoom in proportion (a 75 px step
 // doubles), and a touchpad pinch, which arrives as a wheel with Ctrl held, follows the fingers.
 const NOTCH = 1.25, WHEEL_DOUBLE = 75;
+// A mouse notch glides there rather than jumping: a critically damped spring on the zoom's logarithm,
+// which speeds up and settles in about a quarter of a second. Notches that follow carry the glide on.
+const ZOOM_SPRING = 18;   // 1/s
 // Big graphs: above BIG_ABOVE resources, a group opens once it is OPEN_PX across on screen, the ones
 // nearest the middle first, while at most SHOWN_MAX resources are shown.
 const BIG_ABOVE = 5000, OPEN_PX = 90, SHOWN_MAX = 3500;
@@ -1408,8 +1411,31 @@ function createGraphView(container, opts) {
         if (cy.nodes(':grabbed').length) return;
         const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1), cap = WHEEL_DOUBLE * Math.log2(NOTCH);
         const f = e.ctrlKey ? Math.exp(-Math.max(-60, Math.min(60, d)) / 100) : Math.pow(2, -Math.sign(d) * Math.min(Math.abs(d), cap) / WHEEL_DOUBLE);
-        const r = host.getBoundingClientRect();
-        cy.zoom({ level: cy.zoom() * f, renderedPosition: { x: e.clientX - r.left, y: e.clientY - r.top } });
+        const r = host.getBoundingClientRect(), at = { x: e.clientX - r.left, y: e.clientY - r.top };
+        // A touchpad's small steps and a pinch are smooth already, and follow the fingers directly.
+        if (e.ctrlKey || Math.abs(d) < cap || reducedMotion()) { glide = null; cy.zoom({ level: cy.zoom() * f, renderedPosition: at }); return; }
+        const from = glide ? glide.goal : Math.log(cy.zoom());
+        const goal = Math.max(Math.log(cy.minZoom()), Math.min(Math.log(cy.maxZoom()), from + Math.log(f)));
+        glide = { goal, at, v: glide ? glide.v : 0, set: glide ? glide.set : null };
+        if (!glideFrame) { glideLast = performance.now(); glideFrame = requestAnimationFrame(stepGlide); }
+    }
+    let glide = null, glideFrame = 0, glideLast = 0;
+    function stepGlide(ts) {
+        glideFrame = 0;
+        if (!cy || destroyed || !glide) return;
+        // Something else moved the zoom meanwhile (a fit, a group opened): it wins.
+        if (glide.set !== null && Math.abs(cy.zoom() - glide.set) > 1e-9) { glide = null; return; }
+        const dt = Math.min(0.05, Math.max(0, (ts - glideLast) / 1000));
+        glideLast = ts;
+        const x = Math.log(cy.zoom()), w = ZOOM_SPRING;
+        glide.v += (w * w * (glide.goal - x) - 2 * w * glide.v) * dt;
+        let next = x + glide.v * dt;
+        const done = Math.abs(glide.goal - next) < 0.002 && Math.abs(glide.v) < 0.05;
+        if (done) next = glide.goal;
+        cy.zoom({ level: Math.exp(next), renderedPosition: glide.at });
+        glide.set = cy.zoom();
+        if (done) { glide = null; return; }
+        glideFrame = requestAnimationFrame(stepGlide);
     }
     const onScroll = () => { pageScrolling = true; clearTimeout(pageScrollTimer); pageScrollTimer = setTimeout(() => { pageScrolling = false; }, 250); };
     const onVisible = () => { if (!document.hidden) startFlow(); };
@@ -2000,7 +2026,7 @@ function createGraphView(container, opts) {
         destroyed = true;
         stopIcons();
         if (ro) ro.disconnect();
-        cancelAnimationFrame(frame); cancelAnimationFrame(flowRAF);
+        cancelAnimationFrame(frame); cancelAnimationFrame(flowRAF); cancelAnimationFrame(glideFrame);
         clearTimeout(viewTimer); clearTimeout(lodTimer); clearTimeout(hullTimer); clearTimeout(pageScrollTimer); clearTimeout(winTimer);
         container.removeEventListener('wheel', onWheel, { capture: true });
         window.removeEventListener('scroll', onScroll);
