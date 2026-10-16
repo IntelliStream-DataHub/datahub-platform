@@ -27,6 +27,9 @@
 const A = window.GraphAlgorithms;
 
 const MIN_LABEL_PX = 10, PAD = 30, FIT_MAX_ZOOM = 1.4;
+// How close the view can come: near enough to make out the icon of the smallest dot. Clicking a group zooms
+// in only as far as GROUP_ZOOM, so a small group is not blown up to fill the screen.
+const MAX_ZOOM = 8, GROUP_ZOOM = 4;
 // Names grow with the zoom only up to a comfortable size: a hub's stops at 18 px on screen, a leaf's at
 // 13 px. Zooming in then shows more names rather than bigger ones.
 const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12;
@@ -1455,7 +1458,7 @@ function createGraphView(container, opts) {
     }
     function makeCy() {
         cyWebgl = hasWebgl() && !/[?&]renderer=canvas\b/.test(location.search);
-        cy = cytoscape(Object.assign({ container: host, elements: [], style: [], minZoom: 0.02, maxZoom: 4, boxSelectionEnabled: false, selectionType: 'single' },
+        cy = cytoscape(Object.assign({ container: host, elements: [], style: [], minZoom: 0.02, maxZoom: MAX_ZOOM, boxSelectionEnabled: false, selectionType: 'single' },
             cyWebgl ? { webgl: true } : {}));
         cy.style().fromJson(style()).update();
         arrowBlend();
@@ -1847,7 +1850,7 @@ function createGraphView(container, opts) {
     function openGroup(c) {
         const g = big && big.groups.get(c);
         if (!g) return;
-        const W = cy.width(), H = cy.height(), z = Math.min(cy.maxZoom(), 0.8 * Math.min(W, H) / (2 * g.r));
+        const W = cy.width(), H = cy.height(), z = Math.min(GROUP_ZOOM, 0.8 * Math.min(W, H) / (2 * g.r));
         cy.animate({ zoom: z, pan: { x: W / 2 - z * g.x, y: H / 2 - z * g.y } }, { duration: reducedMotion() ? 0 : 300 });
     }
     // For GraphNetwork: whether a resource or relation is in the graph, and a stand-in for one out of view.
