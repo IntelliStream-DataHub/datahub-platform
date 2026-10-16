@@ -127,7 +127,7 @@ function fromLabels(labels) {
         if (code === undefined && l.length <= 4 && ISA.test(l)) code = l;
     }
     const found = best < Infinity ? LABEL_SYMBOL[best][1]
-        : code ? (code.endsWith('V') ? 'valve' : 'isa:' + code)
+        : code ? (/CV$/.test(code) ? 'control-valve' : code.endsWith('V') ? 'valve' : 'isa:' + code)
         : instrument ? 'instrument' : undefined;
     byLabels.set(k, found);
     return found;
@@ -273,14 +273,16 @@ window.GraphIcons = {
     },
     /** Whether an image a label was given could not be loaded (deleted, or no access to it). */
     imageFailed: id => (images.get(id) || {}).state === 'failed',
-    /** The icon a label shows in the filter panel, in the given ink. */
+    /** The icon a label shows in the filter panel, in the given ink: what its resources get in the chosen style. */
     labelSrc(label, ink) {
-        const f = settings.images[canon(label)];
+        const k = canon(label), f = settings.images[k];
         if (f) {
             const entry = images.get(f.id) || loadImage(f.id);
             if (entry.state === 'ready') return entry.src;
         }
-        return svgSrc(symbolFor({ labels: [label], name: '', type: canon(label) }), ink);
+        // In the simple style a label on its own says nothing of the kind of resource; most labels are on assets.
+        if (settings.style === 'simple') return svgSrc(SIMPLE[k] ? k : 'ASSET', ink);
+        return svgSrc(symbolFor({ labels: [label], name: '', type: k }), ink);
     },
     /** fn is called when icons should be drawn again; returns the function that stops it. */
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },

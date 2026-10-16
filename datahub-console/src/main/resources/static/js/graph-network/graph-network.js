@@ -1108,7 +1108,7 @@ class GraphFilter {
         });
         const style = this.panel.querySelector('.gf-icon-style');
         style.value = GraphIcons.style();
-        style.addEventListener('change', () => GraphIcons.setStyle(style.value));
+        style.addEventListener('change', () => { GraphIcons.setStyle(style.value); this.paintIconButtons(); });
         // A label's icon button shows its image once that has loaded, and a warning if it could not be.
         this.stopIcons = GraphIcons.subscribe(() => this.paintIconButtons());
         this.panel.querySelector('[data-type="gf-close"]').addEventListener('click', () => this.closePanel());
