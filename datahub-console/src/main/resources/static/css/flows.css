@@ -376,3 +376,9 @@
 	color: var(--input-error-fg);
 	font-size: 12px;
 }
+
+/* The Runs overview: the state cell is coloured by health, and the fine flows are folded away. */
+.runs-problem { color: var(--flash-error-bg); }
+.runs-warning { color: var(--flash-warning-bg); }
+.runs-fine { margin-top: var(--space-xl); }
+.runs-fine > summary { cursor: pointer; margin-bottom: var(--space-sm); }

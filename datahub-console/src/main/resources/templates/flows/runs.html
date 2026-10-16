@@ -13,9 +13,10 @@
 		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
 	</div>
 
-	<!--/* What is running and what is waiting, across the flows the user may read: three
-	       GET {flow}/runs?status=… queries, filled by flows/flows-overview.js, which refreshes them
-	       every few seconds while anything is running or queued. */-->
+	<!--/* How the flows are doing, one row per deployed flow the user may read:
+	       GET {flow}/runs/overview, filled by flows/flows-overview.js. Flows with a problem or
+	       something to watch come first; the fine ones are folded away. Refreshes every few seconds
+	       while anything is running or queued. */-->
 	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="runs-page">
 		<header class="flows-header">
 			<div>
@@ -27,50 +28,37 @@
 
 		<p class="flows-hint" data-type="runs-summary"></p>
 
-		<h3 th:text="#{flows.runs.running}"></h3>
-		<table class="listing slim w100" data-type="runs-running">
+		<h3 th:text="#{flows.runs.attention}"></h3>
+		<table class="listing slim w100" data-type="runs-attention" hidden>
 			<thead>
 				<tr>
 					<th th:text="#{flows.column.flow}"></th>
-					<th th:text="#{flows.column.window}"></th>
-					<th th:text="#{flows.column.started}"></th>
-					<th th:text="#{flows.runs.column.running.for}"></th>
-					<th th:text="#{flows.runs.column.instance}"></th>
-				</tr>
-			</thead>
-			<tbody></tbody>
-		</table>
-		<p class="flows-empty" data-type="runs-running-empty" hidden th:text="#{flows.runs.running.empty}"></p>
-
-		<h3 th:text="#{flows.runs.queued}"></h3>
-		<table class="listing slim w100" data-type="runs-queued">
-			<thead>
-				<tr>
-					<th th:text="#{flows.column.flow}"></th>
-					<th th:text="#{flows.column.window}"></th>
-					<th th:text="#{flows.runs.column.waiting}"></th>
-					<th th:text="#{flows.column.attempt}"></th>
 					<th th:text="#{flows.runs.column.state}"></th>
+					<th th:text="#{flows.runs.column.running}"></th>
+					<th th:text="#{flows.runs.column.queued}"></th>
+					<th th:text="#{flows.runs.column.last}"></th>
 				</tr>
 			</thead>
 			<tbody></tbody>
 		</table>
-		<p class="flows-empty" data-type="runs-queued-empty" hidden th:text="#{flows.runs.queued.empty}"></p>
-		<p class="flows-hint" th:text="#{flows.runs.queued.note}"></p>
+		<p class="flows-empty" data-type="runs-attention-empty" hidden th:text="#{flows.runs.attention.empty}"></p>
 
-		<h3 th:text="#{flows.runs.recent}"></h3>
-		<table class="listing slim w100" data-type="runs-recent">
-			<thead>
-				<tr>
-					<th th:text="#{flows.column.flow}"></th>
-					<th th:text="#{flows.column.window}"></th>
-					<th th:text="#{flows.column.status}"></th>
-					<th th:text="#{flows.column.finished}"></th>
-				</tr>
-			</thead>
-			<tbody></tbody>
-		</table>
-		<p class="flows-empty" data-type="runs-recent-empty" hidden th:text="#{flows.runs.recent.empty}"></p>
+		<details class="runs-fine" data-type="runs-fine" hidden>
+			<summary data-type="runs-fine-title"></summary>
+			<table class="listing slim w100" data-type="runs-fine-table">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.flow}"></th>
+						<th th:text="#{flows.runs.column.state}"></th>
+						<th th:text="#{flows.runs.column.running}"></th>
+						<th th:text="#{flows.runs.column.queued}"></th>
+						<th th:text="#{flows.runs.column.last}"></th>
+						<th th:text="#{flows.runs.column.next}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</details>
 	</div>
 
 	<th:block th:if="${!featureDisabled}">
