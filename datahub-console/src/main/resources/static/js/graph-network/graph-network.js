@@ -37,6 +37,11 @@ let GRAPH_COLORS = graphPalette();
 // BELONGS_TO tree, curved bundles, outlines, names); this class loads the graph from datahub-api
 // and wires it to the console: the node's action menu, the relation and resource forms, drawing a
 // new relation, the filter, and the hooks the guided tutorial uses.
+// How many resources a network load asks for: all of them. The api stops at 5,000 unless told
+// otherwise, which left anything larger cut off at its nearest 5,000. It streams the network now, and
+// the view draws a large one group by group (graph-view.js, big mode), so the whole network is fetched.
+const NETWORK_LIMIT = -1;
+
 class GraphNetwork {
 
     constructor(obj) {
@@ -673,7 +678,7 @@ class GraphNetwork {
         this.loadedId = id;
         // Returns the load promise so callers can act once the graph is rendered
         // (e.g. select/highlight the root node).
-        return Api.post("/resources/fetch-related", { id: id, depth: this.queryDepth }).then( response => {
+        return Api.post("/resources/fetch-related", { id: id, depth: this.queryDepth, limit: NETWORK_LIMIT }).then( response => {
             if(response.status === 200){
                 return response.json();
             } else {
