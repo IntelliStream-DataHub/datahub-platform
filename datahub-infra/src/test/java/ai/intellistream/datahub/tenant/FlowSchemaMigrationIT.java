@@ -13,7 +13,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -54,24 +53,16 @@ class FlowSchemaMigrationIT {
     void everyTableIsInTheFlowSchema() throws SQLException {
         assertThat(strings("SELECT table_name FROM information_schema.tables"
                 + " WHERE table_schema = 'flow' ORDER BY table_name"))
-                .containsExactly("flow", "flow_version", "run");
+                .containsExactly("flow", "flow_version");
         assertThat(strings("SELECT table_name FROM information_schema.tables"
                 + " WHERE table_schema = 'public' AND table_name IN ('flow', 'flow_version', 'run')"))
                 .isEmpty();
     }
 
     @Test
-    void theClaimAndTheReaperHavePartialIndexesAndTheLeaseHasNone() throws SQLException {
-        List<String> runIndexes = strings("SELECT indexdef FROM pg_indexes"
-                + " WHERE schemaname = 'flow' AND tablename = 'run'");
-
-        assertThat(runIndexes).anySatisfy(def -> assertThat(def)
-                .contains("run_pending_flow_idx").contains("(flow_id, window_start, created_at)")
-                .contains("WHERE (status = 'PENDING'::text)"));
-        assertThat(runIndexes).anySatisfy(def -> assertThat(def)
-                .contains("run_running_idx").contains("WHERE (status = 'RUNNING'::text)"));
-        assertThat(runIndexes).noneMatch(def -> def.contains("run_pending_idx"));
-        assertThat(runIndexes).noneMatch(def -> def.contains("lease_expires_at"));
+    void runsAreNotKeptInPostgres() throws SQLException {
+        assertThat(strings("SELECT table_name FROM information_schema.tables"
+                + " WHERE table_schema = 'flow' AND table_name = 'run'")).isEmpty();
     }
 
     @Test
@@ -120,22 +111,6 @@ class FlowSchemaMigrationIT {
         assertThat(strings("SELECT indexdef FROM pg_indexes"
                 + " WHERE schemaname = 'flow' AND indexname = 'flow_due_idx'"))
                 .singleElement().asString().contains("WHERE (enabled AND (next_due_at IS NOT NULL))");
-    }
-
-    @Test
-    void aRunningRunHasALeaseAndAPreviewMayCarryItsOwnDefinition() throws SQLException {
-        try (Connection c = connect(); Statement s = c.createStatement()) {
-            s.executeUpdate("INSERT INTO flow.run (id, definition, status, max_attempts,"
-                    + " run_timeout, preview, trigger)"
-                    + " VALUES ('" + UUID.randomUUID() + "', '{}', 'PENDING', 1, '1 minute',"
-                    + " true, 'preview')");
-
-            assertThatThrownBy(() -> s.executeUpdate("INSERT INTO flow.run (id, definition, status,"
-                    + " max_attempts, run_timeout, preview, trigger)"
-                    + " VALUES ('" + UUID.randomUUID() + "', '{}', 'RUNNING', 1, '1 minute',"
-                    + " true, 'preview')"))
-                    .hasMessageContaining("run_running_has_lease");
-        }
     }
 
     private static void insertFlow(Statement s, String externalId) throws SQLException {
