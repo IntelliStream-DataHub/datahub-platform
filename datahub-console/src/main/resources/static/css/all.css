@@ -2211,7 +2211,7 @@ td.findings-group-message{
 	margin: 0;
 }
 .h80px{ height: 80px; }
-/* Floating graph canvas buttons (add-relation + rearrange): clean square icon buttons on a
+/* Floating graph canvas button (the View menu): a clean square icon button on a
    themed surface so they're legible over the white/dark canvas, with an accent-filled active state.
    Overrides the heavy .dh-btn.secondary block they're built with. */
 .dh-btn.network-btns{
@@ -2242,8 +2242,97 @@ td.findings-group-message{
 	color: var(--body-bg);
 	border-color: var(--accent);
 }
-.add-rel-btn{ top:10px; }
-.rearrange-btn{ top:50px; }
+.view-btn{ top:10px; }
+/* The View menu under it: rows of choices in the style of the network lab, then the actions. */
+.dh-graph-view-menu{
+	position:absolute;
+	z-index:6;
+	top:52px;
+	right:10px;
+	width:min(300px, calc(100% - 20px));
+	max-height:calc(100% - 64px);
+	overflow-y:auto;
+	padding:12px 14px;
+	border-radius:10px;
+	background:var(--menu-bg);
+	color:var(--text);
+	border:1px solid var(--border);
+	box-shadow:0 6px 18px rgba(0, 0, 0, 0.3);
+	display:flex;
+	flex-direction:column;
+	gap:10px;
+	font-size:13px;
+}
+.dh-graph-view-menu[hidden]{ display:none; }
+.dh-graph-view-menu .gv-row{ display:flex; flex-direction:column; gap:5px; }
+.dh-graph-view-menu .gv-label{
+	font-size:11px;
+	letter-spacing:0.05em;
+	text-transform:uppercase;
+	font-weight:700;
+	color:var(--text-muted);
+}
+.dh-graph-view-menu .gv-seg{ display:flex; flex-wrap:wrap; gap:4px; }
+.dh-graph-view-menu .gv-seg button{
+	flex:1 1 auto;
+	padding:5px 9px;
+	border-radius:999px;
+	border:1px solid var(--border);
+	background:transparent;
+	color:inherit;
+	font:inherit;
+	font-weight:600;
+	cursor:pointer;
+}
+.dh-graph-view-menu .gv-seg button:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
+.dh-graph-view-menu .gv-seg button[aria-pressed="true"]{ background:var(--accent); border-color:var(--accent); color:var(--body-bg); }
+.dh-graph-view-menu .gv-seg button:disabled{ opacity:0.45; cursor:default; }
+.dh-graph-view-menu button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+.dh-graph-view-menu .gv-note{ margin:0; font-size:12px; line-height:1.45; color:var(--text-muted); }
+.dh-graph-view-menu .gv-actions{
+	display:flex;
+	flex-direction:column;
+	gap:2px;
+	padding-top:8px;
+	border-top:1px solid var(--border);
+}
+.gv-action{
+	display:flex;
+	align-items:center;
+	gap:8px;
+	padding:6px 4px;
+	border:0;
+	border-radius:6px;
+	background:transparent;
+	color:inherit;
+	font:inherit;
+	font-weight:600;
+	text-align:left;
+	cursor:pointer;
+}
+.gv-action:hover{ color:var(--accent); }
+/* While a relation is being drawn: a note on the graph saying how, with a way to stop. */
+.dh-graph-mode{
+	position:absolute;
+	z-index:5;
+	top:10px;
+	left:10px;
+	right:56px;
+	width:max-content;
+	max-width:calc(100% - 66px);
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	gap:4px 12px;
+	padding:6px 8px 6px 12px;
+	border-radius:8px;
+	background:var(--menu-bg);
+	color:var(--text);
+	border:1px solid var(--accent);
+	box-shadow:0 2px 6px rgba(0, 0, 0, 0.25);
+	font-size:13px;
+}
+.dh-graph-mode[hidden]{ display:none; }
 /* Graph filter: a panel in the shared right-form slide-out. Two grouped listings (node types +
    relation types) built on the .data-list base listing; every type shown by default, uncheck to
    hide. The .right-form > * rules already give it the panel chrome (width, slide, shadow). */
@@ -2287,7 +2376,6 @@ td.findings-group-message{
 }
 /* Icons: the style choice, and beside each label a button with the icon its resources get, which opens
    a picker for an image from Files (graph-icons.js keeps the choice in this browser). */
-.graph-filter-form .gf-icon-style{ width:100%; }
 .graph-filter-form .gf-hint{
 	font-size:12.5px;
 	color:var(--text-muted);
@@ -2329,6 +2417,7 @@ td.findings-group-message{
 	gap:var(--space-sm);
 }
 .graph-filter-form .gf-picker .gf-hint{ margin:0; }
+.graph-filter-form .gf-labels-hint{ margin:0 0 var(--space-sm); }
 .graph-filter-form .gf-picker-head{ font-weight:700; font-size:14px; }
 .graph-filter-form .gf-picker-search{ width:100%; }
 .graph-filter-form .gf-picker-path{ display:flex; flex-wrap:wrap; gap:2px 4px; font-size:13px; }
