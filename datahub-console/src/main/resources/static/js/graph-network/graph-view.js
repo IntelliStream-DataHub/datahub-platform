@@ -1806,6 +1806,8 @@ function createGraphView(container, opts) {
     function saveArrangement() {
         const key = opts.saveKey();
         if (!key || !current) return;
+        // Drawn as a network only while dagre loads for the diagram: that picture must not replace the saved one.
+        if (V.layout === 'diagram' && !window.dagre && !big) return;
         cy.batch(() => graphNodes().forEach(n => { const p = n.position(), x = Math.round(p.x), y = Math.round(p.y); if (x !== p.x || y !== p.y) n.position({ x, y }); }));
         putArrangement(arrangementKey(), encodeArrangement(G.ids, G.ids.map(id => cy.getElementById(id).position()), current.comm, [...MOVED]));
     }

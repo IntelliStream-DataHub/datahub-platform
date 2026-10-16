@@ -996,7 +996,7 @@ class GraphNetwork {
             const now = row.get();
             row.choices.forEach(([value, text]) => {
                 const b = Object.assign(document.createElement('button'), { type: 'button', textContent: $L(text), disabled: off });
-                b.setAttribute('aria-pressed', String(value === now));
+                b.setAttribute('aria-pressed', String(value === now && !off));   // a greyed row shows no choice as made
                 b.addEventListener('click', () => { if (row.get() !== value) { row.set(value); this.renderViewMenu(); } });
                 seg.append(b);
             });
