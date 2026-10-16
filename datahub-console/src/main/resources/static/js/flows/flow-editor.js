@@ -888,21 +888,6 @@
 			FlowApi.flashError(err, fallbackKey);
 		}
 
-		function validate(){
-			return FlowApi.post("/flows/validate", outgoing())
-				.then(answer => {
-					showProblems(answer.problems);
-					if(answer.valid){
-						var series = answer.series && answer.series.length ? " " + L("flows.validate.series", [answer.series.join(", ")]) : "";
-						Flash.info(L("flows.validate.ok") + series);
-					} else {
-						Flash.error(L(answer.problems.length === 1 ? "flows.validate.failed.one" : "flows.validate.failed",
-							[answer.problems.length]), { details: answer.problems.map(problemText) });
-					}
-				})
-				.catch(err => refuse(err, "flows.error.validate"));
-		}
-
 		function save(){
 			var body = outgoing();
 			var call = flow ? FlowApi.put("/flows/" + FlowApi.seg(flowId), body) : FlowApi.post("/flows", body);
@@ -1133,7 +1118,6 @@
 		}
 
 		var on = (type, fn) => el(type).addEventListener("click", fn);
-		on("flow-validate", validate);
 		on("flow-save", save);
 		on("flow-preview", preview);
 		on("flow-run", runNow);

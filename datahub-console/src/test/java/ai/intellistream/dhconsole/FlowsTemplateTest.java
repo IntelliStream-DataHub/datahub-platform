@@ -69,7 +69,7 @@ class FlowsTemplateTest {
                 Arguments.of("flows/index", "[data-type='flows-list-page']",
                         new String[]{"flows-table", "flows-create", "flows-load-more"}),
                 Arguments.of("flows/flow", "[data-type='flow-page']",
-                        new String[]{"flow-canvas", "flow-json", "flow-validate", "flow-save", "flow-preview",
+                        new String[]{"flow-canvas", "flow-json", "flow-save", "flow-preview",
                                 "flow-deploy", "flow-run-as", "flow-toggle", "flow-versions", "flow-runs",
                                 "flow-new", "flow-new-id", "flow-add-panel", "flow-add-search", "flow-add-list",
                                 "flow-problems"}),
