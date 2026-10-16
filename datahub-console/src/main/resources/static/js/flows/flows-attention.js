@@ -4,7 +4,9 @@
  *   POST {api}/events/latest      the open lifecycles (window.flowAttentionQuery, as the nav count)
  *   POST {flow}/runs/{id}/rerun   re-run the failed window with the deployed version; its success
  *                                 writes the resolved event, so the row leaves the list on its own.
- *                                 "Re-run all" does this for every listed window, one after another
+ *                                 "Re-run all" does this for every listed window, one after another,
+ *                                 then follows the list until those runs have finished: a re-run only
+ *                                 queues, and a flow works through its queue one run at a time
  *   POST {api}/events/create      dismiss: a dismissed event in the same lifecycle, written as the
  *                                 person dismissing, who needs write on the flow's dataset
  */
@@ -37,6 +39,8 @@
 		var more = page.querySelector('[data-type="attention-more"]');
 		var cursor = null;
 		var rerunAllButton = page.querySelector('[data-type="attention-rerun-all"]');
+		var progress = page.querySelector('[data-type="attention-progress"]');
+		var following = false;
 		var groups = {};   // flow -> its header row, so later pages add to the same group
 		var rerunnable = [];   // {flow, runId, button} of every listed window that has a run to re-run
 
@@ -75,6 +79,7 @@
 			var m = event.metadata || {};
 			var flow = m.flow || "";
 			var tr = document.createElement("tr");
+			tr.setAttribute("data-lifecycle", event.externalId);
 			var windowText = m.windowStart ? time(m.windowStart) + " – " + time(m.windowEnd) : "";
 			var error = (m.errorCode || "") + (m.error ? ": " + m.error : "");
 			[windowText, time(event.eventTime), error, m.attempts || ""].forEach(function(t){
@@ -141,6 +146,61 @@
 			return cursor ? load().then(function(ok){ return ok ? loadAll() : false; }) : Promise.resolve(true);
 		}
 
+		/** The lifecycles that are open now: all pages of the same query the list is made from. */
+		function openLifecycles(){
+			var ids = new Set();
+			function next(cur, n){
+				return FlowApi.api("/events/latest", window.flowAttentionQuery(cur, 100)).then(function(p){
+					(p.items || []).forEach(function(e){ ids.add(e.externalId); });
+					return p.nextCursor && n < 50 ? next(p.nextCursor, n + 1) : ids;
+				});
+			}
+			return next(null, 0);
+		}
+
+		/** Takes the rows whose lifecycle is no longer open off the page, and a group left empty with them. */
+		function dropResolved(open){
+			tbody.querySelectorAll("tr[data-lifecycle]").forEach(function(tr){
+				if(!open.has(tr.getAttribute("data-lifecycle"))) tr.remove();
+			});
+			Object.keys(groups).forEach(function(flow){
+				var next = groups[flow].nextElementSibling;
+				if(!next || next.classList.contains("attention-group")){
+					groups[flow].remove();
+					delete groups[flow];
+				}
+			});
+			empty.hidden = tbody.children.length > 0;
+			showRerunAll();
+		}
+
+		/**
+		 * Keeps the list current while re-runs started here finish, which takes a while: a flow runs
+		 * one window at a time, and its next one starts at the next sweep. Stops when they are done,
+		 * or after ten minutes; a window that failed again stays, and can be re-run once more.
+		 */
+		function follow(){
+			if(following) return;
+			following = true;
+			var until = Date.now() + 10 * 60 * 1000;
+			function waiting(){
+				return rerunnable.filter(function(r){ return r.started && r.row.isConnected; }).length;
+			}
+			function tick(){
+				var left = waiting();
+				if(left === 0 || Date.now() > until || !document.body.contains(page)){
+					progress.hidden = true;
+					following = false;
+					return;
+				}
+				progress.textContent = L("flows.attention.rerun.progress", [left]);
+				progress.hidden = false;
+				openLifecycles().then(dropResolved).catch(function(){ /* try again at the next tick */ })
+					.finally(function(){ setTimeout(tick, 5000); });
+			}
+			tick();
+		}
+
 		/** Re-runs every listed window, one after another, and stays here: the rows leave as the runs succeed. */
 		function rerunAll(){
 			rerunAllButton.disabled = true;
@@ -163,6 +223,7 @@
 				}, Promise.resolve()).then(function(){
 					if(failed === 0) Flash.info(L("flows.attention.rerun.all.done", [started]));
 					else Flash.error(L("flows.attention.rerun.all.partial", [started, failed]), { details: reasons });
+					if(started > 0) follow();
 				});
 			}).finally(function(){
 				rerunAllButton.disabled = false;
