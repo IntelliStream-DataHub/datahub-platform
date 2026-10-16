@@ -62,7 +62,7 @@ class FlowServiceTest {
     private FilterRegistrationBean<?> tenantContextCleanupFilter;
 
     @Autowired
-    private DataSize runMemoryBudget;
+    private DataSize runMemoryCap;
 
     @MockitoBean
     private JwtDecoder jwtDecoder;
@@ -162,7 +162,8 @@ class FlowServiceTest {
     }
 
     @Test
-    void theRunMemoryBudgetIsTheConfiguredOne() {
-        assertThat(runMemoryBudget).isEqualTo(DataSize.ofMegabytes(512));
+    void eachRunGetsItsShareOfTheConfiguredBudget() {
+        // 512 MB over the default eight run slots.
+        assertThat(runMemoryCap).isEqualTo(DataSize.ofMegabytes(64));
     }
 }

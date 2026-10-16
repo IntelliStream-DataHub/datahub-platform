@@ -1,16 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.config;
 
-import ai.intellistream.datahub.flow.definition.FlowDefinitions;
-import ai.intellistream.datahub.flow.definition.FlowValidator;
-import ai.intellistream.datahub.flow.definition.ValidationProblem;
-import ai.intellistream.datahub.flow.fake.ExampleFlow;
-import ai.intellistream.datahub.flow.fake.FakeProcessors;
 import org.junit.jupiter.api.Test;
 import org.springframework.util.unit.DataSize;
-import tools.jackson.databind.node.ObjectNode;
-
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -20,37 +12,31 @@ class FlowConfigTest {
     private static final long GB = DataSize.ofGigabytes(1).toBytes();
 
     @Test
-    void unsetTheBudgetIsHalfTheHeap() {
-        assertThat(FlowConfig.runMemoryBudget("", 4 * GB)).isEqualTo(DataSize.ofGigabytes(2));
+    void eachRunGetsAnEqualShareOfHalfTheHeap() {
+        assertThat(FlowConfig.runMemoryCap("", 16 * GB, 8)).isEqualTo(DataSize.ofGigabytes(1));
+        assertThat(FlowConfig.runMemoryCap("", 4 * GB, 8)).isEqualTo(DataSize.ofMegabytes(256));
+        assertThat(FlowConfig.runMemoryCap("", 4 * GB, 1)).isEqualTo(DataSize.ofGigabytes(2));
+    }
+
+    @Test
+    void aSmallerBudgetIsSplitInstead() {
+        assertThat(FlowConfig.runMemoryCap("1GB", 16 * GB, 8)).isEqualTo(DataSize.ofMegabytes(128));
     }
 
     @Test
     void aBudgetOverHalfTheHeapStopsTheBoot() {
-        assertThatThrownBy(() -> FlowConfig.runMemoryBudget("3GB", 4 * GB))
+        assertThatThrownBy(() -> FlowConfig.runMemoryCap("3GB", 4 * GB, 8))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("more than half the maximum heap");
     }
 
     @Test
-    void aBudgetTooSmallForTheDefaultCapStopsTheBoot() {
-        assertThatThrownBy(() -> FlowConfig.runMemoryBudget("256MB", 4 * GB))
+    void aShareTooSmallForARunStopsTheBoot() {
+        assertThatThrownBy(() -> FlowConfig.runMemoryCap("", 512 * 1024 * 1024, 8))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no run would ever start");
-        assertThatThrownBy(() -> FlowConfig.runMemoryBudget("", 512 * 1024 * 1024))
-                .hasMessageContaining("no run would ever start");
-    }
-
-    @Test
-    void aRunMayAskForNoMoreThanTheBudget() {
-        FlowValidator validator = new FlowConfig().flowValidator(FakeProcessors.catalog(), DataSize.ofGigabytes(1));
-        assertThat(problems(validator, "1GB")).isEmpty();
-        assertThat(problems(validator, "2GB")).extracting(ValidationProblem::pointer)
-                .containsExactly("#/execution/memory");
-    }
-
-    private static List<ValidationProblem> problems(FlowValidator validator, String memory) {
-        ObjectNode tree = ExampleFlow.tree();
-        ((ObjectNode) tree.get("execution")).put("memory", memory);
-        return validator.validate(FlowDefinitions.parse(tree.toString()), null);
+                .hasMessageContaining("gives each run 32 MB")
+                .hasMessageContaining("lower datahub.flow.runs.max-running");
+        assertThatThrownBy(() -> FlowConfig.runMemoryCap("256MB", 4 * GB, 8))
+                .hasMessageContaining("under the 64 MB a run needs");
     }
 }
