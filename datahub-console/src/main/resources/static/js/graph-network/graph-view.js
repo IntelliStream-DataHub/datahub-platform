@@ -34,6 +34,9 @@ const GROUP_LABEL_PX = imp => 12 + 3 * (imp || 0), GROUP_LABEL_GAP = 10;
 // Pills, in units of their name's font size: the padding at each end, the room for the icon, the widest a
 // pill gets (a longer name ends in "…"), and its height. Below PILL_MIN_PX on screen a pill shows no name.
 const PILL_PAD = 0.7, PILL_ICON = 1.6, PILL_MAX = 17, PILL_H = 2.2, PILL_MIN_PX = 7;
+// What a selection leaves out stays readable behind it: resources at DIM_NODE, their names at DIM_NAME,
+// relation lines at DIM_LINE.
+const DIM_NODE = 0.45, DIM_NAME = 0.5, DIM_LINE = 0.25;
 // The diagram: up to this many resources, and the gaps between its columns and between resources in one.
 const DIAGRAM_MAX = 5000, DIAGRAM_RANK_GAP = 60, DIAGRAM_GAP = 10, DIAGRAM_WRAP = 16;
 // A shut group's name keeps one modest size however far out the view is: it is a signpost, not a heading.
@@ -967,7 +970,9 @@ function createGraphView(container, opts) {
     // ---- names --------------------------------------------------------------------------------------------
     // Which names to draw: every name that renders at 10 px or more, most important first, skipping any that
     // would overlap a name already placed.
-    const hiddenName = n => n.hasClass('dim') || n.hasClass('tut-dim') || !shown(n);
+    // The tutorial's dimming hides names; a selection's only fades them.
+    const hiddenName = n => n.hasClass('tut-dim') || !shown(n);
+    const nameAlpha = n => (n.hasClass('dim') ? DIM_NAME : 1);
     function shownLabels(z, pan, w, h) {
         const cell = 48, grid = new Map(), names = new Set();
         const nodes = cy.nodes('.dot, .agg').toArray().sort((a, b) => (b.data('imp') || 0) - (a.data('imp') || 0) || (a.id() < b.id() ? -1 : 1));
@@ -1083,20 +1088,21 @@ function createGraphView(container, opts) {
             const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = Math.max(4, n.data('w') * z / 2) + 3.5;
             if (x < -20 - r || x > w + 20 + r || y < -20 || y > h + 20) return;
             const k = m.groups.length, gap = k > 1 ? 0.18 : 0;
+            ctx.globalAlpha = nameAlpha(n);
             ctx.lineWidth = 3; ctx.lineCap = 'round';
             if (n.hasClass('pill')) {
                 // Round a pill the ring is its outline, in bands of its groups' colours from left to right.
                 const hh = n.data('h') * z / 2 + 3.5, grad = ctx.createLinearGradient(x - r, 0, x + r, 0);
                 m.groups.forEach((g, j) => { grad.addColorStop(j / k, colourOf(g)); grad.addColorStop((j + 1) / k, colourOf(g)); });
                 ctx.strokeStyle = grad; ctx.beginPath(); ctx.roundRect(x - r, y - hh, 2 * r, 2 * hh, hh); ctx.stroke();
-                ctx.lineCap = 'butt';
+                ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
                 return;
             }
             m.groups.forEach((g, j) => {
                 const a0 = -Math.PI / 2 + j * 2 * Math.PI / k + gap / 2, a1 = a0 + 2 * Math.PI / k - gap;
                 ctx.strokeStyle = colourOf(g); ctx.beginPath(); ctx.arc(x, y, r, a0, a1); ctx.stroke();
             });
-            ctx.lineCap = 'butt';
+            ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
         });
         if (pills()) drawPillFaces(ctx, z, pan, w, h, pal);
         ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = pal.outline; ctx.fillStyle = pal.label;
@@ -1106,10 +1112,11 @@ function createGraphView(container, opts) {
             const p = n.position(), px = labelPx(n, z), x = p.x * z + pan.x, y = p.y * z + pan.y + n.data('h') * z / 2 + Math.min(3 * z, 4);
             if (x < -200 || x > w + 200 || y < -40 || y > h + 40) return;
             ctx.font = `600 ${px}px Manrope, Arial, sans-serif`;
-            const t = n.data('short') || '';
-            ctx.globalAlpha = 0.85; ctx.strokeText(t, x, y);
-            ctx.globalAlpha = 1; ctx.fillText(t, x, y);
+            const t = n.data('short') || '', a = nameAlpha(n);
+            ctx.globalAlpha = 0.85 * a; ctx.strokeText(t, x, y);
+            ctx.globalAlpha = a; ctx.fillText(t, x, y);
         });
+        ctx.globalAlpha = 1;
     }
     // A pill's icon at its left end and its name after it, in the page's text colour; the name is centred
     // when the pill shows no icon. Each icon image is decoded once and drawn wherever it is used.
@@ -1127,15 +1134,18 @@ function createGraphView(container, opts) {
             if (hiddenName(n)) return;
             const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, hw = n.data('w') * z / 2;
             if (x + hw < 0 || x - hw > w || y < -px || y > h + px) return;
-            const src = n.data('icon'), icon = !!src && src !== 'none' && !n.hasClass('noicon');
+            const src = n.data('icon'), icon = !!src && src !== 'none' && !n.hasClass('noicon'), a = nameAlpha(n);
             if (icon) {
                 const img = pillIcon(src), s = fs * 1.35 * z;
-                if (img) { ctx.globalAlpha = 0.9; ctx.drawImage(img, x - hw + fs * PILL_PAD * z, y - s / 2, s, s); ctx.globalAlpha = 1; }
+                if (img) { ctx.globalAlpha = 0.9 * a; ctx.drawImage(img, x - hw + fs * PILL_PAD * z, y - s / 2, s, s); }
             }
+            ctx.globalAlpha = 1;
             if (px < PILL_MIN_PX) return;
             ctx.font = `600 ${px}px Manrope, Arial, sans-serif`;
             ctx.textAlign = icon ? 'left' : 'center';
+            ctx.globalAlpha = a;
             ctx.fillText(n.data('pt') || '', icon ? x - hw + fs * (PILL_PAD + PILL_ICON) * z : x, y);
+            ctx.globalAlpha = 1;
         });
     }
     // While the view moves, names and outlines are brought up to date at most LOD_MS apart, and once more when
@@ -1264,9 +1274,9 @@ function createGraphView(container, opts) {
             // Direction without arrowheads: every line fades from faint at its start to full at its end. The
             // WebGL renderer draws no gradients, so there lines are solid until something is selected.
             ...(fade ? [{ selector: 'edge', style: { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.fadeFrom, pal.line], 'line-gradient-stop-positions': [0, 100] } }] : []),
-            { selector: '.dim', style: { 'opacity': 0.08 } },
-            { selector: 'node.dim', style: dimNode(0.18) },
-            { selector: 'node.pill.dim', style: cyWebgl ? { 'background-color': pal.surface, 'border-opacity': 0.25 } : { 'opacity': 0.25 } },
+            { selector: '.dim', style: { 'opacity': DIM_LINE } },
+            { selector: 'node.dim', style: dimNode(DIM_NODE) },
+            { selector: 'node.pill.dim', style: cyWebgl ? { 'background-color': pal.surface, 'border-opacity': DIM_NODE } : { 'opacity': DIM_NODE } },
             { selector: 'node.root', style: { 'border-width': 2, 'border-color': pal.label, 'border-opacity': 0.9 } },
             { selector: 'node.sel', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
             { selector: 'edge.hl', style: { 'opacity': 0.95, 'z-index': 9 } },
