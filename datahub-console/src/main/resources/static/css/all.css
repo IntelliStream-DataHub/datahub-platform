@@ -19,7 +19,7 @@
 :host,:root{--fa-style-family-classic:"Font Awesome 6 Free";--fa-font-solid:normal 900 1em/1 "Font Awesome 6 Free"}@font-face{font-family:"Font Awesome 6 Free";font-style:normal;font-weight:900;font-display:block;src:url(/static/webfonts/fa-solid-900.woff2) format("woff2"),url(/static/webfonts/fa-solid-900.ttf) format("truetype")}.fa-solid,.fas{font-weight:900}
 .fa{font-family:var(--fa-style-family,"Font Awesome 6 Free");font-weight:var(--fa-style,900)}.fa,.fa-brands,.fa-classic,.fa-regular,.fa-sharp,.fa-solid,.fab,.far,.fas{-moz-osx-font-smoothing:grayscale;-webkit-font-smoothing:antialiased;display:var(--fa-display,inline-block);font-style:normal;font-variant:normal;line-height:1;text-rendering:auto}.fa-classic,.fa-regular,.fa-solid,.far,.fas{font-family:"Font Awesome 6 Free"}.fa-fw{text-align:center;width:1.25em}
 
-.fa-trash-can:before{content:"\f2ed"}.fa-file-lines:before{content:"\f15c"}.fa-sitemap:before{content:"\f0e8"}.fa-lock:before{content:"\f023"}.fa-edit:before,.fa-pen-to-square:before{content:"\f044"}.fa-eye-slash:before{content:"\f070"}.fa-chevron-up:before{content:"\f077"}.fa-folder:before{content:"\f07b"}.fa-key:before{content:"\f084"}.fa-folder-open:before{content:"\f07c"}.fa-cloud-arrow-up:before{content:"\f0ee"}.fa-shield-halved:before{content:"\f3ed"}.fa-filter:before{content:"\f0b0"}.fa-chart-line:before{content:"\f201"}.fa-cube:before{content:"\f1b2"}.fa-clipboard-check:before{content:"\f46c"}.fa-circle-question:before{content:"\f059"}.fa-eye:before{content:"\f06e"}.fa-pen:before{content:"\f304"}.fa-trash:before{content:"\f1f8"}.fa-tag:before{content:"\f02b"}.fa-comment:before{content:"\f075"}.fa-circle-nodes:before{content:"\e4e2"}.fa-circle-info:before{content:"\f05a"}.fa-folder-tree:before{content:"\f802"}.fa-download:before{content:"\f019"}.fa-stop:before{content:"\f04d"}.fa-upload:before{content:"\f093"}.fa-sun:before{content:"\f185"}.fa-user-lock:before{content:"\f502"}.fa-bell:before{content:"\f0f3"}.fa-link:before{content:"\f0c1"}.fa-play:before{content:"\f04b"}.fa-search:before{content:"\f002"}.fa-diagram-project:before{content:"\f542"}.fa-copy:before{content:"\f0c5"}.fa-plus:before{content:"\2b"}.fa-close:before,.fa-xmark:before{content:"\f00d"}.fa-moon:before{content:"\f186"}.fa-clone:before{content:"\f24d"}.fa-check:before{content:"\f00c"}.fa-database:before{content:"\f1c0"}.fa-paper-plane:before{content:"\f1d8"}.fa-mask:before{content:"\f6fa"}.fa-graduation-cap:before{content:"\f19d"}
+.fa-trash-can:before{content:"\f2ed"}.fa-file-lines:before{content:"\f15c"}.fa-sitemap:before{content:"\f0e8"}.fa-lock:before{content:"\f023"}.fa-edit:before,.fa-pen-to-square:before{content:"\f044"}.fa-eye-slash:before{content:"\f070"}.fa-chevron-up:before{content:"\f077"}.fa-folder:before{content:"\f07b"}.fa-key:before{content:"\f084"}.fa-folder-open:before{content:"\f07c"}.fa-cloud-arrow-up:before{content:"\f0ee"}.fa-shield-halved:before{content:"\f3ed"}.fa-filter:before{content:"\f0b0"}.fa-chart-line:before{content:"\f201"}.fa-cube:before{content:"\f1b2"}.fa-clipboard-check:before{content:"\f46c"}.fa-circle-question:before{content:"\f059"}.fa-eye:before{content:"\f06e"}.fa-pen:before{content:"\f304"}.fa-trash:before{content:"\f1f8"}.fa-tag:before{content:"\f02b"}.fa-comment:before{content:"\f075"}.fa-circle-nodes:before{content:"\e4e2"}.fa-sliders:before{content:"\f1de"}.fa-circle-info:before{content:"\f05a"}.fa-folder-tree:before{content:"\f802"}.fa-download:before{content:"\f019"}.fa-stop:before{content:"\f04d"}.fa-upload:before{content:"\f093"}.fa-sun:before{content:"\f185"}.fa-user-lock:before{content:"\f502"}.fa-bell:before{content:"\f0f3"}.fa-link:before{content:"\f0c1"}.fa-play:before{content:"\f04b"}.fa-search:before{content:"\f002"}.fa-diagram-project:before{content:"\f542"}.fa-copy:before{content:"\f0c5"}.fa-plus:before{content:"\2b"}.fa-close:before,.fa-xmark:before{content:"\f00d"}.fa-moon:before{content:"\f186"}.fa-clone:before{content:"\f24d"}.fa-check:before{content:"\f00c"}.fa-database:before{content:"\f1c0"}.fa-paper-plane:before{content:"\f1d8"}.fa-mask:before{content:"\f6fa"}.fa-graduation-cap:before{content:"\f19d"}
 /*!
  * Manrope by Mikhail Sharanda - https://github.com/sharanda/manrope
  * Licensed under the SIL Open Font License 1.1 - https://openfontlicense.org
@@ -2211,7 +2211,7 @@ td.findings-group-message{
 	margin: 0;
 }
 .h80px{ height: 80px; }
-/* Floating graph canvas buttons (add-relation + rearrange): clean square icon buttons on a
+/* Floating graph canvas button (the View menu): a clean square icon button on a
    themed surface so they're legible over the white/dark canvas, with an accent-filled active state.
    Overrides the heavy .dh-btn.secondary block they're built with. */
 .dh-btn.network-btns{
@@ -2242,8 +2242,97 @@ td.findings-group-message{
 	color: var(--body-bg);
 	border-color: var(--accent);
 }
-.add-rel-btn{ top:10px; }
-.rearrange-btn{ top:50px; }
+.view-btn{ top:10px; }
+/* The View menu under it: rows of choices in the style of the network lab, then the actions. */
+.dh-graph-view-menu{
+	position:absolute;
+	z-index:6;
+	top:52px;
+	right:10px;
+	width:min(300px, calc(100% - 20px));
+	max-height:calc(100% - 64px);
+	overflow-y:auto;
+	padding:12px 14px;
+	border-radius:10px;
+	background:var(--menu-bg);
+	color:var(--text);
+	border:1px solid var(--border);
+	box-shadow:0 6px 18px rgba(0, 0, 0, 0.3);
+	display:flex;
+	flex-direction:column;
+	gap:10px;
+	font-size:13px;
+}
+.dh-graph-view-menu[hidden]{ display:none; }
+.dh-graph-view-menu .gv-row{ display:flex; flex-direction:column; gap:5px; }
+.dh-graph-view-menu .gv-label{
+	font-size:11px;
+	letter-spacing:0.05em;
+	text-transform:uppercase;
+	font-weight:700;
+	color:var(--text-muted);
+}
+.dh-graph-view-menu .gv-seg{ display:flex; flex-wrap:wrap; gap:4px; }
+.dh-graph-view-menu .gv-seg button{
+	flex:1 1 auto;
+	padding:5px 9px;
+	border-radius:999px;
+	border:1px solid var(--border);
+	background:transparent;
+	color:inherit;
+	font:inherit;
+	font-weight:600;
+	cursor:pointer;
+}
+.dh-graph-view-menu .gv-seg button:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
+.dh-graph-view-menu .gv-seg button[aria-pressed="true"]{ background:var(--accent); border-color:var(--accent); color:var(--body-bg); }
+.dh-graph-view-menu .gv-seg button:disabled{ opacity:0.45; cursor:default; }
+.dh-graph-view-menu button:focus-visible{ outline:2px solid var(--accent); outline-offset:1px; }
+.dh-graph-view-menu .gv-note{ margin:0; font-size:12px; line-height:1.45; color:var(--text-muted); }
+.dh-graph-view-menu .gv-actions{
+	display:flex;
+	flex-direction:column;
+	gap:2px;
+	padding-top:8px;
+	border-top:1px solid var(--border);
+}
+.gv-action{
+	display:flex;
+	align-items:center;
+	gap:8px;
+	padding:6px 4px;
+	border:0;
+	border-radius:6px;
+	background:transparent;
+	color:inherit;
+	font:inherit;
+	font-weight:600;
+	text-align:left;
+	cursor:pointer;
+}
+.gv-action:hover{ color:var(--accent); }
+/* While a relation is being drawn: a note on the graph saying how, with a way to stop. */
+.dh-graph-mode{
+	position:absolute;
+	z-index:5;
+	top:10px;
+	left:10px;
+	right:56px;
+	width:max-content;
+	max-width:calc(100% - 66px);
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	gap:4px 12px;
+	padding:6px 8px 6px 12px;
+	border-radius:8px;
+	background:var(--menu-bg);
+	color:var(--text);
+	border:1px solid var(--accent);
+	box-shadow:0 2px 6px rgba(0, 0, 0, 0.25);
+	font-size:13px;
+}
+.dh-graph-mode[hidden]{ display:none; }
 /* Graph filter: a panel in the shared right-form slide-out. Two grouped listings (node types +
    relation types) built on the .data-list base listing; every type shown by default, uncheck to
    hide. The .right-form > * rules already give it the panel chrome (width, slide, shadow). */
@@ -2285,6 +2374,112 @@ td.findings-group-message{
 	overflow:hidden;
 	text-overflow:ellipsis;
 }
+/* Icons: the style choice, and beside each label a button with the icon its resources get, which opens
+   a picker for an image from Files (graph-icons.js keeps the choice in this browser). */
+.graph-filter-form .gf-hint{
+	font-size:12.5px;
+	color:var(--text-muted);
+	margin:var(--space-sm) 0 0;
+	line-height:1.45;
+}
+.graph-filter-form .gf-list li.gf-label{
+	display:flex;
+	flex-wrap:wrap;
+	align-items:center;
+	gap:var(--space-sm);
+}
+.graph-filter-form .gf-list li.gf-label > .gf-row{ flex:1 1 0; min-width:0; }
+.graph-filter-form .gf-icon-btn{
+	flex:0 0 auto;
+	width:28px;
+	height:28px;
+	padding:0;
+	display:grid;
+	place-items:center;
+	border-radius:6px;
+	border:1px solid var(--border);
+	background:transparent;
+	cursor:pointer;
+}
+.graph-filter-form .gf-icon-btn img{ width:18px; height:18px; display:block; }
+.graph-filter-form .gf-icon-btn:hover,
+.graph-filter-form .gf-icon-btn:focus-visible{ border-color:var(--accent); outline:none; }
+.graph-filter-form .gf-icon-btn.has-image{ border-color:var(--accent); }
+.graph-filter-form .gf-icon-btn.failed{ border-color:var(--flash-warning-bg); border-style:dashed; }
+.graph-filter-form .gf-picker{
+	flex:1 0 100%;
+	margin:var(--space-sm) 0 var(--space);
+	padding:var(--space);
+	border:1px solid var(--border);
+	border-radius:8px;
+	display:flex;
+	flex-direction:column;
+	gap:var(--space-sm);
+}
+.graph-filter-form .gf-picker .gf-hint{ margin:0; }
+.graph-filter-form .gf-labels-hint{ margin:0 0 var(--space-sm); }
+.graph-filter-form .gf-picker-head{ font-weight:700; font-size:14px; }
+.graph-filter-form .gf-picker-search{ width:100%; }
+.graph-filter-form .gf-picker-path{ display:flex; flex-wrap:wrap; gap:2px 4px; font-size:13px; }
+.graph-filter-form .gf-picker-path:empty{ display:none; }
+.graph-filter-form .gf-crumb{
+	background:none;
+	border:0;
+	padding:0;
+	color:var(--accent);
+	cursor:pointer;
+	font:inherit;
+}
+.graph-filter-form .gf-crumb:not(:last-child)::after{ content:" /"; color:var(--text-muted); }
+.graph-filter-form .gf-crumb:last-child{ color:inherit; cursor:default; }
+.graph-filter-form .gf-picker-items{
+	display:grid;
+	grid-template-columns:repeat(auto-fill, minmax(76px, 1fr));
+	gap:var(--space-sm);
+	max-height:260px;
+	overflow-y:auto;
+}
+.graph-filter-form .gf-folder{
+	grid-column:1 / -1;
+	display:flex;
+	align-items:center;
+	gap:var(--space-sm);
+	background:none;
+	border:0;
+	padding:4px 2px;
+	color:inherit;
+	font:inherit;
+	font-size:13.5px;
+	text-align:left;
+	cursor:pointer;
+}
+.graph-filter-form .gf-folder:hover span{ text-decoration:underline; }
+.graph-filter-form .gf-tile{
+	display:flex;
+	flex-direction:column;
+	align-items:center;
+	gap:4px;
+	padding:6px 4px;
+	border:1px solid var(--border);
+	border-radius:6px;
+	background:transparent;
+	color:inherit;
+	cursor:pointer;
+	min-width:0;
+}
+.graph-filter-form .gf-tile:hover,
+.graph-filter-form .gf-tile:focus-visible{ border-color:var(--accent); outline:none; }
+.graph-filter-form .gf-tile img{ width:40px; height:40px; object-fit:contain; }
+.graph-filter-form .gf-tile span{
+	font-size:11.5px;
+	max-width:100%;
+	white-space:nowrap;
+	overflow:hidden;
+	text-overflow:ellipsis;
+}
+.graph-filter-form .gf-picker-note{ grid-column:1 / -1; }
+.graph-filter-form .gf-picker-actions{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--space-sm); }
+.graph-filter-form .gf-picker-files{ font-size:13px; color:var(--accent); }
 .sub-nav .graph-filter-slot{
 	position:relative;
 	display:flex;

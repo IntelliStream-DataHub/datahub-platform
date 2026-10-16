@@ -1,12 +1,12 @@
 /*
     The drawing of the network view, for GraphNetwork (graph-network.js).
 
-    Resources are dots sized by importance (betweenness) with an icon for their type, grouped by the
-    data's containment tree (BELONGS_TO, PART_OF): a parent's sections are laid out together inside one
-    more group, and each group is outlined. A resource with parents in several groups sits between them
-    and every group reaches out to it. Lines between groups run as curved bundles through the groups;
-    the names drawn are the ones that read at the current zoom. Without a usable tree, Louvain finds the
-    groups instead.
+    Resources are dots sized by importance (betweenness) with an icon for what they are (a pump, a valve:
+    see graph-icons.js), grouped by the data's containment tree (BELONGS_TO, PART_OF): a parent's
+    sections are laid out together inside one more group, and each group is outlined. A resource with
+    parents in several groups sits between them and every group reaches out to it. Lines between groups
+    run as curved bundles through the groups; the names drawn are the ones that read at the current
+    zoom. Without a usable tree, Louvain finds the groups instead.
 
     A context hub, linked to half the graph or more (the plant everything is part of), is grouped with
     the resources nothing else connects, and its lines are drawn only while one of their ends is
@@ -27,12 +27,36 @@
 const A = window.GraphAlgorithms;
 
 const MIN_LABEL_PX = 10, PAD = 30, FIT_MAX_ZOOM = 1.4;
+// How close the view can come: near enough to make out the icon of the smallest dot. Clicking a group zooms
+// in only as far as GROUP_ZOOM, so a small group is not blown up to fill the screen.
+const MAX_ZOOM = 8, GROUP_ZOOM = 4;
 // Names grow with the zoom only up to a comfortable size: a hub's stops at 18 px on screen, a leaf's at
 // 13 px. Zooming in then shows more names rather than bigger ones.
-const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12;
+const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12, DOT_COVER_PX = 8;
 const GROUP_LABEL_PX = imp => 12 + 3 * (imp || 0), GROUP_LABEL_GAP = 10;
+// Pills, in units of their name's font size: the padding at each end, the room for the icon, the widest a
+// pill gets (a longer name ends in "…"), and its height. Below PILL_MIN_PX on screen a pill shows no name.
+const PILL_PAD = 0.7, PILL_ICON = 1.6, PILL_MAX = 17, PILL_H = 2.2, PILL_MIN_PX = 7;
+// What a selection leaves out stays readable behind it: resources at DIM_NODE, their names at DIM_NAME,
+// relation lines at DIM_LINE.
+const DIM_NODE = 0.45, DIM_NAME = 0.5, DIM_LINE = 0.25;
+// The diagram: up to this many resources, and the gaps between its columns and between resources in one.
+const DIAGRAM_MAX = 5000, DIAGRAM_RANK_GAP = 60, DIAGRAM_GAP = 10, DIAGRAM_WRAP = 16;
+// The classic view, as the console drew its graphs before: a dagre tree from the top down, pills as wide as
+// their names (CLASSIC_W, CLASSIC_H, as the old pills were) with the resource's types over its name, and
+// curved lines with an arrowhead and the relation's name. The built-in types are listed first, in this
+// order; relations between one pair bow apart in steps of CLASSIC_ARC, each to the right of its direction.
+const CLASSIC_H = 34, CLASSIC_W = name => Math.min(240, Math.max(90, Math.ceil((name || '').length * 6.6) + 22));
+const CLASSIC_TYPES = ['ASSET', 'FUNCTION', 'TIMESERIES', 'RESOURCE', 'DATASET', 'POLICY'];
+const CLASSIC_ARC = 30, CLASSIC_MIN_PX = 4;
 // A shut group's name keeps one modest size however far out the view is: it is a signpost, not a heading.
-const labelPx = (n, z) => (n.hasClass('agg') ? GROUP_LABEL_PX(n.data('imp')) : Math.min(n.data('fs') * z, MAX_LABEL_PX(n.data('imp'))));
+// A resource's name grows with its dot as the view zooms, up to MAX_LABEL_PX, and past that more slowly (with
+// the square root), so it stays in proportion to a dot seen close up without filling the screen.
+const labelPx = (n, z) => {
+    if (n.hasClass('agg')) return GROUP_LABEL_PX(n.data('imp'));
+    const px = n.data('fs') * z, cap = MAX_LABEL_PX(n.data('imp'));
+    return px <= cap ? px : cap * Math.sqrt(px / cap);
+};
 // Above this many resources names are re-picked only once a pan or zoom settles, and above the second
 // the lines inside a group are drawn straight, which keeps the WebGL renderer at 60 frames a second.
 const SETTLE_ABOVE = 1000, STRAIGHT_ABOVE = 3000;
@@ -40,21 +64,8 @@ const SETTLE_ABOVE = 1000, STRAIGHT_ABOVE = 3000;
 // Group colours chosen to stay apart on both themes and from the line colour.
 const CLUSTER = ['#f2a65a', '#8fb9ff', '#e98bd0', '#9ad66f', '#ffd166', '#c3a6ff', '#ff8f8f', '#5fd4c4', '#d4b483', '#7fc8f8', '#f7a1c4', '#b8e986'];
 const OTHER = '#9aa9b2';
-const GLYPH = {
-    ASSET: "<path d='M8 1.8 13.6 4.9v6.2L8 14.2 2.4 11.1V4.9z M2.4 4.9 8 8l5.6-3.1 M8 8v6.2' fill='none' stroke='INK' stroke-width='1.6' stroke-linejoin='round'/>",
-    TIMESERIES: "<path d='M2 11.5 5.5 7.5l2.8 2.4L14 4' fill='none' stroke='INK' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/>",
-    FUNCTION: "<path d='M10.5 2.5c-2 0-2.6 1.2-3 3.2L6.2 12c-.3 1.4-1 2-2.2 2 M4.5 6.5h6' fill='none' stroke='INK' stroke-width='1.6' stroke-linecap='round'/>",
-    DATASET: "<ellipse cx='8' cy='4' rx='5' ry='2' fill='none' stroke='INK' stroke-width='1.5'/><path d='M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4' fill='none' stroke='INK' stroke-width='1.5'/>",
-    POLICY: "<path d='M8 1.8 13 3.6v3.9c0 3-2.1 5.4-5 6.4-2.9-1-5-3.4-5-6.4V3.6z' fill='none' stroke='INK' stroke-width='1.6' stroke-linejoin='round'/>",
-    DEFAULT: "<circle cx='8' cy='8' r='2.6' fill='INK'/>",
-};
-const TYPE_FOR_GLYPH = t => GLYPH[t] ? t : (t === 'RESOURCE' ? 'ASSET' : 'DEFAULT');
-const iconCache = new Map();
-function glyph(type, ink) {
-    const k = type + ink;
-    if (!iconCache.has(k)) iconCache.set(k, 'data:image/svg+xml;utf8,' + encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'>${GLYPH[TYPE_FOR_GLYPH(type)].replace(/INK/g, ink)}</svg>`));
-    return iconCache.get(k);
-}
+// The icon inside a resource's dot comes from graph-icons.js, which also remembers the chosen style.
+const iconOf = (g, ink) => window.GraphIcons.iconSrc(g, ink);
 
 // a over b at alpha k, as '#rrggbb'.
 function mixHex(a, b, k) {
@@ -73,6 +84,13 @@ const textW = (t, px, w) => {
     if (v === undefined) { ctx2d.font = `${w} ${Math.round(px * 2) / 2}px Manrope, Arial, sans-serif`; v = ctx2d.measureText(t).width; if (textWidths.size > 20000) textWidths.clear(); textWidths.set(k, v); }
     return v;
 };
+// The text cut to fit a width, ending in "…" where it was cut.
+function clipText(t, px, room, weight = 600) {
+    if (textW(t, px, weight) <= room) return t;
+    let lo = 0, hi = t.length;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (textW(t.slice(0, m) + '…', px, weight) <= room) lo = m; else hi = m - 1; }
+    return t.slice(0, lo).trimEnd() + '…';
+}
 const flowOf = e => { const m = e.metadata || {}; return m['metadata_animate::datatype'] || m['animate::datatype'] || ''; };
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 let glOk = null;
@@ -143,6 +161,32 @@ function windowTurn(pts) {
         for (let j = i + 1; j < seg.length && len < SHARP_LEN; j++) { const d = seg[j].a - seg[j - 1].a; turn += Math.atan2(Math.sin(d), Math.cos(d)); len += seg[j].l; worst = Math.max(worst, Math.abs(turn)); }
     }
     return worst * 180 / Math.PI;
+}
+
+// ---- how the graph is shown -------------------------------------------------------------------------
+// Chosen in the View menu (graph-network.js) and kept in this browser, for every graph. The first choice of
+// each is the default.
+const VIEW_KEY = 'dh.graph.view.v1';
+const VIEW_CHOICES = { layout: ['network', 'diagram', 'classic'], nodes: ['dots', 'pills'], size: ['importance', 'same'], lines: ['curved', 'straight'], arrows: ['on', 'off'], flows: ['on', 'off'] };
+// The diagram and the classic view are laid out by dagre, which is loaded the first time it is needed. A page
+// whose last choice was one of them starts loading it at once, so it is there by the time the graph arrives.
+const needsDagre = v => v.layout === 'diagram' || v.layout === 'classic';
+let dagreLoading = null;
+function loadDagre() {
+    if (window.dagre) return Promise.resolve();
+    if (!dagreLoading) dagreLoading = new Promise((resolve, reject) => {
+        const el = Object.assign(document.createElement('script'), { src: '/static/js/graph-network/dagre.min.js', async: true });
+        el.onload = () => resolve(); el.onerror = () => { dagreLoading = null; reject(new Error('dagre did not load')); };
+        document.head.append(el);
+    });
+    return dagreLoading;
+}
+function readView() {
+    let o = null;
+    try { o = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch (e) { o = null; }
+    const v = {};
+    Object.entries(VIEW_CHOICES).forEach(([k, choices]) => { v[k] = o && choices.includes(o[k]) ? o[k] : choices[0]; });
+    return v;
 }
 
 // ---- remembering the arrangement ----------------------------------------------------------------------
@@ -246,6 +290,9 @@ const HIT_PX = 6;       // how near a click must be to a line, on screen
 // Wheel zoom: a mouse notch zooms 25 %, a touchpad's small steps zoom in proportion (a 75 px step
 // doubles), and a touchpad pinch, which arrives as a wheel with Ctrl held, follows the fingers.
 const NOTCH = 1.25, WHEEL_DOUBLE = 75;
+// A mouse notch glides there rather than jumping: a critically damped spring on the zoom's logarithm,
+// which speeds up and settles in about a quarter of a second. Notches that follow carry the glide on.
+const ZOOM_SPRING = 18;   // 1/s
 // Big graphs: above BIG_ABOVE resources, a group opens once it is OPEN_PX across on screen, the ones
 // nearest the middle first, while at most SHOWN_MAX resources are shown.
 const BIG_ABOVE = 5000, OPEN_PX = 90, SHOWN_MAX = 3500;
@@ -274,6 +321,9 @@ function createGraphView(container, opts) {
     let scratch = null, viewMoving = false, viewTimer = 0, lodLast = 0, lodTimer = 0;
     let flowList = null, flowRAF = 0, flowEvery = 1, flowTick = 0, flowRecent = [], flowStopped = false;
     let pageScrolling = false, pageScrollTimer = 0, destroyed = false;
+    let V = readView();
+    // A graph drawn before dagre arrived is drawn as a network, and then again as the diagram or classic view.
+    if (needsDagre(V)) loadDagre().then(() => { if (!destroyed && !big && current && !current.diagram && !current.classic && needsDagre(V)) { current = null; MOVED = new Set(); refresh(); } }).catch(() => { /* stays a network */ });
     let big = null, winTimer = 0, winGen = 0, winBusy = false;
     // A group's colour. Past the twelfth group they are grey, except in a big graph, where hundreds of group
     // dots in grey would say nothing: there the colours go round again.
@@ -311,10 +361,13 @@ function createGraphView(container, opts) {
         const c = opts.colors(), dark = opts.theme() !== 'light';
         const p = dark
             ? { label: '#e9f1f4', ink: '#0b1217', pick: '#ffffff', flowText: '#8a80a0', out: '#ffb85c', in: '#7fb2ff' }
-            : { label: '#16303b', ink: '#ffffff', pick: '#17313d', flowText: '#675d80', out: '#c46a00', in: '#2a5fd1' };
+            : { label: '#16303b', ink: '#16303b', pick: '#17313d', flowText: '#675d80', out: '#c46a00', in: '#2a5fd1' };
         p.bg = canvasBg(); p.outline = p.bg;
-        p.line = c.edge; p.accent = c.accent; p.tutorial = c.tutorial;
+        p.line = c.edge; p.accent = c.accent; p.tutorial = c.tutorial; p.surface = c.nodeSurface || p.bg;
         p.fadeFrom = mixHex(p.line, p.bg, 0.3); p.outFrom = mixHex(p.out, p.bg, 0.3); p.inFrom = mixHex(p.in, p.bg, 0.3);
+        // The classic view's colours, the console's old ones.
+        p.edgeText = c.edgeText || p.label; p.textBg = c.textBg || p.bg; p.selected = c.selected || p.accent;
+        p.classic = dark ? { std: '#8ec3e0', other: '#8a949a', name: '#e8f1f6' } : { std: '#005984', other: '#3a4245', name: '#17313d' };
         return p;
     }
 
@@ -436,35 +489,78 @@ function createGraphView(container, opts) {
         }
         return new Map(G.ids.map(id => [id, options.get(id)[choice.get(id)]]));
     }
-    // Dots sized by importance, coloured by group, with an icon for the resource's type.
+    // Dots sized by importance, or all one size, coloured by group, with an icon for what the resource is. A
+    // big graph's dots are always sized by importance: there the size is what tells its hubs apart.
     function lookOf(i, comm, pal) {
-        const imp = info.importance[i], d = 8 + 30 * imp, id = G.ids[i];
-        return { w: d, h: d, fs: 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: glyph(G.nodes.get(id).type, pal.ink), c: comm[i], short: SHORT.get(id) };
+        const imp = info.importance[i], same = V.size === 'same' && !big, d = same ? 16 : 8 + 30 * imp, id = G.ids[i];
+        // A dot's icon is dark on its colour; a pill's is in the page's text colour, like its name.
+        const look = { w: d, h: d, fs: same ? 10.5 : 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pills() ? pal.label : pal.ink), c: comm[i], short: SHORT.get(id) };
+        if (pills()) {
+            // A pill as wide as its name, which is written inside it after the icon.
+            const fs = same ? 10 : 9 + 5 * imp, name = look.short || '', room = fs * (PILL_MAX - PILL_ICON - 2 * PILL_PAD);
+            const text = clipText(name, fs, room);
+            Object.assign(look, { fs, w: fs * (PILL_ICON + 2 * PILL_PAD) + textW(text, fs, 600), h: fs * PILL_H, pt: text });
+        }
+        if (classic()) {
+            // The old pill, bordered in its label's colour, with its full name cut to fit as the old one was.
+            const node = G.nodes.get(id), w = CLASSIC_W(node.name), room = w - 12;
+            Object.assign(look, { w, h: CLASSIC_H, fs: 11, dot: cy.getElementById(id).data('color') || OTHER, pt: clipText(node.name, 11, room, 700), ct: classicTypes(node.labels, room) });
+        }
+        return look;
     }
+    // The type line: built-in types first and bold, the others after them in a lighter weight, cut where the
+    // line runs out of room. Each piece keeps its place along the line.
+    const CLASSIC_FONT = { std: [8, 900], other: [7, 400], sep: [7, 400] };
+    function classicTypes(labels, room) {
+        const rank = t => { const k = CLASSIC_TYPES.indexOf(t); return k < 0 ? 999 : k; };
+        const parts = [];
+        [...labels].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b)).forEach((t, k) => {
+            if (k) parts.push({ t: ', ', k: 'sep' });
+            parts.push({ t, k: CLASSIC_TYPES.includes(t) ? 'std' : 'other' });
+        });
+        const segs = [];
+        let x = 0;
+        for (const part of parts) {
+            const [px, wt] = CLASSIC_FONT[part.k], tw = textW(part.t, px, wt);
+            if (x + tw <= room) { segs.push({ ...part, dx: x }); x += tw; continue; }
+            const t = clipText(part.t, px, room - x, wt);
+            segs.push({ ...part, t, dx: x }); x += textW(t, px, wt);
+            break;
+        }
+        return { segs, w: x };
+    }
+    // Pills are for graphs drawn whole; a big graph is drawn group by group with dots. The classic view has
+    // pills of its own.
+    const pills = () => V.nodes === 'pills' && !big && !classic();
+    // A node's size for the layout: a pill counts as the mean of its width and height.
+    const span = n => (n.hasClass('pill') ? (n.data('w') + n.data('h')) / 2 : n.data('w')) || 20;
     const edgeLookOf = (e, k, comm) => ({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
     function applyLook(comm) {
-        const pal = palette();
+        const pal = palette(), old = classic(), boxed = pills() || old;
         cy.batch(() => {
             G.ids.forEach((id, i) => {
                 const n = cy.getElementById(id);
                 n.data(lookOf(i, comm, pal));
                 if (!n.hasClass('dot')) n.addClass('dot');
+                if (boxed !== n.hasClass('pill')) n.toggleClass('pill', boxed);
+                if (old !== n.hasClass('classic')) n.toggleClass('classic', old);
             });
+            // The classic view shows every relation, as it always did, a hub's too.
             G.edges.forEach((e, k) => {
-                const el = cy.getElementById(e.id);
+                const el = cy.getElementById(e.id), ctx = e.ctx && !old;
                 el.data(edgeLookOf(e, k, comm));
-                if (e.ctx !== el.hasClass('ctx')) el.toggleClass('ctx', e.ctx);
+                if (ctx !== el.hasClass('ctx')) el.toggleClass('ctx', ctx);
             });
         });
     }
 
     // ---- layout -----------------------------------------------------------------------------------------
     function forceOptions() {
-        const d = id => cy.getElementById(id).data('w') || 20;
+        const d = id => span(cy.getElementById(id));
         return { name: 'fcose', quality: 'proof', randomize: true, animate: false, fit: false, nodeDimensionsIncludeLabels: false, packComponents: true,
             numIter: 2500, tile: true, nodeSeparation: GROUPED.sep, gravity: GROUPED.grav, gravityRange: GROUPED.gr,
             nestingFactor: GROUPED.nf, gravityCompound: GROUPED.gc, gravityRangeCompound: GROUPED.grc,
-            nodeRepulsion: n => 4500 + 260 * (n.data('w') || 20),   // the group boxes have no size of their own
+            nodeRepulsion: n => 4500 + 260 * span(n),   // the group boxes have no size of their own
             idealEdgeLength: e => (e.data('same') ? GROUPED.intra : GROUPED.inter) + (d(e.data('source')) + d(e.data('target'))) / 2,
             edgeElasticity: e => e.data('same') ? 0.55 : 0.12 };
     }
@@ -501,6 +597,160 @@ function createGraphView(container, opts) {
         if (groups.length > 1) { cy.nodes(':child').not('.grp').move({ parent: null }); cy.nodes('.grp').move({ parent: null }); cy.remove('.grp'); }
         hidden.forEach(n => { const m = cy.getElementById(n.id()); if (m.length) m.style('display', 'none'); });
     }
+    // ---- the diagram ----------------------------------------------------------------------------------
+    // Left to right: each resource in the column after the one it belongs to (BELONGS_TO, PART_OF). One that
+    // belongs to nothing hangs off a neighbour that is placed, a wave at a time, and off the most particular
+    // one: the neighbour with the fewest relations. So a time series sits beside its sensor rather than
+    // beside the drawing sheet both are shown on, and a chain of functions follows on from it. A piece of
+    // the graph with no tree at all grows out from its most important resource. A plant that holds
+    // everything is left as context, as in the network. dagre then orders each column so that as few lines
+    // cross as it can.
+    const diagram = () => V.layout === 'diagram' && !big && !!window.dagre && !!G && G.ids.length <= DIAGRAM_MAX;
+    function diagramTree() {
+        const n = G.ids.length, parent = info.tree.parent.slice(), placed = new Array(n).fill(false);
+        parent.forEach((p, i) => { if (p >= 0) { placed[i] = true; placed[p] = true; } });
+        const grow = () => {
+            for (;;) {
+                const wave = [];
+                for (let j = 0; j < n; j++) {
+                    if (placed[j]) continue;
+                    let best = -1;
+                    G.adj[j].forEach((_, i) => { if (placed[i] && (best < 0 || G.adj[i].size < G.adj[best].size || (G.adj[i].size === G.adj[best].size && i < best))) best = i; });
+                    if (best >= 0) wave.push([j, best]);
+                }
+                if (!wave.length) return;
+                wave.forEach(([j, i]) => { placed[j] = true; parent[j] = i; });
+            }
+        };
+        grow();
+        for (;;) {
+            let start = -1;
+            for (let i = 0; i < n; i++) if (!placed[i] && (start < 0 || info.importance[i] > info.importance[start])) start = i;
+            if (start < 0) break;
+            placed[start] = true;
+            grow();
+        }
+        return parent;
+    }
+    function diagramLayout() {
+        const parent = diagramTree(), g = new window.dagre.graphlib.Graph();
+        g.setGraph({ rankdir: 'LR', ranksep: DIAGRAM_RANK_GAP, nodesep: DIAGRAM_GAP, edgesep: DIAGRAM_GAP, marginx: 0, marginy: 0 });
+        g.setDefaultEdgeLabel(() => ({}));
+        // A dot's name is written under it, so its box takes in the name.
+        const box = new Map();
+        G.ids.forEach(id => {
+            const n = cy.getElementById(id), w = n.data('w'), h = n.data('h'), fs = n.data('fs') || 10;
+            const b = n.hasClass('pill') ? { width: w, height: h, below: 0 } : { width: Math.max(w, textW(n.data('short') || '', fs, 600)), height: h + fs * 1.3 + 4, below: fs * 1.3 + 4 };
+            box.set(id, b);
+            g.setNode(id, { width: b.width, height: b.height });
+        });
+        // A long run of resources with nothing after them would make one very tall column: a parent's leaves,
+        // or the resources linked to nothing but the context. They are wrapped into columns of DIAGRAM_WRAP,
+        // each column held after the one before by links only dagre sees.
+        const kids = new Map();
+        parent.forEach((p, i) => { if (p >= 0) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(i); } });
+        const link = (a, b) => g.setEdge(G.ids[a], G.ids[b]);
+        const wrap = (list, from) => list.forEach((c, k) => { if (k >= DIAGRAM_WRAP) link(list[k - DIAGRAM_WRAP], c); else if (from >= 0) link(from, c); });
+        kids.forEach((cs, p) => { cs.filter(c => kids.has(c)).forEach(c => link(p, c)); wrap(cs.filter(c => !kids.has(c)), p); });
+        wrap(G.ids.map((_, i) => i).filter(i => parent[i] < 0 && !kids.has(i)), -1);
+        window.dagre.layout(g);
+        cy.batch(() => G.ids.forEach(id => { const d = g.node(id), b = box.get(id); cy.getElementById(id).position({ x: d.x, y: d.y - b.below / 2 }); }));
+    }
+    // A line in the diagram leaves its resource heading right and arrives heading right, unless straight
+    // lines are chosen or its ends are in one column.
+    function drawDiagramLines() {
+        // Past STRAIGHT_ABOVE resources every line is straight, as in the network, to keep the drawing quick.
+        const edges = graphEdges(), par = parallelOffsets(), large = G.ids.length > STRAIGHT_ABOVE, plain = V.lines === 'straight' || large;
+        edges.removeClass('lay faint straight curved cross classic').removeData('cpw cpd _first bend');
+        cy.batch(() => edges.not('.ctx').forEach(e => {
+            const P = e.source().position(), Q = e.target().position(), mx = (P.x + Q.x) / 2;
+            if (plain || Math.abs(Q.x - P.x) < DIAGRAM_RANK_GAP / 2 || !toCurve(e, [{ x: mx, y: P.y }, { x: mx, y: Q.y }], par.get(e.id()))) { e.addClass(large ? 'faint straight' : 'faint cross'); return; }
+            e.addClass('curved');
+        }));
+        fixSign('.curved');
+        PATHS.clear();
+        flowReset();
+    }
+
+    // ---- the classic view ---------------------------------------------------------------------------------
+    // The console's graph as it was drawn before: every resource in one dagre tree from the top down, with
+    // the old spacing, and every relation in it. The resources go to dagre in the order the graph holds them,
+    // as they did then.
+    const classic = () => V.layout === 'classic' && !big && !!window.dagre && !!G && G.ids.length <= DIAGRAM_MAX;
+    function classicLayout() {
+        const g = new window.dagre.graphlib.Graph({ multigraph: true });
+        g.setGraph({ rankdir: 'TB', nodesep: 40, edgesep: 20, ranksep: 135 });
+        g.setDefaultEdgeLabel(() => ({}));
+        g.setDefaultNodeLabel(() => ({}));
+        graphNodes().forEach(n => g.setNode(n.id(), { width: n.outerWidth(), height: n.outerHeight() }));
+        graphEdges().forEach(e => g.setEdge(e.data('source'), e.data('target'), { minlen: 1, weight: 1 }, e.id()));
+        window.dagre.layout(g);
+        cy.batch(() => graphNodes().forEach(n => { const d = g.node(n.id()); n.position({ x: d.x, y: d.y }); }));
+    }
+    // Relations between one pair of resources bow apart, each to the right of the way it points, so the two
+    // directions keep to their own sides like the lanes of a road. Where one direction outnumbers the other
+    // by more than one, they alternate left and right instead, and the arrowheads tell the direction.
+    function drawClassicLines() {
+        const edges = graphEdges(), right = -1, pairs = new Map();
+        edges.removeClass('lay faint straight curved cross').removeData('cpw cpd _first bend');
+        edges.forEach(e => {
+            const a = e.data('source'), b = e.data('target'), k = a < b ? a + '|' + b : b + '|' + a;
+            if (!pairs.has(k)) pairs.set(k, []);
+            pairs.get(k).push(e);
+        });
+        cy.batch(() => {
+            edges.addClass('classic');
+            pairs.forEach(group => {
+                group.sort((x, y) => x.id().localeCompare(y.id()));
+                const from = group[0].data('source'), forward = e => e.data('source') === from;
+                const lanes = [group.filter(forward), group.filter(e => !forward(e))];
+                if (lanes[0].length && lanes[1].length && Math.abs(lanes[0].length - lanes[1].length) <= 1) {
+                    lanes.forEach(lane => lane.forEach((e, k) => e.data('cpd', right * CLASSIC_ARC * (k + 1))));
+                    return;
+                }
+                group.forEach((e, k) => { const d = (k % 2 ? -right : right) * CLASSIC_ARC * (Math.floor(k / 2) + 1); e.data('cpd', forward(e) ? d : -d); });
+            });
+        });
+        PATHS.clear();
+        flowReset();
+    }
+    // The type line over the name, in the old sizes and colours, growing with the zoom as the old labels did.
+    // A selected resource is filled with its colour, so its text turns white. The selected resource and the
+    // root wear the old outline, drawn here because Cytoscape's WebGL renderer draws no outlines.
+    function drawClassicFaces(ctx, z, pan, w, h, pal) {
+        const c = pal.classic, white = { std: '#ffffff', other: 'rgba(255, 255, 255, 0.65)', sep: c.name, name: '#ffffff' }, text = 11 * z >= CLASSIC_MIN_PX;
+        ctx.textBaseline = 'middle';
+        cy.nodes('.classic').forEach(n => {
+            if (hiddenName(n)) return;
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, hw = n.data('w') * z / 2, hh = n.data('h') * z / 2;
+            if (x + hw < -8 || x - hw > w + 8 || y + hh < -8 || y - hh > h + 8) return;
+            const sel = n.hasClass('sel');
+            if (sel || n.hasClass('root')) {
+                // Outside the 2 px border, 3 px wide, as the old outline was.
+                const o = 2.5 * z;
+                ctx.strokeStyle = pal.selected; ctx.lineWidth = 3 * z;
+                ctx.beginPath(); ctx.roundRect(x - hw - o, y - hh - o, 2 * (hw + o), 2 * (hh + o), Math.min(16 * z + o, hh + o)); ctx.stroke();
+            }
+            if (!text) return;
+            const ink = sel ? white : { ...c, sep: c.name }, ct = n.data('ct'), types = !!(ct && ct.segs.length);
+            if (types) {
+                ctx.textAlign = 'left';
+                const x0 = x - ct.w * z / 2, ty = y - 6.3 * z;
+                ct.segs.forEach(sg => {
+                    const [px, wt] = CLASSIC_FONT[sg.k];
+                    ctx.font = `${wt} ${px * z}px Manrope, Arial, sans-serif`;
+                    ctx.fillStyle = ink[sg.k]; ctx.globalAlpha = sg.k === 'sep' ? 0.4 : 1;
+                    ctx.fillText(sg.t, x0 + sg.dx * z, ty);
+                });
+                ctx.globalAlpha = 1;
+            }
+            ctx.textAlign = 'center';
+            ctx.font = `700 ${11 * z}px Manrope, Arial, sans-serif`;
+            ctx.fillStyle = ink.name;
+            ctx.fillText(n.data('pt') || '', x, types ? y + 4.7 * z : y);
+        });
+    }
+
     // Known resources go where they were. New ones start beside their placed neighbours and are settled by
     // fcose with every known resource fixed (fixedNodeConstraint), so nothing else moves. This pass runs
     // without the groups: fcose holds the fixed nodes either way, but with groups it pushes newcomers two to
@@ -512,7 +762,7 @@ function createGraphView(container, opts) {
         if (guard && known < nodes.length / 2) return null;
         nodes.forEach(n => { const p = pos.get(n.id()); if (p) n.position({ x: p[0], y: p[1] }); else fresh.push(n); });
         if (fresh.length && known) {
-            const freshIds = new Set(fresh.map(n => n.id())), placed = new Set(), d = n => n.data('w') || 20;
+            const freshIds = new Set(fresh.map(n => n.id())), placed = new Set(), d = span;
             const bb = nodes.filter(o => !freshIds.has(o.id())).boundingBox();
             const ready = o => !freshIds.has(o.id()) || placed.has(o.id());
             fresh.sort((a, b) => (a.id() < b.id() ? -1 : 1)).forEach((n, k) => {
@@ -550,7 +800,7 @@ function createGraphView(container, opts) {
     // the line double back) and it nowhere turns too sharply; otherwise the caller straightens it further.
     function toCurve(e, pts, off) {
         const p = e.source().position(), q = e.target().position(), vx = q.x - p.x, vy = q.y - p.y, L2 = vx * vx + vy * vy || 1, L = Math.sqrt(L2);
-        const rs = e.source().data('w') / 2 + 3, rt = e.target().data('w') / 2 + 3;
+        const r = n => (n.hasClass('pill') ? n.data('h') : n.data('w')) / 2 + 3, rs = r(e.source()), rt = r(e.target());
         let last = 0.02;
         const inner = pts.filter(P => {
             if (Math.hypot(P.x - p.x, P.y - p.y) <= rs || Math.hypot(P.x - q.x, P.y - q.y) <= rt) return false;
@@ -576,8 +826,13 @@ function createGraphView(container, opts) {
         if (cp && Math.hypot(cp.x - want.x, cp.y - want.y) > 2) cy.batch(() => cy.edges(sel).forEach(e => e.data('cpd', String(e.data('cpd')).split(' ').map(v => (-parseFloat(v)).toFixed(2)).join(' '))));
     }
     function drawLines(comm, member) {
+        if (current && current.diagram) { drawDiagramLines(); return; }
+        if (current && current.classic) { drawClassicLines(); return; }
         const edges = graphEdges();
-        edges.removeClass('lay faint straight curved').removeData('cpw cpd _first bend');
+        edges.removeClass('lay faint straight curved cross classic').removeData('cpw cpd _first bend');
+        // Straight lines, if chosen: every line straight, and those between groups drawn as strongly as the
+        // curved bundles would be, so the structure still shows.
+        const plain = V.lines === 'straight';
         const sup = A.superClusters(G, comm);
         // Group centres and spreads, for the trunks between groups.
         const cen = new Map(), clustersIn = new Map(), scen = new Map();
@@ -590,7 +845,7 @@ function createGraphView(container, opts) {
         // Fans: at every resource, its lines grouped by direction. A direction holding FAN_MIN lines or more
         // leaves the resource as one trunk and splits towards each end, like a palm frond.
         const fanOf = new Map();
-        graphNodes().forEach(h => {
+        if (!plain) graphNodes().forEach(h => {
             const es = h.connectedEdges().not(TEMP).not('.ctx').filter(e => e.source().id() !== e.target().id());
             if (es.length < FAN_MIN) return;
             const hp = h.position();
@@ -620,6 +875,7 @@ function createGraphView(container, opts) {
             const sN = e.source(), tN = e.target(), cs = sN.data('c'), ct = tN.data('c');
             const P = sN.position(), Q = tN.position();
             const ms = member.has(sN.id()) && cen.has(cs), mt = member.has(tN.id()) && cen.has(ct);
+            if (plain) { e.addClass(straight ? 'faint straight' : 'faint'); if (ms && mt && cs !== ct) e.addClass('cross'); return; }
             let path = null;
             if (ms && mt && cs !== ct) {
                 const ss = sup[cs], st = sup[ct], viaSup = ss !== st && clustersIn.get(ss).size > 1 && clustersIn.get(st).size > 1;
@@ -650,7 +906,7 @@ function createGraphView(container, opts) {
         return cy.getElementById(id).neighborhood('node').not(TEMP).filter(o => !member.has(o.id()) && !float.has(o.id()) && o.neighborhood('node').not(TEMP).every(q => q.id() === id));
     }
     function placeFloaters(comm, member, tol = 0.5) {
-        if (!MULTI.length) return;
+        if (!MULTI.length || (current && current.diagram)) return;   // the diagram places a shared resource itself
         const float = new Set(MULTI.filter(m => floats(m.i, comm)).map(m => m.id));
         const list = MULTI.filter(m => float.has(m.id) && !MOVED.has(m.id));
         const pts = new Map();
@@ -740,7 +996,9 @@ function createGraphView(container, opts) {
             if (g.ns.length < 3) return;
             const pts = [];
             let x1 = Infinity, x2 = -Infinity, y1 = Infinity;
-            g.ns.forEach(n => { const p = n.position(), r = n.data('w') / 2 + 14 / zz; x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); y1 = Math.min(y1, p.y - n.data('h') / 2); for (let a = 0; a < 8; a++) pts.push({ x: p.x + r * Math.cos(a * Math.PI / 4), y: p.y + r * Math.sin(a * Math.PI / 4) }); });
+            g.ns.forEach(n => { const p = n.position(), r = n.data('w') / 2 + 14 / zz; x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); y1 = Math.min(y1, p.y - n.data('h') / 2);
+                if (n.hasClass('pill')) { const ry = n.data('h') / 2 + 14 / zz; [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]].forEach(([a, b]) => pts.push({ x: p.x + a * r, y: p.y + b * ry })); return; }
+                for (let a = 0; a < 8; a++) pts.push({ x: p.x + r * Math.cos(a * Math.PI / 4), y: p.y + r * Math.sin(a * Math.PI / 4) }); });
             const hp = hull(pts), path = new Path2D();
             roundedInto(path, hp);
             g.path = path; g.hp = hp; g.box = { x1, x2, y1 };
@@ -786,7 +1044,7 @@ function createGraphView(container, opts) {
     function drawHulls() {
         if (!cy || destroyed) return;
         const { ctx, dpr, w, h } = sizeCanvas(hullCanvas);
-        if (!current) return;
+        if (!current || current.diagram || current.classic) return;   // the diagram's columns show its structure, not outlines
         const z = cy.zoom(), pan = cy.pan(), pal = palette();
         ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * pan.x, dpr * pan.y);
         const shapes = hullShapes(z);
@@ -844,16 +1102,20 @@ function createGraphView(container, opts) {
     // ---- names --------------------------------------------------------------------------------------------
     // Which names to draw: every name that renders at 10 px or more, most important first, skipping any that
     // would overlap a name already placed.
-    const hiddenName = n => n.hasClass('dim') || n.hasClass('tut-dim') || !shown(n);
+    // The tutorial's dimming hides names; a selection's only fades them.
+    const hiddenName = n => n.hasClass('tut-dim') || !shown(n);
+    const nameAlpha = n => (n.hasClass('dim') ? DIM_NAME : 1);
     function shownLabels(z, pan, w, h) {
         const cell = 48, grid = new Map(), names = new Set();
         const nodes = cy.nodes('.dot, .agg').toArray().sort((a, b) => (b.data('imp') || 0) - (a.data('imp') || 0) || (a.id() < b.id() ? -1 : 1));
-        // A shut group's name goes where it covers no other group's dot and stands a little apart from the
-        // other names; where groups are packed, most go unnamed until the view comes closer, like towns on
-        // a map. Names under every dot of a packed overview read as one mass of text.
+        // A name goes where it covers no other dot, and a shut group's name also stands a little apart from the
+        // other names; where dots are packed, most go unnamed until the view comes closer, like towns on a map.
+        // Names across every dot of a packed overview read as one mass of text. Dots too small to make out
+        // (under DOT_COVER_PX across) may be covered.
         const dots = new Map();
-        cy.nodes('.agg').forEach(n => {
-            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = n.data('w') * z / 2;
+        cy.nodes('.agg, .dot').forEach(n => {
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = (n.hasClass('pill') ? n.data('h') : n.data('w')) * z / 2;
+            if (2 * r < DOT_COVER_PX || !shown(n)) return;
             if (x < -r - 50 || y < -r - 50 || x > w + r + 50 || y > h + r + 50) return;
             const c = { n, x, y, r };
             for (let gx = Math.floor((x - r) / cell); gx <= Math.floor((x + r) / cell); gx++) for (let gy = Math.floor((y - r) / cell); gy <= Math.floor((y + r) / cell); gy++) { const k = gx + ',' + gy; if (!dots.has(k)) dots.set(k, []); dots.get(k).push(c); }
@@ -876,13 +1138,13 @@ function createGraphView(container, opts) {
         };
         const put = r => { for (let gx = Math.floor(r.x1 / cell); gx <= Math.floor(r.x2 / cell); gx++) for (let gy = Math.floor(r.y1 / cell); gy <= Math.floor(r.y2 / cell); gy++) { const k = gx + ',' + gy; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(r); } };
         for (const n of nodes) {
-            if (n.data('fs') * z < MIN_LABEL_PX || !shown(n)) continue;
+            if (n.hasClass('pill') || n.data('fs') * z < MIN_LABEL_PX || !shown(n)) continue;
             const px = labelPx(n, z), p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y;
             if (x < -50 || y < -50 || x > w + 50 || y > h + 50) continue;
             const tw = textW(n.data('short') || '', px, 600), top = y + n.data('h') * z / 2 + Math.min(3 * z, 4);
             const r = { x1: x - tw / 2 - 2, x2: x + tw / 2 + 2, y1: top, y2: top + px * 1.25 };
             const group = n.hasClass('agg');
-            if (hit(r) || (group && coversDot(r, n))) continue;
+            if (hit(r) || coversDot(r, n)) continue;
             put(group ? { x1: r.x1 - GROUP_LABEL_GAP, x2: r.x2 + GROUP_LABEL_GAP, y1: r.y1 - GROUP_LABEL_GAP / 2, y2: r.y2 + GROUP_LABEL_GAP / 2 } : r);
             names.add(n.id());
         }
@@ -891,6 +1153,7 @@ function createGraphView(container, opts) {
     // Like towns on a map: the most important resources get names big enough to read when the whole network
     // is in view (at most three times their usual size); everything else names itself on zoom.
     function boostHubLabels() {
+        if (pills() || classic()) return;   // a pill's name is inside it, at the pill's own size
         const bb = graphNodes().boundingBox({ includeLabels: false });
         const z = Math.min(FIT_MAX_ZOOM, (cy.width() - 2 * PAD) / Math.max(1, bb.w), (cy.height() - 2 * PAD) / Math.max(1, bb.h));
         const nodes = cy.nodes('.dot').toArray().sort((a, b) => b.data('imp') - a.data('imp'));
@@ -903,31 +1166,80 @@ function createGraphView(container, opts) {
         NAMED = shownLabels(z, cy.pan(), cy.width(), cy.height());
         // A type icon on a dot under ICON_MIN_PX cannot be made out, so small dots go without. Only nodes whose
         // state changes are touched: every class change makes Cytoscape restyle the node.
-        cy.batch(() => cy.nodes('.dot').forEach(n => { const small = n.data('w') * z < ICON_MIN_PX; if (small !== n.hasClass('noicon')) n.toggleClass('noicon', small); }));
+        cy.batch(() => cy.nodes('.dot').forEach(n => { const small = (n.hasClass('pill') ? n.data('h') : n.data('w')) * z < ICON_MIN_PX; if (small !== n.hasClass('noicon')) n.toggleClass('noicon', small); }));
         cy.edges('.hl, .hov, :selected').updateStyle();   // relation labels are sized from the zoom
         drawLabels();
     }
     // Names on their own canvas, in screen pixels, under the dot like Cytoscape would place them. A resource
     // in several groups wears a ring split into its groups' colours.
+    // The icons inside the dots. Cytoscape's WebGL renderer paints a node into a texture once and stretches it as
+    // the view zooms in, which blurs an icon, so the dots are plain circles and their icons are drawn here instead.
+    // Each icon is drawn once for each size it appears at on screen, in device pixels, into a small canvas that every
+    // dot showing it then copies, so it is sharp at any zoom and costs one copy a dot.
+    const iconImages = new Map(), iconBitmaps = new Map();
+    function iconBitmap(src, devPx) {
+        let img = iconImages.get(src);
+        if (!img) {
+            if (iconImages.size > 500) { iconImages.clear(); iconBitmaps.clear(); }
+            img = new Image(); img.onload = redrawSoon; img.src = src; iconImages.set(src, img);
+        }
+        if (!img.complete || !img.naturalWidth) return null;
+        const size = Math.max(8, Math.min(256, Math.ceil(devPx / 4) * 4)), k = size + '|' + src;
+        let c = iconBitmaps.get(k);
+        if (!c) {
+            if (iconBitmaps.size > 2000) iconBitmaps.clear();
+            c = document.createElement('canvas'); c.width = c.height = size;
+            c.getContext('2d').drawImage(img, 0, 0, size, size);
+            iconBitmaps.set(k, c);
+        }
+        return c;
+    }
+    function drawDotIcons(ctx, z, pan, w, h, dpr) {
+        cy.nodes('.dot').forEach(n => {
+            if (n.hasClass('pill') || n.hasClass('noicon') || !shown(n)) return;
+            const src = n.data('icon');
+            if (!src || src === 'none') return;
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, s = n.data('w') * z * 0.58;
+            if (x + s < 0 || x - s > w || y + s < 0 || y - s > h) return;
+            const bmp = iconBitmap(src, s * dpr);
+            if (!bmp) return;
+            // As faint as the dot when a selection or the tutorial dims it.
+            ctx.globalAlpha = 0.85 * (n.hasClass('tut-dim') ? 0.18 : n.hasClass('dim') ? DIM_NODE : 1);
+            ctx.drawImage(bmp, x - s / 2, y - s / 2, s, s);
+        });
+        ctx.globalAlpha = 1;
+    }
     function drawLabels() {
         if (!cy || destroyed) return;
         const { ctx, dpr, w, h } = sizeCanvas(labelCanvas);
         if (!current) return;
         const z = cy.zoom(), pan = cy.pan(), pal = palette();
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        drawDotIcons(ctx, z, pan, w, h, dpr);
         MULTI.forEach(m => {
             const n = cy.getElementById(m.id);
             if (!n.length || hiddenName(n)) return;
             const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = Math.max(4, n.data('w') * z / 2) + 3.5;
-            if (x < -20 || x > w + 20 || y < -20 || y > h + 20) return;
+            if (x < -20 - r || x > w + 20 + r || y < -20 || y > h + 20) return;
             const k = m.groups.length, gap = k > 1 ? 0.18 : 0;
+            ctx.globalAlpha = nameAlpha(n);
             ctx.lineWidth = 3; ctx.lineCap = 'round';
+            if (n.hasClass('pill')) {
+                // Round a pill the ring is its outline, in bands of its groups' colours from left to right.
+                const hh = n.data('h') * z / 2 + 3.5, grad = ctx.createLinearGradient(x - r, 0, x + r, 0);
+                m.groups.forEach((g, j) => { grad.addColorStop(j / k, colourOf(g)); grad.addColorStop((j + 1) / k, colourOf(g)); });
+                ctx.strokeStyle = grad; ctx.beginPath(); ctx.roundRect(x - r, y - hh, 2 * r, 2 * hh, hh); ctx.stroke();
+                ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
+                return;
+            }
             m.groups.forEach((g, j) => {
                 const a0 = -Math.PI / 2 + j * 2 * Math.PI / k + gap / 2, a1 = a0 + 2 * Math.PI / k - gap;
                 ctx.strokeStyle = colourOf(g); ctx.beginPath(); ctx.arc(x, y, r, a0, a1); ctx.stroke();
             });
-            ctx.lineCap = 'butt';
+            ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
         });
+        if (pills()) drawPillFaces(ctx, z, pan, w, h, pal, dpr);
+        if (current.classic) drawClassicFaces(ctx, z, pan, w, h, pal);
         ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = pal.outline; ctx.fillStyle = pal.label;
         NAMED.forEach(id => {
             const n = cy.getElementById(id);
@@ -935,9 +1247,34 @@ function createGraphView(container, opts) {
             const p = n.position(), px = labelPx(n, z), x = p.x * z + pan.x, y = p.y * z + pan.y + n.data('h') * z / 2 + Math.min(3 * z, 4);
             if (x < -200 || x > w + 200 || y < -40 || y > h + 40) return;
             ctx.font = `600 ${px}px Manrope, Arial, sans-serif`;
-            const t = n.data('short') || '';
-            ctx.globalAlpha = 0.85; ctx.strokeText(t, x, y);
-            ctx.globalAlpha = 1; ctx.fillText(t, x, y);
+            const t = n.data('short') || '', a = nameAlpha(n);
+            ctx.globalAlpha = 0.85 * a; ctx.strokeText(t, x, y);
+            ctx.globalAlpha = a; ctx.fillText(t, x, y);
+        });
+        ctx.globalAlpha = 1;
+    }
+    // A pill's icon at its left end and its name after it, in the page's text colour; the name is centred
+    // when the pill shows no icon. The icon is the same sharp copy the dots use.
+    function drawPillFaces(ctx, z, pan, w, h, pal, dpr) {
+        ctx.textBaseline = 'middle'; ctx.fillStyle = pal.label;
+        cy.nodes('.pill').forEach(n => {
+            const fs = n.data('fs'), px = fs * z;
+            if (n.hasClass('noicon') && px < PILL_MIN_PX) return;
+            if (hiddenName(n)) return;
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, hw = n.data('w') * z / 2;
+            if (x + hw < 0 || x - hw > w || y < -px || y > h + px) return;
+            const src = n.data('icon'), icon = !!src && src !== 'none' && !n.hasClass('noicon'), a = nameAlpha(n);
+            if (icon) {
+                const s = fs * 1.35 * z, img = iconBitmap(src, s * dpr);
+                if (img) { ctx.globalAlpha = 0.9 * a; ctx.drawImage(img, x - hw + fs * PILL_PAD * z, y - s / 2, s, s); }
+            }
+            ctx.globalAlpha = 1;
+            if (px < PILL_MIN_PX) return;
+            ctx.font = `600 ${px}px Manrope, Arial, sans-serif`;
+            ctx.textAlign = icon ? 'left' : 'center';
+            ctx.globalAlpha = a;
+            ctx.fillText(n.data('pt') || '', icon ? x - hw + fs * (PILL_PAD + PILL_ICON) * z : x, y);
+            ctx.globalAlpha = 1;
         });
     }
     // While the view moves, names and outlines are brought up to date at most LOD_MS apart, and once more when
@@ -979,6 +1316,7 @@ function createGraphView(container, opts) {
     }
     function animatedEdges() {
         if (flowList) return flowList;
+        if (V.flows === 'off') return (flowList = []);
         const first = e => (e.selected() || e.hasClass('hov') ? 2 : e.hasClass('hl') ? 1 : 0);
         flowList = cy.edges().filter(e => !!e.data('flow')).toArray().sort((a, b) => first(b) - first(a) || (b.data('imp') || 0) - (a.data('imp') || 0));
         return flowList;
@@ -1044,25 +1382,39 @@ function createGraphView(container, opts) {
             { selector: 'node', style: { 'label': '', 'overlay-opacity': 0, 'width': 10, 'height': 10, 'shape': 'ellipse', 'background-color': OTHER, 'border-width': 0 } },
             { selector: 'node[w]', style: { 'width': 'data(w)', 'height': 'data(h)' } },
             // Dots draw no names of their own: names go on a layer above the graph, so zooming never restyles a node.
-            { selector: 'node.dot', style: { 'background-color': 'data(dot)', 'background-image': 'data(icon)', 'background-width': '58%', 'background-height': '58%', 'background-image-opacity': 0.85 } },
-            { selector: 'node.noicon', style: { 'background-image': 'none' } },
+            // A dot is a plain circle; its icon is drawn on the name layer (drawDotIcons), where it stays sharp.
+            { selector: 'node.dot', style: { 'background-color': 'data(dot)' } },
+            // A pill is a box in the page's own surface colour with a border in its group's colour, as the console's
+            // pills always were; its icon and name are drawn on the name layer in the page's text colour
+            // (drawPillFaces). Cytoscape's WebGL renderer leaves out some wide nodes that carry an image, so a pill
+            // carries none.
+            { selector: 'node.pill', style: { 'shape': 'round-rectangle', 'background-image': 'none', 'background-color': pal.surface, 'border-width': 2, 'border-color': 'data(dot)', 'border-opacity': 1 } },
             { selector: 'node.grp', style: { 'background-opacity': 0, 'border-width': 0 } },
             // Plain lines are straight; bezier only so that two relationships between one pair fan apart (a
             // quadratic curve bows half its control-point step, so twice the gap gives PAR_GAP lanes). A line
             // inside a group is drawn at 60 %, so the lines between groups, drawn solid, stand out from them.
             { selector: 'edge', style: { 'width': 1, 'line-color': pal.line, 'curve-style': 'bezier', 'control-point-step-size': 2 * PAR_GAP, 'opacity': 0.6, 'overlay-opacity': 0 } },
+            // Direction at a glance: a small arrowhead where a line arrives, in the line's colour. Lines drawn as
+            // haystacks (a graph past STRAIGHT_ABOVE, a big graph's groups) cannot carry one.
+            { selector: 'edge', style: { 'target-arrow-shape': V.arrows === 'on' ? 'triangle' : 'none', 'target-arrow-color': pal.line, 'arrow-scale': 0.75 } },
             { selector: 'edge.lay, edge.straight', style: { 'curve-style': 'haystack', 'haystack-radius': 0 } },
             { selector: 'edge.curved', style: { 'curve-style': 'unbundled-bezier', 'control-point-weights': 'data(cpw)', 'control-point-distances': 'data(cpd)', 'edge-distances': 'node-position',
                 'width': e => 1.1 + 1.2 * (e.data('imp') || 0), 'opacity': 1,
                 // A wide, faint band under each line: where strands run together the bands stack into a trunk.
                 'underlay-color': pal.line, 'underlay-padding': 4, 'underlay-opacity': 0.12 } },
+            { selector: 'edge.cross', style: { 'width': e => 1.1 + 1.2 * (e.data('imp') || 0), 'opacity': 1 } },
             // Direction without arrowheads: every line fades from faint at its start to full at its end. The
             // WebGL renderer draws no gradients, so there lines are solid until something is selected.
             ...(fade ? [{ selector: 'edge', style: { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.fadeFrom, pal.line], 'line-gradient-stop-positions': [0, 100] } }] : []),
-            { selector: '.dim', style: { 'opacity': 0.08 } },
-            { selector: 'node.dim', style: dimNode(0.18) },
+            { selector: '.dim', style: { 'opacity': DIM_LINE } },
+            { selector: 'node.dim', style: dimNode(DIM_NODE) },
+            { selector: 'node.pill.dim', style: cyWebgl ? { 'background-color': pal.surface, 'border-opacity': DIM_NODE } : { 'opacity': DIM_NODE } },
             { selector: 'node.root', style: { 'border-width': 2, 'border-color': pal.label, 'border-opacity': 0.9 } },
             { selector: 'node.sel', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
+            // The classic view's pills: the old round pill in the page's surface colour, bordered in its label's
+            // colour; selected, it fills with that colour (its outline is drawn with its name, drawClassicFaces).
+            { selector: 'node.classic', style: { 'shape': 'round-rectangle', 'corner-radius': 16, 'background-image': 'none', 'background-color': pal.surface, 'border-width': 2, 'border-color': 'data(dot)', 'border-opacity': 1 } },
+            { selector: 'node.classic.sel', style: { 'background-color': 'data(dot)' } },
             { selector: 'edge.hl', style: { 'opacity': 0.95, 'z-index': 9 } },
             // A relation shows its type when you point at it, pick it, or select one of its ends.
             { selector: 'edge.hl, edge.hov, edge:selected', style: { 'label': 'data(label)', 'font-family': 'Manrope, Arial, sans-serif', 'font-size': () => Math.min(8 * cy.zoom(), MAX_EDGE_LABEL_PX) / cy.zoom(), 'font-weight': 600, 'color': pal.label,
@@ -1073,8 +1425,18 @@ function createGraphView(container, opts) {
             // The selected resource's lines: one colour where they leave it, another where they arrive.
             { selector: 'edge.hl.out', style: cyWebgl ? { 'line-color': pal.out, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.outFrom, pal.out], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.out, 'width': 1.8 } },
             { selector: 'edge.hl.in', style: cyWebgl ? { 'line-color': pal.in, 'width': 1.8 } : { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.inFrom, pal.in], 'line-gradient-stop-positions': [0, 100], 'underlay-color': pal.in, 'width': 1.8 } },
+            { selector: 'edge.hl.out', style: { 'target-arrow-color': pal.out } },
+            { selector: 'edge.hl.in', style: { 'target-arrow-color': pal.in } },
             { selector: 'edge.hov', style: { 'opacity': 1, 'width': 2.2, 'z-index': 10, 'underlay-opacity': 0.16 } },
-            { selector: 'edge:selected', style: { 'opacity': 1, 'width': 2.6, 'z-index': 11, 'line-fill': 'solid', 'line-color': pal.pick, 'underlay-color': pal.pick, 'underlay-padding': 4, 'underlay-opacity': 0.2 } },
+            { selector: 'edge:selected', style: { 'opacity': 1, 'width': 2.6, 'z-index': 11, 'line-fill': 'solid', 'line-color': pal.pick, 'target-arrow-color': pal.pick, 'underlay-color': pal.pick, 'underlay-padding': 4, 'underlay-opacity': 0.2 } },
+            // The classic view's lines, as the old ones: thin, bowed, with a large arrowhead and the relation's
+            // name on every line; picked, in the accent colour.
+            { selector: 'edge.classic', style: { 'curve-style': 'unbundled-bezier', 'control-point-distances': 'data(cpd)', 'control-point-weights': 0.5, 'edge-distances': 'intersection',
+                'width': 1, 'opacity': 1, 'line-fill': 'solid', 'line-color': pal.line, 'underlay-opacity': 0, 'target-arrow-shape': 'triangle', 'target-arrow-color': pal.line, 'arrow-scale': 1.6,
+                'label': 'data(label)', 'font-family': 'Helvetica Neue, Helvetica, sans-serif', 'font-size': 9, 'font-style': 'italic', 'font-weight': 'normal', 'color': pal.edgeText,
+                'text-rotation': 'autorotate', 'text-margin-y': 0, 'text-background-color': pal.textBg, 'text-background-opacity': 0.85, 'text-background-padding': 2, 'min-zoomed-font-size': 0 } },
+            { selector: 'edge.classic.csel', style: { 'line-color': pal.accent, 'line-style': 'dashed', 'line-dash-pattern': [6, 3], 'target-arrow-color': pal.accent } },
+            { selector: 'edge.classic:selected', style: { 'width': 2, 'line-color': pal.accent, 'target-arrow-color': pal.accent } },
             // A big graph's shut groups: one dot each, filled with the group's colour faded into the page, and a
             // line between linked groups, wider the more relations it stands for.
             // Shut groups in muted colours: hundreds of them in full colour read as confetti. A group shows its
@@ -1083,7 +1445,7 @@ function createGraphView(container, opts) {
             { selector: 'node.agg.root', style: { 'border-width': 4, 'border-color': pal.label } },
             // The lines between shut groups are what makes the zoomed-out view read as a network, so they are
             // drawn a little stronger than a single relation.
-            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'width': e => Math.min(6, 1.3 + Math.log2(e.data('n') || 1)), 'opacity': 0.8, 'line-fill': 'solid', 'line-color': pal.line } },
+            { selector: 'edge.agg', style: { 'curve-style': 'haystack', 'haystack-radius': 0, 'target-arrow-shape': 'none', 'width': e => Math.min(6, 1.3 + Math.log2(e.data('n') || 1)), 'opacity': 0.8, 'line-fill': 'solid', 'line-color': pal.line } },
             // Drawing a new relation (edge-handles).
             { selector: '.eh-source, .eh-target', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
             { selector: '.eh-handle', style: { 'width': 10, 'height': 10, 'background-color': pal.accent, 'background-image': 'none' } },
@@ -1095,7 +1457,7 @@ function createGraphView(container, opts) {
             { selector: '.filtered-out', style: { 'display': 'none' } },
             // The guided tutorial's highlight and dimming.
             { selector: 'node.tut-highlight', style: { 'border-width': 4, 'border-color': pal.tutorial, 'border-opacity': 1 } },
-            { selector: 'edge.tut-highlight', style: { 'line-fill': 'solid', 'line-color': pal.tutorial, 'width': 4, 'opacity': 1 } },
+            { selector: 'edge.tut-highlight', style: { 'line-fill': 'solid', 'line-color': pal.tutorial, 'target-arrow-color': pal.tutorial, 'width': 4, 'opacity': 1 } },
             { selector: '.tut-dim', style: { 'opacity': 0.18 } },
             { selector: 'node.tut-dim', style: dimNode(0.18) },
         ];
@@ -1106,6 +1468,13 @@ function createGraphView(container, opts) {
         const n = cy.getElementById(id);
         if (!n.length) return;
         selectedId = id;
+        if (current && current.classic) {
+            // As the old graph did: the resource fills with its colour and its lines turn dashed, and nothing
+            // else changes.
+            cy.batch(() => { cy.elements().removeClass('dim hl sel in out quiet csel'); n.addClass('sel'); n.connectedEdges().addClass('csel'); });
+            drawLabels();
+            return;
+        }
         const near = n.closedNeighborhood();
         const hub = !!(G && G.index.has(id) && G.hubs.has(G.index.get(id)));
         cy.batch(() => {
@@ -1119,8 +1488,21 @@ function createGraphView(container, opts) {
     function clearSel() {
         selectedId = null;
         if (!cy) return;
-        cy.elements().removeClass('dim hl sel in out quiet');
+        cy.elements().removeClass('dim hl sel in out quiet csel');
         drawHulls();
+        if (current && current.classic) drawLabels();
+    }
+    // The classic view opens with the root selected, as the old graph did. Leaving it, a root selected that
+    // way is let go, so the other layouts open with nothing faded.
+    let rootPicked = false;
+    function pickRoot() {
+        if (!cy || !current || !current.classic || !rootId || cy.nodes(':selected').length) return;
+        const r = cy.getElementById(rootId);
+        if (r.nonempty()) { r.select(); rootPicked = true; }
+    }
+    function dropRoot() {
+        if (rootPicked && rootId && selectedId === rootId) cy.getElementById(rootId).unselect();
+        rootPicked = false;
     }
 
     // ---- relations where a click lands ------------------------------------------------------------------------
@@ -1187,8 +1569,31 @@ function createGraphView(container, opts) {
         if (cy.nodes(':grabbed').length) return;
         const d = e.deltaY * (e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1), cap = WHEEL_DOUBLE * Math.log2(NOTCH);
         const f = e.ctrlKey ? Math.exp(-Math.max(-60, Math.min(60, d)) / 100) : Math.pow(2, -Math.sign(d) * Math.min(Math.abs(d), cap) / WHEEL_DOUBLE);
-        const r = host.getBoundingClientRect();
-        cy.zoom({ level: cy.zoom() * f, renderedPosition: { x: e.clientX - r.left, y: e.clientY - r.top } });
+        const r = host.getBoundingClientRect(), at = { x: e.clientX - r.left, y: e.clientY - r.top };
+        // A touchpad's small steps and a pinch are smooth already, and follow the fingers directly.
+        if (e.ctrlKey || Math.abs(d) < cap || reducedMotion()) { glide = null; cy.zoom({ level: cy.zoom() * f, renderedPosition: at }); return; }
+        const from = glide ? glide.goal : Math.log(cy.zoom());
+        const goal = Math.max(Math.log(cy.minZoom()), Math.min(Math.log(cy.maxZoom()), from + Math.log(f)));
+        glide = { goal, at, v: glide ? glide.v : 0, set: glide ? glide.set : null };
+        if (!glideFrame) { glideLast = performance.now(); glideFrame = requestAnimationFrame(stepGlide); }
+    }
+    let glide = null, glideFrame = 0, glideLast = 0;
+    function stepGlide(ts) {
+        glideFrame = 0;
+        if (!cy || destroyed || !glide) return;
+        // Something else moved the zoom meanwhile (a fit, a group opened): it wins.
+        if (glide.set !== null && Math.abs(cy.zoom() - glide.set) > 1e-9) { glide = null; return; }
+        const dt = Math.min(0.05, Math.max(0, (ts - glideLast) / 1000));
+        glideLast = ts;
+        const x = Math.log(cy.zoom()), w = ZOOM_SPRING;
+        glide.v += (w * w * (glide.goal - x) - 2 * w * glide.v) * dt;
+        let next = x + glide.v * dt;
+        const done = Math.abs(glide.goal - next) < 0.002 && Math.abs(glide.v) < 0.05;
+        if (done) next = glide.goal;
+        cy.zoom({ level: Math.exp(next), renderedPosition: glide.at });
+        glide.set = cy.zoom();
+        if (done) { glide = null; return; }
+        glideFrame = requestAnimationFrame(stepGlide);
     }
     const onScroll = () => { pageScrolling = true; clearTimeout(pageScrollTimer); pageScrollTimer = setTimeout(() => { pageScrolling = false; }, 250); };
     const onVisible = () => { if (!document.hidden) startFlow(); };
@@ -1197,11 +1602,21 @@ function createGraphView(container, opts) {
     // WebGL where the browser has WebGL 2: Cytoscape's WebGL renderer holds 60 frames a second at every size
     // measured (to 5,000 resources); it draws long curves as short straight pieces and leaves out glow and
     // gradients. ?renderer=canvas in the address forces the canvas renderer.
+    // Cytoscape's WebGL renderer blends an arrowhead with the background of the graph's container, white when
+    // the container has none of its own; this one is transparent, so the outlines below show through. A dimmed
+    // arrowhead would glow white, so the renderer is given the page's background instead.
+    function arrowBlend() {
+        const d = cyWebgl && cy.renderer && cy.renderer().drawing, hex = palette().bg;
+        if (!d || !/^#[0-9a-f]{6}$/i.test(hex)) return;
+        const n = parseInt(hex.slice(1), 16);
+        d.bgColor = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
     function makeCy() {
         cyWebgl = hasWebgl() && !/[?&]renderer=canvas\b/.test(location.search);
-        cy = cytoscape(Object.assign({ container: host, elements: [], style: [], minZoom: 0.02, maxZoom: 4, boxSelectionEnabled: false, selectionType: 'single' },
+        cy = cytoscape(Object.assign({ container: host, elements: [], style: [], minZoom: 0.02, maxZoom: MAX_ZOOM, boxSelectionEnabled: false, selectionType: 'single' },
             cyWebgl ? { webgl: true } : {}));
         cy.style().fromJson(style()).update();
+        arrowBlend();
         cy.on('viewport', () => {
             hidePick();
             viewMoving = true; clearTimeout(viewTimer); viewTimer = setTimeout(() => { viewMoving = false; drawHulls(); }, 160);
@@ -1590,7 +2005,7 @@ function createGraphView(container, opts) {
     function openGroup(c) {
         const g = big && big.groups.get(c);
         if (!g) return;
-        const W = cy.width(), H = cy.height(), z = Math.min(cy.maxZoom(), 0.8 * Math.min(W, H) / (2 * g.r));
+        const W = cy.width(), H = cy.height(), z = Math.min(GROUP_ZOOM, 0.8 * Math.min(W, H) / (2 * g.r));
         cy.animate({ zoom: z, pan: { x: W / 2 - z * g.x, y: H / 2 - z * g.y } }, { duration: reducedMotion() ? 0 : 300 });
     }
     // For GraphNetwork: whether a resource or relation is in the graph, and a stand-in for one out of view.
@@ -1608,11 +2023,20 @@ function createGraphView(container, opts) {
         cy.fit(nodes, PAD);
         if (cy.zoom() > FIT_MAX_ZOOM) cy.zoom({ level: FIT_MAX_ZOOM, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
     }
+    // Each way of drawing keeps a picture of its own, so switching back finds the one left there.
+    function arrangementKey() {
+        const key = opts.saveKey();
+        // Pills change size with the size choice, so each size of pill has a picture of its own too.
+        return key ? KEY_PREFIX + key + (diagram() ? '|diagram' : classic() ? '|classic' : '') + (pills() ? (V.size === 'same' ? '|pills-same' : '|pills') : '') : null;
+    }
     function saveArrangement() {
         const key = opts.saveKey();
         if (!key || !current) return;
+        // Drawn as a network only while dagre loads for the diagram or classic view: that picture must not
+        // replace the saved one.
+        if (needsDagre(V) && !window.dagre && !big) return;
         cy.batch(() => graphNodes().forEach(n => { const p = n.position(), x = Math.round(p.x), y = Math.round(p.y); if (x !== p.x || y !== p.y) n.position({ x, y }); }));
-        putArrangement(KEY_PREFIX + key, encodeArrangement(G.ids, G.ids.map(id => cy.getElementById(id).position()), current.comm, [...MOVED]));
+        putArrangement(arrangementKey(), encodeArrangement(G.ids, G.ids.map(id => cy.getElementById(id).position()), current.comm, [...MOVED]));
     }
     // Draws the graph as it now is in Cytoscape. The first time (after a load or Rearrange) it puts back the
     // saved arrangement, or lays the graph out; after that it keeps every known resource where it is, places
@@ -1627,11 +2051,20 @@ function createGraphView(container, opts) {
         analyse();
         let comm, first = !before, restored = false;
         if (first) {
-            const key = opts.saveKey(), saved = key ? getArrangement(KEY_PREFIX + key) : null;
+            const key = arrangementKey(), saved = key ? getArrangement(key) : null;
             let placed = null;
             if (saved) { comm = keptGroups(saved.comm); applyLook(comm); placed = restore(saved.pos, true); restored = !!placed; }
-            if (!placed) { comm = freshGroups(); applyLook(comm); groupedLayout(comm); }
+            if (!placed) { comm = freshGroups(); applyLook(comm); if (diagram()) diagramLayout(); else if (classic()) classicLayout(); else groupedLayout(comm); }
             MOVED = new Set(placed && saved.moved ? saved.moved.filter(id => G.index.has(id)) : []);
+        } else if (diagram() || classic()) {
+            // The diagram or classic view is laid out again: dagre gives the same picture for the same graph,
+            // and a change shifts only what it touches. A resource moved by hand stays where it was left.
+            comm = keptGroups(before);
+            applyLook(comm);
+            MOVED = new Set([...MOVED].filter(id => G.index.has(id)));
+            const kept = new Map([...MOVED].map(id => [id, { ...cy.getElementById(id).position() }]));
+            if (diagram()) diagramLayout(); else classicLayout();
+            kept.forEach((p, id) => cy.getElementById(id).position(p));
         } else {
             comm = keptGroups(before);
             applyLook(comm);
@@ -1641,14 +2074,15 @@ function createGraphView(container, opts) {
             MOVED = new Set([...MOVED].filter(id => G.index.has(id)));
         }
         const member = groupMembers(comm);
-        MULTI = multiOf(comm);
-        current = { ids: G.ids, comm, member };
+        MULTI = classic() ? [] : multiOf(comm);   // the classic view has no groups to show
+        current = { ids: G.ids, comm, member, diagram: diagram(), classic: classic() };
         boostHubLabels();
         placeFloaters(comm, member, first && !restored ? 0.5 : 3);   // after the names are sized, so it can keep clear of them
         drawLines(comm, member);
         if (first) fit();
         posVersion++;
         if (selectedId && G.index.has(selectedId)) select(selectedId); else selectedId = null;
+        if (first) pickRoot();
         applyLod();
         saveArrangement();
         drawHulls();
@@ -1665,6 +2099,33 @@ function createGraphView(container, opts) {
         drawHulls();
         saveArrangement();
     }
+    // A choice from the View menu: kept for every graph, and applied to this one with as little redrawn as it
+    // takes. Size and lines keep every resource where it is.
+    function setOptions(o) {
+        const was = V, next = { ...V };
+        Object.entries(o || {}).forEach(([k, val]) => { if (VIEW_CHOICES[k] && VIEW_CHOICES[k].includes(val)) next[k] = val; });
+        V = next;
+        try { localStorage.setItem(VIEW_KEY, JSON.stringify(V)); } catch (e) { /* storage blocked: the choice lasts until the page closes */ }
+        if (!cy || destroyed) return;
+        if (was.flows !== V.flows) flowReset();
+        if (was.arrows !== V.arrows) cy.style().fromJson(style()).update();
+        if (big || !current) return;
+        // A new way of drawing is laid out afresh, or put back as it was last left. So is a new size of pill:
+        // the pills would overlap where they stand.
+        if (needsDagre(V) && !window.dagre) {
+            loadDagre().then(() => { if (!destroyed && !big && current && needsDagre(V)) { current = null; MOVED = new Set(); refresh(); } }).catch(() => { /* stays a network */ });
+            return;
+        }
+        if (was.layout === 'classic' && V.layout !== 'classic') dropRoot();
+        if (was.nodes !== V.nodes || was.layout !== V.layout || (pills() && was.size !== V.size)) { current = null; MOVED = new Set(); refresh(); return; }
+        if (was.size !== V.size) { applyLook(current.comm); boostHubLabels(); }
+        if (was.size !== V.size || was.lines !== V.lines) {
+            drawLines(current.comm, current.member);
+            posVersion++;
+            applyLod();
+            drawHulls();
+        }
+    }
     function rearrange() {
         if (big) {
             big.groups = null; big.pos.clear(); current = null; MOVED = new Set();
@@ -1673,8 +2134,8 @@ function createGraphView(container, opts) {
             bigRefresh(true);
             return;
         }
-        const key = opts.saveKey();
-        if (key) dropArrangement(KEY_PREFIX + key);
+        const key = arrangementKey();
+        if (key) dropArrangement(key);
         MOVED = new Set();
         current = null;
         refresh();
@@ -1688,16 +2149,24 @@ function createGraphView(container, opts) {
         applyLod();
         drawHulls();
     }
+    // Every resource's icon again, after a theme switch or a change of icon style; in a big graph also the
+    // resources out of view, which take theirs when they are drawn.
+    function applyIcons() {
+        if (!cy || destroyed || !G) return;
+        const pal = palette(), ink = pal.ink;
+        cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G.nodes.get(n.id()); if (g) n.data('icon', iconOf(g, n.hasClass('pill') ? pal.label : ink)); }));
+        if (big) big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = iconOf(g, ink); });
+        redrawSoon();   // the icons are drawn on the name layer
+    }
+    const stopIcons = window.GraphIcons.subscribe(applyIcons);
     function applyTheme() {
         if (!cy || destroyed) return;
         palCache = null;
-        const pal = palette();
-        cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G && G.nodes.get(n.id()); if (g) n.data('icon', glyph(g.type, pal.ink)); }));
+        arrowBlend();
+        applyIcons();
         cy.style().fromJson(style()).update();
-        // A big graph's resources out of view take the new icons too, and the group dots are made again in
-        // the new colours.
+        // A big graph's group dots are made again in the new colours.
         if (big && G) {
-            big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = glyph(g.type, pal.ink); });
             big.windowing = true; cy.remove(cy.nodes('.agg')); big.windowing = false;
             big.synced = false;
             windowNow();
@@ -1708,6 +2177,7 @@ function createGraphView(container, opts) {
         cy.nodes('.root').removeClass('root');
         rootId = id;
         if (id) cy.getElementById(id).addClass('root');
+        pickRoot();
         if (big && id && big.comm) cy.getElementById('agg:' + big.comm.get(id)).addClass('root');   // shut in its group
     }
     // Forget what was drawn, so the next refresh restores or lays out the whole graph.
@@ -1716,8 +2186,9 @@ function createGraphView(container, opts) {
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => resize()) : null;
     function destroy() {
         destroyed = true;
+        stopIcons();
         if (ro) ro.disconnect();
-        cancelAnimationFrame(frame); cancelAnimationFrame(flowRAF);
+        cancelAnimationFrame(frame); cancelAnimationFrame(flowRAF); cancelAnimationFrame(glideFrame);
         clearTimeout(viewTimer); clearTimeout(lodTimer); clearTimeout(hullTimer); clearTimeout(pageScrollTimer); clearTimeout(winTimer);
         container.removeEventListener('wheel', onWheel, { capture: true });
         window.removeEventListener('scroll', onScroll);
@@ -1738,6 +2209,9 @@ function createGraphView(container, opts) {
         get cy() { return cy; },
         get webgl() { return cyWebgl; },
         refresh, rearrange, redraw, applyTheme, select, clearSel, setRoot, reset, fit, destroy, hidePick,
+        options: () => ({ ...V }), setOptions, diagramMax: DIAGRAM_MAX,
+        // Whether the graph is too large for the diagram (it is then drawn as a network).
+        tooLargeForDiagram: () => !!G && !big && G.ids.length > DIAGRAM_MAX,
         // Big graphs: GraphNetwork hands them over instead of adding them to Cytoscape.
         bigAbove: BIG_ABOVE, isBig: () => !!big, loadBig, standIn,
         modelData: () => (big ? { nodes: [...big.nodes.values()], edges: [...big.edges.values()] } : null),
