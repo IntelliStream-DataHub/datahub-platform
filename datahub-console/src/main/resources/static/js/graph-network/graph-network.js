@@ -952,17 +952,18 @@ class GraphNetwork {
     }
 
     // The rows of the menu: what each shows, its choices, and how it reads and sets the current one.
-    // A row marked small applies only to graphs drawn whole, not to a big graph drawn group by group.
+    // A row marked small applies only to graphs drawn whole, not to a big graph drawn group by group. A row
+    // marked look does not apply to the classic view, which draws as the console did before.
     viewChoices() {
-        const option = (key, label, choices, small) => ({ key, label, small, choices,
+        const option = (key, label, choices, small, look) => ({ key, label, small, look, choices,
             get: () => this.view.options()[key], set: v => this.view.setOptions({ [key]: v }) });
         return [
-            option('layout', 'graph.view.layout', [['network', 'graph.view.layout.network'], ['diagram', 'graph.view.layout.diagram']], true),
-            option('nodes', 'graph.view.nodes', [['dots', 'graph.view.nodes.dots'], ['pills', 'graph.view.nodes.pills']], true),
-            option('size', 'graph.view.size', [['importance', 'graph.view.size.importance'], ['same', 'graph.view.size.same']], true),
-            option('lines', 'graph.view.lines', [['curved', 'graph.view.lines.curved'], ['straight', 'graph.view.lines.straight']], true),
-            option('arrows', 'graph.view.arrows', [['on', 'graph.view.arrows.on'], ['off', 'graph.view.arrows.off']], true),
-            { key: 'icons', label: 'graph.icons', get: () => GraphIcons.style(), set: v => GraphIcons.setStyle(v),
+            option('layout', 'graph.view.layout', [['network', 'graph.view.layout.network'], ['diagram', 'graph.view.layout.diagram'], ['classic', 'graph.view.layout.classic']], true),
+            option('nodes', 'graph.view.nodes', [['dots', 'graph.view.nodes.dots'], ['pills', 'graph.view.nodes.pills']], true, true),
+            option('size', 'graph.view.size', [['importance', 'graph.view.size.importance'], ['same', 'graph.view.size.same']], true, true),
+            option('lines', 'graph.view.lines', [['curved', 'graph.view.lines.curved'], ['straight', 'graph.view.lines.straight']], true, true),
+            option('arrows', 'graph.view.arrows', [['on', 'graph.view.arrows.on'], ['off', 'graph.view.arrows.off']], true, true),
+            { key: 'icons', label: 'graph.icons', look: true, get: () => GraphIcons.style(), set: v => GraphIcons.setStyle(v),
               choices: [['symbols', 'graph.icons.symbols'], ['simple', 'graph.icons.simple'], ['none', 'graph.icons.none']] },
             option('flows', 'graph.view.flows', [['on', 'graph.view.flows.on'], ['off', 'graph.view.flows.off']]),
         ];
@@ -986,9 +987,10 @@ class GraphNetwork {
         const big = this.view.isBig(), menu = this.viewMenu, uid = 'gv' + Math.random().toString(36).slice(2, 8);
         menu.replaceChildren();
         let gated = false;
+        const classic = !big && this.view.options().layout === 'classic';
         this.viewChoices().forEach(row => {
-            const off = !!row.small && big;
-            gated = gated || off;
+            const off = (!!row.small && big) || (!!row.look && classic);
+            gated = gated || (off && big);
             const group = Object.assign(document.createElement('div'), { className: 'gv-row' });
             const label = Object.assign(document.createElement('span'), { className: 'gv-label', id: uid + '-' + row.key, textContent: $L(row.label) });
             const seg = Object.assign(document.createElement('div'), { className: 'gv-seg' });
@@ -1005,9 +1007,9 @@ class GraphNetwork {
             menu.append(group);
         });
         if (gated) menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.big', null, [this.view.bigAbove.toLocaleString()]) }));
-        else if (this.view.options().layout === 'diagram' && this.view.tooLargeForDiagram()) {
+        else if (this.view.options().layout !== 'network' && this.view.tooLargeForDiagram()) {
             menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.diagram.big', null, [this.view.diagramMax.toLocaleString()]) }));
-        }
+        } else if (classic) menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.classic.note') }));
         const actions = Object.assign(document.createElement('div'), { className: 'gv-actions' });
         const action = (icon, text, title, fn) => {
             const b = Object.assign(document.createElement('button'), { type: 'button', className: 'gv-action', title: title || '' });
