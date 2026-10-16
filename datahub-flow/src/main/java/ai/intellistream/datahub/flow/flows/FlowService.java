@@ -13,6 +13,7 @@ import ai.intellistream.datahub.flow.definition.ValidationProblem;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredVersion;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
+import ai.intellistream.datahub.flow.store.RunStore;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.models.IdCollection;
@@ -68,10 +69,12 @@ public class FlowService {
     private final TransactionTemplate transaction;
     private final JsonMapper json;
     private final FlowTokens offlineTokens;
+    private final RunStore runStore;
 
     public FlowService(FlowRepository repository, CallerAccess access, FlowValidator validator,
                        TenantConfigService tenants, TenantConfigWriter tenantConfig,
-                       TransactionTemplate transaction, JsonMapper json, FlowTokens offlineTokens) {
+                       TransactionTemplate transaction, JsonMapper json, FlowTokens offlineTokens,
+                       RunStore runStore) {
         this.repository = repository;
         this.access = access;
         this.validator = validator;
@@ -80,6 +83,7 @@ public class FlowService {
         this.transaction = transaction;
         this.json = json;
         this.offlineTokens = offlineTokens;
+        this.runStore = runStore;
     }
 
     public FlowView create(String body) {
@@ -156,6 +160,13 @@ public class FlowService {
             }
         }
         transaction.executeWithoutResult(status -> repository.delete(flow.id()));
+        try {
+            runStore.purgeFlow(flow.id());
+        } catch (RuntimeException e) {
+            // The flow is gone; its queued runs, which can no longer run, are all that is left.
+            log.warn("Flow {} is deleted but its runs could not be removed from the run store: {}",
+                    externalId, e.getMessage());
+        }
         log.info("Flow {} deleted", externalId);
     }
 

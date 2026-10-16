@@ -17,8 +17,11 @@ import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.identity.RegisteredClients;
-import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunHistory;
+import ai.intellistream.datahub.flow.store.RunStore;
+import ai.intellistream.datahub.flow.store.RunStore.NewPreview;
+import ai.intellistream.datahub.flow.store.RunStore.NewRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import ai.intellistream.datahub.flow.runs.RunView.DeploymentView;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.paging.PageCursor;
@@ -33,8 +36,13 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -63,7 +71,8 @@ public class RunService {
 
     private final FlowService flowService;
     private final FlowRepository flows;
-    private final RunRepository runs;
+    private final RunStore store;
+    private final RunHistory history;
     private final RunCoordinator coordinator;
     private final FlowCompiler compiler;
     private final TransactionTemplate transaction;
@@ -71,12 +80,13 @@ public class RunService {
     private final RegisteredClients clients;
     private final FlowTokens offlineTokens;
 
-    public RunService(FlowService flowService, FlowRepository flows, RunRepository runs,
+    public RunService(FlowService flowService, FlowRepository flows, RunStore store, RunHistory history,
                       RunCoordinator coordinator, FlowCompiler compiler, TransactionTemplate transaction,
                       JsonMapper json, RegisteredClients clients, FlowTokens offlineTokens) {
         this.flowService = flowService;
         this.flows = flows;
-        this.runs = runs;
+        this.store = store;
+        this.history = history;
         this.coordinator = coordinator;
         this.compiler = compiler;
         this.transaction = transaction;
@@ -192,13 +202,20 @@ public class RunService {
     public DeploymentView apply(DeploymentPlan plan, boolean enabled, Identity identity, String by) {
         Schedule schedule = plan.schedule();
         transaction.executeWithoutResult(status -> {
-            Instant nextTick = enabled && schedule.scheduled() ? schedule.nextTick(runs.now()) : null;
+            Instant nextTick = enabled && schedule.scheduled() ? schedule.nextTick(flows.now()) : null;
             flows.deploy(plan.flowId(), plan.version(), enabled, schedule.toJson(json),
                     plan.maxConcurrentRuns(), plan.maxAttempts(), plan.timeout(),
                     identity, by, nextTick, nextTick == null ? null : schedule.dueAt(nextTick));
         });
         log.info("Flow {} deployed at version {} ({}){}", plan.flowExternalId(), plan.version(),
                 enabled ? "on" : "off", identity == null ? "" : ", acting as a " + identity.kind());
+        try {
+            coordinator.syncFlow(plan.flowId());
+        } catch (RuntimeException e) {
+            // The deployment is stored; the run store hears of it at the next sweep.
+            log.warn("Could not tell the run store of flow {}'s deployment yet: {}", plan.flowExternalId(),
+                    e.getMessage());
+        }
         return DeploymentView.of(flows.deployment(plan.flowId()).orElseThrow(), json);
     }
 
@@ -214,14 +231,14 @@ public class RunService {
         if (request != null && request.window() != null) {
             window = window(request.window());
         } else {
-            window = schedule.defaultWindow(runs.now());
+            window = schedule.defaultWindow(flows.now());
             if (window == null) {
                 throw FlowProblems.badRequest("Flow " + externalId + " has no window in its trigger, "
                         + "so a run must be given one: {\"window\": {\"start\": …, \"end\": …}}.");
             }
         }
         String parameters = parameters(request == null ? null : request.parameters());
-        UUID id = create(flow, deployment, window, parameters, "manual", caller.subject());
+        UUID id = create(UUID.randomUUID(), flow, deployment, window, parameters, "manual", caller.subject());
         coordinator.claim(TenantContext.getTenantId(), id);
         return get(id, caller);
     }
@@ -244,6 +261,7 @@ public class RunService {
         Integer version = null;
         String unsaved = null;
         Long dataSetId = null;
+        String flowExternalId;
         FlowDefinition definition;
         if (request.flow() != null) {
             StoredFlow flow = writable(caller, request.flow());
@@ -255,6 +273,8 @@ public class RunService {
             compiler.compile(definition);
             flowId = flow.id();
             version = v;
+            flowExternalId = flow.externalId();
+            dataSetId = flow.dataSetId();
         } else {
             if (!request.definition().isObject()) {
                 throw FlowProblems.badRequest("definition is a flow definition object.");
@@ -262,6 +282,7 @@ public class RunService {
             unsaved = json.writeValueAsString(request.definition());
             definition = FlowDefinitions.parse(unsaved);
             dataSetId = flowService.checkForPreview(caller, definition);
+            flowExternalId = definition.externalId();
         }
 
         Jwt jwt = CallerAccess.currentJwt();
@@ -280,16 +301,15 @@ public class RunService {
         if (request.window() != null) {
             window = window(request.window());
         } else {
-            Instant now = runs.now();
+            Instant now = flows.now();
             window = new TimeWindow(now.minus(PREVIEW_WINDOW), now);
         }
-        RunRepository.NewPreview preview = new RunRepository.NewPreview(flowId, version, unsaved,
-                dataSetId, timeout, window, parameters(request.parameters()),
-                caller.subject());
-        UUID id = transaction.execute(status -> runs.insertPreview(preview));
+        UUID id = UUID.randomUUID();
+        store.enqueuePreview(new NewPreview(id, flowId, version, flowExternalId, unsaved, dataSetId, timeout,
+                window, parameters(request.parameters()), caller.subject()));
         String token = jwt.getTokenValue();
         if (!coordinator.claimPreview(TenantContext.getTenantId(), id, () -> token)) {
-            runs.cancelPending(id, RunCoordinator.NO_CAPACITY, "The instance that received the "
+            store.cancelPending(id, RunCoordinator.NO_CAPACITY, "The instance that received the "
                     + "preview had no room to run it.");
             throw FlowProblems.busy("This instance is running as much as it may. Preview again "
                     + "shortly.");
@@ -309,9 +329,10 @@ public class RunService {
     static final int MAX_RERUN = 10_000;
 
     /**
-     * Queues a new run for each of the given failed runs of a flow whose window has not been run
-     * again since, all in one transaction, and wakes the dispatcher once: they start as slots free
-     * up, as fast as the instances can run them. Ones already redone, or not failed, are skipped.
+     * Queues a new run for each of the given failed runs of a flow, in one go, and wakes the
+     * dispatcher once: they start as slots free up, as fast as the instances can run them. A run
+     * that did not fail is skipped, and so is one already redone: the new run's id comes from the id
+     * of the run it redoes, so asking twice queues nothing the second time.
      */
     public Requeued rerunFailed(String externalId, RerunRequest request) {
         Caller caller = flowService.requireWrite();
@@ -321,15 +342,32 @@ public class RunService {
             throw FlowProblems.badRequest("runs is between 1 and " + MAX_RERUN + " run ids.");
         }
         Deployment deployment = runnable(flow);
-        String runAs = deployment.identitySubject() != null
-                ? deployment.identitySubject() : deployment.identityClientName();
-        Integer queued = transaction.execute(status -> runs.requeueFailed(flow.id(), deployment.version(),
-                deployment.maxAttempts(), deployment.timeout(), caller.subject(), runAs, request.runs()));
-        int count = queued == null ? 0 : queued;
+        List<UUID> ids = request.runs().stream().distinct().toList();
+        // Failed runs are in the run store until they are archived, and in ClickHouse after.
+        Map<UUID, StoredRun> failed = new HashMap<>();
+        for (StoredRun r : store.find(ids)) {
+            if ("FAILED".equals(r.status()) && !r.preview() && Long.valueOf(flow.id()).equals(r.flowId())) {
+                failed.put(r.id(), r);
+            }
+        }
+        List<UUID> elsewhere = ids.stream().filter(id -> !failed.containsKey(id)).toList();
+        if (!elsewhere.isEmpty()) {
+            history.failed(TenantContext.getTenantId(), flow.id(), elsewhere).forEach(r -> failed.put(r.id(), r));
+        }
+        String runAs = runAs(deployment);
+        List<NewRun> redo = failed.values().stream().map(r -> new NewRun(rerunId(r.id()), flow.id(),
+                flow.externalId(), flow.dataSetId(), deployment.version(), deployment.maxAttempts(),
+                deployment.timeout(), r.window(), r.parameters(), "rerun", caller.subject(), runAs, null)).toList();
+        int count = store.enqueueAll(redo);
         if (count > 0) {
             coordinator.poke(TenantContext.getTenantId());
         }
         return new Requeued(count);
+    }
+
+    /** The id of the run that redoes a run: the same however many times it is asked for. */
+    static UUID rerunId(UUID redone) {
+        return UUID.nameUUIDFromBytes(("rerun:" + redone).getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
     /** A new run over the same window and with the same values, of the currently deployed version. */
@@ -341,7 +379,7 @@ public class RunService {
         }
         StoredFlow flow = writable(caller, original.flowExternalId());
         Deployment deployment = runnable(flow);
-        UUID id = create(flow, deployment, original.window(), original.parameters(), "rerun",
+        UUID id = create(rerunId(runId), flow, deployment, original.window(), original.parameters(), "rerun",
                 caller.subject());
         coordinator.claim(TenantContext.getTenantId(), id);
         return get(id, caller);
@@ -359,9 +397,33 @@ public class RunService {
         return visibleRun(flowService.requireRead(), runId);
     }
 
-    /** Runs the caller may see, newest first, optionally of one flow, in pages; previews only on request. */
+    /** The run wherever it is: the run store while it is in hand or just ended, else the history. */
+    public Optional<StoredRun> lookup(UUID runId) {
+        Optional<StoredRun> live = store.find(runId);
+        return live.isPresent() ? live : history.find(TenantContext.getTenantId(), runId);
+    }
+
+    /** The runs with these ids, wherever they are; the ones that no longer exist are left out. */
+    public Map<UUID, StoredRun> lookup(Collection<UUID> runIds) {
+        Map<UUID, StoredRun> found = new HashMap<>();
+        store.find(runIds).forEach(r -> found.put(r.id(), r));
+        for (UUID id : new HashSet<>(runIds)) {
+            if (!found.containsKey(id)) {
+                history.find(TenantContext.getTenantId(), id).ifPresent(r -> found.put(id, r));
+            }
+        }
+        return found;
+    }
+
     /** A queued run waiting longer than this, with nothing to wait for, means the flow is behind. */
     static final Duration BEHIND = Duration.ofMinutes(5);
+
+    /** A deployed flow with what its runs are doing; the input to {@link #entry}. */
+    record BoardRow(long id, String externalId, String name, int deployedVersion, boolean enabled,
+                    String disabledReason, String identityState, Instant nextDueAt, int running,
+                    String runningOn, Instant runningSince, int queued, int retrying, Instant oldestWaiting,
+                    UUID lastRunId, String lastStatus, String lastErrorCode, Instant lastFinishedAt) {
+    }
 
     /**
      * One row per deployed flow the caller may read, with how it looks: what is running and queued,
@@ -378,18 +440,33 @@ public class RunService {
             throw FlowProblems.badRequest("The cursor belongs to another listing.");
         }
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        Instant now = runs.now();
-        List<RunRepository.BoardRow> page = runs.board(readable, after == null ? null : after.value(), pageSize);
+        List<FlowRepository.BoardFlow> page = flows.deployedBoard(readable, after == null ? null : after.value(),
+                pageSize);
+        Map<Long, RunStore.FlowState> states = page.isEmpty() ? Map.of()
+                : store.states(page.stream().map(FlowRepository.BoardFlow::id).toList());
+        Instant now = store.now();
+        List<RunView.BoardEntry> entries = new ArrayList<>();
+        for (FlowRepository.BoardFlow f : page) {
+            RunStore.FlowState st = states.get(f.id());
+            RunStore.LastRun last = st == null ? null : st.last();
+            entries.add(entry(new BoardRow(f.id(), f.externalId(), f.name(), f.deployedVersion(), f.enabled(),
+                    f.disabledReason(), f.identityState(), f.nextDueAt(), st == null ? 0 : st.running(),
+                    st == null ? null : st.runningOn(), st == null ? null : st.runningSince(),
+                    st == null ? 0 : st.queued(), st == null ? 0 : st.retrying(),
+                    st == null ? null : st.oldestWaiting(), last == null ? null : last.id(),
+                    last == null ? null : last.status(), last == null ? null : last.errorCode(),
+                    last == null ? null : last.finishedAt()), now));
+        }
         DataWrapper<RunView.BoardEntry> out = new DataWrapper<>();
-        out.setItems(page.stream().map(row -> entry(row, now)).toList());
+        out.setItems(entries);
         if (page.size() == pageSize) {
-            String last = page.getLast().externalId();
-            out.setNextCursor(new PageCursor("flow", false, last, last).encode());
+            String lastId = page.getLast().externalId();
+            out.setNextCursor(new PageCursor("flow", false, lastId, lastId).encode());
         }
         return out;
     }
 
-    static RunView.BoardEntry entry(RunRepository.BoardRow row, Instant now) {
+    static RunView.BoardEntry entry(BoardRow row, Instant now) {
         List<String> reasons = new ArrayList<>();
         String health;
         if (!row.enabled() && row.disabledReason() != null) {
@@ -428,6 +505,11 @@ public class RunService {
                 row.runningSince(), row.queued(), row.oldestWaiting(), last);
     }
 
+    /**
+     * Runs the caller may see, newest first, optionally of one flow, in pages; previews only on
+     * request. The first page starts with the runs not yet ended, from the run store; the rest, and
+     * every later page, is the history in ClickHouse. A run appears in one of them.
+     */
     public DataWrapper<RunView> list(String flowExternalId, boolean previews, String cursor,
                                      Integer limit) {
         Caller caller = flowService.requireRead();
@@ -439,11 +521,29 @@ public class RunService {
         if (after != null && !after.matches(CURSOR_PROPERTY, true)) {
             throw FlowProblems.badRequest("The cursor belongs to another listing.");
         }
-        Long flowId = flowExternalId == null ? null : flowService.visible(caller, flowExternalId).id();
+        StoredFlow flow = flowExternalId == null ? null : flowService.visible(caller, flowExternalId);
+        Long flowId = flow == null ? null : flow.id();
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredRun> page = runs.list(readable, flowId, previews,
-                after == null ? null : Instant.parse(after.value()),
-                after == null ? null : UUID.fromString(after.id()), pageSize);
+        List<StoredRun> page = new ArrayList<>();
+        if (after == null) {
+            for (StoredRun r : store.liveNewest(pageSize * 2)) {
+                boolean mine = flowId == null || flowId.equals(r.flowId());
+                boolean seen = r.dataSetId() != null && (readable.all() || readable.ids().contains(r.dataSetId()));
+                if (mine && seen && (previews || !r.preview()) && page.size() < pageSize) {
+                    page.add(r);
+                }
+            }
+        }
+        if (page.size() < pageSize) {
+            List<StoredRun> finished = history.list(TenantContext.getTenantId(),
+                    readable.all() ? null : readable.ids(), flowId, previews,
+                    after == null ? null : Instant.parse(after.value()),
+                    after == null ? null : UUID.fromString(after.id()), pageSize - page.size());
+            Set<UUID> have = new HashSet<>();
+            page.forEach(r -> have.add(r.id()));
+            // A run that has just ended may be in both for a moment.
+            finished.stream().filter(r -> !have.contains(r.id())).forEach(page::add);
+        }
         DataWrapper<RunView> out = new DataWrapper<>();
         out.setItems(page.stream().map(r -> RunView.of(r, json)).toList());
         if (page.size() == pageSize) {
@@ -462,7 +562,8 @@ public class RunService {
             throw FlowProblems.datasetForbidden("Cancelling runs of this flow takes write access to "
                     + "its dataset.");
         }
-        if (!runs.cancelIfPending(runId, caller.subject()) && !runs.requestCancel(runId)) {
+        if (!store.cancelPending(runId, "CANCELLED", "Cancelled by " + caller.subject() + ".")
+                && !store.requestCancel(runId)) {
             throw FlowProblems.conflict("Run " + runId + " has already ended (" + run.status() + ").");
         }
         return get(runId, caller);
@@ -470,12 +571,16 @@ public class RunService {
 
     // ---------------------------------------------------------------- helpers
 
-    private UUID create(StoredFlow flow, Deployment deployment, TimeWindow window, String parameters,
+    private UUID create(UUID id, StoredFlow flow, Deployment deployment, TimeWindow window, String parameters,
                         String trigger, String by) {
-        return transaction.execute(status -> runs.insert(new NewRun(flow.id(), deployment.version(),
-                deployment.maxAttempts(), deployment.timeout(), window,
-                parameters, trigger, by, deployment.identitySubject() != null
-                        ? deployment.identitySubject() : deployment.identityClientName())));
+        store.enqueue(new NewRun(id, flow.id(), flow.externalId(), flow.dataSetId(), deployment.version(),
+                deployment.maxAttempts(), deployment.timeout(), window, parameters, trigger, by, runAs(deployment),
+                null));
+        return id;
+    }
+
+    private static String runAs(Deployment deployment) {
+        return deployment.identitySubject() != null ? deployment.identitySubject() : deployment.identityClientName();
     }
 
     private RunView get(UUID runId, Caller caller) {
@@ -503,7 +608,7 @@ public class RunService {
 
     /** The run, if the caller may see its flow; otherwise a 404, as if it did not exist. */
     private StoredRun visibleRun(Caller caller, UUID runId) {
-        return runs.find(runId)
+        return lookup(runId)
                 .filter(r -> r.dataSetId() != null && caller.canRead(r.dataSetId()))
                 .orElseThrow(() -> FlowProblems.notFound("No run " + runId + "."));
     }

@@ -71,6 +71,7 @@ end
 
 -- A run that ended: waits to be archived, and is the flow's latest, and failed windows are kept.
 local function ended(flow, id, status, error_code, preview, window_start, now)
+  redis.call('ZREM', 'flow:live', id)
   redis.call('ZADD', 'flow:unarchived', now, id)
   if preview then return end
   if status == 'FAILED' and window_start then

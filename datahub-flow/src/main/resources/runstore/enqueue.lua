@@ -13,6 +13,7 @@ redis.call('HSET', rk, 'id', id, 'flow_id', flow, 'status', 'PENDING', 'attempt'
 for i = 6, #ARGV, 2 do
   redis.call('HSET', rk, ARGV[i], ARGV[i + 1])
 end
+redis.call('ZADD', 'flow:live', now, id)
 if preview == '1' then return 1 end
 make_pending(flow, id, score, not_before, now)
 refresh_ready(flow)

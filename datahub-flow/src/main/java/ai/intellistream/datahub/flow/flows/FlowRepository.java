@@ -285,6 +285,97 @@ public class FlowRepository {
                 + "identity_state_reason = ? WHERE id = ? AND identity_state = 'ok'", reason, flowId);
     }
 
+    // ---------------------------------------------------------------- the schedule
+
+    /** A deployed, enabled flow whose schedule is due, locked for this transaction. */
+    public record DueFlow(long id, String externalId, long dataSetId, int version, String trigger,
+                          Instant nextTick, int maxAttempts, Duration timeout, String runAs) {
+    }
+
+    /**
+     * The deployed flows whose schedule is due, earliest first, locked for the caller's transaction
+     * ({@code FOR UPDATE SKIP LOCKED}, so instances sweeping at once take different flows).
+     */
+    public List<DueFlow> lockDueSchedules(int limit) {
+        return jdbc.query("SELECT id, external_id, data_set_id, deployed_version, trigger::text AS trigger, "
+                        + "next_tick, max_attempts, extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
+                        + "coalesce(identity_subject, identity_client_name) AS run_as "
+                        // A deployment whose identity Keycloak refused gets no runs until it is
+                        // deployed afresh: each would only fail the same way.
+                        + "FROM flow.flow WHERE enabled AND next_due_at <= now() AND identity_state = 'ok' "
+                        + "ORDER BY next_due_at LIMIT ? FOR UPDATE SKIP LOCKED",
+                (rs, n) -> new DueFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
+                        rs.getInt("deployed_version"), rs.getString("trigger"),
+                        instant(rs.getTimestamp("next_tick")), rs.getInt("max_attempts"),
+                        Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("run_as")),
+                limit);
+    }
+
+    /** Moves a schedule on; a null {@code nextTick} means the cron expression has no more ticks. */
+    public void advanceSchedule(long flowId, Instant nextTick, Instant nextDue, Instant lastTick) {
+        jdbc.update("UPDATE flow.flow SET next_tick = ?, next_due_at = ?, "
+                        + "last_tick = coalesce(?, last_tick) WHERE id = ?",
+                timestamp(nextTick), timestamp(nextDue), timestamp(lastTick), flowId);
+    }
+
+    /** The database's clock, which decides when a schedule is due. */
+    public Instant now() {
+        return jdbc.queryForObject("SELECT now()", Timestamp.class).toInstant();
+    }
+
+    // ---------------------------------------------------------------- what dispatch is told
+
+    /** What dispatch needs of a deployed flow. */
+    public record DeployedFlow(long id, String externalId, long dataSetId, boolean enabled, int maxConcurrentRuns) {
+    }
+
+    /** One deployed flow, for telling the run store of it at once. */
+    public Optional<DeployedFlow> deployedFlow(long flowId) {
+        return jdbc.query("SELECT id, external_id, data_set_id, enabled, max_concurrent_runs FROM flow.flow "
+                        + "WHERE id = ? AND deployed_version IS NOT NULL",
+                (rs, n) -> new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
+                        rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs")), flowId).stream().findFirst();
+    }
+
+    /** Every deployed flow, for copying its limits to the run store. */
+    public List<DeployedFlow> deployedFlows() {
+        return jdbc.query("SELECT id, external_id, data_set_id, enabled, max_concurrent_runs FROM flow.flow "
+                        + "WHERE deployed_version IS NOT NULL",
+                (rs, n) -> new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
+                        rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs")));
+    }
+
+    // ---------------------------------------------------------------- the overview
+
+    /** A deployed flow as the Runs overview starts from it; its runs come from the run store. */
+    public record BoardFlow(long id, String externalId, String name, int deployedVersion, boolean enabled,
+                            String disabledReason, String identityState, Instant nextDueAt) {
+    }
+
+    /** The deployed flows in {@code readable} datasets, by external id after {@code afterExternalId}. */
+    public List<BoardFlow> deployedBoard(DataSets readable, String afterExternalId, int limit) {
+        if (!readable.all() && readable.ids().isEmpty()) {
+            return List.of();
+        }
+        StringBuilder sql = new StringBuilder("SELECT id, external_id, name, deployed_version, enabled, "
+                + "disabled_reason, identity_state, next_due_at FROM flow.flow WHERE deployed_version IS NOT NULL");
+        List<Object> args = new ArrayList<>();
+        if (!readable.all()) {
+            sql.append(" AND data_set_id = ANY (?)");
+            args.add(readable.ids().toArray(Long[]::new));
+        }
+        if (afterExternalId != null) {
+            sql.append(" AND external_id > ?");
+            args.add(afterExternalId);
+        }
+        sql.append(" ORDER BY external_id LIMIT ?");
+        args.add(limit);
+        return jdbc.query(sql.toString(), (rs, n) -> new BoardFlow(rs.getLong("id"), rs.getString("external_id"),
+                rs.getString("name"), rs.getInt("deployed_version"), rs.getBoolean("enabled"),
+                rs.getString("disabled_reason"), rs.getString("identity_state"),
+                instant(rs.getTimestamp("next_due_at"))), args.toArray());
+    }
+
     /** Deletes a flow with its versions and runs. */
     public void delete(long flowId) {
         jdbc.update("DELETE FROM flow.flow WHERE id = ?", flowId);

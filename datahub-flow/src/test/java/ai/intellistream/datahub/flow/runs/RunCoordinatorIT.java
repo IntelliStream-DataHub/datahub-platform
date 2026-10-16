@@ -19,8 +19,14 @@ import ai.intellistream.datahub.flow.processors.TimeseriesSink;
 import ai.intellistream.datahub.flow.records.FlowRecordBatch;
 import ai.intellistream.datahub.flow.records.RunRecords;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
-import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore;
+import ai.intellistream.datahub.flow.store.RunStore.FlowLimits;
+import ai.intellistream.datahub.flow.store.RunStore.NewPreview;
+import ai.intellistream.datahub.flow.store.RunStore.NewRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
+import ai.intellistream.datahub.flow.store.SharedKvrocks;
+import ai.intellistream.datahub.flow.store.TenantKvrocks;
+import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -78,10 +84,13 @@ class RunCoordinatorIT {
     /** Per key: runs executing now, and the most ever at once. */
     private static final Map<String, AtomicInteger> RUNNING = new ConcurrentHashMap<>();
     private static final Map<String, AtomicInteger> MOST = new ConcurrentHashMap<>();
+    /** Keys of Wait processors to let go early: a test releases a run it was holding. */
+    private static final Set<String> RELEASED = ConcurrentHashMap.newKeySet();
 
     private JdbcTemplate jdbc;
     private TransactionTemplate transaction;
-    private RunRepository runs;
+    private RunStore runs;
+    private TenantKvrocks kvrocks;
     private FlowRepository flows;
     private HttpServer datahub;
     private final List<Long> requestArrivals = new CopyOnWriteArrayList<>();
@@ -108,8 +117,11 @@ class RunCoordinatorIT {
                 SharedPostgres.username(), SharedPostgres.password());
         jdbc = new JdbcTemplate(ds);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(ds));
-        runs = new RunRepository(jdbc);
         flows = new FlowRepository(jdbc);
+        SharedKvrocks.flush();
+        kvrocks = new TenantKvrocks(SharedKvrocks.tenants(TENANT));
+        runs = new RunStore(kvrocks, Duration.ofSeconds(1));
+        TenantContext.setTenantId(TENANT);
 
         datahub = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         datahub.createContext("/", exchange -> {
@@ -154,7 +166,6 @@ class RunCoordinatorIT {
         heartbeats = Executors.newSingleThreadScheduledExecutor();
         heartbeats.scheduleWithFixedDelay(() -> heartbeating.forEach(c -> {
             try {
-                c.heartbeat(TENANT);
                 c.heartbeatAll();
             } catch (RuntimeException ignored) {
                 // a failed heartbeat is what self-fencing is for
@@ -169,6 +180,9 @@ class RunCoordinatorIT {
         datahub.stop(0);
         RUNNING.clear();
         MOST.clear();
+        RELEASED.clear();
+        TenantContext.clear();
+        kvrocks.close();
     }
 
     // ---------------------------------------------------------------- the tests
@@ -184,8 +198,8 @@ class RunCoordinatorIT {
 
         List<UUID> claimedByA = Collections.synchronizedList(new ArrayList<>());
         List<UUID> claimedByB = Collections.synchronizedList(new ArrayList<>());
-        Thread ta = Thread.ofVirtual().start(() -> claimRepeatedly(a, claimedByA));
-        Thread tb = Thread.ofVirtual().start(() -> claimRepeatedly(b, claimedByB));
+        Thread ta = Thread.ofVirtual().start(() -> TenantContext.runWith(TENANT, () -> claimRepeatedly(a, claimedByA)));
+        Thread tb = Thread.ofVirtual().start(() -> TenantContext.runWith(TENANT, () -> claimRepeatedly(b, claimedByB)));
         ta.join();
         tb.join();
 
@@ -195,8 +209,7 @@ class RunCoordinatorIT {
         assertThat(claimedByA).isNotEmpty();
         assertThat(claimedByB).isNotEmpty();
         await(() -> count("SUCCEEDED") == 30);
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1", Integer.class))
-                .isZero();
+        assertThat(attemptsOfAllRuns()).as("no run needed a second attempt").containsOnly("1");
     }
 
     @Test
@@ -212,8 +225,8 @@ class RunCoordinatorIT {
 
         long until = System.nanoTime() + Duration.ofSeconds(8).toNanos();
         while (count("SUCCEEDED") < 6 && System.nanoTime() < until) {
-            Thread ta = Thread.ofVirtual().start(() -> a.claim(TENANT, null));
-            Thread tb = Thread.ofVirtual().start(() -> b.claim(TENANT, null));
+            Thread ta = Thread.ofVirtual().start(() -> TenantContext.runWith(TENANT, () -> a.claim(TENANT, null)));
+            Thread tb = Thread.ofVirtual().start(() -> TenantContext.runWith(TENANT, () -> b.claim(TENANT, null)));
             ta.join();
             tb.join();
             Thread.sleep(50);
@@ -237,12 +250,11 @@ class RunCoordinatorIT {
 
         assertThat(a.createScheduledRuns()).isEqualTo(6);
         assertThat(a.createScheduledRuns()).isZero();
-        List<Timestamp> windows = jdbc.queryForList(
-                "SELECT window_end FROM flow.run ORDER BY created_at, window_end", Timestamp.class);
+        List<Instant> windows = windowEndsByCreation();
         assertThat(windows).hasSize(6).isSorted();
-        assertThat(windows.getFirst().toInstant()).isEqualTo(fiveHoursAgo);
+        assertThat(windows.getFirst()).isEqualTo(fiveHoursAgo);
         assertThat(jdbc.queryForObject("SELECT last_tick FROM flow.flow WHERE id = ?", Timestamp.class, flow)
-                .toInstant()).isEqualTo(windows.getLast().toInstant());
+                .toInstant()).isEqualTo(windows.getLast());
 
         UUID first = a.claim(TENANT, null).getFirst();
         assertThat(runs.find(first).orElseThrow().window().end()).isEqualTo(fiveHoursAgo);
@@ -265,7 +277,7 @@ class RunCoordinatorIT {
         assertThat(requeued.attempt()).isEqualTo(2);
         assertThat(requeued.errorCode()).isEqualTo("LEASE_LOST");
 
-        setWait(flow, 0);
+        RELEASED.add("takeover");
         assertThat(b.claim(TENANT, null)).containsExactly(run);
         await(() -> "SUCCEEDED".equals(runs.find(run).orElseThrow().status()));
         // a's own attempt notices the lost lease and records nothing.
@@ -305,8 +317,8 @@ class RunCoordinatorIT {
     void onlyTheOwnerOfTheCurrentAttemptMayFinishIt() {
         long flow = deployedFlow("stale", wait(0, "stale"), 1, 2);
         UUID run = pending(flow, 0);
-        transaction.execute(s -> runs.claim(run, "owner-1", LEASE));
-        RunRepository.Outcome outcome = new RunRepository.Outcome(null, null, null, null, "{}");
+        runs.claimOne(run, "owner-1", LEASE, Duration.ofMinutes(1));
+        RunStore.Outcome outcome = new RunStore.Outcome(null, null, null, null, "{}");
 
         assertThat(runs.complete(run, "owner-2", 1, "SUCCEEDED", false, outcome)).isFalse();
         assertThat(runs.complete(run, "owner-1", 2, "SUCCEEDED", false, outcome)).isFalse();
@@ -338,17 +350,17 @@ class RunCoordinatorIT {
     void aFailedAttemptIsRetriedAfterItsBackOffAndTheLastOneFailsTheRun() {
         long flow = deployedFlow("failing", fail(), 1, 2);
         UUID run = pending(flow, 0);
-        RunCoordinator a = coordinator("a", 1, Duration.ofHours(1));
+        RunCoordinator a = coordinator("a", 1, Duration.ofMillis(900));
 
         a.claim(TENANT, null);
         await(() -> "PENDING".equals(runs.find(run).orElseThrow().status()));
         StoredRun retried = runs.find(run).orElseThrow();
         assertThat(retried.attempt()).isEqualTo(2);
         assertThat(retried.errorCode()).isEqualTo("PROCESSOR_FAILED");
-        assertThat(retried.notBefore()).isAfter(runs.now().plus(Duration.ofMinutes(59)));
-        assertThat(a.claim(TENANT, null)).isEmpty();
+        assertThat(retried.notBefore()).isAfter(runs.now());
+        assertThat(a.claim(TENANT, null)).as("not before its back-off is over").isEmpty();
 
-        jdbc.update("UPDATE flow.run SET not_before = now() WHERE id = ?", run);
+        sleep(1000);
         a.claim(TENANT, null);
         await(() -> "FAILED".equals(runs.find(run).orElseThrow().status()));
         StoredRun failed = runs.find(run).orElseThrow();
@@ -415,8 +427,7 @@ class RunCoordinatorIT {
     @Test
     void aSuccessForAWindowThatFailedResolvesItsOpenLifecycle() {
         long flow = deployedFlow("recovering", wait(0, "recovering"), 1, 1);
-        UUID failed = pending(flow, 0);
-        jdbc.update("UPDATE flow.run SET status = 'FAILED', finished_at = now() WHERE id = ?", failed);
+        failedRun(flow, 0);
         UUID rerun = pending(flow, 0);
 
         coordinator("a", 1).claim(TENANT, rerun);
@@ -440,8 +451,7 @@ class RunCoordinatorIT {
     @Test
     void aSuccessLeavesALifecycleThatIsNoLongerOpenAlone() {
         long flow = deployedFlow("dismissed", wait(0, "dismissed"), 1, 1);
-        UUID failed = pending(flow, 0);
-        jdbc.update("UPDATE flow.run SET status = 'FAILED', finished_at = now() WHERE id = ?", failed);
+        failedRun(flow, 0);
         UUID rerun = pending(flow, 0);
         lifecycleOpen = false;
 
@@ -473,7 +483,7 @@ class RunCoordinatorIT {
         heartbeating.add(a);
 
         assertThat(a.claim(TENANT, running)).containsExactly(running);
-        assertThat(runs.cancelIfPending(waiting, "user-1")).isTrue();
+        assertThat(runs.cancelPending(waiting, "CANCELLED", "Cancelled by user-1.")).isTrue();
         assertThat(runs.find(waiting).orElseThrow().status()).isEqualTo("CANCELLED");
 
         assertThat(runs.requestCancel(running)).isTrue();
@@ -484,9 +494,7 @@ class RunCoordinatorIT {
     @Test
     void aRunPastItsTimeoutFailsWithTimeout() {
         long flow = deployedFlow("slow", wait(10_000, "slow"), 1, 1);
-        jdbc.update("UPDATE flow.flow SET run_timeout = interval '1 second' WHERE id = ?", flow);
-        UUID run = pending(flow, 0);
-        jdbc.update("UPDATE flow.run SET run_timeout = interval '1 second' WHERE id = ?", run);
+        UUID run = pending(flow, 0, Duration.ofSeconds(1));
         RunCoordinator a = coordinator("a", 1);
         heartbeating.add(a);
 
@@ -499,7 +507,7 @@ class RunCoordinatorIT {
     void aRunOfAFlowSwitchedOffIsCancelledInsteadOfStarted() {
         long flow = deployedFlow("off", wait(0, "off"), 1, 1);
         UUID run = pending(flow, 0);
-        jdbc.update("UPDATE flow.flow SET enabled = false WHERE id = ?", flow);
+        describe(flow, false, 1);
 
         assertThat(coordinator("a", 1).claim(TENANT, null)).isEmpty();
         StoredRun cancelled = runs.find(run).orElseThrow();
@@ -596,7 +604,7 @@ class RunCoordinatorIT {
         // Saved, never deployed: a preview tries a flow out whether or not it is switched on.
         long flow = savedFlow("previewed", points() + "," + sink(),
                 "{ \"from\": \"p\", \"relationship\": \"success\", \"to\": \"out\" }");
-        UUID run = preview(flow, 1, null, null);
+        UUID run = preview(flow, 1, "previewed", null, 7L);
         RunCoordinator a = coordinator("a", 1);
         RunCoordinator b = coordinator("b", 1);
 
@@ -664,106 +672,62 @@ class RunCoordinatorIT {
     }
 
     @Test
-    void aPreviewOfAnUnsavedDefinitionIsSeenThroughItsOwnDataset() {
+    void aPreviewOfAnUnsavedDefinitionHasItsOwnDatasetAndIsNotAFlowsRun() {
         UUID run = unsavedPreview("unsaved_seen", wait(0, "unsaved_seen"));
         long saved = savedFlow("saved_flow", wait(0, "saved_flow"), "");
+        runs.syncFlow(new FlowLimits(saved, "saved_flow", 7, true, true, 1));
         UUID real = pending(saved, 0);
 
         StoredRun stored = runs.find(run).orElseThrow();
         assertThat(stored.flowId()).isNull();
         assertThat(stored.dataSetId()).isEqualTo(7);
         assertThat(stored.flowExternalId()).isEqualTo("unsaved_seen");
-
-        Caller.DataSets seven = new Caller.DataSets(false, Set.of(7L));
-        assertThat(runs.list(seven, null, true, null, null, 10)).extracting(StoredRun::id)
-                .containsExactlyInAnyOrder(run, real);
-        // Previews are shown apart: only on request.
-        assertThat(runs.list(seven, null, false, null, null, 10)).extracting(StoredRun::id)
+        assertThat(stored.preview()).isTrue();
+        assertThat(runs.liveNewest(10)).extracting(StoredRun::id).containsExactlyInAnyOrder(run, real);
+        // Nobody's run: no flow counts it, and no claim takes it.
+        assertThat(runs.states(List.of(saved)).get(saved).queued()).isEqualTo(1);
+        assertThat(runs.claim("a", LEASE, 5, Duration.ofMinutes(1))).extracting(RunStore.Claimed::id)
                 .containsExactly(real);
-        assertThat(runs.list(new Caller.DataSets(false, Set.of(8L)), null, true, null, null, 10))
-                .isEmpty();
     }
 
     @Test
-    void theBoardShowsEachDeployedFlowWithTheRunsItHasInHandAndItsLatestFinishedRun() {
+    void whatEachFlowHasInHandIsWhatTheOverviewReads() {
         long busy = deployedFlow("busy", wait(0, "busy"), 2, 1);
         UUID going = pending(busy, 0);
         UUID waiting = pending(busy, 1);
         UUID retrying = pending(busy, 2);
-        jdbc.update("UPDATE flow.run SET attempt = 2 WHERE id = ?", retrying);
-        transaction.execute(s -> runs.claim(going, "instance-a", LEASE));
+        runs.claimOne(going, "instance-a", LEASE, Duration.ofMinutes(1));
+        runs.claimOne(retrying, "instance-a", LEASE, Duration.ofMinutes(1));
+        runs.retry(retrying, "instance-a", 1, Duration.ofMinutes(5), new RunStore.Outcome(null, null, null, null, "{}"));
         long failing = deployedFlow("failing", wait(0, "failing"), 1, 1);
         UUID failed = pending(failing, 0);
-        jdbc.update("UPDATE flow.run SET status = 'FAILED', error_code = 'PROCESSOR_FAILED', "
-                + "finished_at = now() WHERE id = ?", failed);
+        runs.claimOne(failed, "instance-a", LEASE, Duration.ofMinutes(1));
+        runs.complete(failed, "instance-a", 1, "FAILED", true,
+                new RunStore.Outcome("PROCESSOR_FAILED", "boom", null, null, "{}"));
         UUID later = pending(failing, 1);
-        jdbc.update("UPDATE flow.run SET status = 'SUCCEEDED', finished_at = now() - interval '1 hour' "
-                + "WHERE id = ?", later);
-        savedFlow("never_deployed", wait(0, "never_deployed"), "");
+        runs.claimOne(later, "instance-b", LEASE, Duration.ofMinutes(1));
+        runs.complete(later, "instance-b", 1, "SUCCEEDED", false, new RunStore.Outcome(null, null, null, null, "{}"));
+        long never = savedFlow("never_deployed", wait(0, "never_deployed"), "");
         unsavedPreview("board_preview", wait(0, "board_preview"));
-        transaction.execute(s -> runs.claim(preview(failing, 1, null, null), "instance-b", LEASE));
 
-        List<RunRepository.BoardRow> board = runs.board(Caller.DataSets.ALL, null, 10);
+        Map<Long, RunStore.FlowState> states = runs.states(List.of(busy, failing, never));
 
-        // The flow that was never deployed is not on it, and a preview is nobody's run.
-        assertThat(board).extracting(RunRepository.BoardRow::externalId).containsExactly("busy", "failing");
-        RunRepository.BoardRow b = board.get(0);
+        RunStore.FlowState b = states.get(busy);
         assertThat(b.running()).isEqualTo(1);
         assertThat(b.runningOn()).isEqualTo("instance-a");
-        assertThat(b.queued()).isEqualTo(2);
+        assertThat(b.runningSince()).isNotNull();
+        assertThat(b.queued()).as("the waiting one, and the one waiting out its back-off").isEqualTo(2);
         assertThat(b.retrying()).isEqualTo(1);
         assertThat(b.oldestWaiting()).isNotNull();
-        assertThat(b.lastStatus()).isNull();
-        RunRepository.BoardRow f = board.get(1);
+        assertThat(b.last()).isNull();
+        RunStore.FlowState f = states.get(failing);
         assertThat(f.running()).isZero();
         assertThat(f.queued()).isZero();
-        // The latest run by creation, not by when it finished.
-        assertThat(f.lastRunId()).isEqualTo(later);
-        assertThat(f.lastStatus()).isEqualTo("SUCCEEDED");
-
-        // Narrowed to datasets the caller may read, and paged by external id.
-        assertThat(runs.board(new Caller.DataSets(false, Set.of(8L)), null, 10)).isEmpty();
-        assertThat(runs.board(Caller.DataSets.ALL, "busy", 10)).extracting(RunRepository.BoardRow::externalId)
-                .containsExactly("failing");
-    }
-
-    @Test
-    void failedRunsAreRequeuedOnceEachAndOnlyWhileTheirWindowStillEndsInFailure() {
-        long flow = deployedFlow("requeue", wait(0, "requeue"), 1, 2);
-        UUID plain = failedRun(flow, 0);
-        UUID redone = failedRun(flow, 1);
-        UUID healed = failedRun(flow, 2);
-        UUID cancelled = failedRun(flow, 3);
-        UUID other = failedRun(deployedFlow("other_flow", wait(0, "other_flow"), 1, 2), 0);
-        // A later run for the window: waiting, and one that succeeded. And a person's cancel.
-        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, run_timeout, "
-                + "window_start, window_end, trigger) SELECT gen_random_uuid(), flow_id, version, 'PENDING', 1, 2, "
-                + "run_timeout, window_start, window_end, 'rerun' FROM flow.run WHERE id = ?", redone);
-        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, run_timeout, "
-                + "window_start, window_end, trigger, finished_at) SELECT gen_random_uuid(), flow_id, version, "
-                + "'SUCCEEDED', 1, 2, run_timeout, window_start, window_end, 'rerun', now() FROM flow.run "
-                + "WHERE id = ?", healed);
-        jdbc.update("UPDATE flow.run SET status = 'CANCELLED' WHERE id = ?", cancelled);
-        List<UUID> asked = List.of(plain, redone, healed, cancelled, other);
-
-        int queued = runs.requeueFailed(flow, 1, 2, Duration.ofMinutes(15), "user-2", "user-2", asked);
-
-        // Only the plain failure of this flow: the others were redone, healed, cancelled, or are another flow's.
-        assertThat(queued).isEqualTo(1);
-        StoredRun again = jdbc.query("SELECT id FROM flow.run WHERE flow_id = ? AND trigger = 'rerun' AND triggered_by = 'user-2'",
-                (rs, n) -> runs.find(rs.getObject("id", UUID.class)).orElseThrow(), flow).getFirst();
-        assertThat(again.status()).isEqualTo("PENDING");
-        assertThat(again.window()).isEqualTo(runs.find(plain).orElseThrow().window());
-        assertThat(again.runAs()).isEqualTo("user-2");
-        // Asking again queues nothing: the window now has a later run.
-        assertThat(runs.requeueFailed(flow, 1, 2, Duration.ofMinutes(15), "user-2", "user-2", asked)).isZero();
-    }
-
-    private UUID failedRun(long flow, int hour) {
-        UUID id = pending(flow, hour);
-        jdbc.update("UPDATE flow.run SET status = 'FAILED', error_code = 'PROCESSOR_FAILED', finished_at = now() "
-                + "WHERE id = ?", id);
-        return id;
+        // The latest run to end, whichever way.
+        assertThat(f.last().id()).isEqualTo(later);
+        assertThat(f.last().status()).isEqualTo("SUCCEEDED");
+        assertThat(states.get(never).queued()).isZero();
+        assertThat(waiting).isNotNull();
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -778,11 +742,12 @@ class RunCoordinatorIT {
                 "user-1").id());
     }
 
-    private UUID preview(Long flow, Integer version, String definition, Long dataSetId) {
+    private UUID preview(Long flow, Integer version, String flowExternalId, String definition, Long dataSetId) {
         Instant end = Instant.parse("2026-10-12T01:00:00Z");
-        return transaction.execute(s -> runs.insertPreview(new RunRepository.NewPreview(flow, version,
-                definition, dataSetId, Duration.ofMinutes(15),
-                new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "user-1")));
+        UUID id = UUID.randomUUID();
+        runs.enqueuePreview(new NewPreview(id, flow, version, flowExternalId, definition, dataSetId,
+                Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "user-1"));
+        return id;
     }
 
     private UUID unsavedPreview(String externalId, String processor) {
@@ -790,7 +755,7 @@ class RunCoordinatorIT {
                 { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
                   "processors": [ %s ], "connections": [] }
                 """.formatted(externalId, externalId, processor);
-        return preview(null, null, definition, 7L);
+        return preview(null, null, externalId, definition, 7L);
     }
 
     /** Three points of series {@code ts_in} inside the preview's window, as a timeseries item. */
@@ -820,7 +785,7 @@ class RunCoordinatorIT {
                 new Hang(), new TimeseriesSink());
         FlowCompiler compiler = new FlowCompiler(new FlowValidator(processors, FlowValidator.Limits.DEFAULTS));
         RunExecution execution = new RunExecution(compiler,
-                new RunExecutor(java.time.Clock.systemUTC(), d -> { }), flows, jdbc,
+                new RunExecutor(java.time.Clock.systemUTC(), d -> { }), flows,
                 credentials, tenant -> Map.of(), "http://127.0.0.1:" + datahub.getAddress().getPort(),
                 REQUEST_TIMEOUT, JSON, (tenant, run, attempt, flow, version) -> new RunRecords(run,
                         attempt, flow, version, 100_000, java.time.Clock.systemUTC(), batch -> {
@@ -833,7 +798,7 @@ class RunCoordinatorIT {
                         }), Duration.ofSeconds(5), 64L << 20);
         RunEvents events = new RunEvents(runs, credentials,
                 "http://127.0.0.1:" + datahub.getAddress().getPort(), REQUEST_TIMEOUT, 20);
-        RunCoordinator c = new RunCoordinator(runs, execution, events, transaction, null, null, JSON,
+        RunCoordinator c = new RunCoordinator(runs, flows, execution, events, transaction, null, null, JSON,
                 new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 24,
                 backoff, backoff.isZero() ? Duration.ZERO : Duration.ofHours(6), Duration.ofSeconds(1)),
                 name, System::nanoTime);
@@ -856,38 +821,76 @@ class RunCoordinatorIT {
                 { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
                   "processors": [ %s ], "connections": [] }
                 """.formatted(externalId, externalId, processor);
-        return transaction.execute(s -> {
-            long id = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
-            flows.deploy(id, 1, true, new Schedule(Schedule.MANUAL, null, null, null, null).toJson(JSON),
+        long id = transaction.execute(s -> {
+            long created = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
+            flows.deploy(created, 1, true, new Schedule(Schedule.MANUAL, null, null, null, null).toJson(JSON),
                     maxConcurrent, maxAttempts, Duration.ofMinutes(15),
                     FlowRepository.Identity.deployer("user-1"), "user-1", null, null);
-            return id;
+            return created;
         });
+        runs.syncFlow(new FlowLimits(id, externalId, 7, true, true, maxConcurrent));
+        return id;
     }
 
-    /** Makes the flow's pending runs wait {@code millis} instead, by pointing them at a new version. */
-    private void setWait(long flow, int millis) {
-        String externalId = jdbc.queryForObject("SELECT external_id FROM flow.flow WHERE id = ?", String.class, flow);
-        String definition = """
-                { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
-                  "processors": [ %s ], "connections": [] }
-                """.formatted(externalId, externalId, wait(millis, externalId));
-        transaction.executeWithoutResult(s -> {
-            flows.addVersion(flow, 1, 7, "ds", externalId, definition, "user-1").orElseThrow();
-            jdbc.update("UPDATE flow.run SET version = 2 WHERE flow_id = ?", flow);
-        });
+    /** Tells the run store the flow's limits, as the sweep would; the test changes them where it matters. */
+    private void describe(long flow, boolean enabled, int maxConcurrent) {
+        runs.syncFlow(new FlowLimits(flow, externalIdOf(flow), 7, enabled, true, maxConcurrent));
+    }
+
+    private String externalIdOf(long flow) {
+        return jdbc.queryForObject("SELECT external_id FROM flow.flow WHERE id = ?", String.class, flow);
     }
 
     private UUID pending(long flow, int hour) {
-        Instant end = Instant.parse("2026-10-12T00:00:00Z").plus(Duration.ofHours(hour + 1));
-        return transaction.execute(s -> runs.insert(new NewRun(flow, 1,
-                jdbc.queryForObject("SELECT max_attempts FROM flow.flow WHERE id = ?", Integer.class, flow),
-                Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end),
-                null, "manual", "user-1", "user-1")));
+        return pending(flow, hour, Duration.ofMinutes(15));
     }
 
+    private UUID pending(long flow, int hour, Duration timeout) {
+        Instant end = Instant.parse("2026-10-12T00:00:00Z").plus(Duration.ofHours(hour + 1));
+        UUID id = UUID.randomUUID();
+        runs.enqueue(new NewRun(id, flow, externalIdOf(flow), 7, 1,
+                jdbc.queryForObject("SELECT max_attempts FROM flow.flow WHERE id = ?", Integer.class, flow),
+                timeout, new TimeWindow(end.minus(Duration.ofHours(1)), end),
+                null, "manual", "user-1", "user-1", null));
+        return id;
+    }
+
+    /** A run of the window that has failed for good, as an earlier attempt of the flow left it. */
+    private UUID failedRun(long flow, int hour) {
+        UUID id = pending(flow, hour);
+        runs.claimOne(id, "earlier", LEASE, Duration.ofMinutes(1));
+        runs.complete(id, "earlier", 1, "FAILED", false, new RunStore.Outcome("PROCESSOR_FAILED", "boom", null, null, "{}"));
+        return id;
+    }
+
+    private List<String> attemptsOfAllRuns() {
+        List<String> out = new ArrayList<>();
+        SharedKvrocks.raw().keys("flow:run:*").forEach(key -> out.add(SharedKvrocks.raw().hget(key, "attempt")));
+        return out;
+    }
+
+    /** The end of every run's window, in the order the runs were made. */
+    private List<Instant> windowEndsByCreation() {
+        List<String[]> rows = new ArrayList<>();
+        for (String key : SharedKvrocks.raw().keys("flow:run:*")) {
+            rows.add(new String[]{SharedKvrocks.raw().hget(key, "created_ms"), SharedKvrocks.raw().hget(key, "window_end_ms")});
+        }
+        rows.sort((x, y) -> {
+            int byCreation = Long.compare(Long.parseLong(x[0]), Long.parseLong(y[0]));
+            return byCreation != 0 ? byCreation : Long.compare(Long.parseLong(x[1]), Long.parseLong(y[1]));
+        });
+        return rows.stream().map(r -> Instant.ofEpochMilli(Long.parseLong(r[1]))).toList();
+    }
+
+    /** How many runs the run store holds in this state. */
     private int count(String status) {
-        return jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE status = ?", Integer.class, status);
+        int n = 0;
+        for (String key : SharedKvrocks.raw().keys("flow:run:*")) {
+            if (status.equals(SharedKvrocks.raw().hget(key, "status"))) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private static void await(BooleanSupplier condition) {
@@ -945,7 +948,10 @@ class RunCoordinatorIT {
             int now = RUNNING.computeIfAbsent(key, k -> new AtomicInteger()).incrementAndGet();
             MOST.computeIfAbsent(key, k -> new AtomicInteger()).accumulateAndGet(now, Math::max);
             try {
-                sleepUnlessStopped(context, context.property("millis").asDouble().longValue());
+                long until = System.nanoTime() + context.property("millis").asDouble().longValue() * 1_000_000;
+                while (System.nanoTime() < until && !context.isCancelled() && !RELEASED.contains(key)) {
+                    sleep(20);
+                }
             } finally {
                 RUNNING.get(key).decrementAndGet();
             }

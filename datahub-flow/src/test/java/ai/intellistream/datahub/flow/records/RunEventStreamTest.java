@@ -3,7 +3,7 @@ package ai.intellistream.datahub.flow.records;
 
 import ai.intellistream.datahub.flow.records.RecordsTable.Position;
 import ai.intellistream.datahub.flow.records.RecordsTable.StoredRecord;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -80,7 +80,7 @@ class RunEventStreamTest {
 
     private static StoredRun run(String status) {
         return new StoredRun(RUN, 1L, "temp_hourly", 7L, 1, status, 1, 2, Instant.EPOCH, false, false,
-                false, Duration.ofMinutes(15), null, null, null, null, "manual", "user-1",
+                false, Duration.ofMinutes(15), null, null, null, null, null, "manual", "user-1",
                 "user-1", Instant.EPOCH, null, null, null, null, null);
     }
 }

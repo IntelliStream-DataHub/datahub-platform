@@ -4,14 +4,16 @@ package ai.intellistream.datahub.flow.runs;
 import ai.intellistream.datahub.flow.engine.RunResult;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
-import ai.intellistream.datahub.flow.runs.RunRepository.Candidate;
-import ai.intellistream.datahub.flow.runs.RunRepository.Claimed;
-import ai.intellistream.datahub.flow.runs.RunRepository.DueFlow;
-import ai.intellistream.datahub.flow.runs.RunRepository.Expired;
-import ai.intellistream.datahub.flow.runs.RunRepository.FlowGate;
-import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
-import ai.intellistream.datahub.flow.runs.RunRepository.Outcome;
-import ai.intellistream.datahub.flow.runs.RunRepository.Renewed;
+import ai.intellistream.datahub.flow.flows.FlowRepository.DeployedFlow;
+import ai.intellistream.datahub.flow.flows.FlowRepository.DueFlow;
+import ai.intellistream.datahub.flow.store.RunStore;
+import ai.intellistream.datahub.flow.store.RunStore.Claim;
+import ai.intellistream.datahub.flow.store.RunStore.Claimed;
+import ai.intellistream.datahub.flow.store.RunStore.FlowLimits;
+import ai.intellistream.datahub.flow.store.RunStore.NewRun;
+import ai.intellistream.datahub.flow.store.RunStore.Outcome;
+import ai.intellistream.datahub.flow.store.RunStore.Reaped;
+import ai.intellistream.datahub.flow.store.RunStore.Renewed;
 import ai.intellistream.datahub.flow.tenant.FlowSchemaCheck;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
@@ -69,9 +71,10 @@ import java.util.function.Supplier;
  *   <li><b>Reaper</b> (~30 s): runs whose lease expired go back to pending for another attempt, or
  *       fail when their attempts are used up.</li>
  * </ol>
- * The schedule and the claim are two transactions, not one: a sweep locks flow rows for its
- * schedules and the claim locks flow rows in id order, and doing both in one transaction would let
- * two instances lock the same flows in different orders.
+ * The schedule lives in Postgres and the runs in the tenant's KVRocks (RUN_STORE.md), so a tick
+ * becoming a run is two writes in two stores. The run is enqueued first, with an id derived from the
+ * flow and the tick, and the schedule is advanced second: a crash between them repeats the tick at
+ * the next sweep, which enqueues the same id and so does nothing.
  *
  * <p>Dispatch is one thread per instance, woken by {@link #poke}. A tenant is <em>hungry</em> from
  * the moment something may be waiting for it, and stays so while a dispatch round still starts
@@ -115,7 +118,8 @@ public class RunCoordinator {
     private static final int REAP_BATCH = 100;
     private static final int MAX_LOG_LINES = 200;
 
-    private final RunRepository runs;
+    private final RunStore store;
+    private final FlowRepository flows;
     private final RunExecution execution;
     private final RunEvents events;
     private final TransactionTemplate transaction;
@@ -129,10 +133,14 @@ public class RunCoordinator {
     private final Map<UUID, ActiveRun> active = new ConcurrentHashMap<>();
     /** Sweeps so far, which decides the tenant that claims first in the next one. */
     private final AtomicInteger sweeps = new AtomicInteger();
+    /** Sweeps so far, which decides when the run store is told everything again. */
+    private final AtomicInteger sweepRounds = new AtomicInteger();
     /** Tenants that may have runs waiting, and the signal that wakes the dispatcher. */
     private final Set<String> hungry = ConcurrentHashMap.newKeySet();
     private final Semaphore wake = new Semaphore(0);
     private volatile Thread dispatcher;
+    /** What each tenant's run store was last told of its flows' limits. */
+    private final Map<String, Map<Long, FlowLimits>> told = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private volatile boolean stopping;
 
@@ -148,7 +156,7 @@ public class RunCoordinator {
     }
 
     @Autowired
-    public RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
+    public RunCoordinator(RunStore store, FlowRepository flows, RunExecution execution, RunEvents events,
                           TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
                           @Value("${datahub.flow.runs.lease:PT60S}") Duration lease,
                           @Value("${datahub.flow.runs.heartbeat-interval:PT15S}") Duration heartbeat,
@@ -157,12 +165,12 @@ public class RunCoordinator {
                           @Value("${datahub.flow.runs.backoff:PT30S}") Duration backoff,
                           @Value("${datahub.flow.runs.max-backoff:PT15M}") Duration maxBackoff,
                           @Value("${datahub.flow.runs.overdue-grace:PT1M}") Duration overdueGrace) {
-        this(runs, execution, events, transaction, tenants, schemaCheck, json,
+        this(store, flows, execution, events, transaction, tenants, schemaCheck, json,
                 new Settings(lease, heartbeat, maxRunning, catchUp, backoff, maxBackoff, overdueGrace),
                 instanceId(), System::nanoTime);
     }
 
-    RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
+    RunCoordinator(RunStore store, FlowRepository flows, RunExecution execution, RunEvents events,
                    TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
                    Settings settings, String owner, LongSupplier nanoTime) {
         // Between renewals a lease has at least lease - heartbeat left, and the fence lets a request
@@ -174,7 +182,8 @@ public class RunCoordinator {
                     + settings.heartbeat() + ") must be shorter than the lease (" + settings.lease()
                     + "), or the lease fence refuses DataHub requests of runs that hold their lease.");
         }
-        this.runs = runs;
+        this.store = store;
+        this.flows = flows;
         this.execution = execution;
         this.events = events;
         this.transaction = transaction;
@@ -206,6 +215,7 @@ public class RunCoordinator {
     @Scheduled(initialDelayString = "${datahub.flow.runs.sweep-interval:PT10S}",
             fixedDelayString = "${datahub.flow.runs.sweep-interval:PT10S}")
     public void sweepAll() {
+        sweepRounds.incrementAndGet();
         List<String> tenants = flowTenants();
         forEach(tenants, "sweep", this::sweep);
         // Any tenant may have runs another instance queued; a round that finds none drops it again.
@@ -335,6 +345,7 @@ public class RunCoordinator {
      * been swept ({@link #claimAcross}), so that the slots are shared between them.
      */
     void sweep(String tenantId) {
+        syncFlows(tenantId);
         createScheduledRuns();
         events.payOwed(tenantId);
     }
@@ -356,25 +367,70 @@ public class RunCoordinator {
 
     private int createScheduledRuns(AtomicInteger flowsLocked) {
         Integer created = transaction.execute(status -> {
-            Instant now = runs.now();
+            Instant now = flows.now();
             int count = 0;
-            for (DueFlow flow : runs.lockDueSchedules(SCHEDULE_BATCH)) {
+            for (DueFlow flow : flows.lockDueSchedules(SCHEDULE_BATCH)) {
                 flowsLocked.incrementAndGet();
                 Schedule schedule = Schedule.fromJson(json, flow.trigger());
                 Schedule.Due due = schedule.due(flow.nextTick(), now, settings.catchUp());
+                List<NewRun> ticks = new ArrayList<>();
                 for (Instant tick : due.ticks()) {
-                    runs.insert(new NewRun(flow.id(), flow.version(), flow.maxAttempts(),
-                            flow.timeout(), schedule.windowOf(tick), null,
-                            "schedule", null, flow.runAs()));
-                    count++;
+                    ticks.add(new NewRun(scheduledRunId(flow.id(), tick), flow.id(), flow.externalId(),
+                            flow.dataSetId(), flow.version(), flow.maxAttempts(), flow.timeout(),
+                            schedule.windowOf(tick), null, "schedule", null, flow.runAs(), null));
                 }
+                // The runs first, the schedule second: if the transaction fails after this, the same
+                // ticks are enqueued again at the next sweep, and the same ids make that a no-op.
+                count += store.enqueueAll(ticks);
                 Instant last = due.ticks().isEmpty() ? null : due.ticks().getLast();
-                runs.advanceSchedule(flow.id(), due.next(),
+                flows.advanceSchedule(flow.id(), due.next(),
                         due.next() == null ? null : schedule.dueAt(due.next()), last);
             }
             return count;
         });
         return created == null ? 0 : created;
+    }
+
+    /** The id of the run for a flow's schedule tick: the same however many times the tick is found. */
+    static UUID scheduledRunId(long flowId, Instant tick) {
+        return UUID.nameUUIDFromBytes(("schedule:" + flowId + ":" + tick.toEpochMilli())
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    /**
+     * Tells the run store the limits of every deployed flow that changed since it was last told, so
+     * that dispatch needs nothing from Postgres. Everything is told again now and then, in case the
+     * run store lost it.
+     */
+    int syncFlows(String tenantId) {
+        Map<Long, FlowLimits> known = told.computeIfAbsent(tenantId, id -> new ConcurrentHashMap<>());
+        if (sweepRounds.get() % 6 == 0) {
+            known.clear();
+        }
+        int changed = 0;
+        for (DeployedFlow f : flows.deployedFlows()) {
+            FlowLimits limits = limits(f);
+            if (!limits.equals(known.get(f.id()))) {
+                store.syncFlow(limits);
+                known.put(f.id(), limits);
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    /** Tells the run store about one flow now, as a deployment or a switch has just changed it. */
+    public void syncFlow(long flowId) {
+        flows.deployedFlow(flowId).ifPresent(f -> {
+            FlowLimits limits = limits(f);
+            store.syncFlow(limits);
+            told.computeIfAbsent(TenantContext.getTenantId(), id -> new ConcurrentHashMap<>()).put(flowId, limits);
+        });
+        poke(TenantContext.getTenantId());
+    }
+
+    private static FlowLimits limits(DeployedFlow f) {
+        return new FlowLimits(f.id(), f.externalId(), f.dataSetId(), f.enabled(), true, f.maxConcurrentRuns());
     }
 
     /**
@@ -458,50 +514,19 @@ public class RunCoordinator {
         if (slots <= 0) {
             return List.of();
         }
-        // Before the transaction: the database's now() is its start, so a lease is measured from no
-        // later than this.
+        // Before the call: the lease starts on the server's clock no earlier than this.
         long sentAt = nanoTime.getAsLong();
-        List<ActiveRun> started = transaction.execute(status -> {
-            List<ActiveRun> out = new ArrayList<>();
-            List<Candidate> candidates = runs.lockPending(slots, only);
-            Set<Long> flowIds = new HashSet<>();
-            candidates.forEach(c -> {
-                if (c.flowId() != null && !c.preview()) {
-                    flowIds.add(c.flowId());
-                }
-            });
-            Map<Long, FlowGate> gates = runs.lockFlows(flowIds);
-            Map<Long, Integer> running = new HashMap<>();
-            gates.forEach((id, g) -> running.put(id, g.running()));
-            for (Candidate c : candidates) {
-                // A preview tries a flow out whether or not it is deployed, and is not one of its
-                // runs: neither the switch nor maxConcurrentRuns applies.
-                if (c.flowId() != null && !c.preview()) {
-                    FlowGate gate = gates.get(c.flowId());
-                    if (gate == null || !gate.enabled() || gate.deployedVersion() == null) {
-                        runs.cancelPending(c.id(), FLOW_DISABLED, "The flow was switched off before "
-                                + "the run could start.");
-                        continue;
-                    }
-                    if (running.get(c.flowId()) >= gate.maxConcurrentRuns()) {
-                        continue;
-                    }
-                    running.merge(c.flowId(), 1, Integer::sum);
-                }
-                // Whether the flow's dataset still exists is checked when the run starts, as the
-                // run's identity (RunExecution): a call to datahub-api has no place inside this
-                // transaction, which holds the flow rows locked.
-                Claimed claimed = runs.claim(c.id(), owner, settings.lease()).orElse(null);
-                if (claimed != null) {
-                    out.add(new ActiveRun(tenantId, claimed, tokens, sentAt, nanoTime));
-                }
-            }
-            return out;
-        });
+        List<Claimed> claimed;
+        if (only != null) {
+            claimed = store.claimOne(only, owner, settings.lease(), settings.overdueGrace()) == Claim.CLAIMED
+                    ? store.claimedRun(only, settings.lease()).stream().toList() : List.of();
+        } else {
+            claimed = store.claim(owner, settings.lease(), slots, settings.overdueGrace());
+        }
         List<UUID> ids = new ArrayList<>();
-        for (ActiveRun run : started == null ? List.<ActiveRun>of() : started) {
-            start(run);
-            ids.add(run.id());
+        for (Claimed c : claimed) {
+            start(new ActiveRun(tenantId, c, tokens, sentAt, nanoTime));
+            ids.add(c.id());
         }
         return ids;
     }
@@ -560,31 +585,31 @@ public class RunCoordinator {
                 && c.preview()) {
             // Handed back, nobody could run it: the caller's token it ran with goes with this
             // instance. The person previewing starts another.
-            owned = runs.complete(c.id(), owner, c.attempt(), "CANCELLED", false,
+            owned = store.complete(c.id(), owner, c.attempt(), "CANCELLED", false,
                     outcome(result, SHUTDOWN));
         } else if (stop == ActiveRun.Stop.SHUTDOWN && result.status() != RunResult.Status.SUCCEEDED) {
-            owned = runs.release(c.id(), owner, c.attempt());
+            owned = store.release(c.id(), owner, c.attempt());
             log.info("Run {} handed back as this instance shuts down", c.id());
         } else if (stop == ActiveRun.Stop.CANCELLED) {
-            owned = runs.complete(c.id(), owner, c.attempt(), "CANCELLED", false,
+            owned = store.complete(c.id(), owner, c.attempt(), "CANCELLED", false,
                     outcome(result, RunResult.CANCELLED));
         } else if (stop != ActiveRun.Stop.TIMEOUT && result.status() == RunResult.Status.SUCCEEDED) {
             // A success for a window that failed before owes the check that resolves its lifecycle.
             eventOwed = !c.preview() && c.flowId() != null && c.window() != null
-                    && runs.failedBefore(c.flowId(), c.window().start());
-            owned = runs.complete(c.id(), owner, c.attempt(), "SUCCEEDED", eventOwed,
+                    && store.failedWindow(c.flowId(), c.window().start());
+            owned = store.complete(c.id(), owner, c.attempt(), "SUCCEEDED", eventOwed,
                     outcome(result, null));
         } else if (DATASET_DELETED.equals(result.errorCode())) {
             // Not a failure of the flow: there is nothing left for it to run for. The flow was
             // switched off; no event, since the dataset an event would go to is gone.
-            owned = runs.complete(c.id(), owner, c.attempt(), "CANCELLED", false, outcome(result, null));
+            owned = store.complete(c.id(), owner, c.attempt(), "CANCELLED", false, outcome(result, null));
         } else {
             Outcome outcome = outcome(result, stop == ActiveRun.Stop.TIMEOUT ? TIMEOUT : null);
             if (c.attempt() < c.maxAttempts() && !IDENTITY_REJECTED.equals(result.errorCode())) {
-                owned = runs.retry(c.id(), owner, c.attempt(), backoff(c.attempt()), outcome);
+                owned = store.retry(c.id(), owner, c.attempt(), backoff(c.attempt()), outcome);
             } else {
                 eventOwed = !c.preview();
-                owned = runs.complete(c.id(), owner, c.attempt(), "FAILED", eventOwed, outcome);
+                owned = store.complete(c.id(), owner, c.attempt(), "FAILED", eventOwed, outcome);
             }
         }
         if (!owned) {
@@ -595,7 +620,7 @@ public class RunCoordinator {
                     result.errorCode() == null ? "" : result.errorCode());
             if (eventOwed) {
                 // Right away, so Failed runs shows it now; a sweep pays it if this cannot.
-                runs.find(c.id()).ifPresent(stored -> events.pay(run.tenantId, stored));
+                store.find(c.id()).ifPresent(stored -> events.pay(run.tenantId, stored));
             }
         }
     }
@@ -660,7 +685,7 @@ public class RunCoordinator {
             return;
         }
         long sentAt = nanoTime.getAsLong();
-        List<Renewed> renewed = runs.renew(mine.keySet(), owner, settings.lease());
+        List<Renewed> renewed = store.renew(mine.keySet(), owner, settings.lease());
         Set<UUID> kept = new HashSet<>();
         for (Renewed r : renewed) {
             ActiveRun run = mine.get(r.id());
@@ -683,21 +708,16 @@ public class RunCoordinator {
 
     /** One reaper pass over the current tenant. */
     void reap(String tenantId) {
-        transaction.executeWithoutResult(status -> {
-            for (Expired e : runs.lockExpired(REAP_BATCH)) {
-                // A preview is never queued again: it ran with a token only its instance had.
-                if (e.attempt() < e.maxAttempts() && !e.preview()) {
-                    runs.requeueExpired(e.id(), e.attempt(), backoff(e.attempt()),
-                            "The instance running attempt " + e.attempt() + " stopped renewing its lease.");
-                    log.info("Run {} attempt {} lost its instance; queued again", e.id(), e.attempt());
-                } else {
-                    runs.failExpired(e.id(), e.attempt(), e.preview(),
-                            "The instance running the last attempt stopped renewing its lease.");
-                    log.info("Run {} lost its instance on its last attempt; failed", e.id());
-                }
+        for (Reaped r : store.reap(REAP_BATCH, settings.backoff(), settings.maxBackoff())) {
+            if (r.requeued()) {
+                log.info("Run {} attempt {} lost its instance; queued again", r.id(), r.attempt());
+            } else {
+                log.info("Run {} lost its instance on its last attempt; failed", r.id());
             }
-        });
-        runs.cancelOverdue(settings.overdueGrace());
+        }
+        store.cancelOverdue(REAP_BATCH);
+        // Whatever was handed back or requeued wants a slot.
+        poke(tenantId);
     }
 
     // ---------------------------------------------------------------- shutdown

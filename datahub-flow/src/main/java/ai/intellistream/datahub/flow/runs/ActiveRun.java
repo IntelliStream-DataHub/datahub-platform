@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
-import ai.intellistream.datahub.flow.runs.RunRepository.Claimed;
+import ai.intellistream.datahub.flow.store.RunStore.Claimed;
 
 import java.time.Duration;
 import java.util.UUID;
