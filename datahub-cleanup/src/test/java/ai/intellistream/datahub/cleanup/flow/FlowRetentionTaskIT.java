@@ -118,8 +118,8 @@ class FlowRetentionTaskIT {
 
     private static UUID run(long flow, String status, String age, boolean owed) {
         UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, max_attempts, memory_bytes, "
-                        + "run_timeout, trigger, failure_event_owed, finished_at) VALUES (?, ?, 1, ?, 1, 1, "
+        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, max_attempts, "
+                        + "run_timeout, trigger, failure_event_owed, finished_at) VALUES (?, ?, 1, ?, 1, "
                         + "interval '1 minute', 'manual', ?, " + (age == null ? "NULL" : "now() - interval '" + age + "'")
                         + ")",
                 id, flow, status, owed);
