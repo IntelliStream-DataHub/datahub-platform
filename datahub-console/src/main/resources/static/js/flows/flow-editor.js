@@ -53,7 +53,7 @@
 		var ProcessorForm = class extends DatasetFormAbstract {
 			/** {@code adding}: a processor not in the flow yet, which joins it when the form is saved. */
 			constructor(spec, entry, adding){
-				super({ title: labelOf(spec) });
+				super({ title: labelOf(spec), formKey: adding ? null : "processor:" + spec.id });
 				this.spec = spec;
 				this.entry = entry;
 				this.adding = !!adding;
@@ -286,7 +286,7 @@
 		/** Name, dataset, trigger and execution limits. Parameters are edited in the JSON view. */
 		var FlowSettingsForm = class extends DatasetFormAbstract {
 			constructor(){
-				super({ title: L("flows.settings") });
+				super({ title: L("flows.settings"), formKey: "settings" });
 				this.render();
 			}
 
