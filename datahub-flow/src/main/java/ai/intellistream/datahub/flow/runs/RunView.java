@@ -10,6 +10,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -19,15 +20,13 @@ import java.util.UUID;
  *                          resolved
  * @param processorVersions every processor type in its flow with the version that ran
  * @param stats             the record count, the failing processor if any, and the run's log
- * @param owner             the instance holding the run while it is running, null otherwise
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record RunView(UUID id, String flow, Integer version, String status, int attempt,
                       int maxAttempts, String trigger, String triggeredBy, String runAs,
                       boolean preview, Window window, JsonNode parameters, JsonNode processorVersions,
                       String errorCode, String error, JsonNode stats, boolean cancelRequested,
-                      Instant notBefore, Instant createdAt, Instant startedAt, Instant finishedAt,
-                      String owner) {
+                      Instant notBefore, Instant createdAt, Instant startedAt, Instant finishedAt) {
 
     /** {@code [start, end)} in data time. */
     public record Window(Instant start, Instant end) {
@@ -41,7 +40,29 @@ public record RunView(UUID id, String flow, Integer version, String status, int 
                 tree(json, run.processorVersions()), run.errorCode(), run.error(),
                 tree(json, run.stats()), run.cancelRequested(),
                 "PENDING".equals(run.status()) ? run.notBefore() : null, run.createdAt(),
-                run.startedAt(), run.finishedAt(), run.owner());
+                run.startedAt(), run.finishedAt());
+    }
+
+    /**
+     * One deployed flow on the Runs overview: how healthy it looks, and why.
+     *
+     * @param health  {@code PROBLEM}: something is definitely wrong; {@code WARNING}: it may be;
+     *                {@code OK}; {@code OFF}: switched off by a person
+     * @param reasons what made it a problem or a warning: {@code LAST_RUN_FAILED},
+     *                {@code NEEDS_REAUTHORISATION}, {@code SWITCHED_OFF}, {@code BACKLOG},
+     *                {@code RETRYING} or {@code OVERDUE}
+     * @param waitingSince when the oldest run that waits to start was queued, which is how far
+     *                     behind the flow is
+     */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public record BoardEntry(String flow, String name, int version, String health, List<String> reasons,
+                             boolean enabled, String disabledReason, Instant nextDueAt, int running,
+                             String runningOn, Instant runningSince, int queued, Instant waitingSince,
+                             LastRun lastRun) {
+    }
+
+    /** A flow's latest finished run. */
+    public record LastRun(UUID id, String status, String errorCode, Instant finishedAt) {
     }
 
     private static JsonNode tree(JsonMapper json, String text) {

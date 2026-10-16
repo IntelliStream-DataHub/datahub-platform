@@ -32,6 +32,7 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,8 +47,6 @@ import java.util.UUID;
 public class RunService {
 
     static final int DEFAULT_LIMIT = 100;
-    /** The states a run is in, which {@code GET /runs} can be narrowed to. */
-    static final List<String> STATUSES = List.of("PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED");
     static final int MAX_LIMIT = 1000;
     private static final String CURSOR_PROPERTY = "createdAt";
 
@@ -326,12 +325,77 @@ public class RunService {
     }
 
     /** Runs the caller may see, newest first, optionally of one flow, in pages; previews only on request. */
-    public DataWrapper<RunView> list(String flowExternalId, boolean previews, List<String> statuses,
-                                     String cursor, Integer limit) {
+    /** A queued run waiting longer than this, with nothing to wait for, means the flow is behind. */
+    static final Duration BEHIND = Duration.ofMinutes(5);
+
+    /**
+     * One row per deployed flow the caller may read, with how it looks: what is running and queued,
+     * its latest finished run, and whether anything is wrong. Paged by external id like the flows.
+     */
+    public DataWrapper<RunView.BoardEntry> board(String cursor, Integer limit) {
         Caller caller = flowService.requireRead();
-        if (statuses != null && (statuses.isEmpty() || !STATUSES.containsAll(statuses))) {
-            throw FlowProblems.badRequest("status is one or more of " + String.join(", ", STATUSES) + ".");
+        int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
+        if (pageSize > MAX_LIMIT) {
+            throw FlowProblems.badRequest("limit is at most " + MAX_LIMIT + ".");
         }
+        PageCursor after = PageCursor.decode(cursor);
+        if (after != null && !after.matches("flow", false)) {
+            throw FlowProblems.badRequest("The cursor belongs to another listing.");
+        }
+        Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
+        Instant now = runs.now();
+        List<RunRepository.BoardRow> page = runs.board(readable, after == null ? null : after.value(), pageSize);
+        DataWrapper<RunView.BoardEntry> out = new DataWrapper<>();
+        out.setItems(page.stream().map(row -> entry(row, now)).toList());
+        if (page.size() == pageSize) {
+            String last = page.getLast().externalId();
+            out.setNextCursor(new PageCursor("flow", false, last, last).encode());
+        }
+        return out;
+    }
+
+    static RunView.BoardEntry entry(RunRepository.BoardRow row, Instant now) {
+        List<String> reasons = new ArrayList<>();
+        String health;
+        if (!row.enabled() && row.disabledReason() != null) {
+            reasons.add("SWITCHED_OFF");
+            health = "PROBLEM";
+        } else if (!row.enabled()) {
+            health = "OFF";
+        } else {
+            health = "OK";
+            if ("needs-reauthorisation".equals(row.identityState())) {
+                reasons.add("NEEDS_REAUTHORISATION");
+                health = "PROBLEM";
+            }
+            if ("FAILED".equals(row.lastStatus())) {
+                reasons.add("LAST_RUN_FAILED");
+                health = "PROBLEM";
+            }
+            // Only a warning: a retry may yet succeed, a backlog may be draining, a tick may be late.
+            if (row.retrying() > 0) {
+                reasons.add("RETRYING");
+            }
+            if (row.oldestWaiting() != null && row.oldestWaiting().plus(BEHIND).isBefore(now)) {
+                reasons.add("BACKLOG");
+            }
+            if (row.nextDueAt() != null && row.nextDueAt().plus(BEHIND).isBefore(now)) {
+                reasons.add("OVERDUE");
+            }
+            if (health.equals("OK") && !reasons.isEmpty()) {
+                health = "WARNING";
+            }
+        }
+        RunView.LastRun last = row.lastRunId() == null ? null
+                : new RunView.LastRun(row.lastRunId(), row.lastStatus(), row.lastErrorCode(), row.lastFinishedAt());
+        return new RunView.BoardEntry(row.externalId(), row.name(), row.deployedVersion(), health, reasons,
+                row.enabled(), row.disabledReason(), row.nextDueAt(), row.running(), row.runningOn(),
+                row.runningSince(), row.queued(), row.oldestWaiting(), last);
+    }
+
+    public DataWrapper<RunView> list(String flowExternalId, boolean previews, String cursor,
+                                     Integer limit) {
+        Caller caller = flowService.requireRead();
         int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
         if (pageSize > MAX_LIMIT) {
             throw FlowProblems.badRequest("limit is at most " + MAX_LIMIT + ".");
@@ -342,7 +406,7 @@ public class RunService {
         }
         Long flowId = flowExternalId == null ? null : flowService.visible(caller, flowExternalId).id();
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredRun> page = runs.list(readable, flowId, previews, statuses,
+        List<StoredRun> page = runs.list(readable, flowId, previews,
                 after == null ? null : Instant.parse(after.value()),
                 after == null ? null : UUID.fromString(after.id()), pageSize);
         DataWrapper<RunView> out = new DataWrapper<>();

@@ -269,27 +269,29 @@ class RunControllerTest {
     void theRunListIsLimitedToReadableDatasets() throws Exception {
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(new Caller("user-1", false, true, false, readable, readable));
-        when(runs.list(readable, null, false, null, null, null, 100)).thenReturn(List.of());
+        when(runs.list(readable, null, false, null, null, 100)).thenReturn(List.of());
 
         mvc.perform(get("/runs")).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
-        verify(runs).list(readable, null, false, null, null, null, 100);
+        verify(runs).list(readable, null, false, null, null, 100);
 
         // Previews are shown apart, so only on request.
         mvc.perform(get("/runs?preview=true")).andExpect(status().isOk());
-        verify(runs).list(readable, null, true, null, null, null, 100);
+        verify(runs).list(readable, null, true, null, null, 100);
     }
 
     @Test
-    void theRunListTakesOneOrMoreStatesAndRefusesOthers() throws Exception {
+    void theOverviewIsLimitedToReadableDatasetsAndPagedByFlow() throws Exception {
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(new Caller("user-1", false, true, false, readable, readable));
-        when(runs.list(readable, null, false, List.of("PENDING", "RUNNING"), null, null, 100))
-                .thenReturn(List.of());
+        when(runs.now()).thenReturn(Instant.parse("2026-10-16T12:00:00Z"));
+        when(runs.board(readable, null, 100)).thenReturn(List.of());
 
-        mvc.perform(get("/runs?status=PENDING&status=RUNNING")).andExpect(status().isOk());
-        verify(runs).list(readable, null, false, List.of("PENDING", "RUNNING"), null, null, 100);
+        mvc.perform(get("/runs/overview")).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
+        verify(runs).board(readable, null, 100);
 
-        mvc.perform(get("/runs?status=RUNNING&status=SLEEPING")).andExpect(status().isBadRequest());
+        callerIs(new Caller("user-1", false, false, false, new DataSets(false, Set.of()),
+                new DataSets(false, Set.of())));
+        mvc.perform(get("/runs/overview")).andExpect(status().isForbidden());
     }
 
     // ---------------------------------------------------------------- previews

@@ -675,37 +675,56 @@ class RunCoordinatorIT {
         assertThat(stored.flowExternalId()).isEqualTo("unsaved_seen");
 
         Caller.DataSets seven = new Caller.DataSets(false, Set.of(7L));
-        assertThat(runs.list(seven, null, true, null, null, null, 10)).extracting(StoredRun::id)
+        assertThat(runs.list(seven, null, true, null, null, 10)).extracting(StoredRun::id)
                 .containsExactlyInAnyOrder(run, real);
         // Previews are shown apart: only on request.
-        assertThat(runs.list(seven, null, false, null, null, null, 10)).extracting(StoredRun::id)
+        assertThat(runs.list(seven, null, false, null, null, 10)).extracting(StoredRun::id)
                 .containsExactly(real);
-        assertThat(runs.list(new Caller.DataSets(false, Set.of(8L)), null, true, null, null, null, 10))
+        assertThat(runs.list(new Caller.DataSets(false, Set.of(8L)), null, true, null, null, 10))
                 .isEmpty();
     }
 
     @Test
-    void theRunListCanBeNarrowedToTheRunsInSomeStates() {
-        long flow = deployedFlow("states", wait(0, "states"), 2, 1);
-        UUID waiting = pending(flow, 0);
-        UUID going = pending(flow, 1);
-        UUID done = pending(flow, 2);
+    void theBoardShowsEachDeployedFlowWithTheRunsItHasInHandAndItsLatestFinishedRun() {
+        long busy = deployedFlow("busy", wait(0, "busy"), 2, 1);
+        UUID going = pending(busy, 0);
+        UUID waiting = pending(busy, 1);
+        UUID retrying = pending(busy, 2);
+        jdbc.update("UPDATE flow.run SET attempt = 2 WHERE id = ?", retrying);
         transaction.execute(s -> runs.claim(going, "instance-a", LEASE));
-        jdbc.update("UPDATE flow.run SET status = 'SUCCEEDED', finished_at = now() WHERE id = ?", done);
-        UUID preview = unsavedPreview("states_preview", wait(0, "states_preview"));
-        transaction.execute(s -> runs.claim(preview, "instance-b", LEASE));
+        long failing = deployedFlow("failing", wait(0, "failing"), 1, 1);
+        UUID failed = pending(failing, 0);
+        jdbc.update("UPDATE flow.run SET status = 'FAILED', error_code = 'PROCESSOR_FAILED', "
+                + "finished_at = now() WHERE id = ?", failed);
+        UUID later = pending(failing, 1);
+        jdbc.update("UPDATE flow.run SET status = 'SUCCEEDED', finished_at = now() - interval '1 hour' "
+                + "WHERE id = ?", later);
+        savedFlow("never_deployed", wait(0, "never_deployed"), "");
+        unsavedPreview("board_preview", wait(0, "board_preview"));
+        transaction.execute(s -> runs.claim(preview(failing, 1, null, null), "instance-b", LEASE));
 
-        Caller.DataSets all = Caller.DataSets.ALL;
-        assertThat(runs.list(all, null, false, List.of("PENDING"), null, null, 10)).extracting(StoredRun::id)
-                .containsExactly(waiting);
-        assertThat(runs.list(all, null, false, List.of("PENDING", "RUNNING"), null, null, 10))
-                .extracting(StoredRun::id).containsExactlyInAnyOrder(waiting, going);
-        // The running run says which instance holds it; a preview holds a slot too, so it is shown on request.
-        assertThat(runs.list(all, null, true, List.of("RUNNING"), null, null, 10)).extracting(StoredRun::owner)
-                .containsExactlyInAnyOrder("instance-a", "instance-b");
-        assertThat(runs.list(all, null, false, List.of("RUNNING"), null, null, 10)).extracting(StoredRun::id)
-                .containsExactly(going);
-        assertThat(runs.list(all, null, false, null, null, null, 10)).hasSize(3);
+        List<RunRepository.BoardRow> board = runs.board(Caller.DataSets.ALL, null, 10);
+
+        // The flow that was never deployed is not on it, and a preview is nobody's run.
+        assertThat(board).extracting(RunRepository.BoardRow::externalId).containsExactly("busy", "failing");
+        RunRepository.BoardRow b = board.get(0);
+        assertThat(b.running()).isEqualTo(1);
+        assertThat(b.runningOn()).isEqualTo("instance-a");
+        assertThat(b.queued()).isEqualTo(2);
+        assertThat(b.retrying()).isEqualTo(1);
+        assertThat(b.oldestWaiting()).isNotNull();
+        assertThat(b.lastStatus()).isNull();
+        RunRepository.BoardRow f = board.get(1);
+        assertThat(f.running()).isZero();
+        assertThat(f.queued()).isZero();
+        // The latest run by creation, not by when it finished.
+        assertThat(f.lastRunId()).isEqualTo(later);
+        assertThat(f.lastStatus()).isEqualTo("SUCCEEDED");
+
+        // Narrowed to datasets the caller may read, and paged by external id.
+        assertThat(runs.board(new Caller.DataSets(false, Set.of(8L)), null, 10)).isEmpty();
+        assertThat(runs.board(Caller.DataSets.ALL, "busy", 10)).extracting(RunRepository.BoardRow::externalId)
+                .containsExactly("failing");
     }
 
     // ---------------------------------------------------------------- fixtures
