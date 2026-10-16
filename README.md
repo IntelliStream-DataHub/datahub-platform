@@ -316,7 +316,7 @@ It also converts AVEVA RVM models to glTF for the console's 3D viewer (`GET /mod
 
 intellistream-flow, which runs flows: small pipelines of processors that read DataHub data, transform it and write it back. Its tables are in each tenant's own Postgres (schema `flow`, created by datahub-api's per-tenant migrations), and every instance coordinates through them, so add instances to scale. The console's Flows section calls it directly from the browser, on port 8084.
 
-Runs hold their data on the heap, so size it with `-Xmx`. The runs on one instance share a memory budget, each reserving its cap (512 MB unless the flow sets `execution.memory`) before it starts. The budget is half the heap unless `datahub.flow.runs.memory-budget` sets a smaller one, and the service refuses to start if it cannot hold one default run, so give it at least 1 GB of heap.
+Runs hold their data on the heap, so size it with `-Xmx`. The runs on one instance share a budget of half the heap (`datahub.flow.runs.memory-budget` can set a smaller one), split evenly over the run slots (`datahub.flow.runs.max-running`, 8 by default): with a 16 GB heap every run may hold 1 GB. A flow never says how much memory it needs. The service refuses to start if a run's share would be under 64 MB, so give eight slots at least 1 GB of heap.
 
 ### datahub-cleanup
 

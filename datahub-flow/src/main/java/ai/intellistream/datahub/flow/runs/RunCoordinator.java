@@ -23,7 +23,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.InetAddress;
@@ -43,6 +42,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
@@ -53,8 +53,10 @@ import java.util.function.Supplier;
  * <ol>
  *   <li><b>Sweep</b> (~10 s): creates a pending run for every schedule tick that is due — oldest
  *       first, at most {@code catch-up} per flow per sweep — and moves the schedule on <em>when the
- *       run is created</em>, never when it finishes; then claims pending runs, earliest window first,
- *       as far as this instance has free run slots and free run memory.</li>
+ *       run is created</em>, never when it finishes; then fills this instance's free run slots with
+ *       pending runs, earliest window first within a tenant, every tenant with runs waiting taking
+ *       an equal share of what is left at its turn, and a different tenant going first each
+ *       sweep.</li>
  *   <li><b>Heartbeat</b> (~15 s): renews the leases of all of this instance's runs in a tenant with
  *       one statement. A run missing from the answer was taken over and is stopped and fenced.</li>
  *   <li><b>Reaper</b> (~30 s): runs whose lease expired go back to pending for another attempt, or
@@ -108,48 +110,44 @@ public class RunCoordinator {
     private final FlowSchemaCheck schemaCheck;
     private final JsonMapper json;
     private final Settings settings;
-    private final long memoryBudget;
     private final String owner;
     private final LongSupplier nanoTime;
 
     private final Map<UUID, ActiveRun> active = new ConcurrentHashMap<>();
+    /** Sweeps so far, which decides the tenant that claims first in the next one. */
+    private final AtomicInteger sweeps = new AtomicInteger();
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private volatile boolean stopping;
 
     /**
      * @param lease        how long a lease lasts from each renewal
-     * @param maxRunning   runs this instance executes at once
-     * @param claimsPerSweep runs claimed at most per sweep, so the first instance to sweep does not
-     *                     take everything
+     * @param maxRunning   runs this instance executes at once: its run slots
      * @param catchUp      ticks created at most per flow per sweep after downtime
      * @param backoff      the wait before an attempt's retry, doubling per attempt up to {@code maxBackoff}
      * @param overdueGrace how long past its timeout a run may go before the reaper asks it to stop
      */
-    public record Settings(Duration lease, Duration heartbeat, int maxRunning, int claimsPerSweep,
+    public record Settings(Duration lease, Duration heartbeat, int maxRunning,
                            int catchUp, Duration backoff, Duration maxBackoff, Duration overdueGrace) {
     }
 
     @Autowired
     public RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
                           TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
-                          DataSize runMemoryBudget,
                           @Value("${datahub.flow.runs.lease:PT60S}") Duration lease,
                           @Value("${datahub.flow.runs.heartbeat-interval:PT15S}") Duration heartbeat,
                           @Value("${datahub.flow.runs.max-running:8}") int maxRunning,
-                          @Value("${datahub.flow.runs.claims-per-sweep:4}") int claimsPerSweep,
                           @Value("${datahub.flow.runs.catch-up:24}") int catchUp,
                           @Value("${datahub.flow.runs.backoff:PT30S}") Duration backoff,
                           @Value("${datahub.flow.runs.max-backoff:PT15M}") Duration maxBackoff,
                           @Value("${datahub.flow.runs.overdue-grace:PT1M}") Duration overdueGrace) {
-        this(runs, execution, events, transaction, tenants, schemaCheck, json, runMemoryBudget.toBytes(),
-                new Settings(lease, heartbeat, maxRunning, claimsPerSweep, catchUp, backoff,
-                        maxBackoff, overdueGrace),
+        this(runs, execution, events, transaction, tenants, schemaCheck, json,
+                new Settings(lease, heartbeat, maxRunning, catchUp, backoff, maxBackoff, overdueGrace),
                 instanceId(), System::nanoTime);
     }
 
     RunCoordinator(RunRepository runs, RunExecution execution, RunEvents events,
                    TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
-                   long memoryBudget, Settings settings, String owner, LongSupplier nanoTime) {
+                   Settings settings, String owner, LongSupplier nanoTime) {
         // Between renewals a lease has at least lease - heartbeat left, and the fence lets a request
         // start only if it can finish inside what is left. So a request must fit in that, or the
         // fence would refuse requests on runs whose lease is perfectly healthy.
@@ -166,7 +164,6 @@ public class RunCoordinator {
         this.tenants = tenants;
         this.schemaCheck = schemaCheck;
         this.json = json;
-        this.memoryBudget = memoryBudget;
         this.settings = settings;
         this.owner = owner;
         this.nanoTime = nanoTime;
@@ -192,7 +189,9 @@ public class RunCoordinator {
     @Scheduled(initialDelayString = "${datahub.flow.runs.sweep-interval:PT10S}",
             fixedDelayString = "${datahub.flow.runs.sweep-interval:PT10S}")
     public void sweepAll() {
-        forEachFlowTenant("sweep", this::sweep);
+        List<String> tenants = flowTenants();
+        forEach(tenants, "sweep", this::sweep);
+        claimAcross(tenants);
     }
 
     @Scheduled(initialDelayString = "${datahub.flow.runs.heartbeat-interval:PT15S}",
@@ -215,13 +214,15 @@ public class RunCoordinator {
     @Scheduled(initialDelayString = "${datahub.flow.runs.reaper-interval:PT30S}",
             fixedDelayString = "${datahub.flow.runs.reaper-interval:PT30S}")
     public void reapAll() {
-        forEachFlowTenant("reaper", this::reap);
+        forEach(flowTenants(), "reaper", this::reap);
     }
 
-    private void forEachFlowTenant(String loop, java.util.function.Consumer<String> work) {
+    /** The tenants the loops work for: flagged for flows, with the flow schema in place. */
+    private List<String> flowTenants() {
+        List<String> out = new ArrayList<>();
         Map<String, Tenant> registry = tenants.cachedTenants;
         if (registry == null || stopping) {
-            return;
+            return out;
         }
         for (Tenant tenant : registry.values()) {
             if (tenant.getFeatures() == null || !tenant.getFeatures().isFlowFeatureEnabled()) {
@@ -229,11 +230,21 @@ public class RunCoordinator {
             }
             String tenantId = tenant.getOrganizationId();
             try {
-                TenantContext.runWith(tenantId, () -> {
-                    if (schemaCheck.isProvisioned(tenantId)) {
-                        work.accept(tenantId);
-                    }
-                });
+                if (TenantContext.callWith(tenantId, () -> schemaCheck.isProvisioned(tenantId))) {
+                    out.add(tenantId);
+                }
+            } catch (RuntimeException e) {
+                log.warn("Could not reach tenant {}; left out of this round: {}", tenantId, e.getMessage());
+            }
+        }
+        return out;
+    }
+
+    /** Runs {@code work} under each tenant in turn; one tenant's failure is logged and left for the next round. */
+    private void forEach(List<String> tenantIds, String loop, java.util.function.Consumer<String> work) {
+        for (String tenantId : tenantIds) {
+            try {
+                TenantContext.runWith(tenantId, () -> work.accept(tenantId));
             } catch (RuntimeException e) {
                 log.warn("The {} failed for tenant {}; trying again next round: {}", loop, tenantId,
                         e.getMessage(), e);
@@ -244,12 +255,12 @@ public class RunCoordinator {
     // ---------------------------------------------------------------- sweep and claim
 
     /**
-     * One sweep of the current tenant: due schedules into pending runs, then claims, then the
-     * lifecycle events that earlier runs could not write when they ended.
+     * One sweep of the current tenant: due schedules into pending runs, then the lifecycle events
+     * that earlier runs could not write when they ended. The claims come after every tenant has
+     * been swept ({@link #claimAcross}), so that the slots are shared between them.
      */
     void sweep(String tenantId) {
         createScheduledRuns();
-        claim(tenantId, null);
         events.payOwed(tenantId);
     }
 
@@ -263,7 +274,7 @@ public class RunCoordinator {
                 Schedule.Due due = schedule.due(flow.nextTick(), now, settings.catchUp());
                 for (Instant tick : due.ticks()) {
                     runs.insert(new NewRun(flow.id(), flow.version(), flow.maxAttempts(),
-                            flow.memoryBytes(), flow.timeout(), schedule.windowOf(tick), null,
+                            flow.timeout(), schedule.windowOf(tick), null,
                             "schedule", null, flow.runAs()));
                     count++;
                 }
@@ -277,13 +288,13 @@ public class RunCoordinator {
     }
 
     /**
-     * Claims pending runs of the current tenant this instance has room for — or only {@code only},
-     * for a manual run started where it was requested — and starts them.
+     * Claims pending runs of the current tenant as far as this instance's free slots go — or only
+     * {@code only}, for a manual run started where it was requested — and starts them.
      *
      * @return the runs started
      */
     List<UUID> claim(String tenantId, UUID only) {
-        return claim(tenantId, only, null);
+        return claim(tenantId, only, null, settings.maxRunning());
     }
 
     /**
@@ -293,24 +304,67 @@ public class RunCoordinator {
      * @return whether it started; when this instance has no room it did not, and nobody else will
      */
     boolean claimPreview(String tenantId, UUID only, Supplier<String> tokens) {
-        return !claim(tenantId, only, tokens).isEmpty();
+        return !claim(tenantId, only, tokens, 1).isEmpty();
     }
 
-    private synchronized List<UUID> claim(String tenantId, UUID only, Supplier<String> tokens) {
+    /**
+     * Fills this instance's free run slots from the tenants' pending runs. Each tenant in turn may
+     * take an equal share of the slots still free, so a tenant with a long queue takes its share
+     * and no more while others are waiting; a different tenant goes first each sweep, so none is
+     * always last; and whatever is still free afterwards goes to the tenants that used their whole
+     * share, which may have more.
+     */
+    private void claimAcross(List<String> tenants) {
+        if (tenants.isEmpty()) {
+            return;
+        }
+        int first = Math.floorMod(sweeps.getAndIncrement(), tenants.size());
+        List<String> hungry = new ArrayList<>();
+        for (int i = 0; i < tenants.size(); i++) {
+            int free = settings.maxRunning() - active.size();
+            if (free <= 0) {
+                return;
+            }
+            int left = tenants.size() - i;
+            int share = (free + left - 1) / left;
+            String tenantId = tenants.get((first + i) % tenants.size());
+            if (claimFor(tenantId, share) == share) {
+                hungry.add(tenantId);
+            }
+        }
+        for (String tenantId : hungry) {
+            int free = settings.maxRunning() - active.size();
+            if (free <= 0) {
+                return;
+            }
+            claimFor(tenantId, free);
+        }
+    }
+
+    /** Claims up to {@code atMost} runs of one tenant; a tenant whose claim fails waits for the next sweep. */
+    private int claimFor(String tenantId, int atMost) {
+        try {
+            return TenantContext.callWith(tenantId, () -> claim(tenantId, null, null, atMost)).size();
+        } catch (RuntimeException e) {
+            log.warn("Claiming runs of tenant {} failed; trying again next sweep: {}", tenantId, e.getMessage(), e);
+            return 0;
+        }
+    }
+
+    private synchronized List<UUID> claim(String tenantId, UUID only, Supplier<String> tokens, int atMost) {
         if (stopping) {
             return List.of();
         }
-        int slots = settings.maxRunning() - active.size();
+        int slots = Math.min(settings.maxRunning() - active.size(), atMost);
         if (slots <= 0) {
             return List.of();
         }
-        long reserved = active.values().stream().mapToLong(r -> r.claimed.memoryBytes()).sum();
         // Before the transaction: the database's now() is its start, so a lease is measured from no
         // later than this.
         long sentAt = nanoTime.getAsLong();
         List<ActiveRun> started = transaction.execute(status -> {
             List<ActiveRun> out = new ArrayList<>();
-            List<Candidate> candidates = runs.lockPending(Math.min(slots, settings.claimsPerSweep()), only);
+            List<Candidate> candidates = runs.lockPending(slots, only);
             Set<Long> flowIds = new HashSet<>();
             candidates.forEach(c -> {
                 if (c.flowId() != null && !c.preview()) {
@@ -320,11 +374,7 @@ public class RunCoordinator {
             Map<Long, FlowGate> gates = runs.lockFlows(flowIds);
             Map<Long, Integer> running = new HashMap<>();
             gates.forEach((id, g) -> running.put(id, g.running()));
-            long free = memoryBudget - reserved;
             for (Candidate c : candidates) {
-                if (c.memoryBytes() > free) {
-                    continue;
-                }
                 // A preview tries a flow out whether or not it is deployed, and is not one of its
                 // runs: neither the switch nor maxConcurrentRuns applies.
                 if (c.flowId() != null && !c.preview()) {
@@ -345,7 +395,6 @@ public class RunCoordinator {
                 Claimed claimed = runs.claim(c.id(), owner, settings.lease()).orElse(null);
                 if (claimed != null) {
                     out.add(new ActiveRun(tenantId, claimed, tokens, sentAt, nanoTime));
-                    free -= c.memoryBytes();
                 }
             }
             return out;
