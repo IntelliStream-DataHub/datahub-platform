@@ -297,6 +297,41 @@ public class RunService {
         return get(id, caller);
     }
 
+    /** The runs to redo: failed ones of one flow, by id. */
+    public record RerunRequest(List<UUID> runs) {
+    }
+
+    /** How many runs a request queued. */
+    public record Requeued(int requeued) {
+    }
+
+    /** At most this many runs in one request. */
+    static final int MAX_RERUN = 10_000;
+
+    /**
+     * Queues a new run for each of the given failed runs of a flow whose window has not been run
+     * again since, all in one transaction, and wakes the dispatcher once: they start as slots free
+     * up, as fast as the instances can run them. Ones already redone, or not failed, are skipped.
+     */
+    public Requeued rerunFailed(String externalId, RerunRequest request) {
+        Caller caller = flowService.requireWrite();
+        StoredFlow flow = writable(caller, externalId);
+        if (request == null || request.runs() == null || request.runs().isEmpty()
+                || request.runs().size() > MAX_RERUN) {
+            throw FlowProblems.badRequest("runs is between 1 and " + MAX_RERUN + " run ids.");
+        }
+        Deployment deployment = runnable(flow);
+        String runAs = deployment.identitySubject() != null
+                ? deployment.identitySubject() : deployment.identityClientName();
+        Integer queued = transaction.execute(status -> runs.requeueFailed(flow.id(), deployment.version(),
+                deployment.maxAttempts(), deployment.timeout(), caller.subject(), runAs, request.runs()));
+        int count = queued == null ? 0 : queued;
+        if (count > 0) {
+            coordinator.poke(TenantContext.getTenantId());
+        }
+        return new Requeued(count);
+    }
+
     /** A new run over the same window and with the same values, of the currently deployed version. */
     public RunView rerun(UUID runId) {
         Caller caller = flowService.requireWrite();

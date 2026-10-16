@@ -16,6 +16,7 @@ import ai.intellistream.datahub.flow.tenant.FlowSchemaCheck;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -40,6 +41,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,15 +50,20 @@ import java.util.function.Supplier;
 
 /**
  * How the instances share the work (the plan's <em>How many instances share the work</em> and
- * Appendix B). Every instance runs the same three loops over every tenant with flows, and all
+ * Appendix B). Every instance runs the same loops over every tenant with flows, and all
  * coordination is rows in that tenant's Postgres:
  * <ol>
  *   <li><b>Sweep</b> (~10 s): creates a pending run for every schedule tick that is due — oldest
  *       first, at most {@code catch-up} per flow per sweep — and moves the schedule on <em>when the
- *       run is created</em>, never when it finishes; then fills this instance's free run slots with
- *       pending runs, earliest window first within a tenant, every tenant with runs waiting taking
- *       an equal share of what is left at its turn, and a different tenant going first each
- *       sweep.</li>
+ *       run is created</em>, never when it finishes. It also marks every tenant as possibly having
+ *       runs waiting, which is how an instance learns of runs queued by another.</li>
+ *   <li><b>Dispatch</b> (continuous): fills this instance's free run slots with pending runs. It
+ *       runs whenever a run finishes, a run is queued here, or the sweep marks a tenant, so a freed
+ *       slot is refilled at once and a queue of thousands drains as fast as the slots allow, not at
+ *       the pace of the sweep. Within a tenant the earliest window goes first, each flow offering
+ *       only what its {@code maxConcurrentRuns} leaves room for so that a backlog of one flow does
+ *       not hold up another; every tenant with runs waiting takes an equal share of what is left at
+ *       its turn, and a different tenant goes first each round.</li>
  *   <li><b>Heartbeat</b> (~15 s): renews the leases of all of this instance's runs in a tenant with
  *       one statement. A run missing from the answer was taken over and is stopped and fenced.</li>
  *   <li><b>Reaper</b> (~30 s): runs whose lease expired go back to pending for another attempt, or
@@ -65,6 +72,11 @@ import java.util.function.Supplier;
  * The schedule and the claim are two transactions, not one: a sweep locks flow rows for its
  * schedules and the claim locks flow rows in id order, and doing both in one transaction would let
  * two instances lock the same flows in different orders.
+ *
+ * <p>Dispatch is one thread per instance, woken by {@link #poke}. A tenant is <em>hungry</em> from
+ * the moment something may be waiting for it, and stays so while a dispatch round still starts
+ * runs for it; a round that starts none drops it until the next poke, which a finishing run of that
+ * tenant gives. A run waiting out its retry back-off is found by the next sweep.
  *
  * <p>One tenant's failure never stops another's: each tenant is its own try, and an error is
  * logged and left for the next round.
@@ -99,6 +111,7 @@ public class RunCoordinator {
     public static final String RECORDS_UNPUBLISHED = "RECORDS_UNPUBLISHED";
 
     private static final int SCHEDULE_BATCH = 50;
+    private static final int MAX_SCHEDULE_ROUNDS = 20;
     private static final int REAP_BATCH = 100;
     private static final int MAX_LOG_LINES = 200;
 
@@ -116,6 +129,10 @@ public class RunCoordinator {
     private final Map<UUID, ActiveRun> active = new ConcurrentHashMap<>();
     /** Sweeps so far, which decides the tenant that claims first in the next one. */
     private final AtomicInteger sweeps = new AtomicInteger();
+    /** Tenants that may have runs waiting, and the signal that wakes the dispatcher. */
+    private final Set<String> hungry = ConcurrentHashMap.newKeySet();
+    private final Semaphore wake = new Semaphore(0);
+    private volatile Thread dispatcher;
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private volatile boolean stopping;
 
@@ -191,7 +208,65 @@ public class RunCoordinator {
     public void sweepAll() {
         List<String> tenants = flowTenants();
         forEach(tenants, "sweep", this::sweep);
-        claimAcross(tenants);
+        // Any tenant may have runs another instance queued; a round that finds none drops it again.
+        hungry.addAll(tenants);
+        dispatchRound();
+    }
+
+    /** Starts the dispatcher: one thread that fills free run slots whenever it is poked. */
+    @PostConstruct
+    void startDispatching() {
+        if (dispatcher == null) {
+            dispatcher = Thread.ofVirtual().name("flow-dispatcher").start(this::dispatchLoop);
+        }
+    }
+
+    /**
+     * Says that {@code tenantId} may have runs waiting to start: a run was queued, or one of its runs
+     * finished and freed a slot. Cheap, and safe from any thread.
+     */
+    void poke(String tenantId) {
+        hungry.add(tenantId);
+        wake.release();
+    }
+
+    private void dispatchLoop() {
+        while (!stopping) {
+            try {
+                wake.tryAcquire(1, TimeUnit.SECONDS);
+                wake.drainPermits();
+                dispatchRound();
+            } catch (InterruptedException e) {
+                return;
+            } catch (RuntimeException e) {
+                log.error("Dispatching runs failed; trying again at the next poke or sweep", e);
+            }
+        }
+    }
+
+    /**
+     * Fills the free slots from the hungry tenants, round after round while rounds still start runs.
+     * A tenant is taken off the hungry set before it is tried and put back only if it started
+     * something, so a poke that arrives meanwhile is never lost. Each round either fills a slot or
+     * ends the loop.
+     */
+    void dispatchRound() {
+        while (!stopping && settings.maxRunning() - active.size() > 0) {
+            List<String> tenants = new ArrayList<>();
+            for (String tenantId : List.copyOf(hungry)) {
+                if (hungry.remove(tenantId)) {
+                    tenants.add(tenantId);
+                }
+            }
+            if (tenants.isEmpty()) {
+                return;
+            }
+            Set<String> started = claimAcross(tenants);
+            hungry.addAll(started);
+            if (started.isEmpty()) {
+                return;
+            }
+        }
     }
 
     @Scheduled(initialDelayString = "${datahub.flow.runs.heartbeat-interval:PT15S}",
@@ -266,10 +341,25 @@ public class RunCoordinator {
 
     /** Creates the runs of due schedule ticks; returns how many. */
     int createScheduledRuns() {
+        int total = 0;
+        // A batch of flows at a time, until a batch is not full: a hundred flows due at the same
+        // minute are all made runs now, not fifty now and fifty at the next sweep.
+        for (int round = 0; round < MAX_SCHEDULE_ROUNDS; round++) {
+            AtomicInteger flows = new AtomicInteger();
+            total += createScheduledRuns(flows);
+            if (flows.get() < SCHEDULE_BATCH) {
+                break;
+            }
+        }
+        return total;
+    }
+
+    private int createScheduledRuns(AtomicInteger flowsLocked) {
         Integer created = transaction.execute(status -> {
             Instant now = runs.now();
             int count = 0;
             for (DueFlow flow : runs.lockDueSchedules(SCHEDULE_BATCH)) {
+                flowsLocked.incrementAndGet();
                 Schedule schedule = Schedule.fromJson(json, flow.trigger());
                 Schedule.Due due = schedule.due(flow.nextTick(), now, settings.catchUp());
                 for (Instant tick : due.ticks()) {
@@ -294,7 +384,10 @@ public class RunCoordinator {
      * @return the runs started
      */
     List<UUID> claim(String tenantId, UUID only) {
-        return claim(tenantId, only, null, settings.maxRunning());
+        List<UUID> started = claim(tenantId, only, null, settings.maxRunning());
+        // A run that found no room, or whose flow is at its limit, waits for the next free slot.
+        poke(tenantId);
+        return started;
     }
 
     /**
@@ -314,31 +407,37 @@ public class RunCoordinator {
      * always last; and whatever is still free afterwards goes to the tenants that used their whole
      * share, which may have more.
      */
-    private void claimAcross(List<String> tenants) {
+    private Set<String> claimAcross(List<String> tenants) {
+        Set<String> started = new HashSet<>();
         if (tenants.isEmpty()) {
-            return;
+            return started;
         }
         int first = Math.floorMod(sweeps.getAndIncrement(), tenants.size());
-        List<String> hungry = new ArrayList<>();
+        List<String> tookAll = new ArrayList<>();
         for (int i = 0; i < tenants.size(); i++) {
             int free = settings.maxRunning() - active.size();
             if (free <= 0) {
-                return;
+                return started;
             }
             int left = tenants.size() - i;
             int share = (free + left - 1) / left;
             String tenantId = tenants.get((first + i) % tenants.size());
-            if (claimFor(tenantId, share) == share) {
-                hungry.add(tenantId);
+            int took = claimFor(tenantId, share);
+            if (took > 0) {
+                started.add(tenantId);
+            }
+            if (took == share) {
+                tookAll.add(tenantId);
             }
         }
-        for (String tenantId : hungry) {
+        for (String tenantId : tookAll) {
             int free = settings.maxRunning() - active.size();
             if (free <= 0) {
-                return;
+                return started;
             }
             claimFor(tenantId, free);
         }
+        return started;
     }
 
     /** Claims up to {@code atMost} runs of one tenant; a tenant whose claim fails waits for the next sweep. */
@@ -418,6 +517,8 @@ public class RunCoordinator {
                         + "takes it from there", run.id(), e);
             } finally {
                 active.remove(run.id());
+                // A slot is free, and this tenant's gate for the flow too: refill at once.
+                poke(run.tenantId);
             }
         });
     }
@@ -605,6 +706,7 @@ public class RunCoordinator {
     @PreDestroy
     public void shutdown() {
         stopping = true;
+        wake.release();
         active.values().forEach(run -> run.stop(ActiveRun.Stop.SHUTDOWN));
         executor.shutdown();
         try {

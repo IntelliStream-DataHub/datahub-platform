@@ -419,7 +419,50 @@ class RunControllerTest {
         verify(runs, never()).insert(any());
     }
 
+    @Test
+    void failedRunsAreRequeuedInOneGoAndTheDispatcherIsWokenOnce() throws Exception {
+        callerIs(writer());
+        when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
+        UUID one = UUID.randomUUID();
+        UUID two = UUID.randomUUID();
+        when(runs.requeueFailed(eq(FLOW_ID), eq(1), eq(2), eq(Duration.ofMinutes(15)), eq("user-1"),
+                eq("user-1"), eq(List.of(one, two)))).thenReturn(2);
+
+        rerunFailed("{\"runs\":[\"" + one + "\",\"" + two + "\"]}")
+                .andExpect(status().isOk()).andExpect(jsonPath("$.requeued").value(2));
+        verify(coordinator).poke(any());
+        verify(runs, never()).insert(any());
+
+        // Nothing queued, nobody woken: asking again for runs already redone is harmless.
+        when(runs.requeueFailed(anyLong(), anyInt(), anyInt(), any(), anyString(), anyString(), any()))
+                .thenReturn(0);
+        rerunFailed("{\"runs\":[\"" + one + "\"]}").andExpect(jsonPath("$.requeued").value(0));
+        verify(coordinator).poke(any());
+    }
+
+    @Test
+    void requeuingTakesWriteAccessAnEnabledFlowAndASaneNumberOfRuns() throws Exception {
+        callerIs(new Caller("user-1", false, true, true, DataSets.ALL, new DataSets(false, Set.of(99L))));
+        rerunFailed("{\"runs\":[\"" + UUID.randomUUID() + "\"]}").andExpect(status().isForbidden());
+
+        callerIs(writer());
+        when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(false)));
+        rerunFailed("{\"runs\":[\"" + UUID.randomUUID() + "\"]}").andExpect(status().isConflict());
+
+        when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
+        rerunFailed("{\"runs\":[]}").andExpect(status().isBadRequest());
+        String tooMany = "{\"runs\":[" + String.join(",", java.util.Collections.nCopies(10_001,
+                "\"" + UUID.randomUUID() + "\"")) + "]}";
+        rerunFailed(tooMany).andExpect(status().isBadRequest());
+        verify(runs, never()).requeueFailed(anyLong(), anyInt(), anyInt(), any(), anyString(), anyString(), any());
+    }
+
     // ---------------------------------------------------------------- fixtures
+
+    private org.springframework.test.web.servlet.ResultActions rerunFailed(String body) throws Exception {
+        return mvc.perform(post("/flows/temp_hourly/runs/rerun").contentType(MediaType.APPLICATION_JSON)
+                .content(body));
+    }
 
     private org.springframework.test.web.servlet.ResultActions preview(String body) throws Exception {
         return mvc.perform(post("/previews").contentType(MediaType.APPLICATION_JSON).content(body));
