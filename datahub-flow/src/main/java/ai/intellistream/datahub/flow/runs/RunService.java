@@ -46,6 +46,8 @@ import java.util.UUID;
 public class RunService {
 
     static final int DEFAULT_LIMIT = 100;
+    /** The states a run is in, which {@code GET /runs} can be narrowed to. */
+    static final List<String> STATUSES = List.of("PENDING", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED");
     static final int MAX_LIMIT = 1000;
     private static final String CURSOR_PROPERTY = "createdAt";
 
@@ -324,9 +326,12 @@ public class RunService {
     }
 
     /** Runs the caller may see, newest first, optionally of one flow, in pages; previews only on request. */
-    public DataWrapper<RunView> list(String flowExternalId, boolean previews, String cursor,
-                                     Integer limit) {
+    public DataWrapper<RunView> list(String flowExternalId, boolean previews, List<String> statuses,
+                                     String cursor, Integer limit) {
         Caller caller = flowService.requireRead();
+        if (statuses != null && (statuses.isEmpty() || !STATUSES.containsAll(statuses))) {
+            throw FlowProblems.badRequest("status is one or more of " + String.join(", ", STATUSES) + ".");
+        }
         int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
         if (pageSize > MAX_LIMIT) {
             throw FlowProblems.badRequest("limit is at most " + MAX_LIMIT + ".");
@@ -337,7 +342,7 @@ public class RunService {
         }
         Long flowId = flowExternalId == null ? null : flowService.visible(caller, flowExternalId).id();
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredRun> page = runs.list(readable, flowId, previews,
+        List<StoredRun> page = runs.list(readable, flowId, previews, statuses,
                 after == null ? null : Instant.parse(after.value()),
                 after == null ? null : UUID.fromString(after.id()), pageSize);
         DataWrapper<RunView> out = new DataWrapper<>();
