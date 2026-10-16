@@ -7,7 +7,7 @@
 </head>
 <body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
 <main class="layout-body">
-	<nav th:replace="~{flows/nav :: navbar('lookup')}"></nav>
+	<nav th:replace="~{flows/nav :: navbar('list')}"></nav>
 
 	<div th:if="${featureDisabled}" class="pad20">
 		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>

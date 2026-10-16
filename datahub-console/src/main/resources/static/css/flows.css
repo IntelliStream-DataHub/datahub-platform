@@ -17,6 +17,11 @@
 	color: inherit;
 }
 
+.flows-header-actions {
+	display: flex;
+	gap: var(--space-sm);
+}
+
 .flows-intro,
 .flows-hint,
 .flows-empty {
@@ -225,6 +230,12 @@
 .attention-group td {
 	font-weight: 600;
 	padding-top: var(--space-lg);
+}
+
+.flows-row-actions {
+	display: flex;
+	gap: var(--space-xs);
+	justify-content: flex-end;
 }
 
 .attention-actions {
