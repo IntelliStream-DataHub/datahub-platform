@@ -1196,7 +1196,7 @@ function createGraphView(container, opts) {
     }
     function drawDotIcons(ctx, z, pan, w, h, dpr) {
         cy.nodes('.dot').forEach(n => {
-            if (n.hasClass('noicon') || !shown(n)) return;
+            if (n.hasClass('pill') || n.hasClass('noicon') || !shown(n)) return;
             const src = n.data('icon');
             if (!src || src === 'none') return;
             const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, s = n.data('w') * z * 0.58;
@@ -1204,7 +1204,7 @@ function createGraphView(container, opts) {
             const bmp = iconBitmap(src, s * dpr);
             if (!bmp) return;
             // As faint as the dot when a selection or the tutorial dims it.
-            ctx.globalAlpha = 0.85 * (n.hasClass('dim') || n.hasClass('tut-dim') ? 0.18 : 1);
+            ctx.globalAlpha = 0.85 * (n.hasClass('tut-dim') ? 0.18 : n.hasClass('dim') ? DIM_NODE : 1);
             ctx.drawImage(bmp, x - s / 2, y - s / 2, s, s);
         });
         ctx.globalAlpha = 1;
@@ -1238,7 +1238,7 @@ function createGraphView(container, opts) {
             });
             ctx.lineCap = 'butt'; ctx.globalAlpha = 1;
         });
-        if (pills()) drawPillFaces(ctx, z, pan, w, h, pal);
+        if (pills()) drawPillFaces(ctx, z, pan, w, h, pal, dpr);
         if (current.classic) drawClassicFaces(ctx, z, pan, w, h, pal);
         ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = pal.outline; ctx.fillStyle = pal.label;
         NAMED.forEach(id => {
@@ -1254,14 +1254,8 @@ function createGraphView(container, opts) {
         ctx.globalAlpha = 1;
     }
     // A pill's icon at its left end and its name after it, in the page's text colour; the name is centred
-    // when the pill shows no icon. Each icon image is decoded once and drawn wherever it is used.
-    const pillIcons = new Map();
-    function pillIcon(src) {
-        let img = pillIcons.get(src);
-        if (!img) { img = new Image(); img.onload = redrawSoon; img.src = src; pillIcons.set(src, img); if (pillIcons.size > 500) pillIcons.clear(); }
-        return img.complete && img.naturalWidth ? img : null;
-    }
-    function drawPillFaces(ctx, z, pan, w, h, pal) {
+    // when the pill shows no icon. The icon is the same sharp copy the dots use.
+    function drawPillFaces(ctx, z, pan, w, h, pal, dpr) {
         ctx.textBaseline = 'middle'; ctx.fillStyle = pal.label;
         cy.nodes('.pill').forEach(n => {
             const fs = n.data('fs'), px = fs * z;
@@ -1271,7 +1265,7 @@ function createGraphView(container, opts) {
             if (x + hw < 0 || x - hw > w || y < -px || y > h + px) return;
             const src = n.data('icon'), icon = !!src && src !== 'none' && !n.hasClass('noicon'), a = nameAlpha(n);
             if (icon) {
-                const img = pillIcon(src), s = fs * 1.35 * z;
+                const s = fs * 1.35 * z, img = iconBitmap(src, s * dpr);
                 if (img) { ctx.globalAlpha = 0.9 * a; ctx.drawImage(img, x - hw + fs * PILL_PAD * z, y - s / 2, s, s); }
             }
             ctx.globalAlpha = 1;
