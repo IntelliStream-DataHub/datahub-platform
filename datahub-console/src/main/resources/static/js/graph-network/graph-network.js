@@ -957,6 +957,7 @@ class GraphNetwork {
         const option = (key, label, choices, small) => ({ key, label, small, choices,
             get: () => this.view.options()[key], set: v => this.view.setOptions({ [key]: v }) });
         return [
+            option('layout', 'graph.view.layout', [['network', 'graph.view.layout.network'], ['diagram', 'graph.view.layout.diagram']], true),
             option('nodes', 'graph.view.nodes', [['dots', 'graph.view.nodes.dots'], ['pills', 'graph.view.nodes.pills']], true),
             option('size', 'graph.view.size', [['importance', 'graph.view.size.importance'], ['same', 'graph.view.size.same']], true),
             option('lines', 'graph.view.lines', [['curved', 'graph.view.lines.curved'], ['straight', 'graph.view.lines.straight']], true),
@@ -1003,6 +1004,9 @@ class GraphNetwork {
             menu.append(group);
         });
         if (gated) menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.big', null, [this.view.bigAbove.toLocaleString()]) }));
+        else if (this.view.options().layout === 'diagram' && this.view.tooLargeForDiagram()) {
+            menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.diagram.big', null, [this.view.diagramMax.toLocaleString()]) }));
+        }
         const actions = Object.assign(document.createElement('div'), { className: 'gv-actions' });
         const action = (icon, text, title, fn) => {
             const b = Object.assign(document.createElement('button'), { type: 'button', className: 'gv-action', title: title || '' });

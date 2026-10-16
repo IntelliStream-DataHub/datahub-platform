@@ -34,6 +34,8 @@ const GROUP_LABEL_PX = imp => 12 + 3 * (imp || 0), GROUP_LABEL_GAP = 10;
 // Pills, in units of their name's font size: the padding at each end, the room for the icon, the widest a
 // pill gets (a longer name ends in "…"), and its height. Below PILL_MIN_PX on screen a pill shows no name.
 const PILL_PAD = 0.7, PILL_ICON = 1.6, PILL_MAX = 17, PILL_H = 2.2, PILL_MIN_PX = 7;
+// The diagram: up to this many resources, and the gaps between its columns and between resources in one.
+const DIAGRAM_MAX = 5000, DIAGRAM_RANK_GAP = 60, DIAGRAM_GAP = 10, DIAGRAM_WRAP = 16;
 // A shut group's name keeps one modest size however far out the view is: it is a signpost, not a heading.
 const labelPx = (n, z) => (n.hasClass('agg') ? GROUP_LABEL_PX(n.data('imp')) : Math.min(n.data('fs') * z, MAX_LABEL_PX(n.data('imp'))));
 // Above this many resources names are re-picked only once a pan or zoom settles, and above the second
@@ -147,6 +149,18 @@ function windowTurn(pts) {
 // each is the default.
 const VIEW_KEY = 'dh.graph.view.v1';
 const VIEW_CHOICES = { layout: ['network', 'diagram'], nodes: ['dots', 'pills'], size: ['importance', 'same'], lines: ['curved', 'straight'], flows: ['on', 'off'] };
+// The diagram is laid out by dagre, which is loaded the first time it is needed. A page whose last choice was
+// the diagram starts loading it at once, so it is there by the time the graph arrives.
+let dagreLoading = null;
+function loadDagre() {
+    if (window.dagre) return Promise.resolve();
+    if (!dagreLoading) dagreLoading = new Promise((resolve, reject) => {
+        const el = Object.assign(document.createElement('script'), { src: '/static/js/graph-network/dagre.min.js', async: true });
+        el.onload = () => resolve(); el.onerror = () => { dagreLoading = null; reject(new Error('dagre did not load')); };
+        document.head.append(el);
+    });
+    return dagreLoading;
+}
 function readView() {
     let o = null;
     try { o = JSON.parse(localStorage.getItem(VIEW_KEY) || 'null'); } catch (e) { o = null; }
@@ -285,6 +299,8 @@ function createGraphView(container, opts) {
     let flowList = null, flowRAF = 0, flowEvery = 1, flowTick = 0, flowRecent = [], flowStopped = false;
     let pageScrolling = false, pageScrollTimer = 0, destroyed = false;
     let V = readView();
+    // A graph drawn before dagre arrived is drawn as a network, and then again as the diagram.
+    if (V.layout === 'diagram') loadDagre().then(() => { if (!destroyed && !big && current && !current.diagram && V.layout === 'diagram') { current = null; MOVED = new Set(); refresh(); } }).catch(() => { /* stays a network */ });
     let big = null, winTimer = 0, winGen = 0, winBusy = false;
     // A group's colour. Past the twelfth group they are grey, except in a big graph, where hundreds of group
     // dots in grey would say nothing: there the colours go round again.
@@ -525,6 +541,81 @@ function createGraphView(container, opts) {
         if (groups.length > 1) { cy.nodes(':child').not('.grp').move({ parent: null }); cy.nodes('.grp').move({ parent: null }); cy.remove('.grp'); }
         hidden.forEach(n => { const m = cy.getElementById(n.id()); if (m.length) m.style('display', 'none'); });
     }
+    // ---- the diagram ----------------------------------------------------------------------------------
+    // Left to right: each resource in the column after the one it belongs to (BELONGS_TO, PART_OF). One that
+    // belongs to nothing hangs off a neighbour that is placed, a wave at a time, and off the most particular
+    // one: the neighbour with the fewest relations. So a time series sits beside its sensor rather than
+    // beside the drawing sheet both are shown on, and a chain of functions follows on from it. A piece of
+    // the graph with no tree at all grows out from its most important resource. A plant that holds
+    // everything is left as context, as in the network. dagre then orders each column so that as few lines
+    // cross as it can.
+    const diagram = () => V.layout === 'diagram' && !big && !!window.dagre && !!G && G.ids.length <= DIAGRAM_MAX;
+    function diagramTree() {
+        const n = G.ids.length, parent = info.tree.parent.slice(), placed = new Array(n).fill(false);
+        parent.forEach((p, i) => { if (p >= 0) { placed[i] = true; placed[p] = true; } });
+        const grow = () => {
+            for (;;) {
+                const wave = [];
+                for (let j = 0; j < n; j++) {
+                    if (placed[j]) continue;
+                    let best = -1;
+                    G.adj[j].forEach((_, i) => { if (placed[i] && (best < 0 || G.adj[i].size < G.adj[best].size || (G.adj[i].size === G.adj[best].size && i < best))) best = i; });
+                    if (best >= 0) wave.push([j, best]);
+                }
+                if (!wave.length) return;
+                wave.forEach(([j, i]) => { placed[j] = true; parent[j] = i; });
+            }
+        };
+        grow();
+        for (;;) {
+            let start = -1;
+            for (let i = 0; i < n; i++) if (!placed[i] && (start < 0 || info.importance[i] > info.importance[start])) start = i;
+            if (start < 0) break;
+            placed[start] = true;
+            grow();
+        }
+        return parent;
+    }
+    function diagramLayout() {
+        const parent = diagramTree(), g = new window.dagre.graphlib.Graph();
+        g.setGraph({ rankdir: 'LR', ranksep: DIAGRAM_RANK_GAP, nodesep: DIAGRAM_GAP, edgesep: DIAGRAM_GAP, marginx: 0, marginy: 0 });
+        g.setDefaultEdgeLabel(() => ({}));
+        // A dot's name is written under it, so its box takes in the name.
+        const box = new Map();
+        G.ids.forEach(id => {
+            const n = cy.getElementById(id), w = n.data('w'), h = n.data('h'), fs = n.data('fs') || 10;
+            const b = n.hasClass('pill') ? { width: w, height: h, below: 0 } : { width: Math.max(w, textW(n.data('short') || '', fs, 600)), height: h + fs * 1.3 + 4, below: fs * 1.3 + 4 };
+            box.set(id, b);
+            g.setNode(id, { width: b.width, height: b.height });
+        });
+        // A long run of resources with nothing after them would make one very tall column: a parent's leaves,
+        // or the resources linked to nothing but the context. They are wrapped into columns of DIAGRAM_WRAP,
+        // each column held after the one before by links only dagre sees.
+        const kids = new Map();
+        parent.forEach((p, i) => { if (p >= 0) { if (!kids.has(p)) kids.set(p, []); kids.get(p).push(i); } });
+        const link = (a, b) => g.setEdge(G.ids[a], G.ids[b]);
+        const wrap = (list, from) => list.forEach((c, k) => { if (k >= DIAGRAM_WRAP) link(list[k - DIAGRAM_WRAP], c); else if (from >= 0) link(from, c); });
+        kids.forEach((cs, p) => { cs.filter(c => kids.has(c)).forEach(c => link(p, c)); wrap(cs.filter(c => !kids.has(c)), p); });
+        wrap(G.ids.map((_, i) => i).filter(i => parent[i] < 0 && !kids.has(i)), -1);
+        window.dagre.layout(g);
+        cy.batch(() => G.ids.forEach(id => { const d = g.node(id), b = box.get(id); cy.getElementById(id).position({ x: d.x, y: d.y - b.below / 2 }); }));
+    }
+    // A line in the diagram leaves its resource heading right and arrives heading right, unless straight
+    // lines are chosen or its ends are in one column.
+    function drawDiagramLines() {
+        // Past STRAIGHT_ABOVE resources every line is straight, as in the network, to keep the drawing quick.
+        const edges = graphEdges(), par = parallelOffsets(), large = G.ids.length > STRAIGHT_ABOVE, plain = V.lines === 'straight' || large;
+        edges.removeClass('lay faint straight curved cross').removeData('cpw cpd _first bend');
+        cy.batch(() => edges.not('.ctx').forEach(e => {
+            const P = e.source().position(), Q = e.target().position(), mx = (P.x + Q.x) / 2;
+            if (plain || Math.abs(Q.x - P.x) < DIAGRAM_RANK_GAP / 2 || !toCurve(e, [{ x: mx, y: P.y }, { x: mx, y: Q.y }], par.get(e.id()))) { e.addClass(large ? 'faint straight' : 'faint cross'); return; }
+            e.addClass('curved');
+        }));
+        fixSign('.curved');
+        PATHS.clear();
+        flowReset();
+    }
+
     // Known resources go where they were. New ones start beside their placed neighbours and are settled by
     // fcose with every known resource fixed (fixedNodeConstraint), so nothing else moves. This pass runs
     // without the groups: fcose holds the fixed nodes either way, but with groups it pushes newcomers two to
@@ -600,6 +691,7 @@ function createGraphView(container, opts) {
         if (cp && Math.hypot(cp.x - want.x, cp.y - want.y) > 2) cy.batch(() => cy.edges(sel).forEach(e => e.data('cpd', String(e.data('cpd')).split(' ').map(v => (-parseFloat(v)).toFixed(2)).join(' '))));
     }
     function drawLines(comm, member) {
+        if (current && current.diagram) { drawDiagramLines(); return; }
         const edges = graphEdges();
         edges.removeClass('lay faint straight curved cross').removeData('cpw cpd _first bend');
         // Straight lines, if chosen: every line straight, and those between groups drawn as strongly as the
@@ -678,7 +770,7 @@ function createGraphView(container, opts) {
         return cy.getElementById(id).neighborhood('node').not(TEMP).filter(o => !member.has(o.id()) && !float.has(o.id()) && o.neighborhood('node').not(TEMP).every(q => q.id() === id));
     }
     function placeFloaters(comm, member, tol = 0.5) {
-        if (!MULTI.length) return;
+        if (!MULTI.length || (current && current.diagram)) return;   // the diagram places a shared resource itself
         const float = new Set(MULTI.filter(m => floats(m.i, comm)).map(m => m.id));
         const list = MULTI.filter(m => float.has(m.id) && !MOVED.has(m.id));
         const pts = new Map();
@@ -816,7 +908,7 @@ function createGraphView(container, opts) {
     function drawHulls() {
         if (!cy || destroyed) return;
         const { ctx, dpr, w, h } = sizeCanvas(hullCanvas);
-        if (!current) return;
+        if (!current || current.diagram) return;   // the diagram's columns show its structure, not outlines
         const z = cy.zoom(), pan = cy.pan(), pal = palette();
         ctx.setTransform(dpr * z, 0, 0, dpr * z, dpr * pan.x, dpr * pan.y);
         const shapes = hullShapes(z);
@@ -1709,7 +1801,7 @@ function createGraphView(container, opts) {
     function arrangementKey() {
         const key = opts.saveKey();
         // Pills change size with the size choice, so each size of pill has a picture of its own too.
-        return key ? KEY_PREFIX + key + (V.layout === 'diagram' ? '|diagram' : '') + (pills() ? (V.size === 'same' ? '|pills-same' : '|pills') : '') : null;
+        return key ? KEY_PREFIX + key + (diagram() ? '|diagram' : '') + (pills() ? (V.size === 'same' ? '|pills-same' : '|pills') : '') : null;
     }
     function saveArrangement() {
         const key = opts.saveKey();
@@ -1733,8 +1825,17 @@ function createGraphView(container, opts) {
             const key = arrangementKey(), saved = key ? getArrangement(key) : null;
             let placed = null;
             if (saved) { comm = keptGroups(saved.comm); applyLook(comm); placed = restore(saved.pos, true); restored = !!placed; }
-            if (!placed) { comm = freshGroups(); applyLook(comm); groupedLayout(comm); }
+            if (!placed) { comm = freshGroups(); applyLook(comm); if (diagram()) diagramLayout(); else groupedLayout(comm); }
             MOVED = new Set(placed && saved.moved ? saved.moved.filter(id => G.index.has(id)) : []);
+        } else if (diagram()) {
+            // The diagram is laid out again: dagre gives the same picture for the same graph, and a change
+            // shifts only what it touches. A resource moved by hand stays where it was left.
+            comm = keptGroups(before);
+            applyLook(comm);
+            MOVED = new Set([...MOVED].filter(id => G.index.has(id)));
+            const kept = new Map([...MOVED].map(id => [id, { ...cy.getElementById(id).position() }]));
+            diagramLayout();
+            kept.forEach((p, id) => cy.getElementById(id).position(p));
         } else {
             comm = keptGroups(before);
             applyLook(comm);
@@ -1745,7 +1846,7 @@ function createGraphView(container, opts) {
         }
         const member = groupMembers(comm);
         MULTI = multiOf(comm);
-        current = { ids: G.ids, comm, member };
+        current = { ids: G.ids, comm, member, diagram: diagram() };
         boostHubLabels();
         placeFloaters(comm, member, first && !restored ? 0.5 : 3);   // after the names are sized, so it can keep clear of them
         drawLines(comm, member);
@@ -1780,6 +1881,10 @@ function createGraphView(container, opts) {
         if (big || !current) return;
         // A new way of drawing is laid out afresh, or put back as it was last left. So is a new size of pill:
         // the pills would overlap where they stand.
+        if (V.layout === 'diagram' && !window.dagre) {
+            loadDagre().then(() => { if (!destroyed && !big && current && V.layout === 'diagram') { current = null; MOVED = new Set(); refresh(); } }).catch(() => { /* stays a network */ });
+            return;
+        }
         if (was.nodes !== V.nodes || was.layout !== V.layout || (pills() && was.size !== V.size)) { current = null; MOVED = new Set(); refresh(); return; }
         if (was.size !== V.size) { applyLook(current.comm); boostHubLabels(); }
         if (was.size !== V.size || was.lines !== V.lines) {
@@ -1870,7 +1975,9 @@ function createGraphView(container, opts) {
         get cy() { return cy; },
         get webgl() { return cyWebgl; },
         refresh, rearrange, redraw, applyTheme, select, clearSel, setRoot, reset, fit, destroy, hidePick,
-        options: () => ({ ...V }), setOptions,
+        options: () => ({ ...V }), setOptions, diagramMax: DIAGRAM_MAX,
+        // Whether the graph is too large for the diagram (it is then drawn as a network).
+        tooLargeForDiagram: () => !!G && !big && G.ids.length > DIAGRAM_MAX,
         // Big graphs: GraphNetwork hands them over instead of adding them to Cytoscape.
         bigAbove: BIG_ABOVE, isBig: () => !!big, loadBig, standIn,
         modelData: () => (big ? { nodes: [...big.nodes.values()], edges: [...big.edges.values()] } : null),
