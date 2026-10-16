@@ -6,6 +6,7 @@ local function forget(id)
   redis.call('ZREM', 'flow:leases', id)
   redis.call('ZREM', 'flow:deadlines', id)
   redis.call('ZREM', 'flow:unarchived', id)
+  redis.call('ZREM', 'flow:live', id)
   redis.call('SREM', 'flow:owed', id)
 end
 local count = 0

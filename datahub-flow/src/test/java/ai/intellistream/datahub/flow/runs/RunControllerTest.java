@@ -18,9 +18,11 @@ import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.flows.TestFlows;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.identity.RegisteredClients;
-import ai.intellistream.datahub.flow.runs.RunRepository.NewPreview;
-import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunHistory;
+import ai.intellistream.datahub.flow.store.RunStore;
+import ai.intellistream.datahub.flow.store.RunStore.NewPreview;
+import ai.intellistream.datahub.flow.store.RunStore.NewRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
@@ -32,6 +34,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.ArgumentMatchers;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -80,7 +83,8 @@ class RunControllerTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     private final FlowRepository flows = mock(FlowRepository.class);
-    private final RunRepository runs = mock(RunRepository.class);
+    private final RunStore runs = mock(RunStore.class);
+    private final RunHistory history = mock(RunHistory.class);
     private final RunCoordinator coordinator = mock(RunCoordinator.class);
     private final CallerAccess access = mock(CallerAccess.class);
     private final RegisteredClients clients = mock(RegisteredClients.class);
@@ -113,8 +117,8 @@ class RunControllerTest {
         found.setItems(List.of(demo));
         when(datasets.byIds(any())).thenReturn(found);
         FlowService flowService = new FlowService(flows, access, validator, tenants, tenantConfig,
-                transaction, JSON, offlineTokens);
-        RunService service = new RunService(flowService, flows, runs, coordinator,
+                transaction, JSON, offlineTokens, runs);
+        RunService service = new RunService(flowService, flows, runs, history, coordinator,
                 new FlowCompiler(validator), transaction, JSON, clients, offlineTokens);
         mvc = MockMvcBuilders.standaloneSetup(new RunController(service))
                 .setControllerAdvice(new FlowProblems())
@@ -125,7 +129,9 @@ class RunControllerTest {
                 "user-1", Instant.EPOCH, null)));
         when(flows.version(FLOW_ID, 1)).thenReturn(Optional.of(new StoredVersion(1, TestFlows.EXAMPLE,
                 "user-1", Instant.EPOCH)));
-        when(runs.now()).thenReturn(Instant.parse("2026-10-12T11:06:00Z"));
+        when(flows.now()).thenReturn(Instant.parse("2026-10-12T11:06:00Z"));
+        // Any run asked for exists, as the run the test is about; a test narrows it where it matters.
+        when(runs.find(any(UUID.class))).thenAnswer(inv -> Optional.of(stored(inv.getArgument(0), DS_DEMO, "PENDING")));
     }
 
     @Test
@@ -204,7 +210,7 @@ class RunControllerTest {
 
         when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(false)));
         start("{}").andExpect(status().isConflict());
-        verify(runs, never()).insert(any());
+        verify(runs, never()).enqueue(any());
     }
 
     @Test
@@ -215,30 +221,29 @@ class RunControllerTest {
         start("{}").andExpect(status().isBadRequest());
         start("{\"window\":{\"start\":\"2026-10-12T11:00:00Z\",\"end\":\"2026-10-12T10:00:00Z\"}}")
                 .andExpect(status().isBadRequest());
-        verify(runs, never()).insert(any());
+        verify(runs, never()).enqueue(any());
     }
 
     @Test
     void aManualRunIsCreatedAndStartedHereWhenThereIsRoom() throws Exception {
         callerIs(writer());
         when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
-        UUID id = UUID.randomUUID();
-        when(runs.insert(any())).thenReturn(id);
-        when(runs.find(id)).thenReturn(Optional.of(stored(id, DS_DEMO, "PENDING")));
-
         start("{\"window\":{\"start\":\"2026-10-12T10:00:00Z\",\"end\":\"2026-10-12T11:00:00Z\"},"
                 + "\"parameters\":{\"limit\":120}}")
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value(id.toString()))
                 .andExpect(jsonPath("$.flow").value("temp_hourly"));
 
         ArgumentCaptor<NewRun> created = ArgumentCaptor.forClass(NewRun.class);
-        verify(runs).insert(created.capture());
+        verify(runs).enqueue(created.capture());
+        UUID id = created.getValue().id();
         assertThat(created.getValue().window()).isEqualTo(new TimeWindow(
                 Instant.parse("2026-10-12T10:00:00Z"), Instant.parse("2026-10-12T11:00:00Z")));
         assertThat(created.getValue().parameters()).isEqualTo("{\"limit\":120}");
         assertThat(created.getValue().trigger()).isEqualTo("manual");
         assertThat(created.getValue().runAs()).isEqualTo("user-1");
+        assertThat(created.getValue().flowId()).isEqualTo(FLOW_ID);
+        assertThat(created.getValue().flowExternalId()).isEqualTo("temp_hourly");
+        assertThat(created.getValue().dataSetId()).isEqualTo(DS_DEMO);
         verify(coordinator).claim(any(), eq(id));
     }
 
@@ -261,7 +266,7 @@ class RunControllerTest {
 
         mvc.perform(post("/runs/" + id + "/cancel")).andExpect(status().isConflict());
 
-        when(runs.cancelIfPending(id, "user-1")).thenReturn(true);
+        when(runs.cancelPending(id, "CANCELLED", "Cancelled by user-1.")).thenReturn(true);
         mvc.perform(post("/runs/" + id + "/cancel")).andExpect(status().isOk());
     }
 
@@ -269,14 +274,12 @@ class RunControllerTest {
     void theRunListIsLimitedToReadableDatasets() throws Exception {
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(new Caller("user-1", false, true, false, readable, readable));
-        when(runs.list(readable, null, false, null, null, 100)).thenReturn(List.of());
-
         mvc.perform(get("/runs")).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
-        verify(runs).list(readable, null, false, null, null, 100);
+        verify(history).list(any(), eq(Set.of(DS_DEMO)), isNull(), eq(false), isNull(), isNull(), eq(100));
 
         // Previews are shown apart, so only on request.
         mvc.perform(get("/runs?preview=true")).andExpect(status().isOk());
-        verify(runs).list(readable, null, true, null, null, 100);
+        verify(history).list(any(), eq(Set.of(DS_DEMO)), isNull(), eq(true), isNull(), isNull(), eq(100));
     }
 
     @Test
@@ -284,10 +287,9 @@ class RunControllerTest {
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(new Caller("user-1", false, true, false, readable, readable));
         when(runs.now()).thenReturn(Instant.parse("2026-10-16T12:00:00Z"));
-        when(runs.board(readable, null, 100)).thenReturn(List.of());
 
         mvc.perform(get("/runs/overview")).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
-        verify(runs).board(readable, null, 100);
+        verify(flows).deployedBoard(readable, null, 100);
 
         callerIs(new Caller("user-1", false, false, false, new DataSets(false, Set.of()),
                 new DataSets(false, Set.of())));
@@ -307,7 +309,7 @@ class RunControllerTest {
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
         preview("{\"definition\":" + TestFlows.EXAMPLE + "}").andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
-        verify(runs, never()).insertPreview(any());
+        verify(runs, never()).enqueuePreview(any());
     }
 
     @Test
@@ -318,25 +320,24 @@ class RunControllerTest {
         preview("{}").andExpect(status().isBadRequest());
         preview("{\"flow\":\"temp_hourly\",\"definition\":" + TestFlows.EXAMPLE + "}")
                 .andExpect(status().isBadRequest());
-        verify(runs, never()).insertPreview(any());
+        verify(runs, never()).enqueuePreview(any());
     }
 
     @Test
     void aPreviewOfASavedVersionRunsHereAsTheCallerOverTheLastHour() throws Exception {
         tokenExpiresIn(Duration.ofMinutes(10));
         callerIs(writer());
-        UUID id = UUID.randomUUID();
-        when(runs.insertPreview(any())).thenReturn(id);
-        when(coordinator.claimPreview(any(), eq(id), any())).thenReturn(true);
-        when(runs.find(id)).thenReturn(Optional.of(stored(id, DS_DEMO, "RUNNING")));
+        when(coordinator.claimPreview(any(), any(UUID.class), any())).thenReturn(true);
 
         // A flow need not be deployed to be previewed.
         preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isAccepted())
-                .andExpect(jsonPath("$.id").value(id.toString()));
+                .andExpect(jsonPath("$.flow").value("temp_hourly"));
 
         ArgumentCaptor<NewPreview> created = ArgumentCaptor.forClass(NewPreview.class);
-        verify(runs).insertPreview(created.capture());
+        verify(runs).enqueuePreview(created.capture());
         NewPreview p = created.getValue();
+        assertThat(p.flowExternalId()).isEqualTo("temp_hourly");
+        assertThat(p.dataSetId()).isEqualTo(DS_DEMO);
         assertThat(p.flowId()).isEqualTo(FLOW_ID);
         assertThat(p.version()).isEqualTo(1);
         assertThat(p.definition()).isNull();
@@ -348,7 +349,7 @@ class RunControllerTest {
                 .isGreaterThan(Duration.ofMinutes(9));
 
         ArgumentCaptor<java.util.function.Supplier<String>> tokens = ArgumentCaptor.captor();
-        verify(coordinator).claimPreview(any(), eq(id), tokens.capture());
+        verify(coordinator).claimPreview(any(), eq(p.id()), tokens.capture());
         assertThat(tokens.getValue().get()).isEqualTo("caller-token");
     }
 
@@ -362,18 +363,16 @@ class RunControllerTest {
                 + "\"connections\":[]}}")
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/validation-failed"));
-        verify(runs, never()).insertPreview(any());
+        verify(runs, never()).enqueuePreview(any());
 
-        UUID id = UUID.randomUUID();
-        when(runs.insertPreview(any())).thenReturn(id);
-        when(coordinator.claimPreview(any(), eq(id), any())).thenReturn(true);
-        when(runs.find(id)).thenReturn(Optional.of(stored(id, DS_DEMO, "RUNNING")));
+        when(coordinator.claimPreview(any(), any(UUID.class), any())).thenReturn(true);
         preview("{\"definition\":" + TestFlows.EXAMPLE + ",\"window\":{\"start\":\"2026-10-01T00:00:00Z\","
                 + "\"end\":\"2026-10-01T06:00:00Z\"}}").andExpect(status().isAccepted());
 
         ArgumentCaptor<NewPreview> created = ArgumentCaptor.forClass(NewPreview.class);
-        verify(runs).insertPreview(created.capture());
+        verify(runs).enqueuePreview(created.capture());
         assertThat(created.getValue().flowId()).isNull();
+        assertThat(created.getValue().flowExternalId()).isEqualTo("temp_hourly");
         assertThat(created.getValue().dataSetId()).isEqualTo(DS_DEMO);
         assertThat(created.getValue().definition()).contains("\"externalId\":\"temp_hourly\"");
         assertThat(created.getValue().window().start()).isEqualTo(Instant.parse("2026-10-01T00:00:00Z"));
@@ -390,20 +389,20 @@ class RunControllerTest {
 
         preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/token-expiring"));
-        verify(runs, never()).insertPreview(any());
+        verify(runs, never()).enqueuePreview(any());
     }
 
     @Test
     void aPreviewThisInstanceHasNoRoomForIsCancelledAndRefused() throws Exception {
         tokenExpiresIn(Duration.ofMinutes(10));
         callerIs(writer());
-        UUID id = UUID.randomUUID();
-        when(runs.insertPreview(any())).thenReturn(id);
-        when(coordinator.claimPreview(any(), eq(id), any())).thenReturn(false);
+        when(coordinator.claimPreview(any(), any(UUID.class), any())).thenReturn(false);
 
         preview("{\"flow\":\"temp_hourly\"}").andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/busy"));
-        verify(runs).cancelPending(eq(id), eq(RunCoordinator.NO_CAPACITY), anyString());
+        ArgumentCaptor<NewPreview> made = ArgumentCaptor.forClass(NewPreview.class);
+        verify(runs).enqueuePreview(made.capture());
+        verify(runs).cancelPending(eq(made.getValue().id()), eq(RunCoordinator.NO_CAPACITY), anyString());
     }
 
     @Test
@@ -412,11 +411,11 @@ class RunControllerTest {
         UUID id = UUID.randomUUID();
         when(runs.find(id)).thenReturn(Optional.of(new StoredRun(id, FLOW_ID, "temp_hourly", DS_DEMO, 1,
                 "SUCCEEDED", 1, 1, Instant.EPOCH, false, true, false, Duration.ofMinutes(15),
-                null, null, "{}", null, "preview", "user-1", "user-1", Instant.EPOCH, null, null,
+                null, null, "{}", null, null, "preview", "user-1", "user-1", Instant.EPOCH, null, null,
                 null, null, null)));
 
         mvc.perform(post("/runs/" + id + "/rerun")).andExpect(status().isBadRequest());
-        verify(runs, never()).insert(any());
+        verify(runs, never()).enqueue(any());
     }
 
     @Test
@@ -424,18 +423,38 @@ class RunControllerTest {
         callerIs(writer());
         when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
         UUID one = UUID.randomUUID();
-        UUID two = UUID.randomUUID();
-        when(runs.requeueFailed(eq(FLOW_ID), eq(1), eq(2), eq(Duration.ofMinutes(15)), eq("user-1"),
-                eq("user-1"), eq(List.of(one, two)))).thenReturn(2);
+        UUID inHistory = UUID.randomUUID();
+        UUID healthy = UUID.randomUUID();
+        when(runs.find(ArgumentMatchers.<java.util.Collection<UUID>>any()))
+                .thenReturn(List.of(failed(one), stored(healthy, DS_DEMO, "SUCCEEDED")));
+        when(history.failed(any(), eq(FLOW_ID), ArgumentMatchers.<java.util.Collection<UUID>>any()))
+                .thenReturn(List.of(failed(inHistory)));
+        when(runs.enqueueAll(any())).thenReturn(2);
 
-        rerunFailed("{\"runs\":[\"" + one + "\",\"" + two + "\"]}")
+        rerunFailed("{\"runs\":[\"" + one + "\",\"" + inHistory + "\",\"" + healthy + "\"]}")
                 .andExpect(status().isOk()).andExpect(jsonPath("$.requeued").value(2));
+
+        ArgumentCaptor<List<NewRun>> queued = ArgumentCaptor.captor();
+        verify(runs).enqueueAll(queued.capture());
+        // Only the failed ones, from the run store and from ClickHouse; each redo's id comes from the
+        // run it redoes, so asking again is a no-op in the store.
+        assertThat(queued.getValue()).extracting(NewRun::id)
+                .containsExactlyInAnyOrder(RunService.rerunId(one), RunService.rerunId(inHistory));
+        assertThat(queued.getValue()).allSatisfy(r -> {
+            assertThat(r.flowId()).isEqualTo(FLOW_ID);
+            assertThat(r.trigger()).isEqualTo("rerun");
+            assertThat(r.triggeredBy()).isEqualTo("user-1");
+            assertThat(r.runAs()).isEqualTo("user-1");
+            assertThat(r.parameters()).isEqualTo("{\"limit\":120}");
+            assertThat(r.window().start()).isEqualTo(Instant.parse("2026-10-12T10:00:00Z"));
+            assertThat(r.maxAttempts()).isEqualTo(2);
+            assertThat(r.timeout()).isEqualTo(Duration.ofMinutes(15));
+        });
         verify(coordinator).poke(any());
-        verify(runs, never()).insert(any());
+        verify(runs, never()).enqueue(any());
 
         // Nothing queued, nobody woken: asking again for runs already redone is harmless.
-        when(runs.requeueFailed(anyLong(), anyInt(), anyInt(), any(), anyString(), anyString(), any()))
-                .thenReturn(0);
+        when(runs.enqueueAll(any())).thenReturn(0);
         rerunFailed("{\"runs\":[\"" + one + "\"]}").andExpect(jsonPath("$.requeued").value(0));
         verify(coordinator).poke(any());
     }
@@ -454,7 +473,7 @@ class RunControllerTest {
         String tooMany = "{\"runs\":[" + String.join(",", java.util.Collections.nCopies(10_001,
                 "\"" + UUID.randomUUID() + "\"")) + "]}";
         rerunFailed(tooMany).andExpect(status().isBadRequest());
-        verify(runs, never()).requeueFailed(anyLong(), anyInt(), anyInt(), any(), anyString(), anyString(), any());
+        verify(runs, never()).enqueueAll(any());
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -503,7 +522,15 @@ class RunControllerTest {
 
     private static StoredRun stored(UUID id, long dataSetId, String status) {
         return new StoredRun(id, FLOW_ID, "temp_hourly", dataSetId, 1, status, 1, 2, Instant.EPOCH,
-                false, false, false, Duration.ofMinutes(15), null, null, "{}", null, "manual",
+                false, false, false, Duration.ofMinutes(15), null, null, "{}", null, null, "manual",
                 "user-1", "user-1", Instant.EPOCH, null, null, null, null, null);
+    }
+
+    private static StoredRun failed(UUID id) {
+        return new StoredRun(id, FLOW_ID, "temp_hourly", DS_DEMO, 1, "FAILED", 2, 2, Instant.EPOCH,
+                false, false, false, Duration.ofMinutes(15), null,
+                new TimeWindow(Instant.parse("2026-10-12T10:00:00Z"), Instant.parse("2026-10-12T11:00:00Z")),
+                "{\"limit\":120}", null, null, "schedule", null, "user-9", Instant.EPOCH, null, null, "PROCESSOR_FAILED",
+                "boom", null);
     }
 }

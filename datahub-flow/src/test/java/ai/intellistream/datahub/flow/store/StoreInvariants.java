@@ -88,6 +88,10 @@ final class StoreInvariants {
             String status = h.get("status");
             boolean preview = "1".equals(h.get("preview"));
             boolean leased = r.zscore("flow:leases", id) != null;
+            boolean live = r.zscore("flow:live", id) != null;
+            if (live != (status.equals("PENDING") || status.equals("RUNNING"))) {
+                bad.add("run " + id + " is " + status + " but live=" + live);
+            }
             switch (status) {
                 case "RUNNING" -> {
                     if (!leased || h.get("owner") == null || h.get("lease_ms") == null) {
@@ -110,6 +114,11 @@ final class StoreInvariants {
                         bad.add("finished run " + id + " (" + status + ") is still in a live index");
                     }
                 }
+            }
+        }
+        for (String id : r.zrange("flow:live", 0, -1)) {
+            if (r.hget("flow:run:" + id, "status") == null) {
+                bad.add("live index holds " + id + ", which is gone");
             }
         }
         for (String id : r.zrange("flow:leases", 0, -1)) {

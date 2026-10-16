@@ -3,7 +3,8 @@ package ai.intellistream.datahub.flow.runs;
 
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
@@ -42,7 +43,7 @@ import java.util.UUID;
  * <p><b>Written as the run's identity</b> — the deployer or the registered client — so the event
  * lands only where that identity may write, which deploying checked for the flow's dataset.
  *
- * <p><b>Never lost, never doubled.</b> The run row's {@code failure_event_owed} is the ledger: set
+ * <p><b>Never lost, never doubled.</b> The stored run's {@code failure_event_owed} is the ledger: set
  * in the same statement that ends the run (for a failure, or for a success whose window failed
  * before), cleared once the event is written. What could not be written right away — the api
  * down, Keycloak down — is written by a later sweep, on any instance. Two instances paying the same
@@ -50,7 +51,7 @@ import java.util.UUID;
  *
  * <p>A run whose identity Keycloak refused cannot write its own failure event. It stays owed, and
  * is skipped until the flow is deployed afresh with a usable identity; meanwhile the failure is on
- * the run row and the deployment shows <em>needs re-authorisation</em>.
+ * the stored run and the deployment shows <em>needs re-authorisation</em>.
  */
 @Slf4j
 @Component
@@ -65,7 +66,7 @@ public class RunEvents {
     private static final int MAX_EXTERNAL_ID = 256;
     private static final int MAX_ERROR = 1000;
 
-    private final RunRepository runs;
+    private final RunStore runs;
     private final RunCredentials credentials;
     private final String apiBaseUrl;
     private final Duration requestTimeout;
@@ -73,7 +74,7 @@ public class RunEvents {
     private final HttpClient http = HttpClient.newHttpClient();
 
     @Autowired
-    public RunEvents(RunRepository runs, RunCredentials credentials,
+    public RunEvents(RunStore runs, RunCredentials credentials,
                      @Value("${datahub.api.url:http://localhost:8081}") String apiBaseUrl,
                      @Value("${datahub.flow.runs.request-timeout:PT30S}") Duration requestTimeout,
                      @Value("${datahub.flow.runs.events-per-sweep:20}") int perSweep) {

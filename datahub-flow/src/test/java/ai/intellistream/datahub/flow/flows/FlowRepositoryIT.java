@@ -13,6 +13,9 @@ import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -112,19 +115,60 @@ class FlowRepositoryIT {
     }
 
     @Test
-    void deletingAFlowTakesItsVersionsAndRunsWithIt() {
+    void deletingAFlowTakesItsVersionsWithIt() {
         StoredFlow flow = create("deleted", 500);
-        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, max_attempts, "
-                + "run_timeout, trigger) VALUES (gen_random_uuid(), ?, 1, 'SUCCEEDED', 1, "
-                + "interval '1 minute', 'manual')", flow.id());
 
         transaction.executeWithoutResult(s -> repository.delete(flow.id()));
 
         assertThat(repository.find("deleted")).isEmpty();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow_version WHERE flow_id = ?",
                 Integer.class, flow.id())).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE flow_id = ?",
-                Integer.class, flow.id())).isZero();
+    }
+
+    @Test
+    void theScheduleOfADeployedFlowIsDueWhenItsTimeComesAndMovesOn() {
+        StoredFlow flow = create("scheduled", 600);
+        Instant past = repository.now().minusSeconds(60);
+        transaction.executeWithoutResult(s -> repository.deploy(flow.id(), 1, true, "{\"type\":\"schedule\"}", 3, 2,
+                Duration.ofMinutes(5), FlowRepository.Identity.deployer("user-1"), "user-1", past, past));
+
+        List<FlowRepository.DueFlow> due = transaction.execute(s -> repository.lockDueSchedules(10));
+
+        assertThat(due).singleElement().satisfies(f -> {
+            assertThat(f.id()).isEqualTo(flow.id());
+            assertThat(f.externalId()).isEqualTo("scheduled");
+            assertThat(f.dataSetId()).isEqualTo(600);
+            assertThat(f.version()).isEqualTo(1);
+            assertThat(f.maxAttempts()).isEqualTo(2);
+            assertThat(f.timeout()).isEqualTo(Duration.ofMinutes(5));
+            assertThat(f.runAs()).isEqualTo("user-1");
+        });
+        Instant next = repository.now().plusSeconds(3600);
+        repository.advanceSchedule(flow.id(), next, next, past);
+        List<FlowRepository.DueFlow> none = transaction.execute(s -> repository.lockDueSchedules(10));
+        assertThat(none).isEmpty();
+    }
+
+    @Test
+    void whatDispatchAndTheOverviewNeedOfDeployedFlowsComesFromTheFlowRows() {
+        StoredFlow deployed = create("board_deployed", 700);
+        create("board_never_deployed", 700);
+        StoredFlow elsewhere = create("board_elsewhere", 701);
+        for (StoredFlow f : List.of(deployed, elsewhere)) {
+            transaction.executeWithoutResult(s -> repository.deploy(f.id(), 1, true, "{\"type\":\"manual\"}", 4, 2,
+                    Duration.ofMinutes(5), FlowRepository.Identity.deployer("user-1"), "user-1", null, null));
+        }
+
+        assertThat(repository.deployedFlows()).extracting(FlowRepository.DeployedFlow::externalId)
+                .contains("board_deployed", "board_elsewhere").doesNotContain("board_never_deployed");
+        assertThat(repository.deployedFlow(deployed.id()).orElseThrow().maxConcurrentRuns()).isEqualTo(4);
+        assertThat(repository.deployedFlow(deployed.id() + 10_000)).isEmpty();
+        assertThat(repository.deployedBoard(new DataSets(false, Set.of(700L)), null, 10))
+                .extracting(FlowRepository.BoardFlow::externalId).containsExactly("board_deployed");
+        assertThat(repository.deployedBoard(DataSets.ALL, "board_deployed", 10))
+                .extracting(FlowRepository.BoardFlow::externalId).contains("board_elsewhere")
+                .doesNotContain("board_deployed");
+        assertThat(repository.deployedBoard(new DataSets(false, Set.of()), null, 10)).isEmpty();
     }
 
     private static StoredFlow create(String externalId, long dataSetId) {

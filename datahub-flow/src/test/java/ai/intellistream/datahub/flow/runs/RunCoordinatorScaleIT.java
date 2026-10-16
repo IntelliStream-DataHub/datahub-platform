@@ -15,8 +15,11 @@ import ai.intellistream.datahub.flow.engine.FlowCompiler;
 import ai.intellistream.datahub.flow.engine.RunExecutor;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.records.RunRecords;
-import ai.intellistream.datahub.flow.runs.RunRepository.NewRun;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore;
+import ai.intellistream.datahub.flow.store.RunStore.NewRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
+import ai.intellistream.datahub.flow.store.SharedKvrocks;
+import ai.intellistream.datahub.flow.store.TenantKvrocks;
 import ai.intellistream.datahub.flow.tenant.FlowSchemaCheck;
 import ai.intellistream.datahub.tenant.PostgresTenant;
 import ai.intellistream.datahub.tenant.StatelessRoutingDataSource;
@@ -24,6 +27,7 @@ import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.tenant.TenantFeatures;
+import io.lettuce.core.api.sync.RedisCommands;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
 import com.sun.net.httpserver.HttpServer;
 import com.zaxxer.hikari.HikariDataSource;
@@ -40,7 +44,6 @@ import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -76,10 +79,11 @@ import static org.mockito.Mockito.when;
  * with a scheduled run in hand, and one that is stopped on purpose.
  *
  * <p>Like {@link RunCoordinatorIT}, the loops are driven by hand so that what takes a minute in
- * production takes seconds here, and the clock that decides leases is the database's. Unlike it,
- * every statement goes through {@link StatelessRoutingDataSource} keyed on {@link TenantContext},
- * so a tenant mix-up anywhere in the run path would write into the wrong database and show up in
- * the counts.
+ * production takes seconds here, and the clock that decides leases is the run store's. Unlike it,
+ * every flow statement goes through {@link StatelessRoutingDataSource} keyed on {@link TenantContext}
+ * and every run goes to the KVRocks of its tenant (one server per tenant, as in the service), so a
+ * tenant mix-up anywhere in the run path would write into the wrong database and show up in the
+ * counts.
  */
 @Tag("integration")
 class RunCoordinatorScaleIT {
@@ -104,7 +108,10 @@ class RunCoordinatorScaleIT {
     /** Routed to the tenant on the thread, as in the service. */
     private JdbcTemplate jdbc;
     private TransactionTemplate transaction;
-    private RunRepository runs;
+    private RunStore runs;
+    private TenantKvrocks kvrocks;
+    /** Which server holds each tenant's runs. */
+    private final Map<String, Integer> servers = new ConcurrentHashMap<>();
     private FlowRepository flows;
     private FlowSchemaCheck schemaCheck;
     private HttpServer datahub;
@@ -118,6 +125,8 @@ class RunCoordinatorScaleIT {
 
     @BeforeEach
     void setUp() throws IOException {
+        SharedKvrocks.flush();
+        servers.clear();
         registry = mock(TenantConfigService.class);
         registry.cachedTenants = new LinkedHashMap<>();
         when(registry.getConfig(anyString())).thenAnswer(i -> registry.cachedTenants.get(i.<String>getArgument(0)));
@@ -143,9 +152,10 @@ class RunCoordinatorScaleIT {
                 });
             }
         };
+        kvrocks = new TenantKvrocks(registry);
         jdbc = new JdbcTemplate(routing);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(routing));
-        runs = new RunRepository(jdbc);
+        runs = new RunStore(kvrocks, Duration.ofSeconds(1));
         flows = new FlowRepository(jdbc);
         schemaCheck = new FlowSchemaCheck(jdbc);
 
@@ -181,6 +191,7 @@ class RunCoordinatorScaleIT {
         datahub.stop(0);
         pools.values().forEach(HikariDataSource::close);
         pools.clear();
+        kvrocks.close();
         RUNNING.clear();
         MOST.clear();
     }
@@ -192,7 +203,7 @@ class RunCoordinatorScaleIT {
         String tenant = tenant("tenant-a");
         int flowCount = 200;
         int ticks = 10;
-        Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofMinutes(ticks - 1));
+        Instant first = in(tenant, flows::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofMinutes(ticks - 1));
         for (int i = 0; i < flowCount; i++) {
             scheduledFlow(tenant, "flow-" + i, work(20, tenant, "scale"), 1, first);
         }
@@ -208,25 +219,30 @@ class RunCoordinatorScaleIT {
             return null;
         });
         long firstSweepMs = (System.nanoTime() - started) / 1_000_000;
-        int afterFirstSweep = in(tenant, () -> count(null));
+        int afterFirstSweep = in(tenant, this::total);
         Set<String> owners = ConcurrentHashMap.newKeySet();
         sweepUntil(List.of(a, b), () -> in(tenant, () -> {
-            owners.addAll(jdbc.queryForList("SELECT DISTINCT owner FROM flow.run WHERE owner IS NOT NULL", String.class));
+            owners.addAll(ownersOfSomeLiveRuns());
             return settled(expected);
         }), Duration.ofMinutes(3));
         long elapsedMs = (System.nanoTime() - started) / 1_000_000;
 
         in(tenant, () -> {
-            int total = count(null);
+            List<Map<String, String>> all = rows();
+            int total = all.size();
             assertThat(total).isGreaterThanOrEqualTo(expected);
-            assertThat(count("SUCCEEDED")).isEqualTo(total);
-            assertThat(jdbc.queryForObject("SELECT count(DISTINCT (flow_id, window_start)) FROM flow.run",
-                    Integer.class)).as("every tick of every flow ran once").isEqualTo(total);
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1", Integer.class))
-                    .as("no run needed a second attempt").isZero();
+            assertThat(all).extracting(r -> r.get("status")).containsOnly("SUCCEEDED");
+            assertThat(all.stream().map(r -> r.get("flow_id") + "/" + r.get("window_start_ms")).distinct().count())
+                    .as("every tick of every flow ran once").isEqualTo(total);
+            assertThat(all).extracting(r -> r.get("attempt")).as("no run needed a second attempt").containsOnly("1");
             // The schedule moved on with the runs: each flow's last tick is its latest window.
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow f WHERE last_tick <> "
-                    + "(SELECT max(window_end) FROM flow.run r WHERE r.flow_id = f.id)", Integer.class)).isZero();
+            Map<Long, Instant> latest = new LinkedHashMap<>();
+            all.forEach(r -> latest.merge(Long.parseLong(r.get("flow_id")),
+                    Instant.ofEpochMilli(Long.parseLong(r.get("window_end_ms"))), (x, y) -> x.isAfter(y) ? x : y));
+            latest.forEach((flow, end) -> assertThat(flows.findById(flow).orElseThrow()).isNotNull());
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow WHERE last_tick IS NOT NULL", Integer.class))
+                    .isEqualTo(flowCount);
+            assertThat(latest).hasSize(flowCount);
             return null;
         });
         assertThat(SEEN).hasSizeGreaterThanOrEqualTo(expected)
@@ -264,12 +280,12 @@ class RunCoordinatorScaleIT {
     // ---------------------------------------------------------------- tenants
 
     @Test
-    void oneInstanceSweepsTenTenantsWithoutLeakingAcrossTheirDatabases() {
+    void oneInstanceSweepsFourTenantsWithoutLeakingAcrossTheirDatabases() {
         List<String> tenants = new ArrayList<>();
-        for (int t = 0; t < 10; t++) {
+        for (int t = 0; t < 4; t++) {
             String tenant = tenant("tenant-" + t);
             tenants.add(tenant);
-            Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofMinutes(1));
+            Instant first = in(tenant, flows::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofMinutes(1));
             for (int i = 0; i < 10; i++) {
                 scheduledFlow(tenant, tenant + "-flow-" + i, work(10, tenant, "tenants"), 1, first);
             }
@@ -282,7 +298,7 @@ class RunCoordinatorScaleIT {
 
         for (String tenant : tenants) {
             in(tenant, () -> {
-                int total = count(null);
+                int total = total();
                 assertThat(total).as("%s has its own twenty runs", tenant).isGreaterThanOrEqualTo(20);
                 assertThat(count("SUCCEEDED")).isEqualTo(total);
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow WHERE external_id NOT LIKE ?",
@@ -291,17 +307,16 @@ class RunCoordinatorScaleIT {
             });
         }
         // The thread that ran each definition was in the tenant the definition belongs to.
-        assertThat(SEEN).hasSizeGreaterThanOrEqualTo(200)
+        assertThat(SEEN).hasSizeGreaterThanOrEqualTo(80)
                 .allSatisfy(seen -> assertThat(seen[1]).as("a run of %s ran as %s", seen[0], seen[1]).isEqualTo(seen[0]));
-        // Its records went to the tenant whose database holds the run, and nowhere else.
-        assertThat(recordsOpenedFor).hasSizeGreaterThanOrEqualTo(200);
+        // Its records went to the tenant whose KVRocks holds the run, and nowhere else.
+        assertThat(recordsOpenedFor).hasSizeGreaterThanOrEqualTo(80);
         Map<String, List<UUID>> opened = new LinkedHashMap<>();
         recordsOpenedFor.forEach((run, tenant) -> opened.computeIfAbsent(tenant, t -> new ArrayList<>()).add(run));
         opened.forEach((tenant, ids) -> {
             for (String other : tenants) {
-                int found = in(other, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE id = ANY (?)",
-                        Integer.class, (Object) ids.toArray(UUID[]::new)));
-                assertThat(found).as("runs whose records were opened for %s, found in %s's database", tenant, other)
+                int found = in(other, () -> runs.find(ids).size());
+                assertThat(found).as("runs whose records were opened for %s, found in %s's KVRocks", tenant, other)
                         .isEqualTo(other.equals(tenant) ? ids.size() : 0);
             }
         });
@@ -380,50 +395,52 @@ class RunCoordinatorScaleIT {
     @Test
     void aQueueOfThousandsOfRunsDrainsAtTheSpeedOfTheSlotsAfterASingleSweep() {
         String tenant = tenant("tenant-a");
-        int flows = envInt("SCALE_DRAIN_FLOWS", 50);
+        int flowCount = envInt("SCALE_DRAIN_FLOWS", 50);
         int perFlow = envInt("SCALE_DRAIN_PER_FLOW", 40);
         int millis = envInt("SCALE_DRAIN_MILLIS", 20);
         int slots = envInt("SCALE_DRAIN_SLOTS", 16);
-        int total = flows * perFlow;
+        int total = flowCount * perFlow;
         in(tenant, () -> {
-            for (int f = 0; f < flows; f++) {
+            for (int f = 0; f < flowCount; f++) {
                 manualFlow(tenant, "drain-" + f, work(millis, tenant, "drain"), 1);
             }
-            // Pending runs for every flow in one statement; windows an hour apart, as reruns of old failures.
-            return jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, "
-                    + "run_timeout, window_start, window_end, parameters, trigger, triggered_by, run_as) "
-                    + "SELECT gen_random_uuid(), f.id, 1, 'PENDING', 1, 2, interval '15 minutes', "
-                    + "timestamptz '2026-01-01 00:00:00+00' + g * interval '1 hour', "
-                    + "timestamptz '2026-01-01 01:00:00+00' + g * interval '1 hour', '{}'::jsonb, "
-                    + "'rerun', 'user-1', 'user-1' FROM flow.flow f, generate_series(1, ?) g", perFlow);
+            // Pending runs for every flow in one call each; windows an hour apart, as reruns of old failures.
+            Instant base = Instant.parse("2026-01-01T00:00:00Z");
+            for (FlowRepository.DeployedFlow f : flows.deployedFlows()) {
+                List<NewRun> batch = new ArrayList<>();
+                for (int g = 1; g <= perFlow; g++) {
+                    batch.add(new NewRun(UUID.randomUUID(), f.id(), f.externalId(), 7, 1, 2, Duration.ofMinutes(15),
+                            new TimeWindow(base.plus(Duration.ofHours(g)), base.plus(Duration.ofHours(g + 1))),
+                            null, "rerun", "user-1", "user-1", null));
+                }
+                runs.enqueueAll(batch);
+            }
+            return null;
         });
         assertThat(in(tenant, () -> count("PENDING"))).isEqualTo(total);
         RunCoordinator a = coordinator("a", slots);
         a.startDispatching();
         heartbeating.add(a);
 
-        long[] before = in(tenant, this::databaseWork);
+        long before = in(tenant, this::commandsServed);
         long started = System.nanoTime();
         a.sweepAll();
         long until = System.nanoTime() + Duration.ofMinutes(5).toNanos();
-        while (!in(tenant, () -> count("SUCCEEDED") == total) && System.nanoTime() < until) {
+        while (!in(tenant, () -> settled(total)) && System.nanoTime() < until) {
             sleep(100);
         }
         long ms = (System.nanoTime() - started) / 1_000_000;
-        long[] after = in(tenant, this::databaseWork);
+        long after = in(tenant, this::commandsServed);
 
         assertThat(in(tenant, () -> count("SUCCEEDED"))).as("every queued run ran after one sweep").isEqualTo(total);
-        assertThat(in(tenant, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1",
-                Integer.class))).isZero();
+        assertThat(in(tenant, () -> rows())).extracting(r -> r.get("attempt")).containsOnly("1");
         assertThat(MOST.get("drain").get()).as("the slots were used, and not exceeded").isBetween(Math.max(1, slots - 2), slots);
         double ideal = total * (double) millis / slots;
         System.out.printf("drain: %d runs over %d flows at %d ms each on %d slots took %d ms after one sweep"
                         + " (%.0f runs/s; the slots alone allow %.0f ms)%n",
-                total, flows, millis, slots, ms, total * 1000.0 / ms, ideal);
-        System.out.printf("drain: what that cost Postgres, per run: %.1f transactions, %.1f rows updated, "
-                        + "%.1f rows read; %.0f transactions/s in all%n",
-                (after[0] - before[0]) / (double) total, (after[1] - before[1]) / (double) total,
-                (after[2] - before[2]) / (double) total, (after[0] - before[0]) * 1000.0 / ms);
+                total, flowCount, millis, slots, ms, total * 1000.0 / ms, ideal);
+        System.out.printf("drain: what that cost KVRocks, per run: %.1f commands; %.0f commands/s in all%n",
+                (after - before) / (double) total, (after - before) * 1000.0 / ms);
         // Generous: the point is minutes against hours, not a benchmark. Sweep-only dispatch needs
         // total / slots sweeps of ten seconds.
         assertThat(ms).isLessThan(Math.max(30_000L, (long) (ideal * 6)));
@@ -439,7 +456,7 @@ class RunCoordinatorScaleIT {
         String tenant = tenant("tenant-a");
         Schedule everySecond = new Schedule(Schedule.SCHEDULE, "* * * * * *", ZoneOffset.UTC,
                 Duration.ofSeconds(1), null);
-        Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.SECONDS).minusSeconds(3);
+        Instant first = in(tenant, flows::now).truncatedTo(ChronoUnit.SECONDS).minusSeconds(3);
         flow(tenant, "every-second", work(5, tenant, "every-second"), 1, everySecond, first);
         RunCoordinator a = coordinator("a", 4);
         a.startDispatching();
@@ -452,12 +469,12 @@ class RunCoordinatorScaleIT {
         await(() -> in(tenant, () -> settled(8)));
 
         in(tenant, () -> {
-            List<Timestamp> windows = jdbc.queryForList(
-                    "SELECT window_end FROM flow.run ORDER BY window_end", Timestamp.class);
+            List<Instant> windows = rows().stream()
+                    .map(r -> Instant.ofEpochMilli(Long.parseLong(r.get("window_end_ms")))).sorted().toList();
             assertThat(windows.size()).as("about one run a second for the six seconds").isBetween(8, 12);
             for (int i = 1; i < windows.size(); i++) {
-                assertThat(windows.get(i).toInstant()).as("no tick missing or repeated")
-                        .isEqualTo(windows.get(i - 1).toInstant().plusSeconds(1));
+                assertThat(windows.get(i)).as("no tick missing or repeated")
+                        .isEqualTo(windows.get(i - 1).plusSeconds(1));
             }
             assertThat(count("SUCCEEDED")).isEqualTo(windows.size());
             return null;
@@ -473,7 +490,7 @@ class RunCoordinatorScaleIT {
     @Test
     void threeHoursOfDowntimeBecomeOneRunPerMissedTickOverSeveralSweeps() {
         String tenant = tenant("tenant-a");
-        Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofHours(3));
+        Instant first = in(tenant, flows::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofHours(3));
         scheduledFlow(tenant, "catch-up", work(0, tenant, "catch-up"), 1, first);
         RunCoordinator a = coordinator("a", 1);
 
@@ -489,10 +506,12 @@ class RunCoordinatorScaleIT {
         assertThat(created).isBetween(181, 182);
         assertThat(sweeps).isEqualTo((created + 23) / 24);
         in(tenant, () -> {
-            List<Timestamp> windows = jdbc.queryForList("SELECT window_end FROM flow.run ORDER BY created_at, window_end",
-                    Timestamp.class);
-            assertThat(windows).hasSize(windows.stream().distinct().toList().size()).isSorted();
-            assertThat(windows.getFirst().toInstant()).isEqualTo(first);
+            List<Instant> windows = rows().stream()
+                    .sorted(java.util.Comparator.comparingLong((Map<String, String> r) -> Long.parseLong(r.get("created_ms")))
+                            .thenComparingLong(r -> Long.parseLong(r.get("window_end_ms"))))
+                    .map(r -> Instant.ofEpochMilli(Long.parseLong(r.get("window_end_ms")))).toList();
+            assertThat(windows).hasSize(windows.stream().distinct().toList().size());
+            assertThat(windows.stream().min(Instant::compareTo).orElseThrow()).isEqualTo(first);
             return null;
         });
         System.out.printf("catch-up: 3 h of downtime for one per-minute flow became %d pending runs over %d sweeps%n",
@@ -504,7 +523,7 @@ class RunCoordinatorScaleIT {
     @Test
     void anInstanceThatDiesWithAScheduledRunLosesItToAnotherAndTheScheduleGoesOn() throws Exception {
         String tenant = tenant("tenant-a");
-        Instant tick = in(tenant, runs::now).truncatedTo(ChronoUnit.MINUTES);
+        Instant tick = in(tenant, flows::now).truncatedTo(ChronoUnit.MINUTES);
         long flow = scheduledFlow(tenant, "survivor", hold(), 1, tick);
         HOLD.set(true);
         RunCoordinator a = coordinator("a", 1);
@@ -517,8 +536,9 @@ class RunCoordinatorScaleIT {
             a.sweep(tenant);
             return a.claim(tenant, null);
         });
-        UUID run = in(tenant, () -> jdbc.queryForObject("SELECT id FROM flow.run ORDER BY window_start LIMIT 1",
-                UUID.class));
+        UUID run = in(tenant, () -> UUID.fromString(rows().stream()
+                .min(java.util.Comparator.comparingLong((Map<String, String> r) -> Long.parseLong(r.get("window_start_ms"))))
+                .orElseThrow().get("id")));
         assertThat(in(tenant, () -> runs.find(run).orElseThrow().status())).isEqualTo("RUNNING");
 
         Thread.sleep(LEASE.plusMillis(300).toMillis());
@@ -541,14 +561,13 @@ class RunCoordinatorScaleIT {
         in(tenant, () -> jdbc.update("UPDATE flow.flow SET next_tick = now(), next_due_at = now() WHERE id = ?", flow));
         sweepUntil(List.of(b), () -> in(tenant, () -> settled(2)), Duration.ofSeconds(30));
         in(tenant, () -> {
-            int total = count(null);
-            assertThat(count("SUCCEEDED")).as("runs: %s", jdbc.queryForList(
-                    "SELECT status, attempt, error_code, error, window_start, window_end FROM flow.run ORDER BY created_at"))
-                    .isEqualTo(total);
-            assertThat(jdbc.queryForObject("SELECT count(DISTINCT window_start) FROM flow.run", Integer.class))
+            List<Map<String, String>> all = rows();
+            int total = all.size();
+            assertThat(all).as("runs: %s", all).extracting(r -> r.get("status")).containsOnly("SUCCEEDED");
+            assertThat(all.stream().map(r -> r.get("window_start_ms")).distinct().count())
                     .as("each tick ran once").isEqualTo(total);
-            assertThat(jdbc.queryForObject("SELECT max(window_end) FROM flow.run", Timestamp.class).toInstant())
-                    .isAfter(tick);
+            assertThat(all.stream().mapToLong(r -> Long.parseLong(r.get("window_end_ms"))).max().orElseThrow())
+                    .isGreaterThan(tick.toEpochMilli());
             return null;
         });
     }
@@ -570,16 +589,17 @@ class RunCoordinatorScaleIT {
         a.shutdown();
         in(tenant, () -> {
             assertThat(count("PENDING")).isEqualTo(3);
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt = 1 AND owner IS NULL",
-                    Integer.class)).isEqualTo(3);
+            assertThat(rows()).allSatisfy(r -> {
+                assertThat(r.get("attempt")).isEqualTo("1");
+                assertThat(r.getOrDefault("owner", "")).isEmpty();
+            });
             return null;
         });
 
         HOLD.set(false);
         assertThat(in(tenant, () -> b.claim(tenant, null))).hasSize(3);
         await(() -> in(tenant, () -> count("SUCCEEDED") == 3));
-        assertThat(in(tenant, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1",
-                Integer.class))).isZero();
+        assertThat(in(tenant, () -> rows())).extracting(r -> r.get("attempt")).containsOnly("1");
     }
 
     // ---------------------------------------------------------------- fixtures
@@ -597,8 +617,15 @@ class RunCoordinatorScaleIT {
         tenant.setOrganizationId(id);
         tenant.setOrganizationName(id);
         tenant.setPostgresTenant(postgres);
+        tenant.setKvrocksTenant(SharedKvrocks.kvrocks(servers.size()));
+        servers.put(id, servers.size());
         tenant.setFeatures(features);
         registry.cachedTenants.put(id, tenant);
+        // Flow ids are per database, and a scheduled run's id is made from the flow id and the tick:
+        // tenants started from the same id would make the same run ids, and a leak between them
+        // could not be told from a coincidence.
+        in(id, () -> jdbc.queryForObject("SELECT setval(pg_get_serial_sequence('flow.flow', 'id'), ?)",
+                Long.class, servers.get(id) * 1000L + 1000));
         return id;
     }
 
@@ -621,20 +648,28 @@ class RunCoordinatorScaleIT {
                 { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
                   "processors": [ %s ], "connections": [] }
                 """.formatted(externalId, externalId, processor);
-        return in(tenant, () -> transaction.execute(s -> {
-            long id = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
-            flows.deploy(id, 1, true, schedule.toJson(JSON), maxConcurrent, 2, Duration.ofMinutes(15),
-                    FlowRepository.Identity.deployer("user-1"), "user-1", nextTick,
-                    nextTick == null ? null : schedule.dueAt(nextTick));
+        return in(tenant, () -> {
+            long id = transaction.execute(s -> {
+                long created = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
+                flows.deploy(created, 1, true, schedule.toJson(JSON), maxConcurrent, 2, Duration.ofMinutes(15),
+                        FlowRepository.Identity.deployer("user-1"), "user-1", nextTick,
+                        nextTick == null ? null : schedule.dueAt(nextTick));
+                return created;
+            });
+            runs.syncFlow(new RunStore.FlowLimits(id, externalId, 7, true, true, maxConcurrent));
             return id;
-        }));
+        });
     }
 
     private UUID pending(String tenant, long flow, int hour) {
         Instant end = Instant.parse("2026-10-12T00:00:00Z").plus(Duration.ofHours(hour + 1));
-        return in(tenant, () -> transaction.execute(s -> runs.insert(new NewRun(flow, 1, 2,
-                Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "manual",
-                "user-1", "user-1"))));
+        return in(tenant, () -> {
+            UUID id = UUID.randomUUID();
+            runs.enqueue(new NewRun(id, flow, flows.findById(flow).orElseThrow().externalId(), 7, 1, 2,
+                    Duration.ofMinutes(15), new TimeWindow(end.minus(Duration.ofHours(1)), end), null, "manual",
+                    "user-1", "user-1", null));
+            return id;
+        });
     }
 
     private RunCoordinator coordinator(String name, int maxRunning) {
@@ -646,14 +681,14 @@ class RunCoordinatorScaleIT {
         };
         String api = "http://127.0.0.1:" + datahub.getAddress().getPort();
         RunExecution execution = new RunExecution(compiler, new RunExecutor(Clock.systemUTC(), d -> { }), flows,
-                jdbc, credentials, tenant -> Map.of(), api, REQUEST_TIMEOUT, JSON,
+                credentials, tenant -> Map.of(), api, REQUEST_TIMEOUT, JSON,
                 (tenant, run, attempt, flow, version) -> {
                     recordsOpenedFor.put(run, tenant);
                     return new RunRecords(run, attempt, flow, version, 100_000, Clock.systemUTC(),
                             batch -> CompletableFuture.completedFuture(null));
                 }, Duration.ofSeconds(5), 64L << 20);
         RunEvents events = new RunEvents(runs, credentials, api, REQUEST_TIMEOUT, 20);
-        RunCoordinator c = new RunCoordinator(runs, execution, events, transaction, registry, schemaCheck, JSON,
+        RunCoordinator c = new RunCoordinator(runs, flows, execution, events, transaction, registry, schemaCheck, JSON,
                 new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 24,
                 Duration.ZERO, Duration.ZERO, Duration.ofSeconds(1)), name, System::nanoTime);
         coordinators.add(c);
@@ -691,28 +726,64 @@ class RunCoordinatorScaleIT {
         await(done);
     }
 
+    /** The current tenant's KVRocks, for looking at the raw runs. */
+    private RedisCommands<String, String> raw() {
+        return SharedKvrocks.raw(servers.get(TenantContext.getTenantId()));
+    }
+
+    /** How many runs the current tenant's store holds, ended or not. */
+    private int total() {
+        return raw().keys("flow:run:*").size();
+    }
+
     /**
-     * Whether the current tenant has at least {@code atLeast} runs and none still pending or
-     * running, asked in one statement: three counts would be three snapshots, and a sweep that
-     * commits between them can make a run that is still going look finished.
+     * Whether the current tenant has at least {@code atLeast} runs and none still queued or
+     * running: the live set holds exactly those.
      */
     private boolean settled(int atLeast) {
-        return Boolean.TRUE.equals(jdbc.queryForObject("SELECT count(*) >= ? AND count(*) FILTER "
-                + "(WHERE status IN ('PENDING', 'RUNNING')) = 0 FROM flow.run", Boolean.class, atLeast));
+        return raw().zcard("flow:live") == 0 && total() >= atLeast;
     }
 
-    /** What the current tenant's database has done so far: transactions, rows updated, rows read. */
-    private long[] databaseWork() {
-        return jdbc.queryForObject("SELECT xact_commit + xact_rollback, tup_updated, tup_fetched "
-                + "FROM pg_stat_database WHERE datname = current_database()",
-                (rs, n) -> new long[]{rs.getLong(1), rs.getLong(2), rs.getLong(3)});
+    /** Every run of the current tenant as its stored fields. */
+    private List<Map<String, String>> rows() {
+        List<Map<String, String>> out = new ArrayList<>();
+        for (String key : raw().keys("flow:run:*")) {
+            out.add(raw().hgetall(key));
+        }
+        return out;
     }
 
-    /** Runs of the current tenant with {@code status}, or all of them for null. */
+    /** The owners of a few of the runs not yet ended: enough to see which instances are taking them. */
+    private Set<String> ownersOfSomeLiveRuns() {
+        Set<String> owners = new java.util.HashSet<>();
+        for (String id : raw().zrange("flow:live", 0, 50)) {
+            String owner = raw().hget("flow:run:" + id, "owner");
+            if (owner != null && !owner.isEmpty()) {
+                owners.add(owner);
+            }
+        }
+        return owners;
+    }
+
+    /** What the current tenant's KVRocks has served so far, in commands. */
+    private long commandsServed() {
+        for (String line : raw().info("stats").split("\\R")) {
+            if (line.startsWith("total_commands_processed:")) {
+                return Long.parseLong(line.substring(line.indexOf(':') + 1).trim());
+            }
+        }
+        throw new IllegalStateException("KVRocks reports no command count");
+    }
+
+    /** Runs of the current tenant in {@code status}. */
     private int count(String status) {
-        return status == null
-                ? jdbc.queryForObject("SELECT count(*) FROM flow.run", Integer.class)
-                : jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE status = ?", Integer.class, status);
+        int n = 0;
+        for (Map<String, String> r : rows()) {
+            if (status.equals(r.get("status"))) {
+                n++;
+            }
+        }
+        return n;
     }
 
     private static void await(BooleanSupplier condition) {

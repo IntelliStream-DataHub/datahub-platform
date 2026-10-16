@@ -3,7 +3,7 @@ package ai.intellistream.datahub.flow.records;
 
 import ai.intellistream.datahub.flow.records.RecordsTable.Position;
 import ai.intellistream.datahub.flow.records.RecordsTable.StoredRecord;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import ai.intellistream.datahub.flow.runs.RunView;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;

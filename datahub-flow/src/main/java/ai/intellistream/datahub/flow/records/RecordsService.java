@@ -8,8 +8,7 @@ import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.records.RecordsTable.Position;
 import ai.intellistream.datahub.flow.records.RecordsTable.StoredRecord;
 import ai.intellistream.datahub.flow.records.RecordsTable.Write;
-import ai.intellistream.datahub.flow.runs.RunRepository;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import ai.intellistream.datahub.flow.runs.RunService;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.tenant.TenantConfigService;
@@ -31,6 +30,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -49,25 +49,23 @@ public class RecordsService {
     static final int LOOKUP_LIMIT = 50;
 
     private final RunService runs;
-    private final RunRepository runRepository;
     private final FlowService flows;
     private final Supplier<Client> clickhouse;
     private final JsonMapper json;
     private final Duration pollInterval;
 
     @Autowired
-    public RecordsService(RunService runs, RunRepository runRepository, FlowService flows,
+    public RecordsService(RunService runs, FlowService flows,
                           TenantConfigService tenants, ClickHouseClientPool pool, JsonMapper json,
                           @Value("${datahub.flow.records.live-poll:PT1S}") Duration pollInterval) {
-        this(runs, runRepository, flows,
+        this(runs, flows,
                 () -> pool.getReadOnlyClient(tenants.getConfig(TenantContext.getTenantId())), json,
                 pollInterval);
     }
 
-    RecordsService(RunService runs, RunRepository runRepository, FlowService flows,
+    RecordsService(RunService runs, FlowService flows,
                    Supplier<Client> clickhouse, JsonMapper json, Duration pollInterval) {
         this.runs = runs;
-        this.runRepository = runRepository;
         this.flows = flows;
         this.clickhouse = clickhouse;
         this.json = json;
@@ -98,7 +96,7 @@ public class RecordsService {
     public StreamingResponseBody events(UUID runId) {
         StoredRun run = runs.readable(runId);
         String tenantId = TenantContext.getTenantId();
-        RunEventStream stream = new RunEventStream(runId, () -> runRepository.find(runId),
+        RunEventStream stream = new RunEventStream(runId, () -> runs.lookup(runId),
                 after -> RecordsTable.list(clickhouse.get(), runId, after, RunEventStream.PAGE), json,
                 pollInterval, run.timeout().plus(Duration.ofMinutes(5)));
         return out -> TenantContext.runWith(tenantId, () -> {
@@ -138,9 +136,11 @@ public class RecordsService {
             throw FlowProblems.badRequest("timeseries and at are required.");
         }
         List<RecordedWrite> visible = new ArrayList<>();
-        for (Write w : RecordsTable.writes(clickhouse.get(), timeseries, at, LOOKUP_LIMIT)) {
+        List<Write> writes = RecordsTable.writes(clickhouse.get(), timeseries, at, LOOKUP_LIMIT);
+        Map<UUID, StoredRun> found = runs.lookup(writes.stream().map(Write::runId).toList());
+        for (Write w : writes) {
             // A run deleted by retention, or of a flow the caller may not see, is left out.
-            Optional<StoredRun> run = runRepository.find(w.runId())
+            Optional<StoredRun> run = Optional.ofNullable(found.get(w.runId()))
                     .filter(r -> r.dataSetId() != null && caller.canRead(r.dataSetId()));
             run.ifPresent(r -> visible.add(new RecordedWrite(w.runId(), w.attempt(), w.flowExternalId(),
                     w.flowVersion(), w.processor(), w.time(), w.windowStart(), w.windowEnd(), r.status(),

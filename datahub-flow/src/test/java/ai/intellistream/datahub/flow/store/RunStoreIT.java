@@ -107,6 +107,22 @@ class RunStoreIT {
     }
 
     @Test
+    void theNewestRunsInHandAreListedUntilTheyEnd() throws Exception {
+        flow(1, 1);
+        NewRun older = run(1, 0);
+        store.enqueue(older);
+        Thread.sleep(5);
+        NewRun newer = run(1, 1);
+        store.enqueue(newer);
+
+        assertThat(store.liveNewest(10)).extracting(StoredRun::id).containsExactly(newer.id(), older.id());
+        store.claim("a", LEASE, 1, GRACE);
+        store.complete(older.id(), "a", 1, "SUCCEEDED", false, OUTCOME);
+
+        assertThat(store.liveNewest(10)).extracting(StoredRun::id).containsExactly(newer.id());
+    }
+
+    @Test
     void whenARunEndsTheNextOfItsFlowCanStart() {
         flow(1, 1);
         NewRun first = run(1, 0);

@@ -13,7 +13,7 @@ import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.records.RunRecords;
 import ai.intellistream.datahub.flow.runs.RunCredentials.RunIdentityException;
-import ai.intellistream.datahub.flow.runs.RunRepository.Claimed;
+import ai.intellistream.datahub.flow.store.RunStore.Claimed;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
@@ -25,7 +25,6 @@ import ai.intellistream.datahub.tenant.TenantFlowSection;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.JsonNode;
@@ -74,7 +73,6 @@ public class RunExecution {
     private final FlowCompiler compiler;
     private final RunExecutor executor;
     private final FlowRepository flows;
-    private final JdbcTemplate jdbc;
     private final RunCredentials credentials;
     private final Function<String, Map<String, String>> tenantSecrets;
     private final String apiBaseUrl;
@@ -97,21 +95,21 @@ public class RunExecution {
 
     @Autowired
     public RunExecution(FlowCompiler compiler, RunExecutor executor, FlowRepository flows,
-                        JdbcTemplate jdbc, RunCredentials credentials, TenantConfigService tenants,
+                        RunCredentials credentials, TenantConfigService tenants,
                         TenantConfigWriter tenantConfig,
                         @Value("${datahub.api.url:http://localhost:8081}") String apiBaseUrl,
                         @Value("${datahub.flow.runs.request-timeout:PT30S}") Duration requestTimeout,
                         JsonMapper json, RunRecords.Opener records,
                         @Value("${datahub.flow.records.ack-wait:PT30S}") Duration ackWait,
                         DataSize runMemoryCap) {
-        this(compiler, executor, flows, jdbc, credentials, tenantId -> {
+        this(compiler, executor, flows, credentials, tenantId -> {
             // Read when the run starts, never cached: a secret changed a moment ago is the one used.
             Tenant tenant = tenants.getConfig(tenantId);
             return tenantConfig.current(tenant.getOrganizationName());
         }, apiBaseUrl, requestTimeout, json, records, ackWait, runMemoryCap.toBytes());
     }
 
-    RunExecution(FlowCompiler compiler, RunExecutor executor, FlowRepository flows, JdbcTemplate jdbc,
+    RunExecution(FlowCompiler compiler, RunExecutor executor, FlowRepository flows,
                  RunCredentials credentials, Function<String, Map<String, String>> tenantSecrets,
                  String apiBaseUrl, Duration requestTimeout, JsonMapper json, RunRecords.Opener records,
                  Duration ackWait, long memoryCap) {
@@ -119,7 +117,6 @@ public class RunExecution {
         this.compiler = compiler;
         this.executor = executor;
         this.flows = flows;
-        this.jdbc = jdbc;
         this.credentials = credentials;
         this.tenantSecrets = tenantSecrets;
         this.apiBaseUrl = apiBaseUrl;
@@ -178,18 +175,9 @@ public class RunExecution {
         AtomicReference<Map<String, String>> secrets = new AtomicReference<>();
         Function<String, String> secret = name -> TenantFlowSection.secretValue(
                 secrets.updateAndGet(s -> s != null ? s : tenantSecrets.apply(run.tenantId)), name);
-        Long dataSetId = null;
-        String flowExternalId;
-        if (claimed.flowId() == null) {
-            flowExternalId = FlowDefinitions.parse(claimed.definition()).externalId();
-            dataSetId = jdbc.queryForObject("SELECT data_set_id FROM flow.run WHERE id = ?",
-                    Long.class, claimed.id());
-        } else {
-            Map<String, Object> row = jdbc.queryForMap(
-                    "SELECT data_set_id, external_id FROM flow.flow WHERE id = ?", claimed.flowId());
-            dataSetId = (Long) row.get("data_set_id");
-            flowExternalId = (String) row.get("external_id");
-        }
+        // What the run was made with, as the run store holds it: its flow's external id and dataset.
+        Long dataSetId = claimed.dataSetId();
+        String flowExternalId = claimed.flowExternalId();
         if (dataSetId != null && dataSetDeleted(datahub, dataSetId)) {
             if (claimed.flowId() != null) {
                 flows.disable(claimed.flowId(), RunCoordinator.DATASET_DELETED);

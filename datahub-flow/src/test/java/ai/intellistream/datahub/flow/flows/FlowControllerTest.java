@@ -9,6 +9,7 @@ import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredVersion;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
+import ai.intellistream.datahub.flow.store.RunStore;
 import ai.intellistream.datahub.flow.web.FlowProblems;
 import ai.intellistream.datahub.models.DataSetModel;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
@@ -90,7 +91,7 @@ class FlowControllerTest {
         FlowService service = new FlowService(repository, access,
                 new FlowValidator(TestFlows.builtIns(), FlowValidator.Limits.DEFAULTS), tenants,
                 tenantConfig, new TransactionTemplate(mock(PlatformTransactionManager.class)),
-                JsonMapper.builder().build(), offlineTokens);
+                JsonMapper.builder().build(), offlineTokens, mock(RunStore.class));
         mvc = MockMvcBuilders.standaloneSetup(new FlowController(service))
                 .setControllerAdvice(new FlowProblems())
                 .build();

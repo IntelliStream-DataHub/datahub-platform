@@ -69,9 +69,9 @@ public class RunStore {
     }
 
     /** A run this instance now owns. */
-    public record Claimed(UUID id, Long flowId, Integer version, String definition, int attempt,
-                          int maxAttempts, Duration timeout, TimeWindow window, String parameters,
-                          boolean preview, String runAs, Duration leaseLeft) {
+    public record Claimed(UUID id, Long flowId, String flowExternalId, Long dataSetId, Integer version,
+                          String definition, int attempt, int maxAttempts, Duration timeout, TimeWindow window,
+                          String parameters, boolean preview, String runAs, Duration leaseLeft) {
     }
 
     /** A renewed lease. */
@@ -225,7 +225,8 @@ public class RunStore {
     private List<Claimed> claimed(List<String> ids, Duration lease) {
         List<Claimed> out = new ArrayList<>();
         for (Map<String, String> h : hashes(ids)) {
-            out.add(new Claimed(uuid(h, "id"), longOrNull(h, "flow_id"), intOrNull(h, "version"), str(h, "definition"),
+            out.add(new Claimed(uuid(h, "id"), longOrNull(h, "flow_id"), str(h, "flow_external_id"),
+                    longOrNull(h, "data_set_id"), intOrNull(h, "version"), str(h, "definition"),
                     Integer.parseInt(h.get("attempt")), Integer.parseInt(h.get("max_attempts")),
                     Duration.ofMillis(Long.parseLong(h.get("timeout_ms"))), window(h), str(h, "parameters"),
                     "1".equals(h.get("preview")), str(h, "run_as"), lease));
@@ -344,6 +345,12 @@ public class RunStore {
     /** The stored runs with these ids; those that are gone are left out. */
     public List<StoredRun> find(Collection<UUID> ids) {
         return hashes(ids.stream().map(UUID::toString).toList()).stream().map(RunStore::stored).toList();
+    }
+
+    /** The runs not yet ended, newest first: what the run list shows before the history. */
+    public List<StoredRun> liveNewest(int most) {
+        List<String> ids = connection().sync().zrevrange("flow:live", 0, most - 1);
+        return hashes(ids).stream().map(RunStore::stored).toList();
     }
 
     /** A flow's runs in hand: pending first, in the order they start, then running. */

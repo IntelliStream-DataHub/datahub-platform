@@ -3,7 +3,7 @@ package ai.intellistream.datahub.flow.runs;
 
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.flows.FlowRepository.Deployment;
-import ai.intellistream.datahub.flow.runs.RunRepository.StoredRun;
+import ai.intellistream.datahub.flow.store.RunStore.StoredRun;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;

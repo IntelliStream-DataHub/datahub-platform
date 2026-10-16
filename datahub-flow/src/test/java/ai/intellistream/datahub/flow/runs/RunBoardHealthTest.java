@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
-import ai.intellistream.datahub.flow.runs.RunRepository.BoardRow;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -115,8 +114,8 @@ class RunBoardHealthTest {
         Row queued(int n, Instant since) { queued = n; waiting = since; return this; }
         Row last(String v) { lastStatus = v; return this; }
 
-        BoardRow build() {
-            return new BoardRow(1, "flow", "Flow", 1, enabled, disabledReason, identity, nextDue, 0, null, null,
+        RunService.BoardRow build() {
+            return new RunService.BoardRow(1, "flow", "Flow", 1, enabled, disabledReason, identity, nextDue, 0, null, null,
                     queued, retrying, waiting, lastStatus == null ? null : UUID.randomUUID(), lastStatus,
                     null, lastStatus == null ? null : NOW.minusSeconds(60));
         }
