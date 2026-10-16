@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.nav.runs}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('runs')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* What is running and what is waiting, across the flows the user may read: three
+	       GET {flow}/runs?status=… queries, filled by flows/flows-overview.js, which refreshes them
+	       every few seconds while anything is running or queued. */-->
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="runs-page">
+		<header class="flows-header">
+			<div>
+				<h2 th:text="#{flows.nav.runs}"></h2>
+				<p class="flows-intro" th:text="#{flows.runs.intro}"></p>
+			</div>
+			<button type="button" class="dh-btn secondary" data-type="runs-refresh" th:text="#{flows.runs.refresh}"></button>
+		</header>
+
+		<p class="flows-hint" data-type="runs-summary"></p>
+
+		<h3 th:text="#{flows.runs.running}"></h3>
+		<table class="listing slim w100" data-type="runs-running">
+			<thead>
+				<tr>
+					<th th:text="#{flows.column.flow}"></th>
+					<th th:text="#{flows.column.window}"></th>
+					<th th:text="#{flows.column.started}"></th>
+					<th th:text="#{flows.runs.column.running.for}"></th>
+					<th th:text="#{flows.runs.column.instance}"></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="runs-running-empty" hidden th:text="#{flows.runs.running.empty}"></p>
+
+		<h3 th:text="#{flows.runs.queued}"></h3>
+		<table class="listing slim w100" data-type="runs-queued">
+			<thead>
+				<tr>
+					<th th:text="#{flows.column.flow}"></th>
+					<th th:text="#{flows.column.window}"></th>
+					<th th:text="#{flows.runs.column.waiting}"></th>
+					<th th:text="#{flows.column.attempt}"></th>
+					<th th:text="#{flows.runs.column.state}"></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="runs-queued-empty" hidden th:text="#{flows.runs.queued.empty}"></p>
+		<p class="flows-hint" th:text="#{flows.runs.queued.note}"></p>
+
+		<h3 th:text="#{flows.runs.recent}"></h3>
+		<table class="listing slim w100" data-type="runs-recent">
+			<thead>
+				<tr>
+					<th th:text="#{flows.column.flow}"></th>
+					<th th:text="#{flows.column.window}"></th>
+					<th th:text="#{flows.column.status}"></th>
+					<th th:text="#{flows.column.finished}"></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="runs-recent-empty" hidden th:text="#{flows.runs.recent.empty}"></p>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

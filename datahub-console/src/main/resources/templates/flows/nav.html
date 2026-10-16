@@ -2,6 +2,9 @@
 	<a th:href="@{/flows}" th:classappend="${pageSelected} == 'list' ? 'selected' : ''">
 		<span th:text="#{flows.nav.list}"></span>
 	</a>
+	<a th:href="@{/flows(tab='runs')}" th:classappend="${pageSelected} == 'runs' ? 'selected' : ''">
+		<span th:text="#{flows.nav.runs}"></span>
+	</a>
 	<a th:href="@{/flows(tab='attention')}" th:classappend="${pageSelected} == 'attention' ? 'selected' : ''">
 		<span th:text="#{flows.nav.attention}"></span>
 	</a>

@@ -10,5 +10,6 @@
 //= require flows/flow-runs.js
 //= require flows/flows-list.js
 //= require flows/flow-editor.js
+//= require flows/flows-overview.js
 //= require flows/flows-attention.js
 //= require flows/flows-lookup.js

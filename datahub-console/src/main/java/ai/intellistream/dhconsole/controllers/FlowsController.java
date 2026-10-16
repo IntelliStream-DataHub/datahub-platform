@@ -43,6 +43,11 @@ public class FlowsController {
         return page(model, "flows/flow");
     }
 
+    @GetMapping(params = "tab=runs")
+    public String runs(Model model) {
+        return page(model, "flows/runs");
+    }
+
     @GetMapping(params = "tab=attention")
     public String attention(Model model) {
         return page(model, "flows/attention");
