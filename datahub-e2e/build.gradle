@@ -28,13 +28,13 @@ dependencies {
 
 // A normal build skips everything here: there is no live platform on a build agent.
 tasks.named('test') {
-    useJUnitPlatform { excludeTags 'integration', 'performance' }
+    useJUnitPlatform { excludeTags 'integration', 'performance', 'flows' }
 }
 
 tasks.register('integrationTest', Test) {
     description = 'End-to-end SDK tests against a running platform (see README.md).'
     group = 'verification'
-    useJUnitPlatform { includeTags 'integration'; excludeTags 'performance' }
+    useJUnitPlatform { includeTags 'integration'; excludeTags 'performance', 'flows' }
     testClassesDirs = sourceSets.test.output.classesDirs
     classpath = sourceSets.test.runtimeClasspath
     // The stack is addressed by environment, so let it through.
@@ -42,6 +42,19 @@ tasks.register('integrationTest', Test) {
     testLogging { showStandardStreams = true }
     // The platform is the input and Gradle cannot see it, so "nothing changed" would happily
     // replay the previous run's results against a stack that has since been fixed or broken.
+    outputs.upToDateWhen { false }
+}
+
+// Flows on the live platform: many scheduled flows at once, two tenants kept apart, and the flow
+// service killed with runs in hand. Minutes, not seconds: the ticks are real minutes.
+tasks.register('flowTest', Test) {
+    description = 'Flow scale, tenant isolation and crash recovery against a running platform (see README.md).'
+    group = 'verification'
+    useJUnitPlatform { includeTags 'flows' }
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    environment System.getenv()
+    testLogging { showStandardStreams = true }
     outputs.upToDateWhen { false }
 }
 
