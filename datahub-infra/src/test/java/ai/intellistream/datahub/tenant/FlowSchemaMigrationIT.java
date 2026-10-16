@@ -125,13 +125,13 @@ class FlowSchemaMigrationIT {
     void aRunningRunHasALeaseAndAPreviewMayCarryItsOwnDefinition() throws SQLException {
         try (Connection c = connect(); Statement s = c.createStatement()) {
             s.executeUpdate("INSERT INTO flow.run (id, definition, status, max_attempts,"
-                    + " memory_bytes, run_timeout, preview, trigger)"
-                    + " VALUES ('" + UUID.randomUUID() + "', '{}', 'PENDING', 1, 1, '1 minute',"
+                    + " run_timeout, preview, trigger)"
+                    + " VALUES ('" + UUID.randomUUID() + "', '{}', 'PENDING', 1, '1 minute',"
                     + " true, 'preview')");
 
             assertThatThrownBy(() -> s.executeUpdate("INSERT INTO flow.run (id, definition, status,"
-                    + " max_attempts, memory_bytes, run_timeout, preview, trigger)"
-                    + " VALUES ('" + UUID.randomUUID() + "', '{}', 'RUNNING', 1, 1, '1 minute',"
+                    + " max_attempts, run_timeout, preview, trigger)"
+                    + " VALUES ('" + UUID.randomUUID() + "', '{}', 'RUNNING', 1, '1 minute',"
                     + " true, 'preview')"))
                     .hasMessageContaining("run_running_has_lease");
         }
