@@ -16,6 +16,9 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   `TimeseriesService` go to `POST /timeseries/data/binary`; the JSON `ingest(...)` is untouched
   and the durable spool applies to it only. The binary path resolves series through
   `/timeseries/byids` (`client/SeriesResolver`), so it needs read access to the dataset too.
+  The binary read, `retrieveBinary(...)`, goes to `POST /timeseries/data/list/binary` with the
+  JSON retrieve body and returns api-model's `DatapointFrame`s as they are; a response without
+  the end marker is an error, never a shorter answer.
 - **Branch on the problem `type`, never on a substring of the body.** The api answers every
   failure with one RFC 9457 shape whose `type` URI is the contract; `detail` and `title` are prose
   for a human and may be reworded. `Problem.of(status, body)` never throws and never returns null,

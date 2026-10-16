@@ -153,6 +153,7 @@ class TimeseriesBinaryIngestTest {
         long latest = Long.MIN_VALUE;
         for (DatapointFrame f : r.parsed()) {
             assertEquals(DatapointValueType.FLOAT32, f.valueType());
+            assertEquals(FrameLimits.COMPRESSION_ARROW_ZSTD, f.compression(), "compressed in-band, as a read answers");
             assertEquals(11L, f.seriesIds()[0]);
             assertEquals("engine.temp", f.externalIds()[0]);
             for (int row = 1; row < f.rowCount(); row++) {

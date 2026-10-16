@@ -103,18 +103,33 @@ final class ApiHttp {
                 .header("Authorization", "Bearer " + tokenProvider.getToken())
                 .GET()
                 .build();
+        return sendForBytes(request, "GET", path);
+    }
+
+    /** POST with a JSON body, returning the raw response body of type {@code accept} — e.g. datapoint frames. */
+    public byte[] postForBytes(String path, Object body, String accept) {
+        HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
+                .header("Authorization", "Bearer " + tokenProvider.getToken())
+                .header("Accept", accept + ", application/problem+json")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                .build();
+        return sendForBytes(request, "POST", path);
+    }
+
+    private byte[] sendForBytes(HttpRequest request, String method, String path) {
         HttpResponse<byte[]> response;
         try {
             response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
         } catch (IOException e) {
-            throw new DatahubApiException(0, "GET " + path + " failed: " + e.getMessage(), null);
+            throw new DatahubApiException(0, method + " " + path + " failed: " + e.getMessage(), null);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new DatahubApiException(0, "GET " + path + " interrupted", null);
+            throw new DatahubApiException(0, method + " " + path + " interrupted", null);
         }
         int status = response.statusCode();
         if (status < 200 || status >= 300) {
-            throw DatahubApiException.of(status, "GET", path,
+            throw DatahubApiException.of(status, method, path,
                     new String(response.body(), StandardCharsets.UTF_8), retryAfter(response));
         }
         return response.body();

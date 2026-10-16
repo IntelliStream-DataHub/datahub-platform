@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk.client;
 
+import ai.intellistream.datahub.api.binary.DatapointFrame;
+import ai.intellistream.datahub.api.binary.FrameFormatException;
+import ai.intellistream.datahub.api.binary.FrameLimits;
+import ai.intellistream.datahub.api.binary.PayloadCodec;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DataCollection;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
@@ -14,6 +19,7 @@ import ai.intellistream.datahub.models.TimeseriesRetreiver;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.api.responses.DatapointString;
+import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
@@ -31,6 +37,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.io.ByteArrayOutputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -44,6 +51,9 @@ public final class TimeseriesService {
     private static final Logger log = LoggerFactory.getLogger(TimeseriesService.class);
 
     private static final String DATA_PATH = "/timeseries/data";
+    private static final String BINARY_READ_PATH = "/timeseries/data/list/binary";
+    /** Decompression only, so the level is irrelevant. */
+    private static final PayloadCodec FRAME_CODEC = new ZstdPayloadCodec();
 
     private final ApiHttp http;
     private final DatapointIngestor ingestor;
@@ -247,6 +257,38 @@ public final class TimeseriesService {
     }
 
     /**
+     * POST /timeseries/data/list/binary — the request {@link #retrieve} takes, answered as datapoint
+     * frames instead of JSON: the format {@link #ingestBinary} sends, read back without a Jackson
+     * object per point. Frames come in the order of the request's items, and one series' rows may
+     * span several; {@link DatapointFrame#externalIds()} names the series, and rows are read with
+     * {@link DatapointFrame#timestamp} and {@link DatapointFrame#valueAsString}, or with
+     * {@link DatapointFrame#avg} and its siblings when {@link DatapointFrame#aggregates()}.
+     *
+     * <p>Each item needs a {@code start} or an {@code end}, and returns its {@code limit} oldest
+     * points from there, or every point in its window when it has none. The whole answer is held
+     * in memory before the first frame is returned, so bound a long series with {@code end} or a
+     * {@code limit} and read it in several requests. There is no cursor: to read further, ask again
+     * with {@code start} one millisecond past the last timestamp received. An item with
+     * {@code aggregates} and a {@code granularity} always carries all four aggregates.
+     *
+     * <p>The frames carry the record batches as the database compressed them, each buffer zstd
+     * in-band, relayed by the server untouched and decompressed here; a frame holds as many whole
+     * batches as fit under its row cap, so most hold fewer rows than it. The frames can be written
+     * back as they are with {@link #ingestFrames}.
+     *
+     * <p>A response the server could not finish throws {@link DatahubApiException} with status 0;
+     * sending the request again is safe.
+     */
+    public List<DatapointFrame> retrieveBinary(DataRetriever<RetrieveFilter> request) {
+        byte[] body = http.postForBytes(BINARY_READ_PATH, request, FrameLimits.MEDIA_TYPE);
+        try {
+            return DatapointFrame.parseResponse(body, FRAME_CODEC);
+        } catch (FrameFormatException e) {
+            throw new DatahubApiException(0, "POST " + BINARY_READ_PATH + " returned an unreadable answer: " + e.getMessage(), null);
+        }
+    }
+
+    /**
      * POST /timeseries/data/latest — the most recent point of each named series, by id or external
      * id.
      *
@@ -400,6 +442,35 @@ public final class TimeseriesService {
     }
 
     // --- Binary ingest -----------------------------------------------------------------------------
+
+    /**
+     * Posts frames to {@code POST /timeseries/data/binary} as they are: what {@link #retrieveBinary}
+     * returned, from this or another instance, written without decoding a point. The server refuses
+     * an aggregate frame. Frames go in order, as many to a request as the request caps allow
+     * ({@value FrameLimits#MAX_FRAMES_PER_REQUEST} frames, {@value FrameLimits#MAX_REQUEST_RAW_BYTES}
+     * decompressed bytes), one request after another. A refusal throws {@link DatahubApiException}
+     * and the requests before it stand; sending the same frames again is safe, since a point is
+     * stored once per series and timestamp however often it arrives.
+     */
+    public void ingestFrames(List<DatapointFrame> frames) {
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        int count = 0;
+        long raw = 0;
+        for (DatapointFrame frame : frames) {
+            if (count == FrameLimits.MAX_FRAMES_PER_REQUEST || raw + frame.rawLength() > FrameLimits.MAX_REQUEST_RAW_BYTES) {
+                http.postBytes(BinaryDatapointIngestor.PATH, body.toByteArray(), FrameLimits.MEDIA_TYPE, Map.of());
+                body.reset();
+                count = 0;
+                raw = 0;
+            }
+            body.writeBytes(frame.frameBytes());
+            count++;
+            raw += frame.rawLength();
+        }
+        if (count > 0) {
+            http.postBytes(BinaryDatapointIngestor.PATH, body.toByteArray(), FrameLimits.MEDIA_TYPE, Map.of());
+        }
+    }
 
     /**
      * Ingest datapoints through {@code POST /timeseries/data/binary} with the default

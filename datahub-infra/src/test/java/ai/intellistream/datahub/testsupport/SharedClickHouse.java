@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.testsupport;
 
+import ai.intellistream.datahub.clickhouse.ClickHouseClientPool;
 import com.clickhouse.client.api.Client;
 import org.testcontainers.clickhouse.ClickHouseContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
@@ -109,11 +110,12 @@ public final class SharedClickHouse {
         return builderFor(database);
     }
 
+    /** The production transport ({@link ClickHouseClientPool#transport}), so a test exercises what runs. */
     private static Client.Builder builderFor(String database) {
-        return new Client.Builder()
+        return ClickHouseClientPool.transport(new Client.Builder()
                 .addEndpoint("http://" + CONTAINER.getHost() + ":" + CONTAINER.getMappedPort(8123))
                 .setUsername(CONTAINER.getUsername())
                 .setPassword(CONTAINER.getPassword())
-                .setDefaultDatabase(database);
+                .setDefaultDatabase(database));
     }
 }

@@ -15,9 +15,27 @@ public final class FrameLimits {
     public static final String MEDIA_TYPE = "application/vnd.intellistream.datapoint-block";
 
     public static final byte[] MAGIC = {'D', 'H', 'D', 'P'};
+    /**
+     * Ends a binary read's response, after the last frame. A response without it was cut short,
+     * whether inside a frame or between two, and is not to be taken as complete.
+     */
+    public static final byte[] END_OF_RESPONSE = {'D', 'H', 'D', 'E'};
     public static final int VERSION = 1;
     public static final int CODEC_ARROW_IPC = 1;
+    /**
+     * A response frame whose payload holds bucketed aggregates in {@link ArrowSchemaCanon#aggregates()}
+     * instead of the value type's canon. Only the API writes it; ingest refuses it.
+     */
+    public static final int CODEC_ARROW_IPC_AGGREGATES = 2;
+    /** The payload is one zstd stream; decompressed, it is an Arrow IPC stream with uncompressed buffers. */
     public static final int COMPRESSION_ZSTD = 1;
+    /**
+     * The payload is an Arrow IPC stream as it is, every record batch compressing its buffers in-band
+     * with zstd (Arrow's body compression, by buffer). What a binary read answers with: ClickHouse
+     * compresses and the API relays the batches without touching them. Ingest takes it as well, so a
+     * read's answer can be written back as it is.
+     */
+    public static final int COMPRESSION_ARROW_ZSTD = 2;
 
     /** Bytes before the series directory. */
     public static final int HEADER_BYTES = 28;
@@ -44,6 +62,12 @@ public final class FrameLimits {
 
     /** Below this the server's per-block cost dominates; the SDKs merge smaller tails. */
     public static final int MIN_ROWS_PER_FRAME_HINT = 1_000;
+
+    /**
+     * Rows per aggregate frame, whatever the series' type. A row is six 8-byte columns, so this
+     * keeps the payload near 2.4 MB, well inside {@link #MAX_FRAME_RAW_BYTES}.
+     */
+    public static final int MAX_AGGREGATE_ROWS = 50_000;
 
     /** Rows per frame: the JSON path's per-collection caps, numeric and text alike. */
     public static int maxRows(DatapointValueType type) {

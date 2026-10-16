@@ -7,6 +7,7 @@ import ai.intellistream.datahub.json.TimestampDeserializer;
 
 import ai.intellistream.datahub.models.validation.AllowedAggregates;
 import ai.intellistream.datahub.validation.resources.AtLeastOneNotNull;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -65,10 +66,17 @@ public class RetrieveFilter {
     private Boolean mergeDuplicates = false;
 
     public Integer getLimit(){
-        if(limit == null){
-            limit = 100;
-        }
-        return limit;
+        return limit == null ? 100 : limit;
+    }
+
+    /**
+     * Whether the item names a row cap. Leaving {@code limit} out and sending it as {@code null}
+     * both mean it does not: the SDKs send {@code null} for an item without one, and
+     * {@link #getLimit()} turns that into the JSON read's page of 100.
+     */
+    @JsonIgnore
+    public boolean hasLimit() {
+        return limit != null && limit > 0;
     }
 
     public Collection<String> getAggregates(){

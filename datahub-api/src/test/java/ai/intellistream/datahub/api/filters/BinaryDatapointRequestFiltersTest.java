@@ -52,16 +52,23 @@ class BinaryDatapointRequestFiltersTest {
     }
 
     @Test
-    void theBinaryPathIsNotAStreamingEndpointButSkipsTheBodyCache() {
+    void theBinaryPathsAreNotStreamingEndpointsButSkipTheBodyCache() {
         MockHttpServletRequest post = binaryPost(1);
         assertThat(StreamingEndpoints.matches(post)).isFalse();
-        assertThat(StreamingEndpoints.isBinaryDatapointInsert(post)).isTrue();
+        assertThat(StreamingEndpoints.isBinaryDatapoints(post)).isTrue();
+
+        MockHttpServletRequest read = new MockHttpServletRequest("POST", "/timeseries/data/list/binary");
+        assertThat(StreamingEndpoints.matches(read)).isFalse();
+        assertThat(StreamingEndpoints.isBinaryDatapoints(read)).isTrue();
 
         MockHttpServletRequest get = new MockHttpServletRequest("GET", "/timeseries/data/binary");
-        assertThat(StreamingEndpoints.isBinaryDatapointInsert(get)).isFalse();
+        assertThat(StreamingEndpoints.isBinaryDatapoints(get)).isFalse();
 
         MockHttpServletRequest json = new MockHttpServletRequest("POST", "/timeseries/data");
-        assertThat(StreamingEndpoints.isBinaryDatapointInsert(json)).isFalse();
+        assertThat(StreamingEndpoints.isBinaryDatapoints(json)).isFalse();
+
+        MockHttpServletRequest jsonRead = new MockHttpServletRequest("POST", "/timeseries/data/list");
+        assertThat(StreamingEndpoints.isBinaryDatapoints(jsonRead)).isFalse();
     }
 
     @Test

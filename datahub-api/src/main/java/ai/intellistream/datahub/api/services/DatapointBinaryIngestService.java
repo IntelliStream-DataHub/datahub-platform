@@ -188,7 +188,7 @@ public class DatapointBinaryIngestService {
                         .property("series", String.valueOf(f.seriesCount()))
                         .property("version", "1")
                         .property("codec", "1")
-                        .property("compression", "1")
+                        .property("compression", String.valueOf(f.compression()))
                         .value(f.frameBytes())
                         .send();
             } catch (PulsarClientException e) {

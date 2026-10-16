@@ -181,6 +181,8 @@ together.
 For volume, `ingestBinary` sends datapoints as zstd-compressed Arrow frames to
 `POST /timeseries/data/binary` instead of JSON: up to a million points per request, values parsed,
 sorted and de-duplicated on the client, and nothing for the API to parse but a few headers.
+Frames go at compression `2`, each Arrow buffer zstd in-band, the form a read answers with; a
+platform older than 1.1 refuses them.
 Each series is resolved once to its id and value type through `/timeseries/byids` and cached for
 the life of the client, so the caller needs read access to the series' dataset as well as write
 access.
@@ -205,6 +207,47 @@ try (BinaryIngestBuffer buffer = client.timeseries().binaryBuffer()) {   // 10 0
     buffer.add("engine.temp", Instant.now(), 81.5);
     buffer.add("engine.rpm", Instant.now(), 1500L);
 }   // close flushes what is left
+```
+
+## Binary read
+
+`retrieveBinary` takes the request `retrieve` takes and gets the same frames back from
+`POST /timeseries/data/list/binary`, so a large read costs no JSON and no object per point.
+Frames come in the order of the request's items, and one series may span several:
+
+```java
+RetrieveFilter f = new RetrieveFilter();
+f.setExternalId("engine.temp");
+f.setStart(ZonedDateTime.parse("2026-10-01T00:00:00Z"));
+f.setLimit(100_000);
+DataRetriever<RetrieveFilter> request = new DataRetriever<>();
+request.getItems().add(f);
+
+for (DatapointFrame frame : client.timeseries().retrieveBinary(request)) {
+    String series = frame.externalIds()[0];
+    for (int row = 0; row < frame.rowCount(); row++) {
+        long timestamp = frame.timestamp(row);
+        String value = frame.valueAsString(row);   // frame.avg(row) etc. when frame.aggregates()
+    }
+}
+```
+
+Each item returns its `limit` oldest points from `start`, or every point in its window when it has
+none. The whole answer is held in memory before the first frame is returned, so bound a long series
+with `end` or a `limit` and read it in several requests. There is no cursor: to read on, send the
+request again with `start` one millisecond past the last timestamp you got. An item with
+`aggregates` and a `granularity` comes back as aggregate frames
+carrying `avg`, `min`, `max` and `sum` together. A response the server could not finish throws a
+`DatahubApiException` with status 0 rather than returning fewer points, and is safe to send again.
+
+The frames hold the Arrow record batches as the database compressed them, each buffer zstd in-band
+(frame compression `2`): the server relays them without decoding a point, the client decompresses.
+A frame holds as many whole batches as fit under its row cap, so most hold fewer rows than the cap.
+The frames write back as they are, to the same or another instance:
+
+```java
+List<DatapointFrame> frames = source.timeseries().retrieveBinary(request);
+target.timeseries().ingestFrames(frames);   // as many requests as the caps need; aggregate frames are refused
 ```
 
 ## Errors
