@@ -31,6 +31,9 @@ const MIN_LABEL_PX = 10, PAD = 30, FIT_MAX_ZOOM = 1.4;
 // 13 px. Zooming in then shows more names rather than bigger ones.
 const MAX_LABEL_PX = imp => 13 + 5 * (imp || 0), MAX_EDGE_LABEL_PX = 11, MAX_FLOW_LABEL_PX = 12, ICON_MIN_PX = 12;
 const GROUP_LABEL_PX = imp => 12 + 3 * (imp || 0), GROUP_LABEL_GAP = 10;
+// Pills, in units of their name's font size: the padding at each end, the room for the icon, the widest a
+// pill gets (a longer name ends in "…"), and its height. Below PILL_MIN_PX on screen a pill shows no name.
+const PILL_PAD = 0.7, PILL_ICON = 1.6, PILL_MAX = 17, PILL_H = 2.2, PILL_MIN_PX = 7;
 // A shut group's name keeps one modest size however far out the view is: it is a signpost, not a heading.
 const labelPx = (n, z) => (n.hasClass('agg') ? GROUP_LABEL_PX(n.data('imp')) : Math.min(n.data('fs') * z, MAX_LABEL_PX(n.data('imp'))));
 // Above this many resources names are re-picked only once a pan or zoom settles, and above the second
@@ -60,6 +63,13 @@ const textW = (t, px, w) => {
     if (v === undefined) { ctx2d.font = `${w} ${Math.round(px * 2) / 2}px Manrope, Arial, sans-serif`; v = ctx2d.measureText(t).width; if (textWidths.size > 20000) textWidths.clear(); textWidths.set(k, v); }
     return v;
 };
+// The text cut to fit a width, ending in "…" where it was cut.
+function clipText(t, px, room) {
+    if (textW(t, px, 600) <= room) return t;
+    let lo = 0, hi = t.length;
+    while (lo < hi) { const m = (lo + hi + 1) >> 1; if (textW(t.slice(0, m) + '…', px, 600) <= room) lo = m; else hi = m - 1; }
+    return t.slice(0, lo).trimEnd() + '…';
+}
 const flowOf = e => { const m = e.metadata || {}; return m['metadata_animate::datatype'] || m['animate::datatype'] || ''; };
 const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
 let glOk = null;
@@ -441,8 +451,19 @@ function createGraphView(container, opts) {
     // big graph's dots are always sized by importance: there the size is what tells its hubs apart.
     function lookOf(i, comm, pal) {
         const imp = info.importance[i], same = V.size === 'same' && !big, d = same ? 16 : 8 + 30 * imp, id = G.ids[i];
-        return { w: d, h: d, fs: same ? 10.5 : 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pal.ink), c: comm[i], short: SHORT.get(id) };
+        const look = { w: d, h: d, fs: same ? 10.5 : 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pal.ink), c: comm[i], short: SHORT.get(id) };
+        if (pills()) {
+            // A pill as wide as its name, which is written inside it after the icon.
+            const fs = same ? 10 : 9 + 5 * imp, name = look.short || '', room = fs * (PILL_MAX - PILL_ICON - 2 * PILL_PAD);
+            const text = clipText(name, fs, room);
+            Object.assign(look, { fs, w: fs * (PILL_ICON + 2 * PILL_PAD) + textW(text, fs, 600), h: fs * PILL_H, pt: text });
+        }
+        return look;
     }
+    // Pills are for graphs drawn whole; a big graph is drawn group by group with dots.
+    const pills = () => V.nodes === 'pills' && !big;
+    // A node's size for the layout: a pill counts as the mean of its width and height.
+    const span = n => (n.hasClass('pill') ? (n.data('w') + n.data('h')) / 2 : n.data('w')) || 20;
     const edgeLookOf = (e, k, comm) => ({ imp: e.ctx ? 0 : info.edgeImp[k], flow: flowOf(e), same: !e.ctx && comm[G.index.get(e.source)] === comm[G.index.get(e.target)] ? 1 : 0 });
     function applyLook(comm) {
         const pal = palette();
@@ -451,6 +472,7 @@ function createGraphView(container, opts) {
                 const n = cy.getElementById(id);
                 n.data(lookOf(i, comm, pal));
                 if (!n.hasClass('dot')) n.addClass('dot');
+                if (pills() !== n.hasClass('pill')) n.toggleClass('pill', pills());
             });
             G.edges.forEach((e, k) => {
                 const el = cy.getElementById(e.id);
@@ -462,11 +484,11 @@ function createGraphView(container, opts) {
 
     // ---- layout -----------------------------------------------------------------------------------------
     function forceOptions() {
-        const d = id => cy.getElementById(id).data('w') || 20;
+        const d = id => span(cy.getElementById(id));
         return { name: 'fcose', quality: 'proof', randomize: true, animate: false, fit: false, nodeDimensionsIncludeLabels: false, packComponents: true,
             numIter: 2500, tile: true, nodeSeparation: GROUPED.sep, gravity: GROUPED.grav, gravityRange: GROUPED.gr,
             nestingFactor: GROUPED.nf, gravityCompound: GROUPED.gc, gravityRangeCompound: GROUPED.grc,
-            nodeRepulsion: n => 4500 + 260 * (n.data('w') || 20),   // the group boxes have no size of their own
+            nodeRepulsion: n => 4500 + 260 * span(n),   // the group boxes have no size of their own
             idealEdgeLength: e => (e.data('same') ? GROUPED.intra : GROUPED.inter) + (d(e.data('source')) + d(e.data('target'))) / 2,
             edgeElasticity: e => e.data('same') ? 0.55 : 0.12 };
     }
@@ -514,7 +536,7 @@ function createGraphView(container, opts) {
         if (guard && known < nodes.length / 2) return null;
         nodes.forEach(n => { const p = pos.get(n.id()); if (p) n.position({ x: p[0], y: p[1] }); else fresh.push(n); });
         if (fresh.length && known) {
-            const freshIds = new Set(fresh.map(n => n.id())), placed = new Set(), d = n => n.data('w') || 20;
+            const freshIds = new Set(fresh.map(n => n.id())), placed = new Set(), d = span;
             const bb = nodes.filter(o => !freshIds.has(o.id())).boundingBox();
             const ready = o => !freshIds.has(o.id()) || placed.has(o.id());
             fresh.sort((a, b) => (a.id() < b.id() ? -1 : 1)).forEach((n, k) => {
@@ -552,7 +574,7 @@ function createGraphView(container, opts) {
     // the line double back) and it nowhere turns too sharply; otherwise the caller straightens it further.
     function toCurve(e, pts, off) {
         const p = e.source().position(), q = e.target().position(), vx = q.x - p.x, vy = q.y - p.y, L2 = vx * vx + vy * vy || 1, L = Math.sqrt(L2);
-        const rs = e.source().data('w') / 2 + 3, rt = e.target().data('w') / 2 + 3;
+        const r = n => (n.hasClass('pill') ? n.data('h') : n.data('w')) / 2 + 3, rs = r(e.source()), rt = r(e.target());
         let last = 0.02;
         const inner = pts.filter(P => {
             if (Math.hypot(P.x - p.x, P.y - p.y) <= rs || Math.hypot(P.x - q.x, P.y - q.y) <= rt) return false;
@@ -746,7 +768,9 @@ function createGraphView(container, opts) {
             if (g.ns.length < 3) return;
             const pts = [];
             let x1 = Infinity, x2 = -Infinity, y1 = Infinity;
-            g.ns.forEach(n => { const p = n.position(), r = n.data('w') / 2 + 14 / zz; x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); y1 = Math.min(y1, p.y - n.data('h') / 2); for (let a = 0; a < 8; a++) pts.push({ x: p.x + r * Math.cos(a * Math.PI / 4), y: p.y + r * Math.sin(a * Math.PI / 4) }); });
+            g.ns.forEach(n => { const p = n.position(), r = n.data('w') / 2 + 14 / zz; x1 = Math.min(x1, p.x); x2 = Math.max(x2, p.x); y1 = Math.min(y1, p.y - n.data('h') / 2);
+                if (n.hasClass('pill')) { const ry = n.data('h') / 2 + 14 / zz; [[-1, -1], [0, -1], [1, -1], [1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0]].forEach(([a, b]) => pts.push({ x: p.x + a * r, y: p.y + b * ry })); return; }
+                for (let a = 0; a < 8; a++) pts.push({ x: p.x + r * Math.cos(a * Math.PI / 4), y: p.y + r * Math.sin(a * Math.PI / 4) }); });
             const hp = hull(pts), path = new Path2D();
             roundedInto(path, hp);
             g.path = path; g.hp = hp; g.box = { x1, x2, y1 };
@@ -882,7 +906,7 @@ function createGraphView(container, opts) {
         };
         const put = r => { for (let gx = Math.floor(r.x1 / cell); gx <= Math.floor(r.x2 / cell); gx++) for (let gy = Math.floor(r.y1 / cell); gy <= Math.floor(r.y2 / cell); gy++) { const k = gx + ',' + gy; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(r); } };
         for (const n of nodes) {
-            if (n.data('fs') * z < MIN_LABEL_PX || !shown(n)) continue;
+            if (n.hasClass('pill') || n.data('fs') * z < MIN_LABEL_PX || !shown(n)) continue;
             const px = labelPx(n, z), p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y;
             if (x < -50 || y < -50 || x > w + 50 || y > h + 50) continue;
             const tw = textW(n.data('short') || '', px, 600), top = y + n.data('h') * z / 2 + Math.min(3 * z, 4);
@@ -897,6 +921,7 @@ function createGraphView(container, opts) {
     // Like towns on a map: the most important resources get names big enough to read when the whole network
     // is in view (at most three times their usual size); everything else names itself on zoom.
     function boostHubLabels() {
+        if (pills()) return;   // a pill's name is inside it, at the pill's own size
         const bb = graphNodes().boundingBox({ includeLabels: false });
         const z = Math.min(FIT_MAX_ZOOM, (cy.width() - 2 * PAD) / Math.max(1, bb.w), (cy.height() - 2 * PAD) / Math.max(1, bb.h));
         const nodes = cy.nodes('.dot').toArray().sort((a, b) => b.data('imp') - a.data('imp'));
@@ -909,7 +934,7 @@ function createGraphView(container, opts) {
         NAMED = shownLabels(z, cy.pan(), cy.width(), cy.height());
         // A type icon on a dot under ICON_MIN_PX cannot be made out, so small dots go without. Only nodes whose
         // state changes are touched: every class change makes Cytoscape restyle the node.
-        cy.batch(() => cy.nodes('.dot').forEach(n => { const small = n.data('w') * z < ICON_MIN_PX; if (small !== n.hasClass('noicon')) n.toggleClass('noicon', small); }));
+        cy.batch(() => cy.nodes('.dot').forEach(n => { const small = (n.hasClass('pill') ? n.data('h') : n.data('w')) * z < ICON_MIN_PX; if (small !== n.hasClass('noicon')) n.toggleClass('noicon', small); }));
         cy.edges('.hl, .hov, :selected').updateStyle();   // relation labels are sized from the zoom
         drawLabels();
     }
@@ -963,15 +988,24 @@ function createGraphView(container, opts) {
             const n = cy.getElementById(m.id);
             if (!n.length || hiddenName(n)) return;
             const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, r = Math.max(4, n.data('w') * z / 2) + 3.5;
-            if (x < -20 || x > w + 20 || y < -20 || y > h + 20) return;
+            if (x < -20 - r || x > w + 20 + r || y < -20 || y > h + 20) return;
             const k = m.groups.length, gap = k > 1 ? 0.18 : 0;
             ctx.lineWidth = 3; ctx.lineCap = 'round';
+            if (n.hasClass('pill')) {
+                // Round a pill the ring is its outline, in bands of its groups' colours from left to right.
+                const hh = n.data('h') * z / 2 + 3.5, grad = ctx.createLinearGradient(x - r, 0, x + r, 0);
+                m.groups.forEach((g, j) => { grad.addColorStop(j / k, colourOf(g)); grad.addColorStop((j + 1) / k, colourOf(g)); });
+                ctx.strokeStyle = grad; ctx.beginPath(); ctx.roundRect(x - r, y - hh, 2 * r, 2 * hh, hh); ctx.stroke();
+                ctx.lineCap = 'butt';
+                return;
+            }
             m.groups.forEach((g, j) => {
                 const a0 = -Math.PI / 2 + j * 2 * Math.PI / k + gap / 2, a1 = a0 + 2 * Math.PI / k - gap;
                 ctx.strokeStyle = colourOf(g); ctx.beginPath(); ctx.arc(x, y, r, a0, a1); ctx.stroke();
             });
             ctx.lineCap = 'butt';
         });
+        if (pills()) drawPillNames(ctx, z, pan, w, h, pal);
         ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = pal.outline; ctx.fillStyle = pal.label;
         NAMED.forEach(id => {
             const n = cy.getElementById(id);
@@ -982,6 +1016,20 @@ function createGraphView(container, opts) {
             const t = n.data('short') || '';
             ctx.globalAlpha = 0.85; ctx.strokeText(t, x, y);
             ctx.globalAlpha = 1; ctx.fillText(t, x, y);
+        });
+    }
+    // A pill's name, after its icon, in the dark ink the icons use; centred when the pill shows no icon.
+    function drawPillNames(ctx, z, pan, w, h, pal) {
+        ctx.textBaseline = 'middle'; ctx.fillStyle = pal.ink;
+        cy.nodes('.pill').forEach(n => {
+            const fs = n.data('fs'), px = fs * z;
+            if (px < PILL_MIN_PX || hiddenName(n)) return;
+            const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, hw = n.data('w') * z / 2;
+            if (x + hw < 0 || x - hw > w || y < -px || y > h + px) return;
+            ctx.font = `600 ${px}px Manrope, Arial, sans-serif`;
+            const icon = n.data('icon') !== 'none' && !n.hasClass('noicon');
+            ctx.textAlign = icon ? 'left' : 'center';
+            ctx.fillText(n.data('pt') || '', icon ? x - hw + fs * (PILL_PAD + PILL_ICON) * z : x, y);
         });
     }
     // While the view moves, names and outlines are brought up to date at most LOD_MS apart, and once more when
@@ -1091,6 +1139,9 @@ function createGraphView(container, opts) {
             // Dots draw no names of their own: names go on a layer above the graph, so zooming never restyles a node.
             // A dot is a plain circle; its icon is drawn on the name layer (drawDotIcons), where it stays sharp.
             { selector: 'node.dot', style: { 'background-color': 'data(dot)' } },
+            { selector: 'node.pill', style: { 'shape': 'round-rectangle', 'background-position-x': n => (n.data('fs') * PILL_PAD) + 'px', 'background-position-y': '50%',
+                'background-width': n => (n.data('fs') * 1.35) + 'px', 'background-height': n => (n.data('fs') * 1.35) + 'px', 'background-image-opacity': 0.9 } },
+            { selector: 'node.noicon', style: { 'background-image': 'none' } },
             { selector: 'node.grp', style: { 'background-opacity': 0, 'border-width': 0 } },
             // Plain lines are straight; bezier only so that two relationships between one pair fan apart (a
             // quadratic curve bows half its control-point step, so twice the gap gives PAR_GAP lanes). A line
@@ -1654,11 +1705,17 @@ function createGraphView(container, opts) {
         cy.fit(nodes, PAD);
         if (cy.zoom() > FIT_MAX_ZOOM) cy.zoom({ level: FIT_MAX_ZOOM, renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
     }
+    // Each way of drawing keeps a picture of its own, so switching back finds the one left there.
+    function arrangementKey() {
+        const key = opts.saveKey();
+        // Pills change size with the size choice, so each size of pill has a picture of its own too.
+        return key ? KEY_PREFIX + key + (V.layout === 'diagram' ? '|diagram' : '') + (pills() ? (V.size === 'same' ? '|pills-same' : '|pills') : '') : null;
+    }
     function saveArrangement() {
         const key = opts.saveKey();
         if (!key || !current) return;
         cy.batch(() => graphNodes().forEach(n => { const p = n.position(), x = Math.round(p.x), y = Math.round(p.y); if (x !== p.x || y !== p.y) n.position({ x, y }); }));
-        putArrangement(KEY_PREFIX + key, encodeArrangement(G.ids, G.ids.map(id => cy.getElementById(id).position()), current.comm, [...MOVED]));
+        putArrangement(arrangementKey(), encodeArrangement(G.ids, G.ids.map(id => cy.getElementById(id).position()), current.comm, [...MOVED]));
     }
     // Draws the graph as it now is in Cytoscape. The first time (after a load or Rearrange) it puts back the
     // saved arrangement, or lays the graph out; after that it keeps every known resource where it is, places
@@ -1673,7 +1730,7 @@ function createGraphView(container, opts) {
         analyse();
         let comm, first = !before, restored = false;
         if (first) {
-            const key = opts.saveKey(), saved = key ? getArrangement(KEY_PREFIX + key) : null;
+            const key = arrangementKey(), saved = key ? getArrangement(key) : null;
             let placed = null;
             if (saved) { comm = keptGroups(saved.comm); applyLook(comm); placed = restore(saved.pos, true); restored = !!placed; }
             if (!placed) { comm = freshGroups(); applyLook(comm); groupedLayout(comm); }
@@ -1721,6 +1778,9 @@ function createGraphView(container, opts) {
         if (!cy || destroyed) return;
         if (was.flows !== V.flows) flowReset();
         if (big || !current) return;
+        // A new way of drawing is laid out afresh, or put back as it was last left. So is a new size of pill:
+        // the pills would overlap where they stand.
+        if (was.nodes !== V.nodes || was.layout !== V.layout || (pills() && was.size !== V.size)) { current = null; MOVED = new Set(); refresh(); return; }
         if (was.size !== V.size) { applyLook(current.comm); boostHubLabels(); }
         if (was.size !== V.size || was.lines !== V.lines) {
             drawLines(current.comm, current.member);
@@ -1737,8 +1797,8 @@ function createGraphView(container, opts) {
             bigRefresh(true);
             return;
         }
-        const key = opts.saveKey();
-        if (key) dropArrangement(KEY_PREFIX + key);
+        const key = arrangementKey();
+        if (key) dropArrangement(key);
         MOVED = new Set();
         current = null;
         refresh();
