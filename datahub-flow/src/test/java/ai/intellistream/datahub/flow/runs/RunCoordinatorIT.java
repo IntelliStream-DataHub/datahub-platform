@@ -727,6 +727,45 @@ class RunCoordinatorIT {
                 .containsExactly("failing");
     }
 
+    @Test
+    void failedRunsAreRequeuedOnceEachAndOnlyWhileTheirWindowStillEndsInFailure() {
+        long flow = deployedFlow("requeue", wait(0, "requeue"), 1, 2);
+        UUID plain = failedRun(flow, 0);
+        UUID redone = failedRun(flow, 1);
+        UUID healed = failedRun(flow, 2);
+        UUID cancelled = failedRun(flow, 3);
+        UUID other = failedRun(deployedFlow("other_flow", wait(0, "other_flow"), 1, 2), 0);
+        // A later run for the window: waiting, and one that succeeded. And a person's cancel.
+        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, run_timeout, "
+                + "window_start, window_end, trigger) SELECT gen_random_uuid(), flow_id, version, 'PENDING', 1, 2, "
+                + "run_timeout, window_start, window_end, 'rerun' FROM flow.run WHERE id = ?", redone);
+        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, run_timeout, "
+                + "window_start, window_end, trigger, finished_at) SELECT gen_random_uuid(), flow_id, version, "
+                + "'SUCCEEDED', 1, 2, run_timeout, window_start, window_end, 'rerun', now() FROM flow.run "
+                + "WHERE id = ?", healed);
+        jdbc.update("UPDATE flow.run SET status = 'CANCELLED' WHERE id = ?", cancelled);
+        List<UUID> asked = List.of(plain, redone, healed, cancelled, other);
+
+        int queued = runs.requeueFailed(flow, 1, 2, Duration.ofMinutes(15), "user-2", "user-2", asked);
+
+        // Only the plain failure of this flow: the others were redone, healed, cancelled, or are another flow's.
+        assertThat(queued).isEqualTo(1);
+        StoredRun again = jdbc.query("SELECT id FROM flow.run WHERE flow_id = ? AND trigger = 'rerun' AND triggered_by = 'user-2'",
+                (rs, n) -> runs.find(rs.getObject("id", UUID.class)).orElseThrow(), flow).getFirst();
+        assertThat(again.status()).isEqualTo("PENDING");
+        assertThat(again.window()).isEqualTo(runs.find(plain).orElseThrow().window());
+        assertThat(again.runAs()).isEqualTo("user-2");
+        // Asking again queues nothing: the window now has a later run.
+        assertThat(runs.requeueFailed(flow, 1, 2, Duration.ofMinutes(15), "user-2", "user-2", asked)).isZero();
+    }
+
+    private UUID failedRun(long flow, int hour) {
+        UUID id = pending(flow, hour);
+        jdbc.update("UPDATE flow.run SET status = 'FAILED', error_code = 'PROCESSOR_FAILED', finished_at = now() "
+                + "WHERE id = ?", id);
+        return id;
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     /** A saved flow, not deployed. */

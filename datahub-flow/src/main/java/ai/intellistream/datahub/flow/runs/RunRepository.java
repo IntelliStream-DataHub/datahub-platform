@@ -197,13 +197,35 @@ public class RunRepository {
      * created it has, so that instance claims it by its id.
      */
     public List<Candidate> lockPending(int limit, UUID only) {
-        String sql = "SELECT id, flow_id, preview FROM flow.run WHERE status = 'PENDING' "
-                + "AND not_before <= now() AND NOT cancel_requested"
-                + (only == null ? " AND NOT preview" : " AND id = ?")
-                + " ORDER BY window_start, created_at LIMIT ? FOR UPDATE SKIP LOCKED";
         RowMapper<Candidate> mapper = (rs, n) -> new Candidate(rs.getObject("id", UUID.class),
                 (Long) rs.getObject("flow_id"), rs.getBoolean("preview"));
-        return only == null ? jdbc.query(sql, mapper, limit) : jdbc.query(sql, mapper, only, limit);
+        if (only != null) {
+            return jdbc.query("SELECT id, flow_id, preview FROM flow.run WHERE status = 'PENDING' "
+                    + "AND not_before <= now() AND NOT cancel_requested AND id = ? "
+                    + "ORDER BY window_start, created_at LIMIT ? FOR UPDATE SKIP LOCKED", mapper, only, limit);
+        }
+        // Flow by flow, so that a backlog does not hide the runs behind it: each flow offers at most
+        // the room it has under its limit, from the front of its own queue (run_pending_flow_idx),
+        // and the earliest windows of all of them win. A flow that is switched off or not deployed
+        // offers freely, since its runs are to be cancelled, not started. Locking is a second step,
+        // on the runs found, so that it takes only runs (a join would lock the flow rows as well).
+        List<UUID> found = jdbc.query("SELECT p.id FROM flow.flow f "
+                        + "LEFT JOIN (SELECT flow_id, count(*) AS n FROM flow.run "
+                        + "WHERE status = 'RUNNING' AND NOT preview GROUP BY flow_id) rc ON rc.flow_id = f.id "
+                        + "CROSS JOIN LATERAL (SELECT r.id, r.window_start, r.created_at FROM flow.run r "
+                        + "WHERE r.flow_id = f.id AND r.status = 'PENDING' AND r.not_before <= now() "
+                        + "AND NOT r.cancel_requested AND NOT r.preview "
+                        + "ORDER BY r.window_start, r.created_at "
+                        + "LIMIT greatest(0, least(?, CASE WHEN f.enabled AND f.deployed_version IS NOT NULL "
+                        + "THEN f.max_concurrent_runs - coalesce(rc.n, 0) ELSE ? END))) p "
+                        + "ORDER BY p.window_start, p.created_at LIMIT ?",
+                (rs, n) -> rs.getObject("id", UUID.class), limit, limit, limit);
+        if (found.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.query("SELECT id, flow_id, preview FROM flow.run WHERE id = ANY (?) AND status = 'PENDING' "
+                + "ORDER BY window_start, created_at FOR UPDATE SKIP LOCKED", mapper,
+                (Object) found.toArray(UUID[]::new));
     }
 
     /**
@@ -489,6 +511,28 @@ public class RunRepository {
         return jdbc.update("UPDATE flow.run SET status = 'CANCELLED', error_code = 'CANCELLED', "
                 + "error = ?, finished_at = now() WHERE id = ? AND status = 'PENDING'",
                 "Cancelled by " + by + ".", id) == 1;
+    }
+
+    /**
+     * Queues a new run for each window of {@code failed} that still ends in a failure: runs of this
+     * flow that failed for good and have no later run for the same window, which is also what makes
+     * a second request for the same runs queue nothing. The new runs take the deployed version, its
+     * limits and its identity, and the window and parameter values of the run they redo. One
+     * statement however many, so thousands are queued in one transaction.
+     *
+     * @return how many runs were queued
+     */
+    public int requeueFailed(long flowId, int version, int maxAttempts, Duration timeout, String by,
+                             String runAs, List<UUID> failed) {
+        return jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, "
+                        + "run_timeout, window_start, window_end, parameters, trigger, triggered_by, run_as) "
+                        + "SELECT gen_random_uuid(), f.flow_id, ?, 'PENDING', 1, ?, make_interval(secs => ?), "
+                        + "f.window_start, f.window_end, f.parameters, 'rerun', ?, ? FROM flow.run f "
+                        + "WHERE f.id = ANY (?) AND f.flow_id = ? AND f.status = 'FAILED' AND NOT f.preview "
+                        + "AND NOT EXISTS (SELECT 1 FROM flow.run l WHERE l.flow_id = f.flow_id AND NOT l.preview "
+                        + "AND l.window_start IS NOT DISTINCT FROM f.window_start AND l.created_at > f.created_at)",
+                version, maxAttempts, (double) timeout.toSeconds(), by, runAs,
+                failed.toArray(UUID[]::new), flowId);
     }
 
     /** A running run is asked to stop; its owner sees it at the next heartbeat. True when asked. */

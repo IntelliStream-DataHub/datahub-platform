@@ -103,6 +103,17 @@ public class RunController {
         return runs.cancel(id);
     }
 
+    /**
+     * Re-runs failed runs of a flow in one go: 200 with how many were queued. A run whose window
+     * has been run again since, or that did not fail, is skipped, so asking twice queues nothing
+     * the second time. 409 when the flow is not deployed or is switched off.
+     */
+    @PostMapping("/flows/{externalId}/runs/rerun")
+    public RunService.Requeued rerunFailed(@PathVariable String externalId,
+                                           @RequestBody RunService.RerunRequest request) {
+        return runs.rerunFailed(externalId, request);
+    }
+
     /** 201 with a new run over the same window, of the currently deployed version. */
     @PostMapping("/runs/{id}/rerun")
     public ResponseEntity<RunView> rerun(@PathVariable UUID id) {
