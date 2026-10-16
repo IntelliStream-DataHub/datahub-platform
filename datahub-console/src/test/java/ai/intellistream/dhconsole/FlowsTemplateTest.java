@@ -75,6 +75,8 @@ class FlowsTemplateTest {
                                 "flow-problems"}),
                 Arguments.of("flows/run", "[data-type='run-page']",
                         new String[]{"run-status", "run-facts", "run-records", "run-cancel", "run-rerun"}),
+                Arguments.of("flows/runs", "[data-type='runs-page']",
+                        new String[]{"runs-summary", "runs-refresh", "runs-running", "runs-queued", "runs-recent"}),
                 Arguments.of("flows/attention", "[data-type='attention-page']",
                         new String[]{"attention-table", "attention-more"}),
                 Arguments.of("flows/lookup", "[data-type='lookup-page']",
