@@ -26,6 +26,7 @@ import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.tenant.TenantFeatures;
 import ai.intellistream.datahub.testsupport.SharedPostgres;
 import com.sun.net.httpserver.HttpServer;
+import com.zaxxer.hikari.HikariDataSource;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -98,6 +99,7 @@ class RunCoordinatorScaleIT {
     private static final Map<String, AtomicInteger> RUNNING = new ConcurrentHashMap<>();
     private static final Map<String, AtomicInteger> MOST = new ConcurrentHashMap<>();
 
+    private final Map<String, HikariDataSource> pools = new ConcurrentHashMap<>();
     private TenantConfigService registry;
     /** Routed to the tenant on the thread, as in the service. */
     private JdbcTemplate jdbc;
@@ -119,7 +121,28 @@ class RunCoordinatorScaleIT {
         registry = mock(TenantConfigService.class);
         registry.cachedTenants = new LinkedHashMap<>();
         when(registry.getConfig(anyString())).thenAnswer(i -> registry.cachedTenants.get(i.<String>getArgument(0)));
-        DataSource routing = new StatelessRoutingDataSource(registry);
+        // The service opens a connection for each statement and relies on pgbouncer in front of
+        // Postgres, which pools them. A bare container cannot take that churn at the speed these tests
+        // run, so each tenant's connections are pooled here, as pgbouncer would. The tenant is still
+        // found from TenantContext, by the routing datasource.
+        DataSource routing = new StatelessRoutingDataSource(registry) {
+            @Override
+            protected DataSource determineTargetDataSource() {
+                String tenantId = TenantContext.getTenantId();
+                if (tenantId == null) {
+                    throw new IllegalStateException("No Tenant ID in context");
+                }
+                return pools.computeIfAbsent(tenantId, id -> {
+                    PostgresTenant postgres = registry.cachedTenants.get(id).getPostgresTenant();
+                    HikariDataSource pool = new HikariDataSource();
+                    pool.setJdbcUrl(postgres.getJdbcUrl());
+                    pool.setUsername(postgres.getUsername());
+                    pool.setPassword(postgres.getPassword());
+                    pool.setMaximumPoolSize(40);
+                    return pool;
+                });
+            }
+        };
         jdbc = new JdbcTemplate(routing);
         transaction = new TransactionTemplate(new DataSourceTransactionManager(routing));
         runs = new RunRepository(jdbc);
@@ -156,6 +179,8 @@ class RunCoordinatorScaleIT {
         HOLD.set(false);
         coordinators.forEach(RunCoordinator::shutdown);
         datahub.stop(0);
+        pools.values().forEach(HikariDataSource::close);
+        pools.clear();
         RUNNING.clear();
         MOST.clear();
     }
@@ -317,6 +342,120 @@ class RunCoordinatorScaleIT {
                 + " runs began competing for 8 slots%n", waited.toMillis());
         assertThat(waited).as("the quiet tenant gets its share of the first sweep, not a slot once the busy "
                 + "tenant is drained").isLessThan(Duration.ofSeconds(1));
+    }
+
+    // ---------------------------------------------------------------- dispatch
+
+    /**
+     * A backlog of one flow, at its limit, must not hide the runs behind it: the other flow's run
+     * starts although every earlier window in the queue belongs to the backlog.
+     */
+    @Test
+    void aBacklogOfOneFlowDoesNotHoldUpAnotherFlow() {
+        String tenant = tenant("tenant-a");
+        long backlog = manualFlow(tenant, "backlog", hold(), 1);
+        for (int i = 0; i < 20; i++) {
+            pending(tenant, backlog, i);
+        }
+        long other = manualFlow(tenant, "other", work(1, tenant, "other"), 1);
+        UUID later = pending(tenant, other, 100);
+        HOLD.set(true);
+        RunCoordinator a = coordinator("a", 4);
+        a.startDispatching();
+        heartbeating.add(a);
+
+        a.sweepAll();
+
+        await(() -> "SUCCEEDED".equals(in(tenant, () -> runs.find(later).orElseThrow().status())));
+        assertThat(in(tenant, () -> count("RUNNING"))).as("the backlog flow still has only its one").isEqualTo(1);
+    }
+
+    /**
+     * Thousands of queued runs, one sweep, nothing more: the dispatcher refills each slot as a run
+     * ends, so the queue drains at the speed the slots allow. With a start only at each sweep, a
+     * sweep every ten seconds would start sixteen runs per ten seconds, and this would not finish.
+     * The size can be raised from the environment: SCALE_DRAIN_FLOWS, SCALE_DRAIN_PER_FLOW,
+     * SCALE_DRAIN_MILLIS.
+     */
+    @Test
+    void aQueueOfThousandsOfRunsDrainsAtTheSpeedOfTheSlotsAfterASingleSweep() {
+        String tenant = tenant("tenant-a");
+        int flows = envInt("SCALE_DRAIN_FLOWS", 50);
+        int perFlow = envInt("SCALE_DRAIN_PER_FLOW", 40);
+        int millis = envInt("SCALE_DRAIN_MILLIS", 20);
+        int slots = 16;
+        int total = flows * perFlow;
+        in(tenant, () -> {
+            for (int f = 0; f < flows; f++) {
+                manualFlow(tenant, "drain-" + f, work(millis, tenant, "drain"), 1);
+            }
+            // Pending runs for every flow in one statement; windows an hour apart, as reruns of old failures.
+            return jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, attempt, max_attempts, "
+                    + "run_timeout, window_start, window_end, parameters, trigger, triggered_by, run_as) "
+                    + "SELECT gen_random_uuid(), f.id, 1, 'PENDING', 1, 2, interval '15 minutes', "
+                    + "timestamptz '2026-01-01 00:00:00+00' + g * interval '1 hour', "
+                    + "timestamptz '2026-01-01 01:00:00+00' + g * interval '1 hour', '{}'::jsonb, "
+                    + "'rerun', 'user-1', 'user-1' FROM flow.flow f, generate_series(1, ?) g", perFlow);
+        });
+        assertThat(in(tenant, () -> count("PENDING"))).isEqualTo(total);
+        RunCoordinator a = coordinator("a", slots);
+        a.startDispatching();
+        heartbeating.add(a);
+
+        long started = System.nanoTime();
+        a.sweepAll();
+        long until = System.nanoTime() + Duration.ofMinutes(5).toNanos();
+        while (!in(tenant, () -> count("SUCCEEDED") == total) && System.nanoTime() < until) {
+            sleep(100);
+        }
+        long ms = (System.nanoTime() - started) / 1_000_000;
+
+        assertThat(in(tenant, () -> count("SUCCEEDED"))).as("every queued run ran after one sweep").isEqualTo(total);
+        assertThat(in(tenant, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1",
+                Integer.class))).isZero();
+        assertThat(MOST.get("drain").get()).as("the slots were used, and not exceeded").isBetween(slots - 2, slots);
+        double ideal = total * (double) millis / slots;
+        System.out.printf("drain: %d runs over %d flows at %d ms each on %d slots took %d ms after one sweep"
+                        + " (%.0f runs/s; the slots alone allow %.0f ms)%n",
+                total, flows, millis, slots, ms, total * 1000.0 / ms, ideal);
+        // Generous: the point is minutes against hours, not a benchmark. Sweep-only dispatch needs
+        // total / slots sweeps of ten seconds.
+        assertThat(ms).isLessThan(Math.max(30_000L, (long) (ideal * 6)));
+    }
+
+    /**
+     * A flow that ticks every second: the ticks the sweep finds are windows one second wide, each
+     * made a run once, none missed between sweeps a few seconds apart, and each starts as soon as it
+     * is made.
+     */
+    @Test
+    void aFlowThatTicksEverySecondRunsEveryTickOnce() {
+        String tenant = tenant("tenant-a");
+        Schedule everySecond = new Schedule(Schedule.SCHEDULE, "* * * * * *", ZoneOffset.UTC,
+                Duration.ofSeconds(1), null);
+        Instant first = in(tenant, runs::now).truncatedTo(ChronoUnit.SECONDS).minusSeconds(3);
+        flow(tenant, "every-second", work(5, tenant, "every-second"), 1, everySecond, first);
+        RunCoordinator a = coordinator("a", 4);
+        a.startDispatching();
+        heartbeating.add(a);
+
+        for (int i = 0; i < 4; i++) {
+            a.sweepAll();
+            sleep(1500);
+        }
+        await(() -> in(tenant, () -> settled(8)));
+
+        in(tenant, () -> {
+            List<Timestamp> windows = jdbc.queryForList(
+                    "SELECT window_end FROM flow.run ORDER BY window_end", Timestamp.class);
+            assertThat(windows.size()).as("about one run a second for the six seconds").isBetween(8, 12);
+            for (int i = 1; i < windows.size(); i++) {
+                assertThat(windows.get(i).toInstant()).as("no tick missing or repeated")
+                        .isEqualTo(windows.get(i - 1).toInstant().plusSeconds(1));
+            }
+            assertThat(count("SUCCEEDED")).isEqualTo(windows.size());
+            return null;
+        });
     }
 
     // ---------------------------------------------------------------- downtime
@@ -583,6 +722,11 @@ class RunCoordinatorScaleIT {
         return """
                 { "id": "h", "type": "test.hold" }
                 """;
+    }
+
+    private static int envInt(String name, int fallback) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? fallback : Integer.parseInt(value.trim());
     }
 
     private static void sleep(long millis) {
