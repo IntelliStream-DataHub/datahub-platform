@@ -493,7 +493,7 @@ public class RunCoordinator {
             log.info("Run {} attempt {} ended: {} {}", c.id(), c.attempt(), result.status(),
                     result.errorCode() == null ? "" : result.errorCode());
             if (eventOwed) {
-                // Right away, so Needs attention shows it now; a sweep pays it if this cannot.
+                // Right away, so Failed runs shows it now; a sweep pays it if this cannot.
                 runs.find(c.id()).ifPresent(stored -> events.pay(run.tenantId, stored));
             }
         }

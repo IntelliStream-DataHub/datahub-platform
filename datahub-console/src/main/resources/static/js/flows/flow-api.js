@@ -35,7 +35,7 @@
 	}
 
 	// One call, resolved with the parsed body (null for a 204), rejected with a DataHubProblem.
-	// `opts.base` sends it to another service (datahub-api, for the Needs-attention events).
+	// `opts.base` sends it to another service (datahub-api, for the Failed-runs events).
 	function request(path, opts){
 		opts = opts || {};
 		var hasBody = opts.body !== undefined && opts.body !== null;

@@ -22,7 +22,7 @@ import static org.mockito.Mockito.when;
 
 /**
  * The Flows entry in the header is there for a tenant with the flow flag and absent otherwise, and
- * carries the element the Needs-attention count is written into.
+ * carries the element the Failed-runs count is written into.
  *
  * <p>Rendered through Spring's Thymeleaf with a real bean resolver, as {@link AboutDialogTemplateTest}
  * does: a {@code @bean} expression in the header that throws would truncate every page at the header.

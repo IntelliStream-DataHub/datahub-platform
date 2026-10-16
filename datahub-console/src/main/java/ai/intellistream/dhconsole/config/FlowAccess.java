@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 /**
  * Whether the signed-in user's tenant has flows: its Vault {@code tenant-config.flow} flag.
  *
- * <p>Decides only what the layout shows (the Flows entry and its Needs-attention count, reached as
+ * <p>Decides only what the layout shows (the Flows entry and its Failed-runs count, reached as
  * {@code ${@flowAccess.available()}}). It is not the boundary: datahub-flow refuses every call for a
  * tenant without the flag, and who may see or change a flow is that service's question, answered
  * per flow from the caller's groups and dataset grants.

@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
  * Serves the Flows section: shells only. Every flow, run and record on these pages is read and
- * written by the browser against datahub-flow directly, and the Needs-attention list against
+ * written by the browser against datahub-flow directly, and the Failed-runs list against
  * datahub-api's events, per CONSTRAINTS.md, so nothing is fetched here.
  *
  * <p>The section's other views hang off {@code /flows} by a query parameter rather than a path

@@ -221,7 +221,7 @@
 	color: var(--accent);
 }
 
-/* Needs attention: a group heading per flow, its open failures beneath. */
+/* Failed runs: a group heading per flow, its open failures beneath. */
 .attention-group td {
 	font-weight: 600;
 	padding-top: var(--space-lg);
