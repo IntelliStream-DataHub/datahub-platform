@@ -132,7 +132,7 @@ class RunStoreIT {
         StoredRun cancelled = store.find(run.id()).orElseThrow();
         assertThat(cancelled.status()).isEqualTo("CANCELLED");
         assertThat(cancelled.errorCode()).isEqualTo("FLOW_DISABLED");
-        assertThat(store.unarchived(10)).extracting(StoredRun::id).containsExactly(run.id());
+        assertThat(store.takeUnarchived(10, Duration.ofSeconds(30))).extracting(StoredRun::id).containsExactly(run.id());
     }
 
     @Test
@@ -387,10 +387,10 @@ class RunStoreIT {
         store.claim("a", LEASE, 2, GRACE);
         store.complete(fine.id(), "a", 1, "SUCCEEDED", false, OUTCOME);
         store.complete(owing.id(), "a", 1, "FAILED", true, OUTCOME);
-        assertThat(store.unarchived(10)).extracting(StoredRun::id).containsExactlyInAnyOrder(fine.id(), owing.id());
+        assertThat(store.takeUnarchived(10, Duration.ofSeconds(30))).extracting(StoredRun::id).containsExactlyInAnyOrder(fine.id(), owing.id());
 
         store.archived(List.of(fine.id(), owing.id()));
-        assertThat(store.unarchived(10)).isEmpty();
+        assertThat(store.takeUnarchived(10, Duration.ofSeconds(30))).isEmpty();
         assertThat(store.find(fine.id())).as("readable for the finished TTL").isPresent();
         Thread.sleep(1500);
 
@@ -547,7 +547,7 @@ class RunStoreIT {
         assertThat(problems).isEmpty();
         assertThat(seen).hasSize(total);
         assertThat(done.get()).isEqualTo(total);
-        assertThat(store.unarchivedCount()).isEqualTo(total);
+        assertThat(SharedKvrocks.raw().zcard("flow:unarchived")).isEqualTo(total);
     }
 
     // ---------------------------------------------------------------- fixtures
