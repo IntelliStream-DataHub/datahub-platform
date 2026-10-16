@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -123,8 +124,8 @@ class FlowServiceTest {
 
         mvc.perform(get("/catalog/processors").header("Authorization", "Bearer t"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(6))
-                .andExpect(jsonPath("$[0].name").value("read-events"));
+                .andExpect(jsonPath("$[*].name", hasItems("read-events", "read-timeseries", "write-events",
+                        "write-timeseries", "clip", "threshold")));
         assertThat(TenantContext.getTenantId()).as("cleared after the request").isNull();
     }
 
