@@ -89,10 +89,11 @@ public record FlowDefinition(Integer schemaVersion, String externalId, String da
     }
 
     /**
+     * What a run may use. How much memory it may hold is not here: every run gets an equal share
+     * of the instance it runs on, sized by the operator.
+     *
      * @param timeout ISO-8601 duration
-     * @param memory  a data size such as {@code 512MB}
      */
-    public record Execution(Integer maxConcurrentRuns, Integer maxAttempts, String timeout,
-                            String memory) {
+    public record Execution(Integer maxConcurrentRuns, Integer maxAttempts, String timeout) {
     }
 }

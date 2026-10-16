@@ -44,7 +44,7 @@ public final class ExampleFlow {
               ],
               "trigger":   { "type": "schedule", "cron": "0 0 * * * *", "timezone": "Europe/Oslo",
                              "window": "${parameters.window}", "delay": "PT5M" },
-              "execution": { "maxConcurrentRuns": 1, "maxAttempts": 2, "timeout": "PT15M", "memory": "512MB" }
+              "execution": { "maxConcurrentRuns": 1, "maxAttempts": 2, "timeout": "PT15M" }
             }
             """;
 
