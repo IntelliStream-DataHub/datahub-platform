@@ -66,10 +66,11 @@ class FlowSchemaMigrationIT {
                 + " WHERE schemaname = 'flow' AND tablename = 'run'");
 
         assertThat(runIndexes).anySatisfy(def -> assertThat(def)
-                .contains("run_pending_idx").contains("(window_start, created_at)")
+                .contains("run_pending_flow_idx").contains("(flow_id, window_start, created_at)")
                 .contains("WHERE (status = 'PENDING'::text)"));
         assertThat(runIndexes).anySatisfy(def -> assertThat(def)
                 .contains("run_running_idx").contains("WHERE (status = 'RUNNING'::text)"));
+        assertThat(runIndexes).noneMatch(def -> def.contains("run_pending_idx"));
         assertThat(runIndexes).noneMatch(def -> def.contains("lease_expires_at"));
     }
 
