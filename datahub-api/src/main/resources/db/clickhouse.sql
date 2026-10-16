@@ -195,7 +195,7 @@ CREATE OR REPLACE TABLE flow_run_event (
            toDateTime64(0, 3, 'UTC')),
 
     -- Only what the lookup returns, which is enough to find the run and its attempt; the run's
-    -- details are read from Postgres. Listed rather than SELECT *: with SELECT * the projection was
+    -- details are read from the run store or flow_run. Listed rather than SELECT *: with SELECT * the projection was
     -- built but ClickHouse 26.8 never chose it for this lookup (FlowRunEventTableIT checks that it
     -- does).
     PROJECTION by_target (
