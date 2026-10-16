@@ -14,7 +14,6 @@ import ai.intellistream.datahub.flow.definition.FlowDefinition.ProcessorSpec;
 import ai.intellistream.datahub.flow.definition.Template.Reference;
 import ai.intellistream.datahub.flow.definition.Template.Scope;
 import org.springframework.scheduling.support.CronExpression;
-import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
@@ -44,9 +43,8 @@ import java.util.regex.Pattern;
 public final class FlowValidator {
 
     /** Operator limits a flow's execution settings must stay within. */
-    public record Limits(Duration maxTimeout, long maxMemoryBytes) {
-        public static final Limits DEFAULTS = new Limits(Duration.ofHours(1),
-                DataSize.ofGigabytes(4).toBytes());
+    public record Limits(Duration maxTimeout) {
+        public static final Limits DEFAULTS = new Limits(Duration.ofHours(1));
     }
 
     static final Pattern EXTERNAL_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}");
@@ -650,17 +648,6 @@ public final class FlowValidator {
                         || timeout.compareTo(limits.maxTimeout()) > 0)) {
                     problem("#/execution/timeout", "Must be positive and at most "
                             + limits.maxTimeout() + ".");
-                }
-            }
-            if (e.memory() != null) {
-                try {
-                    long bytes = DataSize.parse(e.memory()).toBytes();
-                    if (bytes <= 0 || bytes > limits.maxMemoryBytes()) {
-                        problem("#/execution/memory", "Must be positive and at most "
-                                + DataSize.ofBytes(limits.maxMemoryBytes()).toMegabytes() + "MB.");
-                    }
-                } catch (IllegalArgumentException ex) {
-                    problem("#/execution/memory", "Must be a size such as 512MB.");
                 }
             }
         }

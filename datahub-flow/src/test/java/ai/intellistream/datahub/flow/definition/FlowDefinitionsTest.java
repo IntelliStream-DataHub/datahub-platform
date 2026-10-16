@@ -24,7 +24,7 @@ class FlowDefinitionsTest {
         assertThat(d.processors().get(3).terminate()).containsExactly("success");
         assertThat(d.connections()).hasSize(4);
         assertThat(d.trigger().delay()).isEqualTo("PT5M");
-        assertThat(d.execution().memory()).isEqualTo("512MB");
+        assertThat(d.execution().timeout()).isEqualTo("PT15M");
     }
 
     @Test

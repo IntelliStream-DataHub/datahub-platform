@@ -278,11 +278,10 @@ class FlowValidatorTest {
         List<ValidationProblem> problems = problems(tree -> {
             ObjectNode execution = (ObjectNode) tree.get("execution");
             execution.put("timeout", "PT2H");
-            execution.put("memory", "8GB");
             execution.put("maxConcurrentRuns", 0);
         });
         assertThat(problems).extracting(ValidationProblem::pointer).containsExactlyInAnyOrder(
-                "#/execution/timeout", "#/execution/memory", "#/execution/maxConcurrentRuns");
+                "#/execution/timeout", "#/execution/maxConcurrentRuns");
     }
 
     @Test
