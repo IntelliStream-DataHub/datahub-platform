@@ -138,7 +138,7 @@ class RunCoordinatorScaleIT {
                     pool.setJdbcUrl(postgres.getJdbcUrl());
                     pool.setUsername(postgres.getUsername());
                     pool.setPassword(postgres.getPassword());
-                    pool.setMaximumPoolSize(40);
+                    pool.setMaximumPoolSize(envInt("SCALE_POOL", 40));
                     return pool;
                 });
             }
@@ -375,7 +375,7 @@ class RunCoordinatorScaleIT {
      * ends, so the queue drains at the speed the slots allow. With a start only at each sweep, a
      * sweep every ten seconds would start sixteen runs per ten seconds, and this would not finish.
      * The size can be raised from the environment: SCALE_DRAIN_FLOWS, SCALE_DRAIN_PER_FLOW,
-     * SCALE_DRAIN_MILLIS.
+     * SCALE_DRAIN_MILLIS, SCALE_DRAIN_SLOTS (and SCALE_POOL for the connections).
      */
     @Test
     void aQueueOfThousandsOfRunsDrainsAtTheSpeedOfTheSlotsAfterASingleSweep() {
@@ -383,7 +383,7 @@ class RunCoordinatorScaleIT {
         int flows = envInt("SCALE_DRAIN_FLOWS", 50);
         int perFlow = envInt("SCALE_DRAIN_PER_FLOW", 40);
         int millis = envInt("SCALE_DRAIN_MILLIS", 20);
-        int slots = 16;
+        int slots = envInt("SCALE_DRAIN_SLOTS", 16);
         int total = flows * perFlow;
         in(tenant, () -> {
             for (int f = 0; f < flows; f++) {
@@ -402,6 +402,7 @@ class RunCoordinatorScaleIT {
         a.startDispatching();
         heartbeating.add(a);
 
+        long[] before = in(tenant, this::databaseWork);
         long started = System.nanoTime();
         a.sweepAll();
         long until = System.nanoTime() + Duration.ofMinutes(5).toNanos();
@@ -409,15 +410,20 @@ class RunCoordinatorScaleIT {
             sleep(100);
         }
         long ms = (System.nanoTime() - started) / 1_000_000;
+        long[] after = in(tenant, this::databaseWork);
 
         assertThat(in(tenant, () -> count("SUCCEEDED"))).as("every queued run ran after one sweep").isEqualTo(total);
         assertThat(in(tenant, () -> jdbc.queryForObject("SELECT count(*) FROM flow.run WHERE attempt <> 1",
                 Integer.class))).isZero();
-        assertThat(MOST.get("drain").get()).as("the slots were used, and not exceeded").isBetween(slots - 2, slots);
+        assertThat(MOST.get("drain").get()).as("the slots were used, and not exceeded").isBetween(Math.max(1, slots - 2), slots);
         double ideal = total * (double) millis / slots;
         System.out.printf("drain: %d runs over %d flows at %d ms each on %d slots took %d ms after one sweep"
                         + " (%.0f runs/s; the slots alone allow %.0f ms)%n",
                 total, flows, millis, slots, ms, total * 1000.0 / ms, ideal);
+        System.out.printf("drain: what that cost Postgres, per run: %.1f transactions, %.1f rows updated, "
+                        + "%.1f rows read; %.0f transactions/s in all%n",
+                (after[0] - before[0]) / (double) total, (after[1] - before[1]) / (double) total,
+                (after[2] - before[2]) / (double) total, (after[0] - before[0]) * 1000.0 / ms);
         // Generous: the point is minutes against hours, not a benchmark. Sweep-only dispatch needs
         // total / slots sweeps of ten seconds.
         assertThat(ms).isLessThan(Math.max(30_000L, (long) (ideal * 6)));
@@ -693,6 +699,13 @@ class RunCoordinatorScaleIT {
     private boolean settled(int atLeast) {
         return Boolean.TRUE.equals(jdbc.queryForObject("SELECT count(*) >= ? AND count(*) FILTER "
                 + "(WHERE status IN ('PENDING', 'RUNNING')) = 0 FROM flow.run", Boolean.class, atLeast));
+    }
+
+    /** What the current tenant's database has done so far: transactions, rows updated, rows read. */
+    private long[] databaseWork() {
+        return jdbc.queryForObject("SELECT xact_commit + xact_rollback, tup_updated, tup_fetched "
+                + "FROM pg_stat_database WHERE datname = current_database()",
+                (rs, n) -> new long[]{rs.getLong(1), rs.getLong(2), rs.getLong(3)});
     }
 
     /** Runs of the current tenant with {@code status}, or all of them for null. */
