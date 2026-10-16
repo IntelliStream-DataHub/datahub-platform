@@ -137,7 +137,7 @@ public class ResourceController {
                     ### Large networks
                     Without a `limit`, the nearest 5,000 resources come back. Send `limit: -1` to
                     get the whole network: it is sent while it is read, so a network of any size
-                    can be fetched. A playground tenant gets at most the deployment's limit (5,000
+                    can be fetched. A playground tenant gets at most the deployment's limit (10,000
                     by default); when that limit cuts a response short, the response carries an
                     `X-Network-Cap` header with the limit.
                     """

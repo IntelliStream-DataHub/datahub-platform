@@ -162,7 +162,7 @@ class TenantLimitsServiceTest {
         defaults.getLifetime().setEnabled(true);
         when(jdbcTemplate.query(anyString(), any(ResultSetExtractor.class))).thenReturn(null);
 
-        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isEqualTo(5_000L);
+        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isEqualTo(10_000L);
     }
 
     @Test
@@ -178,7 +178,7 @@ class TenantLimitsServiceTest {
         defaults.getLifetime().setEnabled(true);
         rowWith(Map.of("write_per_minute_per_tenant", 42));
 
-        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isEqualTo(5_000L);
+        assertThat(service(Duration.ofMinutes(5)).forTenant(TENANT).maxNetworkNodes()).isEqualTo(10_000L);
     }
 
     @Test

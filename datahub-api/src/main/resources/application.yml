@@ -202,7 +202,7 @@ datahub:
       # The most resources one network read (POST /resources/fetch-related) returns to a playground
       # tenant, whatever it asks for. A tenant whose max-resources is lifted to 0 in its tenant_limits
       # row is not a playground tenant, so this does not apply to it.
-      max-network-nodes: 5000
+      max-network-nodes: 10000
     websocket:
       # Concurrent sockets, and subscriptions multiplexed over one of them. Capped separately from
       # requests because a socket's cost is what follows the handshake: a durable subscription holds
