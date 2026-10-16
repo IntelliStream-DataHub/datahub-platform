@@ -340,7 +340,7 @@ function createGraphView(container, opts) {
             ? { label: '#e9f1f4', ink: '#0b1217', pick: '#ffffff', flowText: '#8a80a0', out: '#ffb85c', in: '#7fb2ff' }
             : { label: '#16303b', ink: '#16303b', pick: '#17313d', flowText: '#675d80', out: '#c46a00', in: '#2a5fd1' };
         p.bg = canvasBg(); p.outline = p.bg;
-        p.line = c.edge; p.accent = c.accent; p.tutorial = c.tutorial;
+        p.line = c.edge; p.accent = c.accent; p.tutorial = c.tutorial; p.surface = c.nodeSurface || p.bg;
         p.fadeFrom = mixHex(p.line, p.bg, 0.3); p.outFrom = mixHex(p.out, p.bg, 0.3); p.inFrom = mixHex(p.in, p.bg, 0.3);
         return p;
     }
@@ -467,7 +467,8 @@ function createGraphView(container, opts) {
     // big graph's dots are always sized by importance: there the size is what tells its hubs apart.
     function lookOf(i, comm, pal) {
         const imp = info.importance[i], same = V.size === 'same' && !big, d = same ? 16 : 8 + 30 * imp, id = G.ids[i];
-        const look = { w: d, h: d, fs: same ? 10.5 : 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pal.ink), c: comm[i], short: SHORT.get(id) };
+        // A dot's icon is dark on its colour; a pill's is in the page's text colour, like its name.
+        const look = { w: d, h: d, fs: same ? 10.5 : 8 + 11 * imp, imp, dot: colourOf(comm[i]), icon: iconOf(G.nodes.get(id), pills() ? pal.label : pal.ink), c: comm[i], short: SHORT.get(id) };
         if (pills()) {
             // A pill as wide as its name, which is written inside it after the icon.
             const fs = same ? 10 : 9 + 5 * imp, name = look.short || '', room = fs * (PILL_MAX - PILL_ICON - 2 * PILL_PAD);
@@ -1097,7 +1098,7 @@ function createGraphView(container, opts) {
             });
             ctx.lineCap = 'butt';
         });
-        if (pills()) drawPillNames(ctx, z, pan, w, h, pal);
+        if (pills()) drawPillFaces(ctx, z, pan, w, h, pal);
         ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = pal.outline; ctx.fillStyle = pal.label;
         NAMED.forEach(id => {
             const n = cy.getElementById(id);
@@ -1110,16 +1111,29 @@ function createGraphView(container, opts) {
             ctx.globalAlpha = 1; ctx.fillText(t, x, y);
         });
     }
-    // A pill's name, after its icon, in the dark ink the icons use; centred when the pill shows no icon.
-    function drawPillNames(ctx, z, pan, w, h, pal) {
-        ctx.textBaseline = 'middle'; ctx.fillStyle = pal.ink;
+    // A pill's icon at its left end and its name after it, in the page's text colour; the name is centred
+    // when the pill shows no icon. Each icon image is decoded once and drawn wherever it is used.
+    const pillIcons = new Map();
+    function pillIcon(src) {
+        let img = pillIcons.get(src);
+        if (!img) { img = new Image(); img.onload = redrawSoon; img.src = src; pillIcons.set(src, img); if (pillIcons.size > 500) pillIcons.clear(); }
+        return img.complete && img.naturalWidth ? img : null;
+    }
+    function drawPillFaces(ctx, z, pan, w, h, pal) {
+        ctx.textBaseline = 'middle'; ctx.fillStyle = pal.label;
         cy.nodes('.pill').forEach(n => {
             const fs = n.data('fs'), px = fs * z;
-            if (px < PILL_MIN_PX || hiddenName(n)) return;
+            if (n.hasClass('noicon') && px < PILL_MIN_PX) return;
+            if (hiddenName(n)) return;
             const p = n.position(), x = p.x * z + pan.x, y = p.y * z + pan.y, hw = n.data('w') * z / 2;
             if (x + hw < 0 || x - hw > w || y < -px || y > h + px) return;
+            const src = n.data('icon'), icon = !!src && src !== 'none' && !n.hasClass('noicon');
+            if (icon) {
+                const img = pillIcon(src), s = fs * 1.35 * z;
+                if (img) { ctx.globalAlpha = 0.9; ctx.drawImage(img, x - hw + fs * PILL_PAD * z, y - s / 2, s, s); ctx.globalAlpha = 1; }
+            }
+            if (px < PILL_MIN_PX) return;
             ctx.font = `600 ${px}px Manrope, Arial, sans-serif`;
-            const icon = n.data('icon') !== 'none' && !n.hasClass('noicon');
             ctx.textAlign = icon ? 'left' : 'center';
             ctx.fillText(n.data('pt') || '', icon ? x - hw + fs * (PILL_PAD + PILL_ICON) * z : x, y);
         });
@@ -1231,9 +1245,11 @@ function createGraphView(container, opts) {
             // Dots draw no names of their own: names go on a layer above the graph, so zooming never restyles a node.
             // A dot is a plain circle; its icon is drawn on the name layer (drawDotIcons), where it stays sharp.
             { selector: 'node.dot', style: { 'background-color': 'data(dot)' } },
-            { selector: 'node.pill', style: { 'shape': 'round-rectangle', 'background-position-x': n => (n.data('fs') * PILL_PAD) + 'px', 'background-position-y': '50%',
-                'background-width': n => (n.data('fs') * 1.35) + 'px', 'background-height': n => (n.data('fs') * 1.35) + 'px', 'background-image-opacity': 0.9 } },
-            { selector: 'node.noicon', style: { 'background-image': 'none' } },
+            // A pill is a box in the page's own surface colour with a border in its group's colour, as the console's
+            // pills always were; its icon and name are drawn on the name layer in the page's text colour
+            // (drawPillFaces). Cytoscape's WebGL renderer leaves out some wide nodes that carry an image, so a pill
+            // carries none.
+            { selector: 'node.pill', style: { 'shape': 'round-rectangle', 'background-image': 'none', 'background-color': pal.surface, 'border-width': 2, 'border-color': 'data(dot)', 'border-opacity': 1 } },
             { selector: 'node.grp', style: { 'background-opacity': 0, 'border-width': 0 } },
             // Plain lines are straight; bezier only so that two relationships between one pair fan apart (a
             // quadratic curve bows half its control-point step, so twice the gap gives PAR_GAP lanes). A line
@@ -1250,6 +1266,7 @@ function createGraphView(container, opts) {
             ...(fade ? [{ selector: 'edge', style: { 'line-fill': 'linear-gradient', 'line-gradient-stop-colors': [pal.fadeFrom, pal.line], 'line-gradient-stop-positions': [0, 100] } }] : []),
             { selector: '.dim', style: { 'opacity': 0.08 } },
             { selector: 'node.dim', style: dimNode(0.18) },
+            { selector: 'node.pill.dim', style: cyWebgl ? { 'background-color': pal.surface, 'border-opacity': 0.25 } : { 'opacity': 0.25 } },
             { selector: 'node.root', style: { 'border-width': 2, 'border-color': pal.label, 'border-opacity': 0.9 } },
             { selector: 'node.sel', style: { 'border-width': 3, 'border-color': pal.accent, 'border-opacity': 1 } },
             { selector: 'edge.hl', style: { 'opacity': 0.95, 'z-index': 9 } },
@@ -1923,8 +1940,8 @@ function createGraphView(container, opts) {
     // resources out of view, which take theirs when they are drawn.
     function applyIcons() {
         if (!cy || destroyed || !G) return;
-        const ink = palette().ink;
-        cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G.nodes.get(n.id()); if (g) n.data('icon', iconOf(g, ink)); }));
+        const pal = palette(), ink = pal.ink;
+        cy.batch(() => cy.nodes('.dot').forEach(n => { const g = G.nodes.get(n.id()); if (g) n.data('icon', iconOf(g, n.hasClass('pill') ? pal.label : ink)); }));
         if (big) big.nodes.forEach((d, id) => { const g = G.nodes.get(id); if (g) d.icon = iconOf(g, ink); });
         redrawSoon();   // the icons are drawn on the name layer
     }
