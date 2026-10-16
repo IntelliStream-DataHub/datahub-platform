@@ -27,7 +27,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
-import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -53,7 +52,6 @@ public class RunService {
     static final int DEFAULT_MAX_CONCURRENT_RUNS = 1;
     static final int DEFAULT_MAX_ATTEMPTS = 2;
     static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(15);
-    public static final long DEFAULT_MEMORY = DataSize.ofMegabytes(512).toBytes();
 
     /** A preview's window when none is given. */
     static final Duration PREVIEW_WINDOW = Duration.ofHours(1);
@@ -95,7 +93,7 @@ public class RunService {
 
     /** A version made ready to deploy: its trigger and limits, read from its definition. */
     public record DeploymentPlan(long flowId, String flowExternalId, int version, Schedule schedule,
-                                 int maxConcurrentRuns, int maxAttempts, Duration timeout, long memoryBytes) {
+                                 int maxConcurrentRuns, int maxAttempts, Duration timeout) {
     }
 
     /** What a manual run asks for: a window (default the trigger's latest) and parameter values. */
@@ -177,19 +175,13 @@ public class RunService {
         int maxAttempts = execution == null || execution.maxAttempts() == null
                 ? DEFAULT_MAX_ATTEMPTS : execution.maxAttempts();
         return new DeploymentPlan(flow.id(), flow.externalId(), v, schedule, maxConcurrent, maxAttempts,
-                timeout(definition), memory(definition));
+                timeout(definition));
     }
 
     private static Duration timeout(FlowDefinition definition) {
         FlowDefinition.Execution execution = definition.execution();
         return execution == null || execution.timeout() == null
                 ? DEFAULT_TIMEOUT : Duration.parse(execution.timeout());
-    }
-
-    private static long memory(FlowDefinition definition) {
-        FlowDefinition.Execution execution = definition.execution();
-        return execution == null || execution.memory() == null
-                ? DEFAULT_MEMORY : DataSize.parse(execution.memory()).toBytes();
     }
 
     /**
@@ -201,7 +193,7 @@ public class RunService {
         transaction.executeWithoutResult(status -> {
             Instant nextTick = enabled && schedule.scheduled() ? schedule.nextTick(runs.now()) : null;
             flows.deploy(plan.flowId(), plan.version(), enabled, schedule.toJson(json),
-                    plan.maxConcurrentRuns(), plan.maxAttempts(), plan.timeout(), plan.memoryBytes(),
+                    plan.maxConcurrentRuns(), plan.maxAttempts(), plan.timeout(),
                     identity, by, nextTick, nextTick == null ? null : schedule.dueAt(nextTick));
         });
         log.info("Flow {} deployed at version {} ({}){}", plan.flowExternalId(), plan.version(),
@@ -291,7 +283,7 @@ public class RunService {
             window = new TimeWindow(now.minus(PREVIEW_WINDOW), now);
         }
         RunRepository.NewPreview preview = new RunRepository.NewPreview(flowId, version, unsaved,
-                dataSetId, memory(definition), timeout, window, parameters(request.parameters()),
+                dataSetId, timeout, window, parameters(request.parameters()),
                 caller.subject());
         UUID id = transaction.execute(status -> runs.insertPreview(preview));
         String token = jwt.getTokenValue();
@@ -377,7 +369,7 @@ public class RunService {
     private UUID create(StoredFlow flow, Deployment deployment, TimeWindow window, String parameters,
                         String trigger, String by) {
         return transaction.execute(status -> runs.insert(new NewRun(flow.id(), deployment.version(),
-                deployment.maxAttempts(), deployment.memoryBytes(), deployment.timeout(), window,
+                deployment.maxAttempts(), deployment.timeout(), window,
                 parameters, trigger, by, deployment.identitySubject() != null
                         ? deployment.identitySubject() : deployment.identityClientName())));
     }

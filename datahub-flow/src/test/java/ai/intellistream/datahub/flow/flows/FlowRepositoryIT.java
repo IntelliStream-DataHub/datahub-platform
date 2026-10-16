@@ -114,8 +114,8 @@ class FlowRepositoryIT {
     @Test
     void deletingAFlowTakesItsVersionsAndRunsWithIt() {
         StoredFlow flow = create("deleted", 500);
-        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, max_attempts, memory_bytes, "
-                + "run_timeout, trigger) VALUES (gen_random_uuid(), ?, 1, 'SUCCEEDED', 1, 1, "
+        jdbc.update("INSERT INTO flow.run (id, flow_id, version, status, max_attempts, "
+                + "run_timeout, trigger) VALUES (gen_random_uuid(), ?, 1, 'SUCCEEDED', 1, "
                 + "interval '1 minute', 'manual')", flow.id());
 
         transaction.executeWithoutResult(s -> repository.delete(flow.id()));
