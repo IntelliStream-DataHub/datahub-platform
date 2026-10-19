@@ -663,6 +663,7 @@ class GraphNetwork {
     applyTheme() {
         GRAPH_COLORS = graphPalette();
         this.view.applyTheme();
+        if (this.filter) this.filter.paintIconButtons();   // the label icons are drawn in the theme's ink
     }
 
     // Relations whose metadata carries an "animate::datatype" entry show that value travelling along
@@ -1062,6 +1063,15 @@ class GraphFilter {
                 <main class="datahub-form-fields">
                     <label>${$L('filter.by.name')}</label>
                     <input type="text" class="gf-name" placeholder="${$L('filter.by.name')}"/>
+                    <div class="gf-group" data-group="icons">
+                        <h3 class="gf-group-title">${$L('graph.icons')}</h3>
+                        <select class="gf-icon-style" aria-label="${$L('graph.icons')}">
+                            <option value="symbols">${$L('graph.icons.symbols')}</option>
+                            <option value="simple">${$L('graph.icons.simple')}</option>
+                            <option value="none">${$L('graph.icons.none')}</option>
+                        </select>
+                        <p class="gf-hint">${$L('graph.icons.hint')}</p>
+                    </div>
                     <div class="gf-group" data-group="labels">
                         <h3 class="gf-group-title">${$L('labels')}</h3>
                         <ul class="data-list slim gf-list"></ul>
@@ -1096,6 +1106,11 @@ class GraphFilter {
             this.state.name = e.target.value;
             this.apply();
         });
+        const style = this.panel.querySelector('.gf-icon-style');
+        style.value = GraphIcons.style();
+        style.addEventListener('change', () => { GraphIcons.setStyle(style.value); this.paintIconButtons(); });
+        // A label's icon button shows its image once that has loaded, and a warning if it could not be.
+        this.stopIcons = GraphIcons.subscribe(() => this.paintIconButtons());
         this.panel.querySelector('[data-type="gf-close"]').addEventListener('click', () => this.closePanel());
         this.panel.querySelector('[data-type="gf-clear"]').addEventListener('click', () => {
             this.reset();
@@ -1112,6 +1127,8 @@ class GraphFilter {
         const panel = this.panel;
         this.panel = null;
         this.nameInput = null;
+        this.picker = null;
+        if (this.stopIcons) { this.stopIcons(); this.stopIcons = null; }
         panel.classList.remove('visible');
         if (mainElement.childElementCount === 1) mainElement.classList.remove('visible');
         setTimeout(() => {
@@ -1152,6 +1169,7 @@ class GraphFilter {
         list.querySelectorAll('input[type="checkbox"]').forEach(cb => { prev[cb.value] = cb.checked; });
 
         list.innerHTML = '';
+        if (group === 'labels') this.picker = null;
         values.forEach(value => {
             const checked = (value in prev) ? prev[value] : isChecked(value);
             const li = document.createElement('li');
@@ -1165,10 +1183,12 @@ class GraphFilter {
                 const chip = Object.assign(document.createElement('span'), { className: 'gf-chip' });
                 chip.style.backgroundColor = this.network.getColor({ labels: [value] });
                 row.append(cb, chip, name);
+                li.className = 'gf-label';
+                li.append(row, this.iconButton(value));
             } else {
                 row.append(cb, name);
+                li.append(row);
             }
-            li.append(row);
             list.append(li);
         });
         // Sync state from the (possibly preserved) checkbox states without re-applying yet.
@@ -1196,6 +1216,118 @@ class GraphFilter {
     }
 
     isSet() { return !!(this.state.name || this.state.activeLabels || this.state.activeRelTypes); }
+
+    // ---- a label's icon -----------------------------------------------------------------------------
+    // The button beside a label shows the icon its resources get, and opens a picker for an image from
+    // Files. The image is remembered in this browser only (graph-icons.js).
+    iconButton(label) {
+        const btn = Object.assign(document.createElement('button'), { type: 'button', className: 'gf-icon-btn' });
+        btn.dataset.label = label;
+        btn.append(Object.assign(document.createElement('img'), { alt: '' }));
+        btn.addEventListener('click', () => this.togglePicker(btn.closest('li'), label));
+        this.paintIconButton(btn);
+        return btn;
+    }
+
+    paintIconButton(btn) {
+        const label = btn.dataset.label, image = GraphIcons.imageOf(label);
+        const failed = !!image && GraphIcons.imageFailed(image.id);
+        btn.querySelector('img').src = GraphIcons.labelSrc(label, GRAPH_COLORS.labelText);
+        btn.classList.toggle('has-image', !!image && !failed);
+        btn.classList.toggle('failed', failed);
+        btn.title = failed ? $L('graph.icon.failed', null, [image.name])
+            : image ? $L('graph.icon.chosen', null, [image.name, label]) : $L('graph.icon.choose', null, [label]);
+    }
+
+    paintIconButtons() {
+        if (this.panel) this.panel.querySelectorAll('.gf-icon-btn').forEach(b => this.paintIconButton(b));
+    }
+
+    togglePicker(li, label) {
+        const open = this.picker;
+        if (open) { open.el.remove(); this.picker = null; if (open.li === li) return; }
+        const el = Object.assign(document.createElement('div'), {
+            className: 'gf-picker',
+            innerHTML: `
+                <div class="gf-picker-head"></div>
+                <p class="gf-hint">${$L('graph.icon.browser.only')}</p>
+                <input type="search" class="gf-picker-search" placeholder="${$L('graph.icon.search')}" aria-label="${$L('graph.icon.search')}"/>
+                <nav class="gf-picker-path"></nav>
+                <div class="gf-picker-items"></div>
+                <div class="gf-picker-actions">
+                    <button type="button" class="dh-btn secondary small" data-type="gf-auto"><span>${$L('graph.icon.automatic')}</span></button>
+                    <a class="gf-picker-files" href="/files" target="_blank" rel="noopener">${$L('graph.icon.upload')}</a>
+                </div>`
+        });
+        el.querySelector('.gf-picker-head').textContent = $L('graph.icon.for', null, [label]);
+        li.append(el);
+        const picker = this.picker = { li, label, el, path: '/', seq: 0, timer: 0 };
+        const search = el.querySelector('.gf-picker-search');
+        search.addEventListener('input', () => {
+            clearTimeout(picker.timer);
+            picker.timer = setTimeout(() => this.showFiles(picker, search.value.trim()), 250);
+        });
+        el.querySelector('[data-type="gf-auto"]').addEventListener('click', () => this.chooseImage(picker, null));
+        this.showFiles(picker, '');
+        search.focus();
+    }
+
+    // A folder's images and sub-folders, or the images whose names begin with what was typed (Files
+    // matches names from their beginning, so "pump" finds pump.svg and "svg" finds nothing).
+    showFiles(picker, query) {
+        const seq = ++picker.seq, items = picker.el.querySelector('.gf-picker-items'), nav = picker.el.querySelector('.gf-picker-path');
+        const segments = picker.path.split('/').filter(Boolean);
+        const path = query ? '/files/search?q=' + encodeURIComponent(query) + '&limit=100'
+            : '/files/list' + segments.map(x => '/' + encodeURIComponent(x)).join('');
+        nav.replaceChildren();
+        if (!query) {
+            const crumb = (text, to) => {
+                const b = Object.assign(document.createElement('button'), { type: 'button', className: 'gf-crumb', textContent: text });
+                b.addEventListener('click', () => { picker.path = to; this.showFiles(picker, ''); });
+                nav.append(b);
+            };
+            crumb($L('graph.icon.files'), '/');
+            segments.forEach((x, k) => crumb(x, '/' + segments.slice(0, k + 1).join('/')));
+        }
+        items.replaceChildren(this.pickerNote('graph.icon.loading'));
+        Api.get(path)
+            .then(r => r.status === 403 ? 'disabled' : r.ok ? r.json() : Promise.reject(r.status))
+            .then(json => {
+                if (seq !== picker.seq || this.picker !== picker) return;
+                if (json === 'disabled') { items.replaceChildren(this.pickerNote('graph.icon.disabled')); return; }
+                const all = (json && json.items) || [];
+                const folders = query ? [] : all.filter(f => f.type === 'FOLDER').sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                const images = all.filter(GraphIcons.isImageFile).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+                items.replaceChildren();
+                folders.forEach(f => {
+                    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'gf-folder' });
+                    b.innerHTML = '<i class="fa fa-fw fa-folder"></i><span></span>';
+                    b.querySelector('span').textContent = f.name;
+                    b.addEventListener('click', () => { picker.path = f.path || (picker.path.replace(/\/$/, '') + '/' + f.name); this.showFiles(picker, ''); });
+                    items.append(b);
+                });
+                images.forEach(f => {
+                    const b = Object.assign(document.createElement('button'), { type: 'button', className: 'gf-tile', title: f.name });
+                    const img = Object.assign(document.createElement('img'), { alt: '', loading: 'lazy', src: '/files/download/' + encodeURIComponent(f.externalId) });
+                    b.append(img, Object.assign(document.createElement('span'), { textContent: f.name }));
+                    b.addEventListener('click', () => this.chooseImage(picker, { id: f.externalId, name: f.name }));
+                    items.append(b);
+                });
+                if (!folders.length && !images.length) items.replaceChildren(this.pickerNote(query ? 'graph.icon.none.found' : 'graph.icon.none.here'));
+            })
+            .catch(() => { if (seq === picker.seq && this.picker === picker) items.replaceChildren(this.pickerNote('graph.icon.error')); });
+    }
+
+    pickerNote(key) {
+        return Object.assign(document.createElement('p'), { className: 'gf-hint gf-picker-note', textContent: $L(key) });
+    }
+
+    chooseImage(picker, file) {
+        GraphIcons.setImage(picker.label, file);
+        picker.el.remove();
+        if (this.picker === picker) this.picker = null;
+        this.paintIconButtons();
+    }
 
     apply() {
         const q = (this.state.name || '').trim().toLowerCase();
