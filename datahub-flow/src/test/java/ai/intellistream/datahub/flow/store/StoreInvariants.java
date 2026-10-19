@@ -11,17 +11,19 @@ import java.util.Set;
 
 /**
  * What must always be true of the run store (RUN_STORE.md, <em>No schema constraints any more</em>),
- * read off the raw keys. Postgres used to hold these as constraints; now only the scripts do, so the
- * tests check them after random sequences of operations and under concurrent load.
+ * read off the raw keys. Postgres used to hold these as constraints; now only the store's transactions
+ * do, so the tests check them after random sequences of operations and under concurrent load. Called
+ * once the operations have returned: a flow's presence in {@code flow:ready} is a hint, which is only
+ * required to be there while there is something to start, and which may linger after.
  *
  * @return the violations, empty when the store is sound
  */
-final class StoreInvariants {
+public final class StoreInvariants {
 
     private StoreInvariants() {
     }
 
-    static List<String> violations() {
+    public static List<String> violations() {
         RedisCommands<String, String> r = SharedKvrocks.raw();
         List<String> bad = new ArrayList<>();
         Set<String> flows = new HashSet<>();
@@ -31,6 +33,9 @@ final class StoreInvariants {
         for (String key : r.keys("flow:q:*")) {
             flows.add(key.substring("flow:q:".length()));
         }
+        for (String key : r.keys("flow:retrying:*")) {
+            flows.add(key.substring("flow:retrying:".length()));
+        }
         Set<String> queued = new HashSet<>();
         Set<String> running = new HashSet<>();
         for (String flow : flows) {
@@ -38,28 +43,27 @@ final class StoreInvariants {
             List<String> q = r.zrange("flow:q:" + flow, 0, -1);
             List<String> d = r.zrange("flow:d:" + flow, 0, -1);
             Set<String> rs = r.smembers("flow:running:" + flow);
-            int counted = Integer.parseInt(meta.getOrDefault("running", "0"));
-            if (counted != rs.size()) {
-                bad.add("flow " + flow + " counts " + counted + " running but has " + rs.size());
-            }
             int max = Integer.parseInt(meta.getOrDefault("max_concurrent", "1"));
             boolean usable = !"0".equals(meta.get("enabled")) && !"0".equals(meta.get("deployed"));
             // More running than the limit is legal after the limit is lowered; starting one beyond it is
             // not, and the concurrency test watches for that.
             int room = usable ? max - rs.size() : 1;
             boolean ready = r.zscore("flow:ready", flow) != null;
-            if (ready != (!q.isEmpty() && room > 0)) {
-                bad.add("flow " + flow + " ready=" + ready + " but queue " + q.size() + " room " + room);
+            if (!ready && !q.isEmpty() && room > 0) {
+                bad.add("flow " + flow + " has " + q.size() + " queued and room " + room + " but is not ready");
             }
-            if (ready) {
-                List<io.lettuce.core.ScoredValue<String>> head = r.zrangeWithScores("flow:q:" + flow, 0, 0);
-                if (!head.isEmpty() && r.zscore("flow:ready", flow).doubleValue() != head.get(0).getScore()) {
-                    bad.add("flow " + flow + " is ready at the wrong score");
+            Set<String> retrying = r.smembers("flow:retrying:" + flow);
+            for (String id : retrying) {
+                Map<String, String> h = r.hgetall("flow:run:" + id);
+                if (!"PENDING".equals(h.get("status")) || Integer.parseInt(h.get("attempt")) < 2) {
+                    bad.add("retrying run " + id + " is " + h.get("status") + " on attempt " + h.get("attempt"));
                 }
             }
             Set<String> delayedSet = new HashSet<>(d);
-            if (!delayedSet.isEmpty() && r.zscore("flow:due", flow) == null) {
-                bad.add("flow " + flow + " has delayed runs but is not in flow:due");
+            for (String id : d) {
+                if (r.zscore("flow:delayed", id) == null) {
+                    bad.add("delayed run " + id + " is not in flow:delayed");
+                }
             }
             for (String id : q) {
                 if (!queued.add(id) || delayedSet.contains(id)) {
@@ -102,6 +106,10 @@ final class StoreInvariants {
                     }
                 }
                 case "PENDING" -> {
+                    if (!preview && Integer.parseInt(h.get("attempt")) > 1
+                            && !r.sismember("flow:retrying:" + h.get("flow_id"), id)) {
+                        bad.add("pending run " + id + " on attempt " + h.get("attempt") + " is not retrying");
+                    }
                     if (!preview && !queued.contains(id) && !isDelayed(r, h.get("flow_id"), id)) {
                         bad.add("pending run " + id + " is in no queue");
                     }
@@ -121,9 +129,36 @@ final class StoreInvariants {
                 bad.add("live index holds " + id + ", which is gone");
             }
         }
+        for (String id : r.zrange("flow:delayed", 0, -1)) {
+            if (!"PENDING".equals(r.hget("flow:run:" + id, "status"))) {
+                bad.add("delayed index holds " + id + " which is " + r.hget("flow:run:" + id, "status"));
+            }
+        }
         for (String id : r.zrange("flow:leases", 0, -1)) {
             if (!"RUNNING".equals(r.hget("flow:run:" + id, "status"))) {
                 bad.add("lease of " + id + " which is " + r.hget("flow:run:" + id, "status"));
+            }
+        }
+        for (String key : r.keys("flow:sched:*")) {
+            if (key.startsWith("flow:sched-lock:")) {
+                continue;
+            }
+            String flow = key.substring("flow:sched:".length());
+            Map<String, String> h = r.hgetall(key);
+            Double due = r.zscore("flow:sched", flow);
+            if (due == null) {
+                bad.add("schedule of flow " + flow + " is not in flow:sched");
+                continue;
+            }
+            String next = h.get("next_tick_ms");
+            double expected = next == null || next.isEmpty() ? 9.0e15 : Long.parseLong(next) + Long.parseLong(h.get("delay_ms"));
+            if (due != expected) {
+                bad.add("schedule of flow " + flow + " is due at " + due + " but its next tick says " + expected);
+            }
+        }
+        for (String flow : r.zrange("flow:sched", 0, -1)) {
+            if (r.exists("flow:sched:" + flow) == 0) {
+                bad.add("flow:sched holds flow " + flow + ", which has no schedule");
             }
         }
         return bad;
