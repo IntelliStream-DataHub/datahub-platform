@@ -5,7 +5,7 @@ import ai.intellistream.datahub.flow.engine.RunResult;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
 import ai.intellistream.datahub.flow.flows.FlowRepository.DeployedFlow;
-import ai.intellistream.datahub.flow.flows.FlowRepository.DueFlow;
+import ai.intellistream.datahub.flow.flows.FlowRepository.ScheduleCheckpoint;
 import ai.intellistream.datahub.flow.store.RunStore;
 import ai.intellistream.datahub.flow.store.RunStore.Claim;
 import ai.intellistream.datahub.flow.store.RunStore.Claimed;
@@ -14,6 +14,8 @@ import ai.intellistream.datahub.flow.store.RunStore.NewRun;
 import ai.intellistream.datahub.flow.store.RunStore.Outcome;
 import ai.intellistream.datahub.flow.store.RunStore.Reaped;
 import ai.intellistream.datahub.flow.store.RunStore.Renewed;
+import ai.intellistream.datahub.flow.store.RunStore.ScheduleRecord;
+import ai.intellistream.datahub.flow.store.RunStore.ScheduleSpec;
 import ai.intellistream.datahub.flow.tenant.FlowSchemaCheck;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
@@ -25,7 +27,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.net.InetAddress;
@@ -115,6 +116,10 @@ public class RunCoordinator {
 
     private static final int SCHEDULE_BATCH = 50;
     private static final int MAX_SCHEDULE_ROUNDS = 20;
+    /** How long one pass over a flow's due ticks may go on, a backlog being worked through, before it lets others in. */
+    private static final Duration TICK_BUDGET = Duration.ofSeconds(2);
+    /** How long a flow's ticks are reserved for the instance making them; it frees them sooner when it is done. */
+    private static final Duration SCHEDULE_LOCK = Duration.ofSeconds(10);
     private static final int REAP_BATCH = 100;
     private static final int MAX_LOG_LINES = 200;
 
@@ -122,7 +127,6 @@ public class RunCoordinator {
     private final FlowRepository flows;
     private final RunExecution execution;
     private final RunEvents events;
-    private final TransactionTemplate transaction;
     private final TenantConfigService tenants;
     private final FlowSchemaCheck schemaCheck;
     private final JsonMapper json;
@@ -133,45 +137,74 @@ public class RunCoordinator {
     private final Map<UUID, ActiveRun> active = new ConcurrentHashMap<>();
     /** Sweeps so far, which decides the tenant that claims first in the next one. */
     private final AtomicInteger sweeps = new AtomicInteger();
-    /** Sweeps so far, which decides when the run store is told everything again. */
-    private final AtomicInteger sweepRounds = new AtomicInteger();
     /** Tenants that may have runs waiting, and the signal that wakes the dispatcher. */
     private final Set<String> hungry = ConcurrentHashMap.newKeySet();
     private final Semaphore wake = new Semaphore(0);
     private volatile Thread dispatcher;
-    /** What each tenant's run store was last told of its flows' limits. */
-    private final Map<String, Map<Long, FlowLimits>> told = new ConcurrentHashMap<>();
+    /** When each tenant's run store was last told all of its flows, on the {@code nanoTime} clock. */
+    private final Map<String, Long> resynced = new ConcurrentHashMap<>();
+    /** When each tenant's schedules were last checkpointed to Postgres, and the tick each flow was saved at. */
+    private final Map<String, Long> checkpointed = new ConcurrentHashMap<>();
+    private final Map<String, Map<Long, Long>> saved = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
     private volatile boolean stopping;
 
     /**
      * @param lease        how long a lease lasts from each renewal
      * @param maxRunning   runs this instance executes at once: its run slots
-     * @param catchUp      ticks created at most per flow per sweep after downtime
+     * @param catchUp      ticks made into runs at most per flow per pass of the ticker, oldest first
      * @param backoff      the wait before an attempt's retry, doubling per attempt up to {@code maxBackoff}
      * @param overdueGrace how long past its timeout a run may go before the reaper asks it to stop
+     * @param resync       how often the run store is told every flow again, in case a change was missed or it
+     *                     lost them; zero: at every sweep
+     * @param dispatchPoll how often an instance with a free slot looks for runs another one queued
+     * @param checkpoint   how often the schedules' positions are saved to Postgres; zero: at every sweep
      */
     public record Settings(Duration lease, Duration heartbeat, int maxRunning,
-                           int catchUp, Duration backoff, Duration maxBackoff, Duration overdueGrace) {
+                           int catchUp, Duration backoff, Duration maxBackoff, Duration overdueGrace,
+                           Duration resync, Duration dispatchPoll, Duration checkpoint) {
     }
 
     @Autowired
     public RunCoordinator(RunStore store, FlowRepository flows, RunExecution execution, RunEvents events,
-                          TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
+                          TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
                           @Value("${datahub.flow.runs.lease:PT60S}") Duration lease,
                           @Value("${datahub.flow.runs.heartbeat-interval:PT15S}") Duration heartbeat,
                           @Value("${datahub.flow.runs.max-running:8}") int maxRunning,
-                          @Value("${datahub.flow.runs.catch-up:24}") int catchUp,
+                          @Value("${datahub.flow.runs.catch-up:60}") int catchUp,
+                          @Value("${datahub.flow.runs.tick-interval:PT1S}") Duration tickInterval,
                           @Value("${datahub.flow.runs.backoff:PT30S}") Duration backoff,
                           @Value("${datahub.flow.runs.max-backoff:PT15M}") Duration maxBackoff,
-                          @Value("${datahub.flow.runs.overdue-grace:PT1M}") Duration overdueGrace) {
-        this(store, flows, execution, events, transaction, tenants, schemaCheck, json,
-                new Settings(lease, heartbeat, maxRunning, catchUp, backoff, maxBackoff, overdueGrace),
+                          @Value("${datahub.flow.runs.overdue-grace:PT1M}") Duration overdueGrace,
+                          @Value("${datahub.flow.runs.resync-interval:PT5M}") Duration resync,
+                          @Value("${datahub.flow.runs.dispatch-poll:PT1S}") Duration dispatchPoll,
+                          @Value("${datahub.flow.runs.checkpoint-interval:PT1M}") Duration checkpoint) {
+        this(store, flows, execution, events, tenants, schemaCheck, json,
+                new Settings(lease, heartbeat, maxRunning, requireCatchUp(catchUp, tickInterval), backoff, maxBackoff,
+                        overdueGrace, resync, dispatchPoll, checkpoint),
                 instanceId(), System::nanoTime);
     }
 
+    /**
+     * A schedule can tick every second, the finest a cron expression goes, and a pass of the ticker makes
+     * at most {@code catchUp} of a flow's ticks into runs. A pass every {@code tickInterval} meets that
+     * many seconds of ticks, so with less room than twice that a flow ticking every second would fall
+     * further behind at each pass and run only some of its ticks, without anything failing. That is
+     * refused here.
+     */
+    static int requireCatchUp(int catchUp, Duration tickInterval) {
+        long ticksPerPass = Math.max(1, (tickInterval.toMillis() + 999) / 1000);
+        if (catchUp < 2 * ticksPerPass) {
+            throw new IllegalStateException("datahub.flow.runs.catch-up (" + catchUp + ") must be at least "
+                    + 2 * ticksPerPass + ", twice the " + ticksPerPass + " ticks a schedule that ticks every "
+                    + "second makes between passes of the ticker (datahub.flow.runs.tick-interval is "
+                    + tickInterval + "). Lower, a flow ticking every second would run only some of its ticks.");
+        }
+        return catchUp;
+    }
+
     RunCoordinator(RunStore store, FlowRepository flows, RunExecution execution, RunEvents events,
-                   TransactionTemplate transaction, TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
+                   TenantConfigService tenants, FlowSchemaCheck schemaCheck, JsonMapper json,
                    Settings settings, String owner, LongSupplier nanoTime) {
         // Between renewals a lease has at least lease - heartbeat left, and the fence lets a request
         // start only if it can finish inside what is left. So a request must fit in that, or the
@@ -186,7 +219,6 @@ public class RunCoordinator {
         this.flows = flows;
         this.execution = execution;
         this.events = events;
-        this.transaction = transaction;
         this.tenants = tenants;
         this.schemaCheck = schemaCheck;
         this.json = json;
@@ -215,7 +247,6 @@ public class RunCoordinator {
     @Scheduled(initialDelayString = "${datahub.flow.runs.sweep-interval:PT10S}",
             fixedDelayString = "${datahub.flow.runs.sweep-interval:PT10S}")
     public void sweepAll() {
-        sweepRounds.incrementAndGet();
         List<String> tenants = flowTenants();
         forEach(tenants, "sweep", this::sweep);
         // Any tenant may have runs another instance queued; a round that finds none drops it again.
@@ -223,7 +254,18 @@ public class RunCoordinator {
         dispatchRound();
     }
 
-    /** Starts the dispatcher: one thread that fills free run slots whenever it is poked. */
+    /**
+     * Makes the runs of the schedules whose ticks are due. It does not wait for the sweep, and it asks
+     * Postgres nothing: the schedules, with everything a run of them needs, are in each tenant's run
+     * store, and every instance may make any flow's ticks.
+     */
+    @Scheduled(initialDelayString = "${datahub.flow.runs.tick-interval:PT1S}",
+            fixedDelayString = "${datahub.flow.runs.tick-interval:PT1S}")
+    public void tickAll() {
+        forEach(flowTenants(), "ticker", this::tick);
+    }
+
+    /** Starts the dispatcher: one thread that fills free run slots whenever it is poked, and now and then without. */
     @PostConstruct
     void startDispatching() {
         if (dispatcher == null) {
@@ -243,8 +285,13 @@ public class RunCoordinator {
     private void dispatchLoop() {
         while (!stopping) {
             try {
-                wake.tryAcquire(1, TimeUnit.SECONDS);
+                wake.tryAcquire(settings.dispatchPoll().toMillis(), TimeUnit.MILLISECONDS);
                 wake.drainPermits();
+                if (settings.maxRunning() - active.size() > 0) {
+                    // Runs queued by another instance poke only that one: an instance with a free slot
+                    // looks for itself, or it would sit idle until its next sweep.
+                    hungry.addAll(flowTenants());
+                }
                 dispatchRound();
             } catch (InterruptedException e) {
                 return;
@@ -340,55 +387,80 @@ public class RunCoordinator {
     // ---------------------------------------------------------------- sweep and claim
 
     /**
-     * One sweep of the current tenant: due schedules into pending runs, then the lifecycle events
-     * that earlier runs could not write when they ended. The claims come after every tenant has
-     * been swept ({@link #claimAcross}), so that the slots are shared between them.
+     * One sweep of the current tenant: the run store is told the flows again if it is time, the
+     * schedules' positions are saved to Postgres if it is time, and the lifecycle events that earlier
+     * runs could not write when they ended are written. The claims come after every tenant has been swept
+     * ({@link #claimAcross}), so that the slots are shared between them.
      */
     void sweep(String tenantId) {
         syncFlows(tenantId);
-        createScheduledRuns();
+        checkpoint(tenantId);
         events.payOwed(tenantId);
     }
 
-    /** Creates the runs of due schedule ticks; returns how many. */
-    int createScheduledRuns() {
-        int total = 0;
-        // A batch of flows at a time, until a batch is not full: a hundred flows due at the same
-        // minute are all made runs now, not fifty now and fifty at the next sweep.
+    /**
+     * Makes runs of the due ticks of the current tenant's schedules; returns how many were new. A flow
+     * another instance is making ticks of is left to it.
+     */
+    int tick(String tenantId) {
+        int made = 0;
         for (int round = 0; round < MAX_SCHEDULE_ROUNDS; round++) {
-            AtomicInteger flows = new AtomicInteger();
-            total += createScheduledRuns(flows);
-            if (flows.get() < SCHEDULE_BATCH) {
+            List<Long> due = store.dueSchedules(SCHEDULE_BATCH);
+            int worked = 0;
+            for (long flow : due) {
+                int n = tickFlow(flow);
+                if (n >= 0) {
+                    worked++;
+                    made += n;
+                }
+            }
+            // A round that took no flow, all being another's, or left some of the due to the next one.
+            if (due.size() < SCHEDULE_BATCH || worked == 0) {
                 break;
             }
         }
-        return total;
+        if (made > 0) {
+            poke(tenantId);
+        }
+        return made;
     }
 
-    private int createScheduledRuns(AtomicInteger flowsLocked) {
-        Integer created = transaction.execute(status -> {
-            Instant now = flows.now();
-            int count = 0;
-            for (DueFlow flow : flows.lockDueSchedules(SCHEDULE_BATCH)) {
-                flowsLocked.incrementAndGet();
-                Schedule schedule = Schedule.fromJson(json, flow.trigger());
-                Schedule.Due due = schedule.due(flow.nextTick(), now, settings.catchUp());
-                List<NewRun> ticks = new ArrayList<>();
-                for (Instant tick : due.ticks()) {
-                    ticks.add(new NewRun(scheduledRunId(flow.id(), tick), flow.id(), flow.externalId(),
-                            flow.dataSetId(), flow.version(), flow.maxAttempts(), flow.timeout(),
-                            schedule.windowOf(tick), null, "schedule", null, flow.runAs(), null));
+    /**
+     * Makes the runs of one flow's due ticks, oldest first, as many as {@code catch-up} at a time and
+     * as long as there are more and the budget allows; -1 if another instance has the flow. The runs
+     * come first and the schedule moves on second, from the tick it was seen at: a crash between them
+     * repeats ticks, which are the same runs, and never skips one.
+     */
+    private int tickFlow(long flowId) {
+        if (!store.lockSchedule(flowId, owner, SCHEDULE_LOCK)) {
+            return -1;
+        }
+        try {
+            int made = 0;
+            long until = nanoTime.getAsLong() + TICK_BUDGET.toNanos();
+            while (true) {
+                ScheduleRecord record = store.schedule(flowId).orElse(null);
+                if (record == null || record.nextTick() == null) {
+                    return made;
                 }
-                // The runs first, the schedule second: if the transaction fails after this, the same
-                // ticks are enqueued again at the next sweep, and the same ids make that a no-op.
-                count += store.enqueueAll(ticks);
-                Instant last = due.ticks().isEmpty() ? null : due.ticks().getLast();
-                flows.advanceSchedule(flow.id(), due.next(),
-                        due.next() == null ? null : schedule.dueAt(due.next()), last);
+                Schedule schedule = Schedule.fromJson(json, record.trigger());
+                Schedule.Due due = schedule.due(record.nextTick(), store.now(), settings.catchUp());
+                List<NewRun> runs = new ArrayList<>();
+                for (Instant tick : due.ticks()) {
+                    runs.add(new NewRun(scheduledRunId(flowId, tick), flowId, record.externalId(),
+                            record.dataSetId(), record.version(), record.maxAttempts(), record.timeout(),
+                            schedule.windowOf(tick), null, "schedule", null, record.runAs(), null));
+                }
+                made += store.enqueueAll(runs);
+                boolean moved = store.advanceSchedule(flowId, record.nextTick(), due.next(),
+                        due.ticks().isEmpty() ? null : due.ticks().getLast());
+                if (!moved || due.ticks().size() < settings.catchUp() || nanoTime.getAsLong() >= until) {
+                    return made;
+                }
             }
-            return count;
-        });
-        return created == null ? 0 : created;
+        } finally {
+            store.unlockSchedule(flowId, owner);
+        }
     }
 
     /** The id of the run for a flow's schedule tick: the same however many times the tick is found. */
@@ -398,39 +470,83 @@ public class RunCoordinator {
     }
 
     /**
-     * Tells the run store the limits of every deployed flow that changed since it was last told, so
-     * that dispatch needs nothing from Postgres. Everything is told again now and then, in case the
-     * run store lost it.
+     * Tells the run store every deployed flow, its limits and its schedule, if it has not been told them
+     * all within {@code resync}: the first sweep of a tenant, then now and then, in case a change was
+     * missed or the run store lost them. Between those, a deployment, a switch, a refused identity or a
+     * deleted dataset tells it at once ({@link #syncFlow}), so the sweep asks Postgres nothing about the
+     * flows and a quiet tenant costs it nothing at all.
+     *
+     * @return how many flows were told
      */
     int syncFlows(String tenantId) {
-        Map<Long, FlowLimits> known = told.computeIfAbsent(tenantId, id -> new ConcurrentHashMap<>());
-        if (sweepRounds.get() % 6 == 0) {
-            known.clear();
+        long now = nanoTime.getAsLong();
+        Long last = resynced.get(tenantId);
+        if (last != null && now - last < settings.resync().toNanos()) {
+            return 0;
         }
-        int changed = 0;
+        int told = 0;
         for (DeployedFlow f : flows.deployedFlows()) {
-            FlowLimits limits = limits(f);
-            if (!limits.equals(known.get(f.id()))) {
-                store.syncFlow(limits);
-                known.put(f.id(), limits);
-                changed++;
-            }
+            tell(f);
+            told++;
         }
-        return changed;
+        resynced.put(tenantId, now);
+        return told;
     }
 
     /** Tells the run store about one flow now, as a deployment or a switch has just changed it. */
     public void syncFlow(long flowId) {
-        flows.deployedFlow(flowId).ifPresent(f -> {
-            FlowLimits limits = limits(f);
-            store.syncFlow(limits);
-            told.computeIfAbsent(TenantContext.getTenantId(), id -> new ConcurrentHashMap<>()).put(flowId, limits);
-        });
+        flows.deployedFlow(flowId).ifPresent(this::tell);
         poke(TenantContext.getTenantId());
     }
 
-    private static FlowLimits limits(DeployedFlow f) {
-        return new FlowLimits(f.id(), f.externalId(), f.dataSetId(), f.enabled(), true, f.maxConcurrentRuns());
+    /** As {@link #syncFlow}, for a change that is no reason to fail what noticed it. */
+    private void syncFlowQuietly(long flowId) {
+        try {
+            syncFlow(flowId);
+        } catch (RuntimeException e) {
+            log.warn("Could not tell the run store of flow {} yet; the next resync does: {}", flowId, e.getMessage());
+        }
+    }
+
+    private void tell(DeployedFlow f) {
+        store.syncFlow(new FlowLimits(f.id(), f.externalId(), f.dataSetId(), f.enabled(), true, f.maxConcurrentRuns()));
+        Schedule schedule = f.enabled() && f.identityOk() && f.nextTick() != null && f.trigger() != null
+                ? Schedule.fromJson(json, f.trigger()) : null;
+        if (schedule == null || !schedule.scheduled()) {
+            store.unschedule(f.id());
+        } else {
+            store.syncSchedule(new ScheduleSpec(f.id(), f.externalId(), f.dataSetId(), f.version(), f.maxAttempts(),
+                    f.timeout(), f.runAs(), f.trigger(), schedule.delay(), f.deployedAt(), f.nextTick()));
+        }
+    }
+
+    /**
+     * Saves the schedules' positions to Postgres, those that moved since this instance last did, if it is
+     * time. The run store is where a schedule is kept; this is its backup, for a run store that is lost,
+     * and what the Runs overview shows. A tick made since the checkpoint is made again after a loss, and
+     * the same run if it still exists; so a loss repeats at most the time since the last checkpoint.
+     */
+    void checkpoint(String tenantId) {
+        long now = nanoTime.getAsLong();
+        Long last = checkpointed.get(tenantId);
+        if (last != null && now - last < settings.checkpoint().toNanos()) {
+            return;
+        }
+        Map<Long, Long> done = saved.computeIfAbsent(tenantId, id -> new ConcurrentHashMap<>());
+        List<ScheduleCheckpoint> changed = new ArrayList<>();
+        for (ScheduleRecord r : store.schedules(store.scheduledFlows())) {
+            long position = r.nextTick() == null ? -1 : r.nextTick().toEpochMilli();
+            Long before = done.get(r.flowId());
+            if (before == null || before != position) {
+                changed.add(new ScheduleCheckpoint(r.flowId(), r.deployedAt(), r.nextTick(),
+                        r.nextTick() == null ? null : r.nextTick().plus(r.delay()), r.lastTick()));
+            }
+        }
+        if (!changed.isEmpty()) {
+            flows.checkpointSchedules(changed);
+            changed.forEach(c -> done.put(c.flowId(), c.nextTick() == null ? -1 : c.nextTick().toEpochMilli()));
+        }
+        checkpointed.put(tenantId, now);
     }
 
     /**
@@ -603,6 +719,11 @@ public class RunCoordinator {
             // Not a failure of the flow: there is nothing left for it to run for. The flow was
             // switched off; no event, since the dataset an event would go to is gone.
             owned = store.complete(c.id(), owner, c.attempt(), "CANCELLED", false, outcome(result, null));
+            // The run store hears of the switch now, not at the next resync: the flow's other waiting
+            // runs would each start, find the dataset gone and end the same way.
+            if (c.flowId() != null) {
+                syncFlowQuietly(c.flowId());
+            }
         } else {
             Outcome outcome = outcome(result, stop == ActiveRun.Stop.TIMEOUT ? TIMEOUT : null);
             if (c.attempt() < c.maxAttempts() && !IDENTITY_REJECTED.equals(result.errorCode())) {
@@ -618,6 +739,10 @@ public class RunCoordinator {
         } else {
             log.info("Run {} attempt {} ended: {} {}", c.id(), c.attempt(), result.status(),
                     result.errorCode() == null ? "" : result.errorCode());
+            if (IDENTITY_REJECTED.equals(result.errorCode()) && c.flowId() != null) {
+                // The deployment gets no more scheduled runs until it is deployed afresh.
+                syncFlowQuietly(c.flowId());
+            }
             if (eventOwed) {
                 // Right away, so Failed runs shows it now; a sweep pays it if this cannot.
                 store.find(c.id()).ifPresent(stored -> events.pay(run.tenantId, stored));
@@ -625,10 +750,10 @@ public class RunCoordinator {
         }
     }
 
-    /** The wait before attempt {@code attempt + 1}: doubling from the base, capped. */
+    /** The wait before attempt {@code attempt + 1}: doubling from the base, capped, then spread over its upper half ({@link RunStore#jittered}). */
     Duration backoff(int attempt) {
         Duration wait = settings.backoff().multipliedBy(1L << Math.min(attempt - 1, 20));
-        return wait.compareTo(settings.maxBackoff()) > 0 ? settings.maxBackoff() : wait;
+        return RunStore.jittered(wait.compareTo(settings.maxBackoff()) > 0 ? settings.maxBackoff() : wait);
     }
 
     private Outcome outcome(RunResult result, String code) {

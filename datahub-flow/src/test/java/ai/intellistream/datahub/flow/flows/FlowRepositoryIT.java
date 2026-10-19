@@ -126,27 +126,61 @@ class FlowRepositoryIT {
     }
 
     @Test
-    void theScheduleOfADeployedFlowIsDueWhenItsTimeComesAndMovesOn() {
+    void aCheckpointMovesAScheduleOnNeverBackAndOnlyForTheDeploymentItWasTakenFrom() {
         StoredFlow flow = create("scheduled", 600);
-        Instant past = repository.now().minusSeconds(60);
+        Instant first = repository.now().minusSeconds(60);
         transaction.executeWithoutResult(s -> repository.deploy(flow.id(), 1, true, "{\"type\":\"schedule\"}", 3, 2,
-                Duration.ofMinutes(5), FlowRepository.Identity.deployer("user-1"), "user-1", past, past));
+                Duration.ofMinutes(5), FlowRepository.Identity.deployer("user-1"), "user-1", first, first));
+        Instant deployedAt = repository.deployment(flow.id()).orElseThrow().deployedAt();
+        Instant later = first.plusSeconds(30);
 
-        List<FlowRepository.DueFlow> due = transaction.execute(s -> repository.lockDueSchedules(10));
+        repository.checkpointSchedules(List.of(
+                new FlowRepository.ScheduleCheckpoint(flow.id(), deployedAt, later, later.plusSeconds(5), first)));
+        assertThat(repository.deployment(flow.id()).orElseThrow()).satisfies(d -> {
+            assertThat(d.nextTick()).isEqualTo(later);
+            assertThat(d.nextDueAt()).isEqualTo(later.plusSeconds(5));
+            assertThat(d.lastTick()).isEqualTo(first);
+        });
 
-        assertThat(due).singleElement().satisfies(f -> {
-            assertThat(f.id()).isEqualTo(flow.id());
-            assertThat(f.externalId()).isEqualTo("scheduled");
-            assertThat(f.dataSetId()).isEqualTo(600);
+        repository.checkpointSchedules(List.of(
+                new FlowRepository.ScheduleCheckpoint(flow.id(), deployedAt, first, first, null)));
+        assertThat(repository.deployment(flow.id()).orElseThrow().nextTick()).as("never back").isEqualTo(later);
+        assertThat(repository.deployment(flow.id()).orElseThrow().lastTick()).as("no tick keeps the last").isEqualTo(first);
+
+        repository.checkpointSchedules(List.of(new FlowRepository.ScheduleCheckpoint(flow.id(),
+                deployedAt.plusSeconds(1), later.plusSeconds(60), later.plusSeconds(60), later)));
+        assertThat(repository.deployment(flow.id()).orElseThrow().nextTick())
+                .as("another deployment's checkpoint is not this one's").isEqualTo(later);
+
+        repository.checkpointSchedules(List.of(
+                new FlowRepository.ScheduleCheckpoint(flow.id(), deployedAt, null, null, later)));
+        assertThat(repository.deployment(flow.id()).orElseThrow()).satisfies(d -> {
+            assertThat(d.nextTick()).as("a schedule with no tick left").isNull();
+            assertThat(d.nextDueAt()).isNull();
+            assertThat(d.lastTick()).isEqualTo(later);
+        });
+    }
+
+    @Test
+    void aDeployedFlowCarriesItsWholeScheduleForTheRunStore() {
+        StoredFlow flow = create("carried", 600);
+        Instant first = repository.now().plusSeconds(60);
+        transaction.executeWithoutResult(s -> repository.deploy(flow.id(), 1, true, "{\"type\":\"schedule\"}", 3, 2,
+                Duration.ofMinutes(5), FlowRepository.Identity.deployer("user-1"), "user-1", first, first));
+
+        assertThat(repository.deployedFlow(flow.id()).orElseThrow()).satisfies(f -> {
+            assertThat(f.externalId()).isEqualTo("carried");
             assertThat(f.version()).isEqualTo(1);
+            assertThat(f.trigger()).contains("schedule");
+            assertThat(f.nextTick()).isEqualTo(first);
             assertThat(f.maxAttempts()).isEqualTo(2);
             assertThat(f.timeout()).isEqualTo(Duration.ofMinutes(5));
             assertThat(f.runAs()).isEqualTo("user-1");
+            assertThat(f.identityOk()).isTrue();
+            assertThat(f.deployedAt()).isEqualTo(repository.deployment(flow.id()).orElseThrow().deployedAt());
         });
-        Instant next = repository.now().plusSeconds(3600);
-        repository.advanceSchedule(flow.id(), next, next, past);
-        List<FlowRepository.DueFlow> none = transaction.execute(s -> repository.lockDueSchedules(10));
-        assertThat(none).isEmpty();
+        repository.needsReauthorisation(flow.id(), "invalid_grant");
+        assertThat(repository.deployedFlow(flow.id()).orElseThrow().identityOk()).isFalse();
     }
 
     @Test

@@ -566,6 +566,296 @@ class RunStoreIT {
         assertThat(SharedKvrocks.raw().zcard("flow:unarchived")).isEqualTo(total);
     }
 
+    /**
+     * Instances hold the runs they claim for a while, as real runs do, while more are enqueued: the
+     * flows' running sets, watched by every claim, are never seen above their limits, no run is
+     * claimed twice, and the enqueues do not starve the claims. Some starts are manual ({@code claimOne}),
+     * of a different run than the claim would take, so that only the watch on the running set stands
+     * between the two. Each worker has a store and
+     * connections of its own, as separate instances would.
+     */
+    @Test
+    void instancesHoldingTheirSlotsNeverExceedALimitWhileRunsAreEnqueued() throws Exception {
+        int[] limits = {0, 2, 3, 1};
+        int perFlow = 150;
+        int total = 3 * perFlow;
+        for (int f = 1; f <= 3; f++) {
+            flow(f, limits[f]);
+            for (int h = 0; h < 50; h++) {
+                store.enqueue(run(f, h));
+            }
+        }
+        Map<UUID, Boolean> seen = new ConcurrentHashMap<>();
+        Set<String> problems = ConcurrentHashMap.newKeySet();
+        AtomicInteger done = new AtomicInteger();
+        AtomicInteger[] top = {null, new AtomicInteger(), new AtomicInteger(), new AtomicInteger()};
+        AtomicInteger[] held = {null, new AtomicInteger(), new AtomicInteger(), new AtomicInteger()};
+        List<TenantKvrocks> connections = new ArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+        threads.add(Thread.ofVirtual().start(() -> {
+            TenantContext.setTenantId("t");
+            try {
+                for (int h = 50; h < perFlow; h++) {
+                    for (int f = 1; f <= 3; f++) {
+                        store.enqueue(run(f, h));
+                    }
+                }
+            } finally {
+                TenantContext.clear();
+            }
+        }));
+        threads.add(Thread.ofVirtual().start(() -> {
+            while (done.get() < total) {
+                for (int f = 1; f <= 3; f++) {
+                    long running = SharedKvrocks.raw().scard("flow:running:" + f);
+                    top[f].accumulateAndGet((int) running, Math::max);
+                    if (running > limits[f]) {
+                        problems.add("flow " + f + " seen with " + running + " running");
+                    }
+                }
+            }
+        }));
+        for (int w = 0; w < 8; w++) {
+            String owner = "instance-" + w;
+            TenantKvrocks own = new TenantKvrocks(SharedKvrocks.tenants("t"));
+            connections.add(own);
+            RunStore ownStore = new RunStore(own, Duration.ofSeconds(1));
+            threads.add(Thread.ofVirtual().start(() -> {
+                TenantContext.setTenantId("t");
+                try {
+                    Random random = new Random();
+                    while (done.get() < total) {
+                        List<Claimed> mine = new ArrayList<>(ownStore.claim(owner, LEASE, 2, GRACE));
+                        if (random.nextInt(3) == 0) {
+                            // A manual start of the flow's second waiting run, while a claim takes the first.
+                            long flow = 1 + random.nextInt(3);
+                            List<UUID> waiting = ownStore.liveRunIds(flow, 2);
+                            if (waiting.size() == 2 && ownStore.claimOne(waiting.get(1), owner, LEASE, GRACE) == Claim.CLAIMED) {
+                                ownStore.claimedRun(waiting.get(1), LEASE).ifPresent(mine::add);
+                            }
+                        }
+                        for (Claimed c : mine) {
+                            int flow = Integer.parseInt(c.flowId().toString());
+                            if (seen.put(c.id(), true) != null) {
+                                problems.add("claimed twice: " + c.id());
+                            }
+                            if (held[flow].incrementAndGet() > limits[flow]) {
+                                problems.add("flow " + flow + " has more than " + limits[flow] + " held at once");
+                            }
+                        }
+                        Thread.sleep(random.nextInt(4));
+                        for (Claimed c : mine) {
+                            held[Integer.parseInt(c.flowId().toString())].decrementAndGet();
+                            if (!ownStore.complete(c.id(), owner, c.attempt(), "SUCCEEDED", false, OUTCOME)) {
+                                problems.add("could not end " + c.id());
+                            }
+                            done.incrementAndGet();
+                        }
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } finally {
+                    TenantContext.clear();
+                }
+            }));
+        }
+        long until = System.nanoTime() + Duration.ofMinutes(2).toNanos();
+        for (Thread thread : threads) {
+            thread.join(Math.max(1, (until - System.nanoTime()) / 1_000_000));
+        }
+        connections.forEach(TenantKvrocks::close);
+
+        assertThat(problems).isEmpty();
+        assertThat(seen).hasSize(total);
+        assertThat(done.get()).isEqualTo(total);
+        assertThat(top[2].get()).as("the sampler saw flows running in parallel").isGreaterThan(1);
+    }
+
+    @Test
+    void instancesRacingToTakeFinishedRunsForTheArchiveNeverTakeTheSameOne() throws Exception {
+        flow(1, 50);
+        List<UUID> ids = new ArrayList<>();
+        for (int h = 0; h < 200; h++) {
+            NewRun run = run(1, h);
+            ids.add(run.id());
+            store.enqueue(run);
+        }
+        for (Claimed c : store.claim("a", LEASE, 50, GRACE)) {
+            store.complete(c.id(), "a", 1, "SUCCEEDED", false, OUTCOME);
+        }
+        while (store.find(ids).stream().anyMatch(r -> r.status().equals("PENDING"))) {
+            for (Claimed c : store.claim("a", LEASE, 50, GRACE)) {
+                store.complete(c.id(), "a", 1, "SUCCEEDED", false, OUTCOME);
+            }
+        }
+        List<List<UUID>> taken = Collections.synchronizedList(new ArrayList<>());
+        List<TenantKvrocks> connections = new ArrayList<>();
+        List<Thread> threads = new ArrayList<>();
+        for (int w = 0; w < 4; w++) {
+            TenantKvrocks own = new TenantKvrocks(SharedKvrocks.tenants("t"));
+            connections.add(own);
+            RunStore ownStore = new RunStore(own, Duration.ofSeconds(30));
+            threads.add(Thread.ofVirtual().start(() -> {
+                TenantContext.setTenantId("t");
+                try {
+                    List<UUID> mine = new ArrayList<>();
+                    for (int round = 0; round < 10; round++) {
+                        ownStore.takeUnarchived(30, Duration.ofSeconds(60)).forEach(r -> mine.add(r.id()));
+                    }
+                    taken.add(mine);
+                } finally {
+                    TenantContext.clear();
+                }
+            }));
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        connections.forEach(TenantKvrocks::close);
+
+        List<UUID> all = taken.stream().flatMap(List::stream).toList();
+        assertThat(all).as("no run is taken by two").doesNotHaveDuplicates();
+        assertThat(all).as("every run is taken by one").containsExactlyInAnyOrderElementsOf(ids);
+    }
+
+    @Test
+    void aRunArchivedAndPaidAtTheSameTimeStillExpires() throws Exception {
+        flow(1, 100);
+        List<UUID> ids = new ArrayList<>();
+        for (int h = 0; h < 100; h++) {
+            NewRun run = run(1, h);
+            ids.add(run.id());
+            store.enqueue(run);
+        }
+        for (Claimed c : store.claim("a", LEASE, 100, GRACE)) {
+            store.complete(c.id(), "a", 1, "FAILED", true, OUTCOME);
+        }
+        List<Thread> threads = new ArrayList<>();
+        for (UUID id : ids) {
+            threads.add(Thread.ofVirtual().start(() -> {
+                TenantContext.setTenantId("t");
+                store.archived(List.of(id));
+            }));
+            threads.add(Thread.ofVirtual().start(() -> {
+                TenantContext.setTenantId("t");
+                store.eventPaid(id);
+            }));
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+        Thread.sleep(1500);
+
+        assertThat(store.find(ids)).as("whichever came second let it expire").isEmpty();
+        assertThat(SharedKvrocks.raw().keys("flow:run:*")).isEmpty();
+    }
+
+    // ---------------------------------------------------------------- schedules
+
+    @Test
+    void aScheduleKeepsItsPositionAcrossAResyncOfTheSameDeploymentAndStartsOverForANewOne() {
+        Instant deployed = Instant.parse("2026-10-12T00:00:00.123456Z");
+        Instant first = BASE;
+        store.syncSchedule(spec(1, deployed, first, Duration.ofSeconds(5)));
+        assertThat(store.schedule(1).orElseThrow().nextTick()).isEqualTo(first);
+        assertThat(store.schedule(1).orElseThrow().deployedAt()).as("kept to the microsecond, as Postgres keeps it")
+                .isEqualTo(deployed);
+        assertThat(store.advanceSchedule(1, first, first.plusSeconds(30), first.plusSeconds(25))).isTrue();
+
+        store.syncSchedule(spec(1, deployed, first, Duration.ofSeconds(5)));
+        assertThat(store.schedule(1).orElseThrow().nextTick()).as("same deployment: where it had got to")
+                .isEqualTo(first.plusSeconds(30));
+        assertThat(store.schedule(1).orElseThrow().lastTick()).isEqualTo(first.plusSeconds(25));
+
+        store.syncSchedule(spec(1, deployed.plusSeconds(60), first.plusSeconds(10), Duration.ofSeconds(5)));
+        assertThat(store.schedule(1).orElseThrow().nextTick()).as("a new deployment: its first tick")
+                .isEqualTo(first.plusSeconds(10));
+        assertThat(SharedKvrocks.raw().zscore("flow:sched", "1")).as("due at the tick plus the delay")
+                .isEqualTo((double) first.plusSeconds(10).plusSeconds(5).toEpochMilli());
+    }
+
+    @Test
+    void ofTwoInstancesMovingAScheduleFromTheSameTickOnlyOneDoes() throws Exception {
+        Instant first = BASE;
+        store.syncSchedule(spec(1, BASE, first, Duration.ZERO));
+        AtomicInteger moved = new AtomicInteger();
+        List<Thread> threads = new ArrayList<>();
+        for (int i = 0; i < 8; i++) {
+            threads.add(Thread.ofVirtual().start(() -> {
+                TenantContext.setTenantId("t");
+                try {
+                    if (store.advanceSchedule(1, first, first.plusSeconds(1), first)) {
+                        moved.incrementAndGet();
+                    }
+                } finally {
+                    TenantContext.clear();
+                }
+            }));
+        }
+        for (Thread thread : threads) {
+            thread.join();
+        }
+
+        assertThat(moved.get()).isEqualTo(1);
+        assertThat(store.schedule(1).orElseThrow().nextTick()).isEqualTo(first.plusSeconds(1));
+        assertThat(store.advanceSchedule(1, first, first.plusSeconds(9), null)).as("not from a tick it has left").isFalse();
+    }
+
+    @Test
+    void aScheduleDueIsFoundByTheRunStoresClockAndAFinishedOneNever() {
+        Instant past = store.now().minusSeconds(30);
+        Instant future = store.now().plusSeconds(3600);
+        store.syncSchedule(spec(1, BASE, past, Duration.ZERO));
+        store.syncSchedule(spec(2, BASE, future, Duration.ZERO));
+        store.syncSchedule(spec(3, BASE, past.minusSeconds(60), Duration.ZERO));
+        store.syncSchedule(spec(4, BASE, past, Duration.ofHours(1)));
+
+        assertThat(store.dueSchedules(10)).as("the most overdue first, the delay counted").containsExactly(3L, 1L);
+
+        assertThat(store.advanceSchedule(1, past, null, past)).isTrue();
+        assertThat(store.schedule(1).orElseThrow().nextTick()).as("no tick left").isNull();
+        assertThat(store.dueSchedules(10)).containsExactly(3L);
+        assertThat(store.scheduledFlows()).as("it is still listed, for the checkpoint").contains(1L);
+        store.syncSchedule(spec(1, BASE, past, Duration.ZERO));
+        assertThat(store.schedule(1).orElseThrow().nextTick()).as("a resync does not bring it back").isNull();
+
+        store.unschedule(3);
+        assertThat(store.schedule(3)).isEmpty();
+        assertThat(store.scheduledFlows()).doesNotContain(3L);
+    }
+
+    @Test
+    void aFlowsTicksAreTakenByOneInstanceAtATimeAndFreedByTimeOrByItsHolder() throws Exception {
+        assertThat(store.lockSchedule(1, "a", Duration.ofSeconds(30))).isTrue();
+        assertThat(store.lockSchedule(1, "b", Duration.ofSeconds(30))).isFalse();
+        assertThat(store.lockSchedule(2, "b", Duration.ofSeconds(30))).as("another flow").isTrue();
+
+        store.unlockSchedule(1, "b");
+        assertThat(store.lockSchedule(1, "b", Duration.ofSeconds(30))).as("not freed by another").isFalse();
+        store.unlockSchedule(1, "a");
+        assertThat(store.lockSchedule(1, "b", Duration.ofMillis(300))).as("freed by its holder").isTrue();
+
+        Thread.sleep(500);
+        assertThat(store.lockSchedule(1, "a", Duration.ofSeconds(30))).as("freed by time").isTrue();
+    }
+
+    @Test
+    void purgingAFlowForgetsItsSchedule() {
+        store.syncSchedule(spec(1, BASE, BASE, Duration.ZERO));
+        store.lockSchedule(1, "a", Duration.ofSeconds(30));
+
+        store.purgeFlow(1);
+
+        assertThat(store.schedule(1)).isEmpty();
+        assertThat(store.scheduledFlows()).isEmpty();
+        assertThat(store.lockSchedule(1, "b", Duration.ofSeconds(30))).isTrue();
+    }
+
+    private static RunStore.ScheduleSpec spec(long flow, Instant deployedAt, Instant firstTick, Duration delay) {
+        return new RunStore.ScheduleSpec(flow, "flow-" + flow, 7, 1, 2, Duration.ofMinutes(15), "user-1",
+                "{\"type\":\"schedule\",\"cron\":\"* * * * * *\"}", delay, deployedAt, firstTick);
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     private void flow(long id, int maxConcurrent) {

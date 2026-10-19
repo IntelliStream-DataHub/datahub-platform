@@ -215,7 +215,7 @@ class RunCoordinatorScaleIT {
 
         long started = System.nanoTime();
         in(tenant, () -> {
-            a.sweep(tenant);
+            a.tick(tenant);
             return null;
         });
         long firstSweepMs = (System.nanoTime() - started) / 1_000_000;
@@ -447,9 +447,9 @@ class RunCoordinatorScaleIT {
     }
 
     /**
-     * A flow that ticks every second: the ticks the sweep finds are windows one second wide, each
-     * made a run once, none missed between sweeps a few seconds apart, and each starts as soon as it
-     * is made.
+     * A flow that ticks every second: the ticks the ticker finds are windows one second wide, each
+     * made a run once, none missed between passes a second and a half apart, and each starts as soon
+     * as it is made.
      */
     @Test
     void aFlowThatTicksEverySecondRunsEveryTickOnce() {
@@ -464,6 +464,7 @@ class RunCoordinatorScaleIT {
 
         for (int i = 0; i < 4; i++) {
             a.sweepAll();
+            a.tickAll();
             sleep(1500);
         }
         await(() -> in(tenant, () -> settled(8)));
@@ -485,26 +486,20 @@ class RunCoordinatorScaleIT {
 
     /**
      * Nothing bounds how far back a schedule catches up: three hours down is 180 runs for one
-     * per-minute flow, created oldest first, {@code catch-up} per sweep.
+     * per-minute flow, created oldest first, in one pass of the ticker, which works through a backlog
+     * {@code catch-up} ticks at a time for as long as its budget allows.
      */
     @Test
-    void threeHoursOfDowntimeBecomeOneRunPerMissedTickOverSeveralSweeps() {
+    void threeHoursOfDowntimeBecomeOneRunPerMissedTickInOnePass() {
         String tenant = tenant("tenant-a");
         Instant first = in(tenant, flows::now).truncatedTo(ChronoUnit.MINUTES).minus(Duration.ofHours(3));
         scheduledFlow(tenant, "catch-up", work(0, tenant, "catch-up"), 1, first);
         RunCoordinator a = coordinator("a", 1);
 
-        int created = 0;
-        int sweeps = 0;
-        int batch;
-        while ((batch = in(tenant, a::createScheduledRuns)) > 0) {
-            assertThat(batch).isLessThanOrEqualTo(24);
-            created += batch;
-            sweeps++;
-        }
+        int created = in(tenant, () -> a.tick(tenant));
 
         assertThat(created).isBetween(181, 182);
-        assertThat(sweeps).isEqualTo((created + 23) / 24);
+        assertThat(in(tenant, () -> a.tick(tenant))).as("nothing more is due").isZero();
         in(tenant, () -> {
             List<Instant> windows = rows().stream()
                     .sorted(java.util.Comparator.comparingLong((Map<String, String> r) -> Long.parseLong(r.get("created_ms")))
@@ -514,8 +509,8 @@ class RunCoordinatorScaleIT {
             assertThat(windows.stream().min(Instant::compareTo).orElseThrow()).isEqualTo(first);
             return null;
         });
-        System.out.printf("catch-up: 3 h of downtime for one per-minute flow became %d pending runs over %d sweeps%n",
-                created, sweeps);
+        System.out.printf("catch-up: 3 h of downtime for one per-minute flow became %d pending runs in one pass%n",
+                created);
     }
 
     // ---------------------------------------------------------------- crashes
@@ -533,7 +528,7 @@ class RunCoordinatorScaleIT {
         // a sweeps once: the tick becomes a run that a claims and holds. Then a dies: it never
         // renews, never hands anything back, and nothing it does from here on may be recorded.
         in(tenant, () -> {
-            a.sweep(tenant);
+            a.tick(tenant);
             return a.claim(tenant, null);
         });
         UUID run = in(tenant, () -> UUID.fromString(rows().stream()
@@ -558,7 +553,12 @@ class RunCoordinatorScaleIT {
 
         // The next tick comes due (moved to now rather than waiting out the minute): b creates and
         // runs it, and the dead instance's tick is not repeated.
-        in(tenant, () -> jdbc.update("UPDATE flow.flow SET next_tick = now(), next_due_at = now() WHERE id = ?", flow));
+        in(tenant, () -> {
+            jdbc.update("UPDATE flow.flow SET next_tick = now(), next_due_at = now(), deployed_at = now() "
+                    + "WHERE id = ?", flow);
+            b.syncFlow(flow);
+            return null;
+        });
         sweepUntil(List.of(b), () -> in(tenant, () -> settled(2)), Duration.ofSeconds(30));
         in(tenant, () -> {
             List<Map<String, String>> all = rows();
@@ -638,6 +638,8 @@ class RunCoordinatorScaleIT {
                 new Schedule(Schedule.MANUAL, null, null, null, null), null);
     }
 
+    private RunCoordinator seeder;
+
     private long scheduledFlow(String tenant, String externalId, String processor, int maxConcurrent, Instant nextTick) {
         return flow(tenant, externalId, processor, maxConcurrent, EVERY_MINUTE, nextTick);
     }
@@ -656,7 +658,11 @@ class RunCoordinatorScaleIT {
                         nextTick == null ? null : schedule.dueAt(nextTick));
                 return created;
             });
-            runs.syncFlow(new RunStore.FlowLimits(id, externalId, 7, true, true, maxConcurrent));
+            // As a deployment does: the run store is told the limits and the schedule.
+            if (seeder == null) {
+                seeder = coordinator("seeder", 0);
+            }
+            seeder.syncFlow(id);
             return id;
         });
     }
@@ -688,9 +694,10 @@ class RunCoordinatorScaleIT {
                             batch -> CompletableFuture.completedFuture(null));
                 }, Duration.ofSeconds(5), 64L << 20);
         RunEvents events = new RunEvents(runs, credentials, api, REQUEST_TIMEOUT, 20);
-        RunCoordinator c = new RunCoordinator(runs, flows, execution, events, transaction, registry, schemaCheck, JSON,
+        RunCoordinator c = new RunCoordinator(runs, flows, execution, events, registry, schemaCheck, JSON,
                 new RunCoordinator.Settings(LEASE, HEARTBEAT, maxRunning, 24,
-                Duration.ZERO, Duration.ZERO, Duration.ofSeconds(1)), name, System::nanoTime);
+                Duration.ZERO, Duration.ZERO, Duration.ofSeconds(1), Duration.ZERO, Duration.ofMillis(100),
+                Duration.ZERO), name, System::nanoTime);
         coordinators.add(c);
         return c;
     }
@@ -700,6 +707,7 @@ class RunCoordinatorScaleIT {
         AtomicBoolean finished = new AtomicBoolean();
         List<Thread> sweepers = instances.stream().map(c -> Thread.ofVirtual().start(() -> {
             while (!finished.get()) {
+                c.tickAll();
                 c.sweepAll();
                 sleep(10);
             }

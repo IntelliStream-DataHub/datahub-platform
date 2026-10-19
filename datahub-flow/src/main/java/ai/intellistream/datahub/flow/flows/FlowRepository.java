@@ -285,64 +285,87 @@ public class FlowRepository {
                 + "identity_state_reason = ? WHERE id = ? AND identity_state = 'ok'", reason, flowId);
     }
 
-    // ---------------------------------------------------------------- the schedule
-
-    /** A deployed, enabled flow whose schedule is due, locked for this transaction. */
-    public record DueFlow(long id, String externalId, long dataSetId, int version, String trigger,
-                          Instant nextTick, int maxAttempts, Duration timeout, String runAs) {
-    }
+    // ---------------------------------------------------------------- what the run store is told
 
     /**
-     * The deployed flows whose schedule is due, earliest first, locked for the caller's transaction
-     * ({@code FOR UPDATE SKIP LOCKED}, so instances sweeping at once take different flows).
+     * A deployed flow as dispatch and the ticker need it: its limits, and its schedule as it was
+     * deployed. {@code identityOk} is false for a deployment whose identity Keycloak refused, which gets
+     * no scheduled runs until it is deployed afresh: each would only fail the same way.
+     *
+     * @param trigger    the deployed trigger as JSON
+     * @param nextTick   the schedule's next tick as last checkpointed here, null when it has none
+     * @param deployedAt when it was deployed: a different one means the schedule starts over
      */
-    public List<DueFlow> lockDueSchedules(int limit) {
-        return jdbc.query("SELECT id, external_id, data_set_id, deployed_version, trigger::text AS trigger, "
-                        + "next_tick, max_attempts, extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
-                        + "coalesce(identity_subject, identity_client_name) AS run_as "
-                        // A deployment whose identity Keycloak refused gets no runs until it is
-                        // deployed afresh: each would only fail the same way.
-                        + "FROM flow.flow WHERE enabled AND next_due_at <= now() AND identity_state = 'ok' "
-                        + "ORDER BY next_due_at LIMIT ? FOR UPDATE SKIP LOCKED",
-                (rs, n) -> new DueFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
-                        rs.getInt("deployed_version"), rs.getString("trigger"),
-                        instant(rs.getTimestamp("next_tick")), rs.getInt("max_attempts"),
-                        Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("run_as")),
-                limit);
+    public record DeployedFlow(long id, String externalId, long dataSetId, boolean enabled, int maxConcurrentRuns,
+                               int version, String trigger, Instant nextTick, Instant deployedAt, int maxAttempts,
+                               Duration timeout, String runAs, boolean identityOk) {
     }
 
-    /** Moves a schedule on; a null {@code nextTick} means the cron expression has no more ticks. */
-    public void advanceSchedule(long flowId, Instant nextTick, Instant nextDue, Instant lastTick) {
-        jdbc.update("UPDATE flow.flow SET next_tick = ?, next_due_at = ?, "
-                        + "last_tick = coalesce(?, last_tick) WHERE id = ?",
-                timestamp(nextTick), timestamp(nextDue), timestamp(lastTick), flowId);
-    }
+    private static final String DEPLOYED = "SELECT id, external_id, data_set_id, enabled, max_concurrent_runs, "
+            + "deployed_version, trigger::text AS trigger, next_tick, deployed_at, max_attempts, "
+            + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
+            + "coalesce(identity_subject, identity_client_name) AS run_as, identity_state FROM flow.flow "
+            + "WHERE deployed_version IS NOT NULL";
 
-    /** The database's clock, which decides when a schedule is due. */
-    public Instant now() {
-        return jdbc.queryForObject("SELECT now()", Timestamp.class).toInstant();
-    }
-
-    // ---------------------------------------------------------------- what dispatch is told
-
-    /** What dispatch needs of a deployed flow. */
-    public record DeployedFlow(long id, String externalId, long dataSetId, boolean enabled, int maxConcurrentRuns) {
+    private static DeployedFlow deployed(java.sql.ResultSet rs) throws java.sql.SQLException {
+        return new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
+                rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs"), rs.getInt("deployed_version"),
+                rs.getString("trigger"), instant(rs.getTimestamp("next_tick")),
+                instant(rs.getTimestamp("deployed_at")), rs.getInt("max_attempts"),
+                Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("run_as"),
+                "ok".equals(rs.getString("identity_state")));
     }
 
     /** One deployed flow, for telling the run store of it at once. */
     public Optional<DeployedFlow> deployedFlow(long flowId) {
-        return jdbc.query("SELECT id, external_id, data_set_id, enabled, max_concurrent_runs FROM flow.flow "
-                        + "WHERE id = ? AND deployed_version IS NOT NULL",
-                (rs, n) -> new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
-                        rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs")), flowId).stream().findFirst();
+        return jdbc.query(DEPLOYED + " AND id = ?", (rs, n) -> deployed(rs), flowId).stream().findFirst();
     }
 
-    /** Every deployed flow, for copying its limits to the run store. */
+    /** Every deployed flow, for telling the run store of all of them. */
     public List<DeployedFlow> deployedFlows() {
-        return jdbc.query("SELECT id, external_id, data_set_id, enabled, max_concurrent_runs FROM flow.flow "
-                        + "WHERE deployed_version IS NOT NULL",
-                (rs, n) -> new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
-                        rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs")));
+        return jdbc.query(DEPLOYED, (rs, n) -> deployed(rs));
+    }
+
+    /**
+     * Where a flow's schedule had got to, as the run store knows it.
+     *
+     * @param nextTick the tick it waits for; null when the cron expression has no more
+     * @param lastTick the latest tick made into a run, null if none yet
+     */
+    public record ScheduleCheckpoint(long flowId, Instant deployedAt, Instant nextTick, Instant nextDueAt,
+                                     Instant lastTick) {
+    }
+
+    /**
+     * Saves where schedules had got to, so that a run store that lost them can start again from here
+     * instead of from the deployment. A checkpoint never moves a schedule back, and never lands on a
+     * deployment other than the one it was taken from; the run store is the authority, this is its
+     * backup, and the Runs overview reads it.
+     */
+    public void checkpointSchedules(List<ScheduleCheckpoint> checkpoints) {
+        List<Object[]> moving = new java.util.ArrayList<>();
+        List<Object[]> finished = new java.util.ArrayList<>();
+        for (ScheduleCheckpoint c : checkpoints) {
+            if (c.nextTick() == null) {
+                finished.add(new Object[]{timestamp(c.lastTick()), c.flowId(), timestamp(c.deployedAt())});
+            } else {
+                moving.add(new Object[]{timestamp(c.nextTick()), timestamp(c.nextDueAt()), timestamp(c.lastTick()),
+                        c.flowId(), timestamp(c.deployedAt()), timestamp(c.nextTick())});
+            }
+        }
+        if (!moving.isEmpty()) {
+            jdbc.batchUpdate("UPDATE flow.flow SET next_tick = ?, next_due_at = ?, last_tick = coalesce(?, last_tick) "
+                    + "WHERE id = ? AND deployed_at = ? AND (next_tick IS NULL OR next_tick < ?)", moving);
+        }
+        if (!finished.isEmpty()) {
+            jdbc.batchUpdate("UPDATE flow.flow SET next_tick = NULL, next_due_at = NULL, "
+                    + "last_tick = coalesce(?, last_tick) WHERE id = ? AND deployed_at = ?", finished);
+        }
+    }
+
+    /** The database's clock. */
+    public Instant now() {
+        return jdbc.queryForObject("SELECT now()", Timestamp.class).toInstant();
     }
 
     // ---------------------------------------------------------------- the overview
