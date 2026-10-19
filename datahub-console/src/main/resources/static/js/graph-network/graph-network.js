@@ -41,6 +41,8 @@ let GRAPH_COLORS = graphPalette();
 // otherwise, which left anything larger cut off at its nearest 5,000. It streams the network now, and
 // the view draws a large one group by group (graph-view.js, big mode), so the whole network is fetched.
 const NETWORK_LIMIT = -1;
+// Numbers each render of the view menu, so its label ids stay unique when a page holds two graphs.
+let viewMenuSeq = 0;
 
 class GraphNetwork {
 
@@ -984,7 +986,7 @@ class GraphNetwork {
     }
 
     renderViewMenu() {
-        const big = this.view.isBig(), menu = this.viewMenu, uid = 'gv' + Math.random().toString(36).slice(2, 8);
+        const big = this.view.isBig(), menu = this.viewMenu, uid = 'gv' + (++viewMenuSeq);
         menu.replaceChildren();
         let gated = false;
         const classic = !big && this.view.options().layout === 'classic';
