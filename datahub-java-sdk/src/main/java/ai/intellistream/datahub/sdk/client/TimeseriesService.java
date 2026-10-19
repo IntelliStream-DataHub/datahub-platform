@@ -500,7 +500,8 @@ public final class TimeseriesService {
     }
 
     /**
-     * Send frames the caller built, as one {@code POST /timeseries/data/binary} request: for a
+     * Send frames the caller built, as one {@code POST /timeseries/data/binary} request. (To post frames
+     * {@link #retrieveBinary} returned, see {@link #ingestFrames}, which splits them over requests.) For a
      * caller that already holds its points in columns (with {@code DatapointFrameWriter}) and would
      * lose the point of the binary path by turning them into {@link Datapoint} strings for
      * {@link #ingestBinary(List)}. The frames go as they are, in order, concatenated into one
@@ -517,7 +518,7 @@ public final class TimeseriesService {
      * @throws ai.intellistream.datahub.sdk.http.DatahubApiException if the server refuses the
      *         request, or it got no answer (status 0)
      */
-    public void ingestFrames(List<byte[]> frames) {
+    public void ingestFrameBytes(List<byte[]> frames) {
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         for (byte[] frame : frames) {
             body.writeBytes(frame);

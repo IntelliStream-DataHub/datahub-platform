@@ -348,8 +348,8 @@ class SdkWireContractTest {
             new Contract("timeseries.deleteDatapoints", "POST", "/timeseries/data/delete",
                     retriever(DeleteDatapoint.class),
                     c -> c.timeseries().deleteDatapoints("x", Instant.EPOCH, Instant.EPOCH)),
-            new Contract("timeseries.ingestFrames", "POST", "/timeseries/data/binary", null,
-                    c -> c.timeseries().ingestFrames(List.of(frame()))),
+            new Contract("timeseries.ingestFrameBytes", "POST", "/timeseries/data/binary", null,
+                    c -> c.timeseries().ingestFrameBytes(List.of(frame()))),
 
             // --- datasets ----------------------------------------------------------------
             new Contract("datasets.getById", "GET", "/datasets/1", null,

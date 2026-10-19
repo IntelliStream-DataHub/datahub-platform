@@ -91,7 +91,7 @@ class NoContentResponseTest {
                 () -> assertDoesNotThrow(() -> c.subscriptions().delete(ids)),
                 () -> assertDoesNotThrow(() -> c.files().delete(ids)),
                 () -> assertDoesNotThrow(() -> c.edges().delete(ids)),
-                () -> assertDoesNotThrow(() -> c.timeseries().ingestFrames(List.of(frameBytes))));
+                () -> assertDoesNotThrow(() -> c.timeseries().ingestFrameBytes(List.of(frameBytes))));
 
         assertEquals(10, calls.get(), "every call should have reached the server");
     }
@@ -114,7 +114,7 @@ class NoContentResponseTest {
                 new Call(ai.intellistream.datahub.sdk.client.SubscriptionService.class, "delete", List.class),
                 new Call(ai.intellistream.datahub.sdk.client.FileService.class, "delete", List.class),
                 new Call(ai.intellistream.datahub.sdk.client.EdgeService.class, "delete", List.class),
-                new Call(ai.intellistream.datahub.sdk.client.TimeseriesService.class, "ingestFrames", List.class));
+                new Call(ai.intellistream.datahub.sdk.client.TimeseriesService.class, "ingestFrameBytes", List.class));
 
         List<String> wrongly = new ArrayList<>();
         for (Call call : noBody) {
