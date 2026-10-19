@@ -412,7 +412,7 @@ class TimeseriesBinaryIngestTest {
 
     @Test
     void prebuiltFramesGoAsOneRequestWithoutResolvingSeries() {
-        client.timeseries().ingestFrames(List.of(floatFrame(11, "a", 3), floatFrame(12, "b", 2)));
+        client.timeseries().ingestFrameBytes(List.of(floatFrame(11, "a", 3), floatFrame(12, "b", 2)));
 
         assertEquals(1, binaryCalls.get());
         assertEquals(0, byIdsCalls.get(), "the frames already name their series");
@@ -428,7 +428,7 @@ class TimeseriesBinaryIngestTest {
         scriptedBody = UNKNOWN_TIMESERIES;
 
         DatahubApiException e = assertThrows(DatahubApiException.class,
-                () -> client.timeseries().ingestFrames(List.of(floatFrame(3, "gone", 1))));
+                () -> client.timeseries().ingestFrameBytes(List.of(floatFrame(3, "gone", 1))));
 
         assertEquals(404, e.statusCode());
         assertTrue(e.problem().is("unknown-timeseries"), String.valueOf(e.problem().slug()));
@@ -442,8 +442,8 @@ class TimeseriesBinaryIngestTest {
             frames.add(floatFrame(i + 1, "s" + i, 1));
         }
 
-        assertThrows(FrameFormatException.class, () -> client.timeseries().ingestFrames(frames));
-        assertThrows(FrameFormatException.class, () -> client.timeseries().ingestFrames(List.of()));
+        assertThrows(FrameFormatException.class, () -> client.timeseries().ingestFrameBytes(frames));
+        assertThrows(FrameFormatException.class, () -> client.timeseries().ingestFrameBytes(List.of()));
         assertEquals(0, binaryCalls.get());
     }
 }

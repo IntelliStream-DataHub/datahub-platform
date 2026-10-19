@@ -146,7 +146,7 @@ public class TimeseriesSink implements Processor {
         }
         try {
             for (List<byte[]> request : requests(frames)) {
-                context.datahub().timeseries().ingestFrames(request);
+                context.datahub().timeseries().ingestFrameBytes(request);
             }
         } catch (DatahubApiException e) {
             if (!refused(e)) {

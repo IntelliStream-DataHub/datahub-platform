@@ -19,7 +19,7 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   The binary read, `retrieveBinary(...)`, goes to `POST /timeseries/data/list/binary` with the
   JSON retrieve body and returns api-model's `DatapointFrame`s as they are; a response without
   the end marker is an error, never a shorter answer.
-  `ingestFrames(...)` posts frames the caller built (`DatapointFrameWriter`) as one request,
+  `ingestFrameBytes(...)` posts frames the caller built (`DatapointFrameWriter`) as one request,
   with the request-level caps checked client-side and no resolution or retry: it is for a caller
   that holds its points in columns, such as the flow service, and throws on refusal.
 - **Branch on the problem `type`, never on a substring of the body.** The api answers every
@@ -112,7 +112,7 @@ value types a caller names.
   `AnalysisApiClientFactory` builds a per-request `DatahubClient` with the caller's forwarded
   JWT as a static token (the SDK bakes the token into the client, hence per-request wrappers).
   Changes to `DatahubConfig`, `TokenProvider`, or service signatures ripple there.
-- `datahub-flow` is the caller `tokenSupplier`, `requestTimeout` and `ingestFrames` were added
+- `datahub-flow` is the caller `tokenSupplier`, `requestTimeout` and `ingestFrameBytes` were added
   for: a run acts as the user who deployed the flow, through an access token the service keeps
   current by refreshing the user's Keycloak offline token itself, with every call bounded so a run
   that has lost its lease stops in time, and its points written from columns. It also calls
