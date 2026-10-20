@@ -226,10 +226,30 @@
 	color: var(--accent);
 }
 
-/* Failed runs: a group heading per flow, its open failures beneath. */
+/* Failed runs: a group heading per flow, a sub-heading per error code, the open failures beneath. */
 .attention-group td {
 	font-weight: 600;
 	padding-top: var(--space-lg);
+}
+
+.attention-group,
+.attention-cause {
+	cursor: pointer;
+}
+
+.attention-toggle {
+	background: none;
+	border: 0;
+	padding: 0 var(--space-xs);
+	margin-right: var(--space-xs);
+	cursor: pointer;
+	color: inherit;
+}
+
+.attention-cause td {
+	font-family: var(--font-mono, monospace);
+	padding-left: var(--space-lg);
+	color: var(--text-muted, inherit);
 }
 
 .flows-row-actions {
