@@ -131,6 +131,18 @@ class RateLimitFilterTest {
     }
 
     @Test
+    void aBinaryVariantIsChargedLikeWhatItIsTheBinaryFormOf() throws Exception {
+        countsReach(11);
+
+        filter.doFilter(new MockHttpServletRequest("POST", "/timeseries/data/list/binary"), response, chain);
+        assertThat(response.getStatus()).as("the binary read").isEqualTo(HttpStatus.OK.value());
+
+        MockHttpServletResponse insert = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", "/timeseries/data/binary"), insert, new MockFilterChain());
+        assertThat(insert.getStatus()).as("the binary insert").isEqualTo(HttpStatus.TOO_MANY_REQUESTS.value());
+    }
+
+    @Test
     void aDeleteIsAWriteWhateverItsPathLooksLike() throws Exception {
         countsReach(11);
 

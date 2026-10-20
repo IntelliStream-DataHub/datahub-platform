@@ -9,6 +9,7 @@ import ai.intellistream.datahub.api.controllers.errors.DatapointBlockExceptionHa
 import ai.intellistream.datahub.api.controllers.errors.DatapointBlockRejectedException;
 import ai.intellistream.datahub.api.controllers.errors.Problems;
 import ai.intellistream.datahub.api.services.DatapointBinaryIngestService;
+import ai.intellistream.datahub.api.services.TimeseriesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
@@ -47,7 +48,7 @@ class DatapointBinaryControllerTest {
     @BeforeEach
     void setUp() {
         service = mock(DatapointBinaryIngestService.class);
-        mvc = MockMvcBuilders.standaloneSetup(new DatapointBinaryController(service))
+        mvc = MockMvcBuilders.standaloneSetup(new DatapointBinaryController(service, mock(TimeseriesService.class)))
                 .setControllerAdvice(new DatapointBlockExceptionHandler())
                 .build();
     }

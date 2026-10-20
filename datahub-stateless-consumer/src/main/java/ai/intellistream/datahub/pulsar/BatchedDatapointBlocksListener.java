@@ -4,6 +4,7 @@ package ai.intellistream.datahub.pulsar;
 import ai.intellistream.datahub.api.binary.DatapointFrame;
 import ai.intellistream.datahub.api.binary.DatapointFrame.Run;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
+import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.binary.FrameMerger;
 import ai.intellistream.datahub.api.binary.PayloadCodec;
 import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
@@ -36,9 +37,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -48,9 +48,13 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * Consumes the binary datapoint frames. Every message is one frame exactly as the client sent it,
- * still compressed; this listener decompresses and re-validates it, merges everything for one
- * tenant and value type in the batch into one Arrow stream of large blocks, streams that to
- * ClickHouse, and decodes only the series with live subscribers for the fan-out.
+ * still compressed; this listener checks its envelope, relays its record batches as they came
+ * into one Arrow stream per tenant and value type in the batch, streams that to ClickHouse, and
+ * decodes only the frames with a series some subscription is bound to, for the fan-out. A frame
+ * the SDK compressed in-band ({@link FrameLimits#COMPRESSION_ARROW_ZSTD}) is therefore never
+ * decompressed here: its buffers go to ClickHouse as the client wrote them, over an uncompressed
+ * HTTP body, and ClickHouse decodes them. The API validated every value before it published the
+ * frame; a frame ClickHouse still refuses fails its group's insert, and the group is nacked whole.
  */
 @Service
 @Slf4j
@@ -58,9 +62,6 @@ import java.util.concurrent.TimeUnit;
 @DependsOn({"subscriptionNotifyListener"})
 @RequiredArgsConstructor
 public class BatchedDatapointBlocksListener {
-
-    /** Rows per Arrow batch after the merge; ClickHouse's own insert block is about this size. */
-    static final int MERGE_MAX_ROWS = 1_000_000;
 
     private volatile boolean isRunning = false;
     private final PulsarClient pulsarClient;
@@ -130,20 +131,24 @@ public class BatchedDatapointBlocksListener {
                 });
     }
 
-    private record Parsed(Message<byte[]> message, String tenantId, List<DatapointFrame> frames) {
+    /** One frame of a message with its record batches relayed, ready to concatenate. */
+    private record Relayed(DatapointFrame frame, byte[] batches) {
+    }
+
+    private record Parsed(Message<byte[]> message, String tenantId, List<Relayed> frames) {
     }
 
     private record Group(String tenantId, DatapointValueType type) {
     }
 
-    // Package-private so the merge, the per-group ack/nack and the fan-out can be unit-tested.
+    // Package-private so the relay, the per-group ack/nack and the fan-out can be unit-tested.
     void handleBlockMessages(Messages<byte[]> messages) {
-        List<Parsed> parsed = decodeAll(messages);
+        List<Parsed> parsed = relayAll(messages);
 
-        Map<Group, List<Parsed>> groups = new LinkedHashMap<>();
+        Set<Group> groups = new LinkedHashSet<>();
         for (Parsed p : parsed) {
-            for (DatapointFrame f : p.frames()) {
-                groups.computeIfAbsent(new Group(p.tenantId(), f.valueType()), g -> new ArrayList<>());
+            for (Relayed r : p.frames()) {
+                groups.add(new Group(p.tenantId(), r.frame().valueType()));
             }
         }
         // A message can carry frames of several types, so it is settled only once every group has
@@ -151,24 +156,27 @@ public class BatchedDatapointBlocksListener {
         // its first group would lose the rest, since the broker ignores a nack of an acked message.
         Set<Message<byte[]>> succeeded = Collections.newSetFromMap(new IdentityHashMap<>());
         Set<Message<byte[]>> failed = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (Map.Entry<Group, List<Parsed>> entry : groups.entrySet()) {
-            Group group = entry.getKey();
+        for (Group group : groups) {
             List<DatapointFrame> frames = new ArrayList<>();
+            List<byte[]> batches = new ArrayList<>();
+            boolean compressed = true;
             List<Message<byte[]>> contributing = new ArrayList<>();
             for (Parsed p : parsed) {
                 if (!p.tenantId().equals(group.tenantId())) continue;
                 boolean contributes = false;
-                for (DatapointFrame f : p.frames()) {
-                    if (f.valueType() == group.type()) {
-                        frames.add(f);
+                for (Relayed r : p.frames()) {
+                    if (r.frame().valueType() == group.type()) {
+                        frames.add(r.frame());
+                        batches.add(r.batches());
+                        compressed &= r.frame().compression() == FrameLimits.COMPRESSION_ARROW_ZSTD;
                         contributes = true;
                     }
                 }
                 if (contributes) contributing.add(p.message());
             }
             try {
-                byte[] stream = FrameMerger.merge(group.type(), frames, MERGE_MAX_ROWS);
-                clickHouseDatapointService.insertArrowStream(group.tenantId(), group.type(), stream);
+                byte[] stream = FrameMerger.stream(group.type(), batches);
+                clickHouseDatapointService.insertArrowStream(group.tenantId(), group.type(), stream, compressed);
                 fanOut(group.tenantId(), group.type(), frames);
                 succeeded.addAll(contributing);
             } catch (Exception e) {
@@ -183,15 +191,15 @@ public class BatchedDatapointBlocksListener {
         receiveMessages();
     }
 
-    /** Parse and decompress every message; the frames were validated by the API, so a failure here nacks. */
-    private List<Parsed> decodeAll(Messages<byte[]> messages) {
+    /** Parse every message and relay each of its frames; the frames were validated by the API, so a failure here nacks. */
+    private List<Parsed> relayAll(Messages<byte[]> messages) {
         List<Message<byte[]>> all = new ArrayList<>();
         messages.forEach(all::add);
         List<Parsed> parsed = new ArrayList<>(all.size());
         try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
             List<Future<Parsed>> pending = new ArrayList<>(all.size());
             for (Message<byte[]> msg : all) {
-                pending.add(pool.submit(() -> decode(msg)));
+                pending.add(pool.submit(() -> relay(msg)));
             }
             for (int i = 0; i < pending.size(); i++) {
                 Message<byte[]> msg = all.get(i);
@@ -209,25 +217,31 @@ public class BatchedDatapointBlocksListener {
         return parsed;
     }
 
-    private Parsed decode(Message<byte[]> msg) {
+    private Parsed relay(Message<byte[]> msg) {
         String tenantId = msg.getProperty("tenantId");
         if (tenantId == null || tenantId.isBlank()) {
             throw new IllegalArgumentException("message carries no tenantId property");
         }
         List<DatapointFrame> frames = DatapointFrame.parseEnvelopes(msg.getData());
+        List<Relayed> relayed = new ArrayList<>(frames.size());
         for (DatapointFrame f : frames) {
-            f.decode(codec);
+            relayed.add(new Relayed(f, FrameMerger.batches(f, codec)));
         }
-        return new Parsed(msg, tenantId, frames);
+        return new Parsed(msg, tenantId, relayed);
     }
 
-    /** Decode to the string shape only the runs some subscription is bound to. */
+    /**
+     * Decode to the string shape only the runs some subscription is bound to. A frame's directory
+     * names its series, so a frame with no subscribed series is never decoded at all.
+     */
     private void fanOut(String tenantId, DatapointValueType type, List<DatapointFrame> frames) {
         List<DataCollectionString> items = new ArrayList<>();
         // Upper case, because that is the name the JSON path reads off the value-type row and a
         // subscriber cannot tell which path a point arrived by.
         String valueType = type.name();
         for (DatapointFrame f : frames) {
+            if (!subscribed(tenantId, f)) continue;
+            f.decode(codec);
             for (Run run : f.runs()) {
                 if (subscriptionCache.getSubscriptionExternalIds(tenantId, run.id()).isEmpty()) continue;
                 List<DatapointString> points = new ArrayList<>(run.rows());
@@ -246,6 +260,13 @@ public class BatchedDatapointBlocksListener {
         }
         if (items.isEmpty()) return;
         subscriptionFanout.forward(new DataWrapperMessage(EventObject.DATAPOINTS, EventAction.CREATE, items, tenantId));
+    }
+
+    private boolean subscribed(String tenantId, DatapointFrame f) {
+        for (long id : f.seriesIds()) {
+            if (!subscriptionCache.getSubscriptionExternalIds(tenantId, id).isEmpty()) return true;
+        }
+        return false;
     }
 
     private void acknowledge(Message<byte[]> m) {
