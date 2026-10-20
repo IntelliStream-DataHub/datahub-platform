@@ -9,7 +9,8 @@
  *                                 service starts them as its slots free up, and a flow with a limit on
  *                                 runs at once works through its queue within that limit
  *   POST {api}/events/create      dismiss: a dismissed event in the same lifecycle, written as the
- *                                 person dismissing, who needs write on the flow's dataset
+ *                                 person dismissing, who needs write on the flow's dataset. "Dismiss
+ *                                 all" writes one for every listed failure, DISMISS_BATCH to a request
  */
 (function(){
 	"use strict";
@@ -43,8 +44,29 @@
 		var progress = page.querySelector('[data-type="attention-progress"]');
 		var following = false;
 		var RERUN_BATCH = 1000;
+		var DISMISS_BATCH = 100;
+		var dismissAllButton = page.querySelector('[data-type="attention-dismiss-all"]');
+		var listed = [];   // {event, row} of every listed failure
 		var groups = {};   // flow -> its header row, so later pages add to the same group
+		var collapsed = {};   // header key -> true while its rows are folded away
+		var causes = {};   // flow + error code -> its header row inside the flow's group
 		var rerunnable = [];   // {flow, runId, button} of every listed window that has a run to re-run
+
+		/** A header's fold indicator and keyboard target; the rows under it follow `collapsed` (see fold). */
+		function toggle(key){
+			var b = Object.assign(document.createElement("button"), { type: "button", className: "attention-toggle" });
+			b.setAttribute("data-type", "attention-toggle");
+			return b;
+		}
+
+		// The whole header row folds, except the flow's link; the button's click arrives here too.
+		tbody.addEventListener("click", function(e){
+			var tr = e.target.closest("tr.attention-group, tr.attention-cause");
+			if(!tr || e.target.closest("a")) return;
+			var key = tr.getAttribute("data-key");
+			collapsed[key] = !collapsed[key];
+			tidy();
+		});
 
 		function groupRow(flow){
 			if(groups[flow]) return groups[flow];
@@ -53,26 +75,105 @@
 			var td = document.createElement("td");
 			td.colSpan = 5;
 			var link = Object.assign(document.createElement("a"), { href: "/flows/" + FlowApi.seg(flow), textContent: flow });
-			td.appendChild(link);
+			td.append(toggle(flow), link, document.createTextNode(""));
+			tr.setAttribute("data-key", flow);
 			tr.appendChild(td);
 			tbody.appendChild(tr);
 			groups[flow] = tr;
 			return tr;
 		}
 
+		/** The cause's header, last in its flow's group, so a flow's failures stay together by error code. */
+		function causeRow(flow, code){
+			var key = flow + "\u0000" + code;
+			if(causes[key]) return causes[key];
+			var tr = document.createElement("tr");
+			tr.className = "attention-cause";
+			tr.setAttribute("data-code", code);
+			var td = document.createElement("td");
+			td.colSpan = 5;
+			td.append(toggle(key), document.createElement("span"));
+			tr.appendChild(td);
+			var end = groupRow(flow);
+			while(end.nextElementSibling && !end.nextElementSibling.classList.contains("attention-group")){
+				end = end.nextElementSibling;
+			}
+			end.after(tr);
+			causes[key] = tr;
+			tr.setAttribute("data-key", key);
+			return tr;
+		}
+
+		/** The data rows under a header, up to the next header of either kind. */
+		function members(header){
+			var rows = [];
+			for(var n = header.nextElementSibling; n && !n.classList.contains("attention-group")
+					&& !n.classList.contains("attention-cause"); n = n.nextElementSibling) rows.push(n);
+			return rows;
+		}
+
+		/** Hides the rows under a folded flow or cause, and shows each header's state. */
+		function fold(){
+			var flowFolded = false, causeFolded = false;
+			Array.prototype.forEach.call(tbody.children, function(tr){
+				var header = tr.classList.contains("attention-group") || tr.classList.contains("attention-cause");
+				if(tr.classList.contains("attention-group")){
+					flowFolded = !!collapsed[tr.getAttribute("data-key")];
+					causeFolded = false;
+					tr.hidden = false;
+				} else if(tr.classList.contains("attention-cause")){
+					causeFolded = !!collapsed[tr.getAttribute("data-key")];
+					tr.hidden = flowFolded;
+				} else {
+					tr.hidden = flowFolded || causeFolded;
+				}
+				if(header){
+					var folded = !!collapsed[tr.getAttribute("data-key")];
+					var b = tr.querySelector('[data-type="attention-toggle"]');
+					b.textContent = folded ? "\u25B8" : "\u25BE";
+					b.setAttribute("aria-expanded", folded ? "false" : "true");
+				}
+			});
+		}
+
+		/** Drops headers left without rows, and puts the counts on the rest. */
+		function tidy(){
+			Object.keys(causes).forEach(function(key){
+				var header = causes[key], n = members(header).length;
+				if(n === 0){ header.remove(); delete causes[key]; return; }
+				var code = header.getAttribute("data-code");
+				header.firstChild.lastChild.textContent = (code || L("flows.attention.cause.unknown")) + " (" + n + ")";
+			});
+			Object.keys(groups).forEach(function(flow){
+				var header = groups[flow], n = 0;
+				for(var x = header.nextElementSibling; x && !x.classList.contains("attention-group"); x = x.nextElementSibling){
+					if(x.hasAttribute("data-lifecycle")) n++;
+				}
+				if(n === 0){ header.remove(); delete groups[flow]; return; }
+				header.firstChild.lastChild.textContent = " (" + n + ")";
+			});
+			fold();
+			empty.hidden = tbody.children.length > 0;
+		}
+
 		function button(textKey, cls){
 			return Object.assign(document.createElement("button"), { type: "button", className: "dh-btn small " + cls, textContent: L(textKey) });
 		}
 
+		/** The dismissed event that closes a failure's lifecycle. */
+		function dismissedEvent(event, who){
+			var metadata = Object.assign({}, event.metadata || {},
+				{ dismissedBy: who, dismissedAt: new Date().toISOString() });
+			return { externalId: event.externalId, type: "flow", subType: "run-failed", status: "dismissed",
+				eventTime: Date.now(), dataSetId: event.dataSetId, metadata: metadata };
+		}
+
 		function dismiss(event, tr){
 			return whoAmI().then(function(who){
-				var metadata = Object.assign({}, event.metadata || {},
-					{ dismissedBy: who, dismissedAt: new Date().toISOString() });
-				return FlowApi.api("/events/create", { items: [{
-					externalId: event.externalId, type: "flow", subType: "run-failed", status: "dismissed",
-					eventTime: Date.now(), dataSetId: event.dataSetId, metadata: metadata }] });
+				return FlowApi.api("/events/create", { items: [dismissedEvent(event, who)] });
 			}).then(function(){
 				tr.remove();
+				tidy();
 				Flash.info(L("flows.attention.dismissed"));
 			}).catch(function(err){ FlowApi.flashError(err, "flows.error.dismiss"); });
 		}
@@ -82,8 +183,9 @@
 			var flow = m.flow || "";
 			var tr = document.createElement("tr");
 			tr.setAttribute("data-lifecycle", event.externalId);
+			listed.push({ event: event, row: tr });
 			var windowText = m.windowStart ? time(m.windowStart) + " – " + time(m.windowEnd) : "";
-			var error = (m.errorCode || "") + (m.error ? ": " + m.error : "");
+			var error = m.error || m.errorCode || "";
 			[windowText, time(event.eventTime), error, m.attempts || ""].forEach(function(t){
 				tr.appendChild(Object.assign(document.createElement("td"), { textContent: t, title: t }));
 			});
@@ -110,12 +212,9 @@
 			});
 			actions.append(dismissBtn);
 			tr.appendChild(actions);
-			// After the group's last row, so a group stays together across pages.
-			var group = groupRow(flow);
-			var after = group;
-			while(after.nextElementSibling && !after.nextElementSibling.classList.contains("attention-group")){
-				after = after.nextElementSibling;
-			}
+			// After the cause's last row, so a flow's failures stay together by cause across pages.
+			var cause = causeRow(flow, m.errorCode || "");
+			var after = members(cause).pop() || cause;
 			after.after(tr);
 		}
 
@@ -126,6 +225,7 @@
 
 		function showRerunAll(){
 			rerunAllButton.hidden = pending().length === 0;
+			dismissAllButton.hidden = !listed.some(function(l){ return l.row.isConnected; });
 		}
 
 		/** Loads one page; resolves to whether it did, so a failing load is not retried forever. */
@@ -134,6 +234,7 @@
 			return FlowApi.api("/events/latest", window.flowAttentionQuery(cursor, 100))
 				.then(function(page){
 					(page.items || []).forEach(row);
+					tidy();
 					cursor = page.nextCursor || null;
 					more.hidden = !cursor;
 					empty.hidden = tbody.children.length > 0;
@@ -165,14 +266,7 @@
 			tbody.querySelectorAll("tr[data-lifecycle]").forEach(function(tr){
 				if(!open.has(tr.getAttribute("data-lifecycle"))) tr.remove();
 			});
-			Object.keys(groups).forEach(function(flow){
-				var next = groups[flow].nextElementSibling;
-				if(!next || next.classList.contains("attention-group")){
-					groups[flow].remove();
-					delete groups[flow];
-				}
-			});
-			empty.hidden = tbody.children.length > 0;
+			tidy();
 			showRerunAll();
 		}
 
@@ -246,7 +340,47 @@
 			});
 		}
 
+		/**
+		 * Dismisses every listed failure, in requests of DISMISS_BATCH. A request that is refused (no
+		 * write on a flow's dataset, say) leaves its failures on the page and is reported at the end.
+		 */
+		function dismissAll(){
+			dismissAllButton.disabled = true;
+			loadAll().then(function(ok){
+				var todo = listed.filter(function(l){ return l.row.isConnected; });
+				if(!ok || todo.length === 0 || !confirm(L("flows.attention.dismiss.all.confirm", [todo.length]))) return;
+				return whoAmI().then(function(who){
+					var done = 0, failed = 0, reasons = [];
+					var chain = Promise.resolve();
+					for(var i = 0; i < todo.length; i += DISMISS_BATCH){
+						(function(batch){
+							chain = chain.then(function(){
+								return FlowApi.api("/events/create", { items: batch.map(function(l){ return dismissedEvent(l.event, who); }) })
+									.then(function(){
+										batch.forEach(function(l){ l.row.remove(); });
+										done += batch.length;
+									}).catch(function(err){
+										failed += batch.length;
+										reasons.push(err && err.message ? err.message : L("flows.error.dismiss"));
+									});
+							});
+						})(todo.slice(i, i + DISMISS_BATCH));
+					}
+					return chain.then(function(){
+						tidy();
+						if(failed === 0) Flash.info(L("flows.attention.dismiss.all.done", [done]));
+						else Flash.error(L("flows.attention.dismiss.all.partial", [done, failed]), { details: reasons });
+					});
+				});
+			}).catch(function(err){ FlowApi.flashError(err, "flows.error.dismiss"); })
+			.finally(function(){
+				dismissAllButton.disabled = false;
+				showRerunAll();
+			});
+		}
+
 		rerunAllButton.addEventListener("click", rerunAll);
+		dismissAllButton.addEventListener("click", dismissAll);
 
 		more.addEventListener("click", load);
 		window.i18nReady.then(load);

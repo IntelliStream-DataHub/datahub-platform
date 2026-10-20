@@ -24,8 +24,12 @@
 				<h2 th:text="#{flows.nav.attention}"></h2>
 				<p class="flows-intro" th:text="#{flows.attention.intro}"></p>
 			</div>
-			<button type="button" class="dh-btn primary" data-type="attention-rerun-all" hidden
-					th:text="#{flows.attention.rerun.all}"></button>
+			<div class="flows-header-actions">
+				<button type="button" class="dh-btn secondary" data-type="attention-dismiss-all" hidden
+						th:text="#{flows.attention.dismiss.all}"></button>
+				<button type="button" class="dh-btn primary" data-type="attention-rerun-all" hidden
+						th:text="#{flows.attention.rerun.all}"></button>
+			</div>
 		</header>
 
 		<p class="flows-hint" data-type="attention-progress" hidden></p>
