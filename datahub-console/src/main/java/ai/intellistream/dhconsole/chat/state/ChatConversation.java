@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.state;
 
-import ai.intellistream.dhconsole.chat.llm.LlmMessage;
+import ai.intellistream.datahub.llm.LlmMessage;
+import ai.intellistream.datahub.llm.ToolLoop;
 
 import java.io.Serial;
 import java.io.Serializable;
@@ -18,17 +19,19 @@ import java.util.List;
  * ever moves behind a streaming endpoint, the session is committed before the work finishes and
  * the state has to move out with it.
  */
-public class ChatConversation implements Serializable {
+public class ChatConversation implements ToolLoop.Transcript, Serializable {
 
     @Serial
     private static final long serialVersionUID = 1L;
 
     private final List<LlmMessage> messages = new ArrayList<>();
 
+    @Override
     public List<LlmMessage> messages() {
         return Collections.unmodifiableList(messages);
     }
 
+    @Override
     public void append(LlmMessage message) {
         messages.add(message);
     }

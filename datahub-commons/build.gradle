@@ -9,6 +9,9 @@ plugins {
     // Core Gradle plugin, so no version and no pluginManagement entry. Generates the parser
     // for the events filter expression language from src/main/antlr/EventFilterQuery.g4.
     id 'antlr'
+    // StubLlmClient and LlmSettingsFixture live in src/testFixtures so the console's chat tests
+    // and the flow service's agent tests drive the shared LLM layer with the same scripted model.
+    id 'java-test-fixtures'
 }
 
 
@@ -49,6 +52,13 @@ dependencies {
 
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // The Anthropic SDK is used by exactly one class, AnthropicLlmClient, which LlmBackends loads
+    // only when a tenant has configured that provider. It is compile-only here so the api, the
+    // consumers and cleanup never carry its 25 MB: an app that wires LlmBackends (the console, the
+    // flow service) declares the same artifact itself.
+    compileOnly "com.anthropic:anthropic-java:${anthropicSdkVersion}"
+    testImplementation "com.anthropic:anthropic-java:${anthropicSdkVersion}"
 
     // Servlet API for HttpHelper, compile-only: provided at runtime by the web app
     // modules (datahub-api, datahub-console). Headless consumers never call HttpHelper.

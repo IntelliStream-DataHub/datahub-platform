@@ -2,7 +2,7 @@
 package ai.intellistream.dhconsole.chat.config;
 
 import ai.intellistream.datahub.tenant.TenantConfigService;
-import ai.intellistream.dhconsole.chat.llm.LlmBackends;
+import ai.intellistream.datahub.llm.LlmBackends;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

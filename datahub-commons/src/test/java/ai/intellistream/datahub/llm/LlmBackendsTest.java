@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
 import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantLlm;
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -34,14 +33,14 @@ class LlmBackendsTest {
         return new LlmBackends(tenants, json);
     }
 
-    private static ChatSettings anthropic(String apiKey, String model) {
-        return new ChatSettings(LlmProvider.ANTHROPIC, apiKey, model, null, null,
-                Duration.ofMinutes(4), null, ChatEffort.DEFAULT, 6, null);
+    private static LlmSettings anthropic(String apiKey, String model) {
+        return new LlmSettings(LlmProvider.ANTHROPIC, apiKey, model, null, null,
+                Duration.ofMinutes(4), null, LlmEffort.DEFAULT, 6, null);
     }
 
-    private static ChatSettings openAiCompatible(String baseUrl) {
-        return new ChatSettings(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3-32b", baseUrl, null,
-                Duration.ofMinutes(4), null, ChatEffort.DEFAULT, 6, null);
+    private static LlmSettings openAiCompatible(String baseUrl) {
+        return new LlmSettings(LlmProvider.OPENAI_COMPATIBLE, null, "qwen3-32b", baseUrl, null,
+                Duration.ofMinutes(4), null, LlmEffort.DEFAULT, 6, null);
     }
 
     @Test

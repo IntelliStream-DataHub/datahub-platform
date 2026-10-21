@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
+import ai.intellistream.datahub.llm.LlmSettings.BackendKey;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantLlm;
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
-import ai.intellistream.dhconsole.chat.config.ChatSettings.BackendKey;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import lombok.extern.slf4j.Slf4j;
@@ -27,6 +26,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>A rotated key is simply a new entry; {@link #evictUnusedBackends()} sweeps what nothing names
  * any more. Every credential here belongs to a tenant — there is no deployment-wide one — so a
  * tenant that removes its configuration has its client swept along with its panel.
+ *
+ * <p>No Spring here: each app that uses it (the console, the flow service) makes it a bean in its
+ * own configuration and schedules the sweep, and declares the Anthropic SDK that
+ * {@link AnthropicLlmClient} needs at runtime.
  */
 @Slf4j
 public class LlmBackends implements LlmClients {
@@ -42,7 +45,7 @@ public class LlmBackends implements LlmClients {
     }
 
     @Override
-    public LlmClient forSettings(ChatSettings settings) {
+    public LlmClient forSettings(LlmSettings settings) {
         return clients.computeIfAbsent(settings.backendKey(), this::build).client();
     }
 
@@ -55,11 +58,11 @@ public class LlmBackends implements LlmClients {
                                     + "tenant-config/<org-name> secret.");
                 }
                 AnthropicClient sdk = AnthropicOkHttpClient.builder().apiKey(key.apiKey()).build();
-                log.info("Chat backend ready: anthropic");
+                log.info("LLM backend ready: anthropic");
                 yield new Entry(new AnthropicLlmClient(sdk, json), sdk);
             }
             case OPENAI_COMPATIBLE -> {
-                log.info("Chat backend ready: openai-compatible at {}", key.baseUrl());
+                log.info("LLM backend ready: openai-compatible at {}", key.baseUrl());
                 yield new Entry(new OpenAiCompatibleLlmClient(key.baseUrl(), key.apiKey(), json), null);
             }
         };
@@ -76,14 +79,14 @@ public class LlmBackends implements LlmClients {
             }
             it.remove();
             cached.getValue().close();
-            log.info("Released an unused chat backend ({})", cached.getKey().provider());
+            log.info("Released an unused LLM backend ({})", cached.getKey().provider());
         }
     }
 
     /**
      * Every credential some tenant currently names.
      *
-     * <p>Must key exactly as {@link ChatSettings#backendKey()} does, or a client in use keys
+     * <p>Must key exactly as {@link LlmSettings#backendKey()} does, or a client in use keys
      * differently here and gets swept out from under a live turn.
      */
     private Set<BackendKey> liveKeys() {

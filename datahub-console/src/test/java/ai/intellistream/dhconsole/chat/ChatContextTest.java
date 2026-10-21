@@ -4,7 +4,7 @@ package ai.intellistream.dhconsole.chat;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
-import ai.intellistream.dhconsole.chat.llm.LlmBackends;
+import ai.intellistream.datahub.llm.LlmBackends;
 import ai.intellistream.dhconsole.chat.mcp.McpBridge;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.junit.jupiter.api.Test;
@@ -82,7 +82,7 @@ class ChatContextTest {
             // client is resolved per turn. What the container still owes us is a cache that can
             // build one, which is what this proves.
             LlmBackends backends = context.getBean(LlmBackends.class);
-            var settings = ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic();
+            var settings = ai.intellistream.datahub.llm.LlmSettingsFixture.anthropic();
             assertThat(backends.forSettings(settings).providerId(settings)).startsWith("anthropic/");
         }
     }
@@ -94,7 +94,7 @@ class ChatContextTest {
             assertThat(context.getBean(ChatService.class)).isNotNull();
 
             LlmBackends backends = context.getBean(LlmBackends.class);
-            var settings = ai.intellistream.dhconsole.chat.config.ChatSettingsFixture
+            var settings = ai.intellistream.datahub.llm.LlmSettingsFixture
                     .openAiCompatible("http://localhost:11434/v1", null);
             assertThat(backends.forSettings(settings).providerId(settings))
                     .isEqualTo("openai-compatible/qwen3.5:latest");

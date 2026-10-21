@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
 import java.io.Serializable;
 import java.util.Map;
@@ -7,10 +7,10 @@ import java.util.Map;
 /**
  * One piece of a conversation turn, in provider-neutral form.
  *
- * <p>These types are what the transcript is made of, and the transcript lives in the HTTP session,
- * which Spring Session serialises into Valkey — hence {@link Serializable}. Keeping the stored
- * shape neutral rather than provider-specific is what lets a second {@link LlmClient} read
- * conversations that an earlier one wrote.
+ * <p>These types are what a transcript is made of. The console's lives in the HTTP session, which
+ * Spring Session serialises into Valkey — hence {@link Serializable}. Keeping the stored shape
+ * neutral rather than provider-specific is what lets a second {@link LlmClient} read conversations
+ * that an earlier one wrote.
  */
 public sealed interface LlmBlock extends Serializable {
 

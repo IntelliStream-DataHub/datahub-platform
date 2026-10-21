@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.config;
 
-import ai.intellistream.dhconsole.chat.llm.ChatEffort;
+import ai.intellistream.datahub.llm.LlmEffort;
+import ai.intellistream.datahub.llm.LlmSettings;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -44,7 +45,7 @@ public class ChatProperties {
      * The effort level the picker starts on, and the level used when a request names none. Users
      * override it per message; this only sets where they start, for a tenant that named none.
      */
-    private ChatEffort effort = ChatEffort.DEFAULT;
+    private LlmEffort effort = LlmEffort.DEFAULT;
 
     /**
      * How long one user turn may take, end to end.
@@ -87,8 +88,13 @@ public class ChatProperties {
     /** Transcript cap, trimmed oldest-exchange-first. */
     private int maxMessages = 40;
 
+    /** What a tenant gets where it said nothing, in the shape {@link LlmSettings#of} takes. */
+    public LlmSettings.Defaults defaults() {
+        return new LlmSettings.Defaults(effort, turnTimeout, maxIterations, maxOutputTokens, instructions);
+    }
+
     /** The output ceiling for one call at this effort: what was configured, else what the level wants. */
-    public int maxOutputTokensFor(ChatEffort effort) {
+    public int maxOutputTokensFor(LlmEffort effort) {
         return maxOutputTokens != null ? maxOutputTokens : effort.defaultOutputTokens();
     }
 }

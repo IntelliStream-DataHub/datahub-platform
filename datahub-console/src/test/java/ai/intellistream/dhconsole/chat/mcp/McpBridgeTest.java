@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.mcp;
 
-import ai.intellistream.dhconsole.chat.llm.LlmToolDef;
+import ai.intellistream.datahub.llm.LlmToolDef;
+import ai.intellistream.datahub.llm.mcp.McpException;
+import ai.intellistream.datahub.llm.mcp.McpToolResult;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;

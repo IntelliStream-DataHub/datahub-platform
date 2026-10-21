@@ -1,7 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
+import ai.intellistream.datahub.llm.AnthropicLlmClient;
+import ai.intellistream.datahub.llm.LlmBlock;
+import ai.intellistream.datahub.llm.LlmEffort;
+import ai.intellistream.datahub.llm.LlmMessage;
+import ai.intellistream.datahub.llm.LlmSettings;
+import ai.intellistream.datahub.llm.LlmToolDef;
+import ai.intellistream.datahub.llm.LlmTurn;
 import ai.intellistream.datahub.tenant.LlmProvider;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,10 +89,10 @@ class AnthropicLlmClientIT {
     }
 
     /** A 1024-token roof, so a run of this test costs pennies rather than pounds. */
-    private static ChatSettings settings() {
-        return new ChatSettings(LlmProvider.ANTHROPIC, null, "claude-opus-5", null, null,
+    private static LlmSettings settings() {
+        return new LlmSettings(LlmProvider.ANTHROPIC, null, "claude-opus-5", null, null,
                 java.time.Duration.ofMinutes(4), 1024,
-                ai.intellistream.dhconsole.chat.llm.ChatEffort.DEFAULT, 6, null);
+                LlmEffort.DEFAULT, 6, null);
     }
 
     /**
@@ -96,12 +102,12 @@ class AnthropicLlmClientIT {
      * {@code xhigh}/{@code max} on Opus 5. Both are invisible locally.
      *
      * <p>Only the three cheap levels run. {@code xhigh} and {@code max} carry an output-token floor
-     * of 16k and 32k (see {@link ChatEffort}), which overrides the 1024 set above, so covering them
+     * of 16k and 32k (see {@link LlmEffort}), which overrides the 1024 set above, so covering them
      * here would mean paying for up to 32k tokens per call.
      */
     @Test
     void theApiAcceptsAdaptiveThinkingAtEveryCheapEffortLevel() {
-        for (ChatEffort effort : List.of(ChatEffort.LOW, ChatEffort.MEDIUM, ChatEffort.HIGH)) {
+        for (LlmEffort effort : List.of(LlmEffort.LOW, LlmEffort.MEDIUM, LlmEffort.HIGH)) {
             LlmTurn turn = client().send(settings(),
                     "Answer in one word.",
                     List.of(),
@@ -118,7 +124,7 @@ class AnthropicLlmClientIT {
         LlmTurn turn = client().send(settings(),
                     "Answer in exactly one short sentence.",
                 List.of(),
-                List.of(LlmMessage.user("Say OK and nothing else.")), ChatEffort.HIGH);
+                List.of(LlmMessage.user("Say OK and nothing else.")), LlmEffort.HIGH);
 
         assertThat(turn.wantsTools()).isFalse();
         assertThat(turn.text()).isNotBlank();
@@ -129,7 +135,7 @@ class AnthropicLlmClientIT {
         LlmTurn turn = client().send(settings(),
                     "You are a data assistant. Use the tools to answer; never guess.",
                 List.of(ECHO_TOOL),
-                List.of(LlmMessage.user("What units are configured? Use the tool.")), ChatEffort.HIGH);
+                List.of(LlmMessage.user("What units are configured? Use the tool.")), LlmEffort.HIGH);
 
         assertThat(turn.wantsTools()).isTrue();
         assertThat(turn.toolUses()).extracting(LlmBlock.ToolUse::name).contains("unit_list");

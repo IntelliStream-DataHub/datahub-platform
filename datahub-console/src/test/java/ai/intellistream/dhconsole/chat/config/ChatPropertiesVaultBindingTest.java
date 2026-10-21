@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.config;
 
-import ai.intellistream.dhconsole.chat.llm.ChatEffort;
+import ai.intellistream.datahub.llm.LlmEffort;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.context.properties.bind.Bindable;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -36,7 +36,7 @@ class ChatPropertiesVaultBindingTest {
 
         ChatProperties properties = bind(vault);
 
-        assertThat(properties.getEffort()).isEqualTo(ChatEffort.XHIGH);
+        assertThat(properties.getEffort()).isEqualTo(LlmEffort.XHIGH);
         assertThat(properties.getMaxOutputTokens()).isEqualTo(16_000);
         assertThat(properties.getTurnTimeout()).isEqualTo(Duration.ofMinutes(10));
     }
@@ -50,7 +50,7 @@ class ChatPropertiesVaultBindingTest {
     void aSecretThatMentionsNoneOfThemLeavesTheDefaults() {
         ChatProperties properties = bind(Map.of("datahub.chat.instructions", "irrelevant here"));
 
-        assertThat(properties.getEffort()).isEqualTo(ChatEffort.DEFAULT);
+        assertThat(properties.getEffort()).isEqualTo(LlmEffort.DEFAULT);
         assertThat(properties.getMaxOutputTokens()).isNull();
         assertThat(properties.getTurnTimeout()).isEqualTo(Duration.ofMinutes(4));
     }
@@ -58,6 +58,6 @@ class ChatPropertiesVaultBindingTest {
     /** Vault spells the level however the operator typed it; the enum is not case-sensitive here. */
     @Test
     void theEffortLevelIsNotCaseSensitive() {
-        assertThat(bind(Map.of("datahub.chat.effort", "MAX")).getEffort()).isEqualTo(ChatEffort.MAX);
+        assertThat(bind(Map.of("datahub.chat.effort", "MAX")).getEffort()).isEqualTo(LlmEffort.MAX);
     }
 }

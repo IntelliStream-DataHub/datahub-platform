@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
@@ -73,15 +72,15 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
     }
 
     @Override
-    public LlmTurn send(ChatSettings settings, String systemPrompt, List<LlmToolDef> tools,
-                        List<LlmMessage> messages, ChatEffort effort) {
+    public LlmTurn send(LlmSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                        List<LlmMessage> messages, LlmEffort effort) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("model", settings.model());
         body.put("stream", false);
         body.put("max_tokens", settings.maxOutputTokensFor(effort));
         // Opt-in: a server that validates its request model strictly rejects a field it does not
         // know, so an upgrade must not start sending one to a working deployment. See
-        // ChatProperties#reasoningEffort for the three modes.
+        // TenantLlm#reasoningEffort for the three modes.
         String reasoningEffort = settings.reasoningEffort();
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             body.put("reasoning_effort", MAPPED.equalsIgnoreCase(reasoningEffort.strip())
@@ -94,7 +93,9 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             body.put("tool_choice", "auto");
         }
 
-        JsonNode message = post(body, settings.turnTimeout()).path("choices").path(0).path("message");
+        JsonNode response = post(body, settings.turnTimeout());
+        JsonNode choice = response.path("choices").path(0);
+        JsonNode message = choice.path("message");
 
         List<LlmBlock> blocks = new ArrayList<>();
         String content = message.path("content").asString("");
@@ -109,12 +110,31 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             String name = call.path("function").path("name").asString("");
             blocks.add(new LlmBlock.ToolUse(id, name, parseArguments(call)));
         }
-        return new LlmTurn(blocks, wantsTools);
+        return new LlmTurn(blocks, wantsTools, toStopReason(choice.path("finish_reason").asString("")),
+                toUsage(response.path("usage")));
     }
 
     @Override
-    public String providerId(ChatSettings settings) {
+    public String providerId(LlmSettings settings) {
         return "openai-compatible/" + settings.model();
+    }
+
+    private static LlmTurn.StopReason toStopReason(String finishReason) {
+        return switch (finishReason) {
+            case "stop" -> LlmTurn.StopReason.END_TURN;
+            case "tool_calls" -> LlmTurn.StopReason.TOOL_USE;
+            case "length" -> LlmTurn.StopReason.MAX_TOKENS;
+            default -> LlmTurn.StopReason.OTHER;
+        };
+    }
+
+    /** Zero where a server reports nothing: a count of tokens, not a statement that there were none. */
+    private static LlmTurn.Usage toUsage(JsonNode usage) {
+        return new LlmTurn.Usage(
+                usage.path("prompt_tokens").asLong(0),
+                usage.path("completion_tokens").asLong(0),
+                usage.path("prompt_tokens_details").path("cached_tokens").asLong(0),
+                0);
     }
 
     private List<Map<String, Object>> toWireMessages(String systemPrompt, List<LlmMessage> messages) {
