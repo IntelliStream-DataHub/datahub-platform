@@ -18,13 +18,13 @@
 	       something to watch come first; the fine ones are folded away. Refreshes every few seconds
 	       while anything is running or queued. */-->
 	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="runs-page">
-		<header class="flows-header">
+		<div class="flows-header">
 			<div>
 				<h2 th:text="#{flows.nav.runs}"></h2>
 				<p class="flows-intro" th:text="#{flows.runs.intro}"></p>
 			</div>
 			<button type="button" class="dh-btn secondary" data-type="runs-refresh" th:text="#{flows.runs.refresh}"></button>
-		</header>
+		</div>
 
 		<p class="flows-hint" data-type="runs-summary"></p>
 
