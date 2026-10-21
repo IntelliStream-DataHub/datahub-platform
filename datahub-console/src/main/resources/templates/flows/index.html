@@ -15,7 +15,7 @@
 
 	<!--/* Filled by flows/flows-list.js from datahub-flow: GET /flows, a page at a time. */-->
 	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="flows-list-page">
-		<header class="flows-header">
+		<div class="flows-header">
 			<div>
 				<h2 th:text="#{flows}"></h2>
 				<p class="flows-intro" th:text="#{flows.list.intro}"></p>
@@ -23,7 +23,7 @@
 			<div class="flows-header-actions">
 				<a class="dh-btn primary" data-type="flows-create" th:href="@{/flows(new='')}" th:text="#{flows.create}"></a>
 			</div>
-		</header>
+		</div>
 
 		<table class="listing slim pointer w100" data-type="flows-table">
 			<thead>

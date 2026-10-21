@@ -19,7 +19,7 @@
 	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="run-page"
 		 th:attr="data-flow-id=${flowExternalId},data-run-id=${runId}">
 
-		<header class="flows-header">
+		<div class="flows-header">
 			<div>
 				<h2>
 					<a th:href="@{/flows/{id}(id=${flowExternalId})}" th:text="${flowExternalId}"></a>
@@ -34,7 +34,7 @@
 				<button type="button" class="dh-btn secondary small" data-type="run-cancel" th:text="#{cancel}" hidden></button>
 				<button type="button" class="dh-btn secondary small" data-type="run-rerun" th:text="#{flows.rerun}" hidden></button>
 			</div>
-		</header>
+		</div>
 
 		<dl class="run-facts" data-type="run-facts"></dl>
 

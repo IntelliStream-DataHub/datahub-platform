@@ -19,7 +19,7 @@
 	<div th:if="${!featureDisabled}" class="flows-page flow-page pad20" data-type="flow-page"
 		 th:attr="data-flow-id=${flowExternalId}">
 
-		<header class="flows-header">
+		<div class="flows-header">
 			<div>
 				<h2 data-type="flow-title" th:text="${flowExternalId}"></h2>
 				<p class="flows-intro" data-type="flow-state" th:text="#{loading}"></p>
@@ -33,7 +33,7 @@
 				<button type="button" class="dh-btn secondary small" data-type="flow-toggle" hidden></button>
 				<button type="button" class="dh-btn danger small" data-type="flow-delete" th:text="#{delete}" hidden></button>
 			</div>
-		</header>
+		</div>
 
 		<!--/* Only for a flow that does not exist yet: what a save needs besides the tree. */-->
 		<form class="datahub-form-fields flow-new" data-type="flow-new" hidden>

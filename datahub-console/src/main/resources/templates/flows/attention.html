@@ -19,7 +19,7 @@
 	       datahub-flow, and its success closes the lifecycle; dismissing writes the dismissed event
 	       to datahub-api as the person dismissing. */-->
 	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="attention-page">
-		<header class="flows-header">
+		<div class="flows-header">
 			<div>
 				<h2 th:text="#{flows.nav.attention}"></h2>
 				<p class="flows-intro" th:text="#{flows.attention.intro}"></p>
@@ -30,7 +30,7 @@
 				<button type="button" class="dh-btn primary" data-type="attention-rerun-all" hidden
 						th:text="#{flows.attention.rerun.all}"></button>
 			</div>
-		</header>
+		</div>
 
 		<p class="flows-hint" data-type="attention-progress" hidden></p>
 
