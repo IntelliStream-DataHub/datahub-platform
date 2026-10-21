@@ -187,9 +187,27 @@ final class RunSession implements ProcessSession {
         return builder;
     }
 
+    /**
+     * Records that the item's content came from outside the flow. An item this invocation made and
+     * filled for what it read is one receive, not a create, a content change and a receive: what
+     * happened is a read, and the steps before it are how a source builds an item. Its attributes
+     * set at creation go with the receive.
+     */
     @Override
     public void receive(Item item, String transitUri) {
-        pending.add(new Pending(Action.RECEIVE, live(item), null, Map.of(), transitUri));
+        RunItem received = live(item);
+        int from = pending.size();
+        while (from > 0 && pending.get(from - 1).item().id().equals(received.id())
+                && pending.get(from - 1).action() == Action.CONTENT_MODIFIED) {
+            from--;
+        }
+        Pending created = from > 0 ? pending.get(from - 1) : null;
+        if (created != null && created.item().id().equals(received.id()) && created.action() == Action.CREATE) {
+            pending.subList(from - 1, pending.size()).clear();
+            pending.add(new Pending(Action.RECEIVE, received, null, created.changed(), transitUri));
+            return;
+        }
+        pending.add(new Pending(Action.RECEIVE, received, null, Map.of(), transitUri));
     }
 
     @Override
@@ -254,7 +272,11 @@ final class RunSession implements ProcessSession {
     String commit(long durationMillis) {
         Instant now = run.clock.instant();
         List<FlowRecord> records = new ArrayList<>();
+        Map<UUID, Integer> sentAt = new HashMap<>();
         for (Pending p : pending) {
+            if (p.action() == Action.SEND) {
+                sentAt.put(p.item().id(), records.size());
+            }
             records.add(record(now, durationMillis, p.action(), p.item(), p.item().parents(),
                     p.relationship(), p.changed(), p.uri()));
         }
@@ -267,10 +289,25 @@ final class RunSession implements ProcessSession {
                 records.add(record(now, durationMillis, Action.DROP, item, List.of(), null, Map.of(), null));
                 continue;
             }
-            records.add(record(now, durationMillis, Action.ROUTE, item, List.of(), relationship,
-                    Map.of(), null));
             CompiledFlow.Outcome outcome = node.outcomes().get(relationship);
             List<String> targets = outcome.targets();
+            if (targets.isEmpty() && (outcome.terminated()
+                    || outcome.whenUnconnected() == Relationship.Unconnected.TERMINATE)) {
+                // The item ends here. One record says so: the write that ended it carries the
+                // relationship, or else a drop does, with no route before it.
+                Integer sent = sentAt.get(item.id());
+                if (sent != null) {
+                    Pending p = pending.get(sent);
+                    records.set(sent, record(now, durationMillis, Action.SEND, p.item(),
+                            p.item().parents(), relationship, p.changed(), p.uri()));
+                } else {
+                    records.add(record(now, durationMillis, Action.DROP, item, List.of(),
+                            relationship, Map.of(), null));
+                }
+                continue;
+            }
+            records.add(record(now, durationMillis, Action.ROUTE, item, List.of(), relationship,
+                    Map.of(), null));
             if (targets.size() == 1) {
                 placements.add(new Placement(targets.getFirst(), item));
             } else if (targets.size() > 1) {
@@ -281,10 +318,6 @@ final class RunSession implements ProcessSession {
                             relationship, Map.of(), null));
                     placements.add(new Placement(target, copy));
                 }
-            } else if (outcome.terminated()
-                    || outcome.whenUnconnected() == Relationship.Unconnected.TERMINATE) {
-                records.add(record(now, durationMillis, Action.DROP, item, List.of(), relationship,
-                        Map.of(), null));
             } else if (failure == null) {
                 String reason = item.attribute("failure.reason");
                 failure = "\"" + node.id() + "\" sent " + item + " to \"" + relationship
@@ -357,7 +390,7 @@ final class RunSession implements ProcessSession {
         ContentRef ref = item.ref();
         return new FlowRecord(time, run.runId, run.attempt, node.id(), node.type(), action, item.id(),
                 parents, relationship, ref == null ? null : ref.content.kind(),
-                ref == null ? 0 : ref.content.size(), ref == null ? 0 : ref.hash(),
+                ref == null ? 0 : ref.content.rowCount(), ref == null ? 0 : ref.hash(),
                 Collections.unmodifiableMap(new LinkedHashMap<>(changed)), uri, durationMillis);
     }
 

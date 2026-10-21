@@ -231,14 +231,14 @@ class RunStoreIT {
         store.claim("a", LEASE, 1, GRACE);
 
         store.complete(run.id(), "a", 1, "FAILED", true, new Outcome("PROCESSOR_FAILED", "boom", "{\"x\":1}",
-                "{\"clip\":\"1.0.0\"}", "{\"records\":3}"));
+                "{\"clamp\":\"1.0.0\"}", "{\"records\":3}"));
 
         StoredRun ended = store.find(run.id()).orElseThrow();
         assertThat(ended.status()).isEqualTo("FAILED");
         assertThat(ended.errorCode()).isEqualTo("PROCESSOR_FAILED");
         assertThat(ended.error()).isEqualTo("boom");
         assertThat(ended.parameters()).isEqualTo("{\"x\":1}");
-        assertThat(ended.processorVersions()).isEqualTo("{\"clip\":\"1.0.0\"}");
+        assertThat(ended.processorVersions()).isEqualTo("{\"clamp\":\"1.0.0\"}");
         assertThat(ended.stats()).isEqualTo("{\"records\":3}");
         assertThat(ended.finishedAt()).isNotNull();
         assertThat(ended.owner()).isNull();

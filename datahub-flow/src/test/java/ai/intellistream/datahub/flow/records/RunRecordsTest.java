@@ -47,6 +47,7 @@ class RunRecordsTest {
             assertThat(b.getAttempt()).isEqualTo(2);
             assertThat(b.getFlowExternalId()).isEqualTo("temp_hourly");
             assertThat(b.getFlowVersion()).isEqualTo(7);
+            assertThat(b.getDataSetId()).isEqualTo(42L);
         });
     }
 
@@ -132,7 +133,7 @@ class RunRecordsTest {
     }
 
     private RunRecords records(long cap, java.util.function.Function<FlowRecordBatch, CompletableFuture<?>> send) {
-        return new RunRecords(RUN, 2, "temp_hourly", 7, cap, clock, send);
+        return new RunRecords(RUN, 2, "temp_hourly", 7, 42L, cap, clock, send);
     }
 
     private CompletableFuture<?> ack(FlowRecordBatch batch) {

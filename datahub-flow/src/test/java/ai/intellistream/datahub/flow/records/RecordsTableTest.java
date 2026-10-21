@@ -32,6 +32,7 @@ class RecordsTableTest {
         assertThat(JSON.readTree(lines[1]).get("ordinal").asInt()).isEqualTo(1);
         assertThat(JSON.readTree(lines[1]).get("action").asString()).isEqualTo("truncated");
         assertThat(first.get("flow_external_id").asString()).isEqualTo("temp_hourly");
+        assertThat(first.get("data_set_id").asLong()).isEqualTo(42);
         assertThat(first.get("parent_item_ids").get(0).asString())
                 .isEqualTo("0192a6b0-0000-7000-8000-0000000000bb");
         assertThat(first.get("changed_attributes").get("k").asString()).isEqualTo("v");
@@ -49,6 +50,16 @@ class RecordsTableTest {
     }
 
     @Test
+    void aBatchFromABuildBeforeTheDatasetHasDatasetZero() {
+        FlowRecordBatch batch = batch();
+        batch.setDataSetId(null);
+
+        JsonNode row = JSON.readTree(new String(RecordsTable.rows(batch), StandardCharsets.UTF_8).split("\n")[0]);
+
+        assertThat(row.get("data_set_id").asLong()).isZero();
+    }
+
+    @Test
     void theDeduplicationTokenNamesTheBatch() {
         assertThat(RecordsTable.token(batch())).isEqualTo("0192a6b0-0000-7000-8000-000000000001:2:3");
     }
@@ -60,6 +71,7 @@ class RecordsTableTest {
         batch.setSequence(3);
         batch.setFlowExternalId("temp_hourly");
         batch.setFlowVersion(7);
+        batch.setDataSetId(42L);
         FlowRecordBatch.Row row = new FlowRecordBatch.Row();
         row.setTimeMillis(1_760_263_200_123L);
         row.setProcessor("out");

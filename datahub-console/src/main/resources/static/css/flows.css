@@ -201,6 +201,17 @@
 	width: auto;
 }
 
+.run-records-following {
+	display: flex;
+	align-items: center;
+	gap: var(--space-sm);
+	color: var(--text-muted);
+	font-size: 13px;
+}
+.run-records-following[hidden] {
+	display: none;
+}
+
 .run-records td {
 	max-width: 260px;
 	overflow: hidden;
@@ -264,9 +275,37 @@
 	justify-content: flex-end;
 }
 
-.lookup-form {
-	max-width: 480px;
+/* The data lineage panel beside the Insights chart. */
+.lineage-panel {
+	flex: 0 0 360px;
+	max-width: 360px;
+	box-sizing: border-box;
+	overflow-y: auto;
+	max-height: calc(100vh - var(--header-height) - var(--sub-nav-height));
+	background: var(--menu-bg);
+	border-left: 1px solid var(--border);
+}
+.lineage-panel[hidden] {
+	display: none;
+}
+.lineage-series {
 	margin-bottom: var(--space-xl);
+}
+.lineage-series > h4:first-child {
+	display: flex;
+	align-items: center;
+	gap: var(--space-xs);
+	flex-wrap: wrap;
+}
+.lineage-panel .ts-color-swatch {
+	position: static;
+	transform: none;
+	display: inline-block;
+}
+.lineage-links {
+	display: flex;
+	gap: var(--space-sm);
+	flex-wrap: wrap;
 }
 
 .flow-advanced {

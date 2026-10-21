@@ -98,10 +98,6 @@
 				return (this.entry && this.entry.properties && this.entry.properties.properties) || {};
 			}
 
-			relationships(){
-				return relationshipsOf(this.spec);
-			}
-
 			getFormFields(){
 				var spec = this.spec;
 				var props = this.schemaProperties();
@@ -150,7 +146,9 @@
 					advanced += dynamic;
 					open = open || lines !== "";
 				}
-				var rels = this.relationships();
+				// An outcome that must be connected cannot be ended, so it gets no box to end it.
+				var rels = ((this.entry && this.entry.relationships) || [])
+					.filter(r => r.whenUnconnected !== "must-connect").map(r => r.name);
 				if(rels.length){
 					advanced += `<label>${L("flows.field.terminate")}</label><div class="flow-checks">`;
 					rels.forEach(r => {
@@ -501,7 +499,7 @@
 				.map(s => s.replace(/~1/g, "/").replace(/~0/g, "~"));
 		}
 
-		/** Where a problem is, in words: Clip › Max, Flow settings › Window, Name. */
+		/** Where a problem is, in words: Clamp › Max, Flow settings › Window, Name. */
 		function problemPlace(field){
 			var path = problemPath(field);
 			var spec;

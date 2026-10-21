@@ -2,7 +2,7 @@
 package ai.intellistream.datahub.flow.flows;
 
 import ai.intellistream.datahub.flow.api.Processor;
-import ai.intellistream.datahub.flow.processors.Clip;
+import ai.intellistream.datahub.flow.processors.Clamp;
 import ai.intellistream.datahub.flow.processors.EventsSink;
 import ai.intellistream.datahub.flow.processors.EventsSource;
 import ai.intellistream.datahub.flow.processors.Threshold;
@@ -24,7 +24,7 @@ public final class TestFlows {
               "processors": [
                 { "id": "src",  "type": "read-timeseries",
                   "properties": { "timeseries": "ts_out_temp" } },
-                { "id": "f",    "type": "clip",
+                { "id": "f",    "type": "clamp",
                   "properties": { "min": -60, "max": 60 } },
                 { "id": "out",  "type": "write-timeseries",
                   "properties": { "target": "${timeseries.externalId}_f", "create": true,
@@ -50,7 +50,7 @@ public final class TestFlows {
 
     public static List<Processor> builtIns() {
         return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new EventsSink(),
-                new Clip(), new Threshold());
+                new Clamp(), new Threshold());
     }
 
     private TestFlows() {

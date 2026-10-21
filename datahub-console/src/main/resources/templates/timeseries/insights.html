@@ -3,6 +3,7 @@
 <head>
 	<title th:text="#{insights}"></title>
 	<th:block th:replace="~{layout/main :: htmlmeta}" />
+	<link th:if="${@flowAccess.available()}" rel="stylesheet" th:href="@{/static/css/flows.css}" />
 </head>
 
 <body th:replace="~{layout/main :: htmlbody(~{::main}, 'timeseries')}">
@@ -11,6 +12,14 @@
 	<div class="flex-container left-right topic-content">
 		<section th:replace="~{timeseries/tssearch :: timeseries-search}"></section>
 		<section class="" style="flex:1;padding: 0 20px" data-type="zoom-chart" id="datapoints-chart"></section>
+		<!--/* Which flow run wrote a value: GET {flow}/records/lookup per charted series at the clicked
+		       instant, filled by flows/data-lineage.js. Opened by the lineage button in the sub-nav. */-->
+		<aside th:if="${@flowAccess.available()}" class="lineage-panel pad20" data-type="lineage-panel" hidden>
+			<h3 th:text="#{insights.lineage.title}"></h3>
+			<p class="flows-intro" th:text="#{insights.lineage.intro}"></p>
+			<div data-type="lineage-result"></div>
+			<p class="flows-hint" th:text="#{insights.lineage.caveat}"></p>
+		</aside>
 	</div>
 
 	<script th:replace="~{timeseries/i18n :: i18nMessages}"></script>
@@ -293,7 +302,10 @@
 			// Handle line chart
 			function showLineChart(externalId, data, ts){
 				if(window.InsightsChart === undefined){
-					window.InsightsChart = new InsightsChart({container: document.getElementById("datapoints-chart")});
+					window.InsightsChart = new InsightsChart({
+						container: document.getElementById("datapoints-chart"),
+						onPick: picks => { if(window.DataLineage) window.DataLineage.show(picks); }
+					});
 					window.InsightsChart.height = 800 - window.InsightsChart.margin.top - window.InsightsChart.margin.bottom;
 					window.InsightsChart.refreshSVG();
 				}

@@ -60,8 +60,9 @@ public class Threshold implements Processor {
             .property(PropertyDescriptor.builder("minDuration", PropertyType.DURATION)
                     .displayName("Min duration").description("Ignore periods shorter than this.")
                     .defaultValue("PT0S").build())
-            .relationship(Relationship.of("alarms", "The periods found, as an events item; "
-                    + "emitted only when there is at least one row."))
+            .relationship(new Relationship("alarms", "The periods found, as an events item; "
+                    + "emitted only when there is at least one row. Must be connected, usually "
+                    + "to Write events.", Relationship.Unconnected.MUST_CONNECT))
             .relationship(Relationship.of("success", "The input series, unchanged."))
             .accepts(ContentKind.TIMESERIES)
             .build();

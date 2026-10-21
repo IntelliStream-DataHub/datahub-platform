@@ -90,6 +90,25 @@ class FlowValidatorTest {
     }
 
     @Test
+    void aThresholdsAlarmsMustBeConnectedAndCannotBeTerminated() {
+        List<ValidationProblem> unconnected = problems(tree -> ((ArrayNode) tree.get("connections"))
+                .removeIf(c -> "alarms".equals(c.get("relationship").asString())));
+        assertThat(unconnected).singleElement().satisfies(p -> {
+            assertThat(p.pointer()).isEqualTo("#/processors/3");
+            assertThat(p.message()).contains("\"alarms\" outcome goes nowhere");
+        });
+
+        List<ValidationProblem> terminated = problems(tree -> {
+            ((ArrayNode) tree.get("connections")).removeIf(c -> "alarms".equals(c.get("relationship").asString()));
+            ((ArrayNode) processor(tree, 3).get("terminate")).add("alarms");
+        });
+        assertThat(terminated).singleElement().satisfies(p -> {
+            assertThat(p.pointer()).isEqualTo("#/processors/3/terminate/1");
+            assertThat(p.message()).contains("\"alarms\" cannot be ended there");
+        });
+    }
+
+    @Test
     void aSinksOutcomesNeedNeitherConnectionNorTerminate() {
         // out's success terminates by default and its failure fails the run; neither is wired.
         assertThat(problems(tree -> { })).isEmpty();

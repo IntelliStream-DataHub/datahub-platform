@@ -192,7 +192,7 @@ public class RunExecution {
                 run::shouldStop, dataSetId, datahub);
         RunRecords sink = records.open(run.tenantId, claimed.id(), claimed.attempt(),
                 flowExternalId == null ? "" : flowExternalId,
-                claimed.version() == null ? 0 : claimed.version());
+                claimed.version() == null ? 0 : claimed.version(), dataSetId);
         RunResult result = executor.execute(flow, request, sink);
         Duration left = run.timeLeft();
         try {

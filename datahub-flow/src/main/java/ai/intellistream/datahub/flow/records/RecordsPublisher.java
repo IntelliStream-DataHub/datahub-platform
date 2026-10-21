@@ -52,8 +52,9 @@ public class RecordsPublisher implements RunRecords.Opener {
     }
 
     @Override
-    public RunRecords open(String tenantId, UUID runId, int attempt, String flowExternalId, int flowVersion) {
-        return new RunRecords(runId, attempt, flowExternalId, flowVersion, cap, Clock.systemUTC(),
+    public RunRecords open(String tenantId, UUID runId, int attempt, String flowExternalId, int flowVersion,
+                           Long dataSetId) {
+        return new RunRecords(runId, attempt, flowExternalId, flowVersion, dataSetId, cap, Clock.systemUTC(),
                 batch -> producer(tenantId).thenCompose(p -> p.newMessage()
                         .key(batch.getRunId())
                         .orderingKey(batch.getRunId().getBytes(StandardCharsets.UTF_8))

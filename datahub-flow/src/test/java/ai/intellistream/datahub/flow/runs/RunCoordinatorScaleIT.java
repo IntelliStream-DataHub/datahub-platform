@@ -688,9 +688,9 @@ class RunCoordinatorScaleIT {
         String api = "http://127.0.0.1:" + datahub.getAddress().getPort();
         RunExecution execution = new RunExecution(compiler, new RunExecutor(Clock.systemUTC(), d -> { }), flows,
                 credentials, tenant -> Map.of(), api, REQUEST_TIMEOUT, JSON,
-                (tenant, run, attempt, flow, version) -> {
+                (tenant, run, attempt, flow, version, dataSet) -> {
                     recordsOpenedFor.put(run, tenant);
-                    return new RunRecords(run, attempt, flow, version, 100_000, Clock.systemUTC(),
+                    return new RunRecords(run, attempt, flow, version, dataSet, 100_000, Clock.systemUTC(),
                             batch -> CompletableFuture.completedFuture(null));
                 }, Duration.ofSeconds(5), 64L << 20);
         RunEvents events = new RunEvents(runs, credentials, api, REQUEST_TIMEOUT, 20);

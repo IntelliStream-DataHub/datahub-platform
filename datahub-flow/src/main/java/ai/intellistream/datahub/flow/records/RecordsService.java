@@ -19,7 +19,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
-import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -27,11 +26,8 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -46,7 +42,6 @@ public class RecordsService {
     static final int DEFAULT_LIMIT = 1000;
     static final int MAX_LIMIT = 10_000;
     /** How many recorded writes of a value the lookup returns: the latest and its history. */
-    static final int LOOKUP_LIMIT = 50;
 
     private final RunService runs;
     private final FlowService flows;
@@ -110,24 +105,14 @@ public class RecordsService {
     }
 
     /**
-     * One recorded write of a series, with what the run that made it ran with.
-     *
-     * @param parameters        every parameter as the run resolved it
-     * @param processorVersions every processor type in its flow with the version that ran
+     * Which run last recorded writing {@code timeseries} at {@code at}: the latest write whose window
+     * covers the instant, of a flow the caller may read, as the run and its flow, to link to. It
+     * answers what was written, not what ClickHouse holds now: datapoints land through Pulsar and
+     * several consumers, so two writes close together can land in either order. No such write is an
+     * answer too, with neither.
      */
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public record RecordedWrite(UUID run, int attempt, String flow, int flowVersion, String processor,
-                                Instant time, Instant windowStart, Instant windowEnd, String runStatus,
-                                JsonNode parameters, JsonNode processorVersions) {
-    }
-
-    /**
-     * Which run produced a value: the latest recorded write of {@code timeseries} whose window
-     * covers {@code at}, and the earlier ones as history. It sees only writes made by flows the
-     * caller may read, and answers what was written, not what ClickHouse holds now: datapoints land
-     * through Pulsar and several consumers, so two writes close together can land in either order.
-     */
-    public record Lookup(RecordedWrite latest, List<RecordedWrite> history) {
+    public record Lookup(UUID run, String flow) {
     }
 
     public Lookup lookup(String timeseries, Instant at) {
@@ -135,26 +120,10 @@ public class RecordsService {
         if (timeseries == null || timeseries.isBlank() || at == null) {
             throw FlowProblems.badRequest("timeseries and at are required.");
         }
-        List<RecordedWrite> visible = new ArrayList<>();
-        List<Write> writes = RecordsTable.writes(clickhouse.get(), timeseries, at, LOOKUP_LIMIT);
-        Map<UUID, StoredRun> found = runs.lookup(writes.stream().map(Write::runId).toList());
-        for (Write w : writes) {
-            // A run deleted by retention, or of a flow the caller may not see, is left out.
-            Optional<StoredRun> run = Optional.ofNullable(found.get(w.runId()))
-                    .filter(r -> r.dataSetId() != null && caller.canRead(r.dataSetId()));
-            run.ifPresent(r -> visible.add(new RecordedWrite(w.runId(), w.attempt(), w.flowExternalId(),
-                    w.flowVersion(), w.processor(), w.time(), w.windowStart(), w.windowEnd(), r.status(),
-                    tree(r.parameters()), tree(r.processorVersions()))));
-        }
-        if (visible.isEmpty()) {
-            throw FlowProblems.notFound("No flow you can see recorded writing " + timeseries + " at "
-                    + at + ".");
-        }
-        return new Lookup(visible.getFirst(), List.copyOf(visible.subList(1, visible.size())));
-    }
-
-    private JsonNode tree(String text) {
-        return text == null ? null : json.readTree(text);
+        Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
+        return RecordsTable.latestWrite(clickhouse.get(), timeseries, at, readable.all() ? null : readable.ids())
+                .map(w -> new Lookup(w.runId(), w.flowExternalId()))
+                .orElse(new Lookup(null, null));
     }
 
     /** An opaque cursor for a page of records: where the last page ended. */

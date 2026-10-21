@@ -121,7 +121,7 @@ class RecordsPipelineIT {
     @Test
     void aRunsRecordsLandInTheOrderTheyHappened() throws Exception {
         UUID run = UUID.randomUUID();
-        RunRecords records = publisher.open(TENANT_A, run, 1, "temp_hourly", 3);
+        RunRecords records = publisher.open(TENANT_A, run, 1, "temp_hourly", 3, 7L);
         for (int i = 0; i < 2_500; i++) {
             records.accept(record(run, "p" + i, null));
         }
@@ -157,14 +157,14 @@ class RecordsPipelineIT {
         RecordsTable.insert(chA, batch, 30);
 
         // ...so Pulsar delivers it again, to whichever consumer has the run's key now.
-        RunRecords records = publisher.open(TENANT_A, run, 1, "temp_hourly", 3);
+        RunRecords records = publisher.open(TENANT_A, run, 1, "temp_hourly", 3, 7L);
         records.accept(record(run, "a", null));
         records.accept(record(run, "b", null));
         records.finish(Duration.ofSeconds(30));
 
         // A second run is the marker that the consumer has moved past the redelivered batch.
         UUID after = UUID.randomUUID();
-        RunRecords next = publisher.open(TENANT_A, after, 1, "temp_hourly", 3);
+        RunRecords next = publisher.open(TENANT_A, after, 1, "temp_hourly", 3, 7L);
         next.accept(record(after, "c", null));
         next.finish(Duration.ofSeconds(30));
         await().atMost(Duration.ofSeconds(60)).until(() -> count(chA, after) == 1);
@@ -175,12 +175,12 @@ class RecordsPipelineIT {
     void aTenantWhoseClickHouseRefusesWaitsWithoutHoldingUpAnother() throws Exception {
         tenantBDown = true;
         UUID runB = UUID.randomUUID();
-        RunRecords b = publisher.open(TENANT_B, runB, 1, "flow_b", 1);
+        RunRecords b = publisher.open(TENANT_B, runB, 1, "flow_b", 1, 7L);
         b.accept(record(runB, "b", null));
         b.finish(Duration.ofSeconds(30));   // Pulsar has them: the run may finish
 
         UUID runA = UUID.randomUUID();
-        RunRecords a = publisher.open(TENANT_A, runA, 1, "flow_a", 1);
+        RunRecords a = publisher.open(TENANT_A, runA, 1, "flow_a", 1, 7L);
         a.accept(record(runA, "a", null));
         a.finish(Duration.ofSeconds(30));
 
@@ -196,7 +196,7 @@ class RecordsPipelineIT {
     void anAttemptOverTheCapEndsWithAMarkerRow() throws Exception {
         UUID run = UUID.randomUUID();
         RunRecords records = new RecordsPublisher(client, registryFor(), 10)
-                .open(TENANT_A, run, 2, "capped", 1);
+                .open(TENANT_A, run, 2, "capped", 1, 7L);
         for (int i = 0; i < 15; i++) {
             records.accept(record(run, "p" + i, null));
         }
@@ -210,24 +210,26 @@ class RecordsPipelineIT {
     }
 
     @Test
-    void theLookupFindsTheLatestRecordedWriteCoveringTheTime() throws Exception {
+    void theLookupFindsTheLatestRecordedWriteCoveringTheTimeInTheCallersDatasets() throws Exception {
         UUID earlier = UUID.randomUUID();
         UUID later = UUID.randomUUID();
         String uri = "datahub://timeseries/ts%3Alookup?from=2026-10-12T10:00:00Z&to=2026-10-12T11:00:00Z";
         for (UUID run : List.of(earlier, later)) {
-            RunRecords records = publisher.open(TENANT_A, run, 1, "temp_hourly", run == later ? 4 : 3);
+            RunRecords records = publisher.open(TENANT_A, run, 1, run == later ? "flow_later" : "flow_earlier",
+                    1, run == later ? 8L : 7L);
             records.accept(record(run, "out", uri));
             records.finish(Duration.ofSeconds(30));
             await().atMost(Duration.ofSeconds(60)).until(() -> count(chA, run) == 1);
             Thread.sleep(10);
         }
+        Instant at = Instant.parse("2026-10-12T10:30:00Z");
 
-        List<RecordsTable.Write> writes = RecordsTable.writes(chA, "ts:lookup",
-                Instant.parse("2026-10-12T10:30:00Z"), 50);
-        assertThat(writes).extracting(RecordsTable.Write::runId).containsExactly(later, earlier);
-        assertThat(writes.getFirst().flowVersion()).isEqualTo(4);
-        assertThat(writes.getFirst().windowStart()).isEqualTo(Instant.parse("2026-10-12T10:00:00Z"));
-        assertThat(RecordsTable.writes(chA, "ts:lookup", Instant.parse("2026-10-12T11:00:00Z"), 50))
+        assertThat(RecordsTable.latestWrite(chA, "ts:lookup", at, null))
+                .contains(new RecordsTable.Write(later, "flow_later"));
+        assertThat(RecordsTable.latestWrite(chA, "ts:lookup", at, List.of(7L)))
+                .contains(new RecordsTable.Write(earlier, "flow_earlier"));
+        assertThat(RecordsTable.latestWrite(chA, "ts:lookup", at, List.of())).isEmpty();
+        assertThat(RecordsTable.latestWrite(chA, "ts:lookup", Instant.parse("2026-10-12T11:00:00Z"), null))
                 .isEmpty();
     }
 

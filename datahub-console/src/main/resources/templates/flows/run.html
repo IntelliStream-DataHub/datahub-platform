@@ -49,6 +49,11 @@
 				<select data-type="run-records-processor">
 					<option value="" th:text="#{flows.run.records.all}"></option>
 				</select>
+				<!--/* Shown while one item is followed: click a record to follow its item. */-->
+				<div class="run-records-following" data-type="run-records-following" hidden>
+					<span></span>
+					<button type="button" class="dh-btn secondary small" th:text="#{flows.run.records.show.all}"></button>
+				</div>
 			</div>
 			<table class="listing slim w100" data-type="run-records">
 				<thead>

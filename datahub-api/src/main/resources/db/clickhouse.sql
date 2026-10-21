@@ -159,6 +159,9 @@ CREATE OR REPLACE TABLE flow_run_event (
     ordinal              UInt32,
     flow_external_id     LowCardinality(String),
     flow_version         UInt32,
+    -- The run's dataset, which decides who may see these records; 0 on rows written before it was
+    -- recorded, which the lookup leaves out.
+    data_set_id          UInt64 DEFAULT 0,
     -- The processor's id in the definition, and its type.
     processor            LowCardinality(String),
     processor_type       LowCardinality(String),
@@ -170,6 +173,7 @@ CREATE OR REPLACE TABLE flow_run_event (
     relationship         LowCardinality(String),
     -- timeseries, events, records, json, bytes.
     content_kind         LowCardinality(String),
+    -- How much data the content holds: points of a series, or events. Not bytes.
     size                 UInt64,
     -- xxHash64 of the content's canonical form, 0 when the action did not touch content.
     hash                 UInt64,
@@ -194,13 +198,13 @@ CREATE OR REPLACE TABLE flow_run_event (
            parseDateTime64BestEffortOrZero(decodeURLComponent(extractURLParameter(transit_uri, 'to')), 3, 'UTC'),
            toDateTime64(0, 3, 'UTC')),
 
-    -- Only what the lookup returns, which is enough to find the run and its attempt; the run's
-    -- details are read from the run store or flow_run. Listed rather than SELECT *: with SELECT * the projection was
+    -- Only what the lookup reads: enough to find the write, decide who may see it, and link to its
+    -- run and flow. Listed rather than SELECT *: with SELECT * the projection was
     -- built but ClickHouse 26.8 never chose it for this lookup (FlowRunEventTableIT checks that it
     -- does).
     PROJECTION by_target (
         SELECT transit_entity, transit_external_id, transit_window_start, transit_window_end,
-               event_time, run_id, attempt, flow_external_id, flow_version, processor, action
+               event_time, run_id, flow_external_id, data_set_id, action
         ORDER BY (transit_entity, transit_external_id, transit_window_start, event_time)
     )
 )

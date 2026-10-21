@@ -31,21 +31,21 @@ class TransformsTest {
         return h.at(collector).getFirst();
     }
 
-    // --- clip -------------------------------------------------------------------------------------
+    // --- clamp ------------------------------------------------------------------------------------
 
     @Test
-    void clipLimitsValuesAndCountsWhatItChanged() {
+    void clampLimitsValuesAndCountsWhatItChanged() {
         h.series(minutes(4), new double[]{-5, 0, 50, 120});
-        h.pipe("clip", "{ \"min\": 0, \"max\": 100 }", "success");
+        h.pipe("clamp", "{ \"min\": 0, \"max\": 100 }", "success");
 
         assertThat(only("success").v()).containsExactly(0, 0, 50, 100);
-        assertThat(only("success").attribute("clip.count")).isEqualTo("2");
+        assertThat(only("success").attribute("clamp.count")).isEqualTo("2");
     }
 
     @Test
-    void clipWithOnlyAMaxLeavesLowValues() {
+    void clampWithOnlyAMaxLeavesLowValues() {
         h.series(minutes(2), new double[]{-1000, 1000});
-        h.pipe("clip", "{ \"max\": 10 }", "success");
+        h.pipe("clamp", "{ \"max\": 10 }", "success");
 
         assertThat(only("success").v()).containsExactly(-1000, 10);
     }

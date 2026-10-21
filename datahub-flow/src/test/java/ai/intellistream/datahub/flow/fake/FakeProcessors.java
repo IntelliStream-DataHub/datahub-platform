@@ -144,7 +144,8 @@ public final class FakeProcessors {
                     .property(PropertyDescriptor.builder("direction", PropertyType.ENUM).defaultValue("above")
                             .allowableValues(new AllowableValue("above", "Above"), new AllowableValue("below", "Below"))
                             .build())
-                    .relationship(Relationship.of("alarms", "Periods over the threshold"))
+                    .relationship(new Relationship("alarms", "Periods over the threshold",
+                            Relationship.Unconnected.MUST_CONNECT))
                     .relationship(Relationship.of("success", "The input, unchanged"))
                     .build();
         }

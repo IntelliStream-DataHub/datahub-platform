@@ -308,7 +308,7 @@ class RunCoordinatorIT {
             assertThat(batch.getFlowExternalId()).isEqualTo("recorded");
             assertThat(batch.getFlowVersion()).isEqualTo(1);
             assertThat(batch.getRecords()).extracting(FlowRecordBatch.Row::getAction)
-                    .containsExactly("create", "route", "drop");
+                    .containsExactly("create", "drop");
         });
 
         // Records Pulsar does not take are not durable: the attempt fails, and is retried.
@@ -1508,8 +1508,8 @@ class RunCoordinatorIT {
         RunExecution execution = new RunExecution(compiler,
                 new RunExecutor(java.time.Clock.systemUTC(), d -> { }), flows,
                 credentials, tenant -> Map.of(), "http://127.0.0.1:" + datahub.getAddress().getPort(),
-                REQUEST_TIMEOUT, JSON, (tenant, run, attempt, flow, version) -> new RunRecords(run,
-                        attempt, flow, version, 100_000, java.time.Clock.systemUTC(), batch -> {
+                REQUEST_TIMEOUT, JSON, (tenant, run, attempt, flow, version, dataSet) -> new RunRecords(run,
+                        attempt, flow, version, dataSet, 100_000, java.time.Clock.systemUTC(), batch -> {
                             if (failPublishing) {
                                 return java.util.concurrent.CompletableFuture.failedFuture(
                                         new IllegalStateException("Pulsar is down"));
