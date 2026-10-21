@@ -74,14 +74,13 @@ class FlowsTemplateTest {
                                 "flow-new", "flow-new-id", "flow-add-panel", "flow-add-search", "flow-add-list",
                                 "flow-problems"}),
                 Arguments.of("flows/run", "[data-type='run-page']",
-                        new String[]{"run-status", "run-facts", "run-records", "run-cancel", "run-rerun"}),
+                        new String[]{"run-status", "run-facts", "run-records", "run-records-following", "run-cancel",
+                                "run-rerun"}),
                 Arguments.of("flows/runs", "[data-type='runs-page']",
                         new String[]{"runs-summary", "runs-refresh", "runs-attention", "runs-attention-empty",
                                 "runs-fine", "runs-fine-table"}),
                 Arguments.of("flows/attention", "[data-type='attention-page']",
                         new String[]{"attention-table", "attention-more"}),
-                Arguments.of("flows/lookup", "[data-type='lookup-page']",
-                        new String[]{"lookup-form", "lookup-latest", "lookup-history"}),
                 Arguments.of("flows/nav", ".sub-nav", new String[]{}));
     }
 

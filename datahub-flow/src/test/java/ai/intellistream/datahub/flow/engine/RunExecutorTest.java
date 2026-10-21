@@ -120,13 +120,16 @@ class RunExecutorTest {
     void recordsWhatEveryProcessorDidThroughItsSession() {
         run(compile(ExampleFlow.DEFINITION));
 
-        List<FlowRecord> created = records("src", Action.CREATE);
-        assertThat(created).hasSize(2).allSatisfy(r -> {
+        // A source's new item, filled with what it read, is one receive: no create or content change.
+        assertThat(records("src", Action.CREATE)).isEmpty();
+        assertThat(records("src", Action.CONTENT_MODIFIED)).isEmpty();
+        assertThat(records("src", Action.RECEIVE)).hasSize(2).allSatisfy(r -> {
+            assertThat(r.transitUri()).startsWith("datahub://timeseries/ts_");
             assertThat(r.changedAttributes()).containsKey("timeseries.externalId");
+            assertThat(r.contentKind()).isEqualTo(ContentKind.TIMESERIES);
+            assertThat(r.size()).isEqualTo(3);
             assertThat(r.runId()).isNotNull();
         });
-        assertThat(records("src", Action.RECEIVE)).extracting(FlowRecord::transitUri)
-                .allSatisfy(uri -> assertThat(uri).startsWith("datahub://timeseries/ts_"));
         assertThat(records("f", Action.CONTENT_MODIFIED)).hasSize(2)
                 .allSatisfy(r -> assertThat(r.contentKind()).isEqualTo(ContentKind.TIMESERIES));
         assertThat(records("out", Action.SEND)).extracting(FlowRecord::transitUri)
@@ -135,7 +138,11 @@ class RunExecutorTest {
         // over's success is terminated in the definition; out's success terminates by default.
         assertThat(records("over", Action.DROP)).hasSize(2)
                 .allSatisfy(r -> assertThat(r.relationship()).isEqualTo("success"));
-        assertThat(records("out", Action.DROP)).hasSize(2);
+        // The sink's write ended each item: one record, carrying the relationship, no route or drop.
+        assertThat(records("out", Action.SEND)).extracting(FlowRecord::relationship).containsOnly("success");
+        assertThat(records("out", Action.DROP)).isEmpty();
+        assertThat(records("out", Action.ROUTE)).isEmpty();
+        assertThat(records("over", Action.ROUTE)).extracting(FlowRecord::relationship).doesNotContain("success");
         assertThat(records("over", Action.FORK)).hasSize(2).allSatisfy(r ->
                 assertThat(r.parentItemIds()).hasSize(1));
         assertThat(records("over", Action.CONTENT_MODIFIED)).allSatisfy(r ->

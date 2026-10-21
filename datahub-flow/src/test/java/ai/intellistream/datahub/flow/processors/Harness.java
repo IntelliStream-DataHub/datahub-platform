@@ -46,7 +46,7 @@ final class Harness implements AutoCloseable {
 
     static List<Processor> builtIns() {
         return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new EventsSink(),
-                new Clip(), new Threshold());
+                new Clamp(), new Threshold());
     }
 
     final RunExecutor executor = new RunExecutor(

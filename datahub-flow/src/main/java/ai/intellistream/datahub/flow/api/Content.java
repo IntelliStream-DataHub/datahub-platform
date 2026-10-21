@@ -15,4 +15,7 @@ public sealed interface Content permits TimeseriesContent, EventsContent {
 
     /** Bytes held, as counted against the run's memory cap. */
     long size();
+
+    /** How much data it holds: points of a series, or events. What its records say it carries. */
+    int rowCount();
 }

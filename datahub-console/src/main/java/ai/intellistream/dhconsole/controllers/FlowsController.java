@@ -53,11 +53,6 @@ public class FlowsController {
         return page(model, "flows/attention");
     }
 
-    @GetMapping(params = "tab=lookup")
-    public String lookup(Model model) {
-        return page(model, "flows/lookup");
-    }
-
     /** One flow: its processing tree, deployment and runs. An unknown id opens a new flow. */
     @GetMapping("/{externalId}")
     public String flow(@PathVariable String externalId, Model model) {

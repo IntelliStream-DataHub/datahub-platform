@@ -36,7 +36,6 @@ import tools.jackson.databind.json.JsonMapper;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -401,18 +400,6 @@ public class RunService {
     public Optional<StoredRun> lookup(UUID runId) {
         Optional<StoredRun> live = store.find(runId);
         return live.isPresent() ? live : history.find(TenantContext.getTenantId(), runId);
-    }
-
-    /** The runs with these ids, wherever they are; the ones that no longer exist are left out. */
-    public Map<UUID, StoredRun> lookup(Collection<UUID> runIds) {
-        Map<UUID, StoredRun> found = new HashMap<>();
-        store.find(runIds).forEach(r -> found.put(r.id(), r));
-        for (UUID id : new HashSet<>(runIds)) {
-            if (!found.containsKey(id)) {
-                history.find(TenantContext.getTenantId(), id).ifPresent(r -> found.put(id, r));
-            }
-        }
-        return found;
     }
 
     /** A queued run waiting longer than this, with nothing to wait for, means the flow is behind. */

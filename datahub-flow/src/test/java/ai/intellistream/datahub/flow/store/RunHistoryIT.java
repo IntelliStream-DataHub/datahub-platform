@@ -119,7 +119,7 @@ class RunHistoryIT {
         store.enqueue(run);
         Claimed claimed = store.claim("a", Duration.ofSeconds(30), 1, Duration.ofMinutes(1)).getFirst();
         store.complete(run.id(), "a", claimed.attempt(), "FAILED", true, new Outcome("PROCESSOR_FAILED",
-                "boom", "{\"limit\":35}", "{\"clip\":\"1.0.0\"}", "{\"records\":7}"));
+                "boom", "{\"limit\":35}", "{\"clamp\":\"1.0.0\"}", "{\"records\":7}"));
         StoredRun ended = store.find(run.id()).orElseThrow();
 
         assertThat(archiver.archive(TENANT)).isEqualTo(1);
@@ -137,7 +137,7 @@ class RunHistoryIT {
         assertThat(archived.errorCode()).isEqualTo("PROCESSOR_FAILED");
         assertThat(archived.error()).isEqualTo("boom");
         assertThat(archived.parameters()).isEqualTo("{\"limit\":35}");
-        assertThat(archived.processorVersions()).isEqualTo("{\"clip\":\"1.0.0\"}");
+        assertThat(archived.processorVersions()).isEqualTo("{\"clamp\":\"1.0.0\"}");
         assertThat(archived.stats()).isEqualTo("{\"records\":7}");
         assertThat(archived.window()).isEqualTo(ended.window());
         assertThat(archived.createdAt()).isEqualTo(ended.createdAt());

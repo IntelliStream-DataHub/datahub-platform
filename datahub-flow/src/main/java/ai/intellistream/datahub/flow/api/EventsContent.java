@@ -41,6 +41,11 @@ public final class EventsContent implements Content {
     }
 
     @Override
+    public int rowCount() {
+        return rows.size();
+    }
+
+    @Override
     public long size() {
         return size;
     }

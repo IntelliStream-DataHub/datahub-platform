@@ -505,7 +505,10 @@ public final class FlowValidator {
             return false;
         }
 
-        /** Every relationship connected, terminated, or allowed to be neither. */
+        /**
+         * Every relationship connected, terminated, or allowed to be neither; one that must be
+         * connected is never terminated.
+         */
         private void outcomes(Map<String, Set<String>> connected) {
             for (int i = 0; i < d.processors().size(); i++) {
                 ProcessorSpec spec = d.processors().get(i);
@@ -521,9 +524,18 @@ public final class FlowValidator {
                         problem(at, "\"" + spec.id() + "\" has no relationship \"" + name + "\".");
                     } else if (wired.contains(name)) {
                         problem(at, "\"" + name + "\" is both connected and terminated.");
+                    } else if (relationships.get(name).whenUnconnected()
+                            == Relationship.Unconnected.MUST_CONNECT) {
+                        problem(at, "\"" + name + "\" cannot be ended there: it is what \""
+                                + spec.id() + "\" produces. Connect it to another processor.");
                     }
                 }
                 for (Relationship r : relationships.values()) {
+                    if (r.whenUnconnected() == Relationship.Unconnected.MUST_CONNECT
+                            && !wired.contains(r.name()) && !spec.terminate().contains(r.name())) {
+                        problem("#/processors/" + i, "Its \"" + r.name() + "\" outcome goes nowhere: "
+                                + "connect it to another processor.");
+                    }
                     if (r.whenUnconnected() == Relationship.Unconnected.REQUIRED
                             && !wired.contains(r.name()) && !spec.terminate().contains(r.name())) {
                         problem("#/processors/" + i, "Its \"" + r.name() + "\" outcome goes nowhere: "

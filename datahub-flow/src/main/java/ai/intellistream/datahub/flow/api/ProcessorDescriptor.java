@@ -13,8 +13,8 @@ import java.util.Set;
  * against: a rename keeps the old name as an alias, and a removal is announced at least one release
  * in advance.
  *
- * @param name              stable name a flow definition refers to, e.g. {@code clip}
- * @param displayName       what the console calls it, e.g. "Clip"
+ * @param name              stable name a flow definition refers to, e.g. {@code clamp}
+ * @param displayName       what the console calls it, e.g. "Clamp"
  * @param category          the segment the console lists it under
  * @param version           the processor's own version, recorded by every run that uses it
  * @param description       what it does, for the console and the catalog

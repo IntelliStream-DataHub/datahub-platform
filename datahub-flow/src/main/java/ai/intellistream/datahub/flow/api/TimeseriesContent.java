@@ -38,6 +38,7 @@ public final class TimeseriesContent implements Content {
         return ContentKind.TIMESERIES;
     }
 
+    @Override
     public int rowCount() {
         return rows;
     }

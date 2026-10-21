@@ -12,4 +12,3 @@
 //= require flows/flow-editor.js
 //= require flows/flows-overview.js
 //= require flows/flows-attention.js
-//= require flows/flows-lookup.js

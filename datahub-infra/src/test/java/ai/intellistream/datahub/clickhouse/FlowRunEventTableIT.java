@@ -87,26 +87,28 @@ class FlowRunEventTableIT {
         // than through the table's own (run_id, event_time) order; on a handful of rows the
         // optimizer rightly reads the table.
         execute(client, "INSERT INTO flow_run_event (event_time, run_id, attempt, sequence,"
-                + " flow_external_id, flow_version, processor, processor_type, action, item_id,"
+                + " flow_external_id, flow_version, data_set_id, processor, processor_type, action, item_id,"
                 + " parent_item_ids, relationship, content_kind, size, hash, changed_attributes,"
-                + " transit_uri, duration_ms) SELECT now64(3), generateUUIDv4(number), 1, 0, 'f', 1,"
+                + " transit_uri, duration_ms) SELECT now64(3), generateUUIDv4(number), 1, 0, 'f', 1, 7,"
                 + " 'out', 'write-timeseries', 'send', generateUUIDv4(number), [], 'success',"
                 + " 'timeseries', 1, 1, map(), concat('datahub://timeseries/s', toString(number % 5000),"
                 + " '?from=2026-10-12T09:00:00Z&to=2026-10-12T10:00:00Z'), 1 FROM numbers(200000)");
         insert("t3", List.of(row("send",
                 "datahub://timeseries/ts_out?from=2026-10-12T10:00:00Z&to=2026-10-12T11:00:00Z")));
 
-        // force_optimize_projection fails the query unless a projection serves it.
+        // force_optimize_projection fails the query unless a projection serves it. The query is the
+        // lookup's (RecordsTable.latestWrite in datahub-flow).
         List<List<String>> rows = select("SELECT toString(run_id) FROM flow_run_event"
                 + " WHERE transit_entity = 'timeseries' AND transit_external_id = 'ts_out'"
                 + " AND transit_window_start <= '2026-10-12 10:30:00' AND transit_window_end > '2026-10-12 10:30:00'"
+                + " AND action = 'send' AND data_set_id != 0 AND data_set_id IN (7)"
                 + " ORDER BY event_time DESC LIMIT 1 SETTINGS force_optimize_projection = 1");
 
         assertThat(rows).containsExactly(List.of(RUN));
     }
 
     private static String row(String action, String transitUri) {
-        return "(now64(3), '" + RUN + "', 1, 0, 'temp_hourly', 1, 'src', 'read-timeseries', '"
+        return "(now64(3), '" + RUN + "', 1, 0, 'temp_hourly', 1, 7, 'src', 'read-timeseries', '"
                 + action + "', generateUUIDv4(), [], 'success', 'timeseries', 100, 42, map(), '"
                 + transitUri + "', 3, false)";
     }
@@ -114,7 +116,7 @@ class FlowRunEventTableIT {
     /** One INSERT is one block, synchronous so the token is honoured whatever the client defaults. */
     private static void insert(String token, List<String> rows) {
         execute(client, "INSERT INTO flow_run_event (event_time, run_id, attempt, sequence,"
-                + " flow_external_id, flow_version, processor, processor_type, action, item_id,"
+                + " flow_external_id, flow_version, data_set_id, processor, processor_type, action, item_id,"
                 + " parent_item_ids, relationship, content_kind, size, hash, changed_attributes,"
                 + " transit_uri, duration_ms, truncated)"
                 + " SETTINGS insert_deduplication_token = '" + token + "', async_insert = 0"

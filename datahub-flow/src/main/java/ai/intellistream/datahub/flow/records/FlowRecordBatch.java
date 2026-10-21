@@ -19,6 +19,8 @@ import java.util.UUID;
  * publish and instances that consume can run different builds during a rolling deploy.
  * {@code FlowRecordBatchSchemaTest} pins it. Only types Avro reflects without help — strings,
  * numbers, lists and string maps — so a run id travels as text and a time as epoch milliseconds.
+ * {@code dataSetId} is boxed so that its schema says {@code "default": null}: a batch from a build
+ * before it reads as one without a dataset, and the topic's registered schema accepts the change.
  *
  * <p>{@code sequence} numbers the batches of one attempt from 0. With the run id and the attempt it
  * names the batch, which is what the consumer's insert deduplicates on: a batch inserted but not yet
@@ -33,6 +35,7 @@ public class FlowRecordBatch {
     private int sequence;
     private String flowExternalId;
     private int flowVersion;
+    private Long dataSetId;
     private List<Row> records = new ArrayList<>();
 
     /** One record: one thing a processor did to an item. See {@link FlowRecord}. */

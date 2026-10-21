@@ -42,7 +42,8 @@ public final class RunRecords implements RecordSink {
     /** Opens the records of one run attempt; the service's is {@link RecordsPublisher}. */
     @FunctionalInterface
     public interface Opener {
-        RunRecords open(String tenantId, UUID runId, int attempt, String flowExternalId, int flowVersion);
+        RunRecords open(String tenantId, UUID runId, int attempt, String flowExternalId, int flowVersion,
+                        Long dataSetId);
     }
 
     /** The records could not be made durable; the run that produced them fails. */
@@ -56,6 +57,7 @@ public final class RunRecords implements RecordSink {
     private final int attempt;
     private final String flowExternalId;
     private final int flowVersion;
+    private final Long dataSetId;
     private final long cap;
     private final Clock clock;
     private final Function<FlowRecordBatch, CompletableFuture<?>> send;
@@ -70,12 +72,13 @@ public final class RunRecords implements RecordSink {
     /**
      * @param send publishes one batch; the future completes when Pulsar has acknowledged it
      */
-    public RunRecords(UUID runId, int attempt, String flowExternalId, int flowVersion, long cap,
-                      Clock clock, Function<FlowRecordBatch, CompletableFuture<?>> send) {
+    public RunRecords(UUID runId, int attempt, String flowExternalId, int flowVersion, Long dataSetId,
+                      long cap, Clock clock, Function<FlowRecordBatch, CompletableFuture<?>> send) {
         this.runId = runId;
         this.attempt = attempt;
         this.flowExternalId = flowExternalId;
         this.flowVersion = flowVersion;
+        this.dataSetId = dataSetId;
         this.cap = cap;
         this.clock = clock;
         this.send = send;
@@ -136,6 +139,7 @@ public final class RunRecords implements RecordSink {
         batch.setSequence(sequence++);
         batch.setFlowExternalId(flowExternalId);
         batch.setFlowVersion(flowVersion);
+        batch.setDataSetId(dataSetId);
         batch.setRecords(new ArrayList<>(pending));
         pending.clear();
         CompletableFuture<?> ack;

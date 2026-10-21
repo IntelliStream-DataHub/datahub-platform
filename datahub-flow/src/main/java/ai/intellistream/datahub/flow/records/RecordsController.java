@@ -48,9 +48,8 @@ public class RecordsController {
     }
 
     /**
-     * Which run last recorded writing {@code timeseries} at {@code at}, with the flow version,
-     * parameters and processor versions it ran with, and the earlier writes as history. 404 when no
-     * flow the caller can see recorded writing it.
+     * Which run last recorded writing {@code timeseries} at {@code at}, and its flow. When no flow
+     * the caller can see recorded writing it, the answer has neither.
      */
     @GetMapping("/records/lookup")
     public Lookup lookup(@RequestParam String timeseries, @RequestParam Instant at) {

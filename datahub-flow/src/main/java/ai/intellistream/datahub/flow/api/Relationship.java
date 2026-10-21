@@ -32,6 +32,12 @@ public record Relationship(String name, String description, Unconnected whenUnco
     public enum Unconnected {
         /** Not allowed: the validator rejects a flow that leaves it unconnected. */
         REQUIRED,
+        /**
+         * Not allowed, and nor is terminating it: what goes there is the processor's result, so a
+         * flow that throws it away might as well not use the processor. A threshold's
+         * {@code alarms}.
+         */
+        MUST_CONNECT,
         /** Items end there, as if terminated: a sink's {@code success}, an optional side output. */
         TERMINATE,
         /**

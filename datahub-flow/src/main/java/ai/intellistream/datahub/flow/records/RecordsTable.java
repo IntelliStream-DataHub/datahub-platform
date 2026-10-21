@@ -16,11 +16,14 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Every statement against a tenant's {@code flow_run_event} table: the insert the records consumer
@@ -41,7 +44,7 @@ import java.util.concurrent.TimeUnit;
 public final class RecordsTable {
 
     private static final List<String> COLUMNS = List.of("event_time", "run_id", "attempt", "sequence",
-            "ordinal", "flow_external_id", "flow_version", "processor", "processor_type", "action",
+            "ordinal", "flow_external_id", "flow_version", "data_set_id", "processor", "processor_type", "action",
             "item_id", "parent_item_ids", "relationship", "content_kind", "size", "hash",
             "changed_attributes", "transit_uri", "duration_ms", "truncated");
 
@@ -86,6 +89,7 @@ public final class RecordsTable {
             row.put("ordinal", ordinal++);
             row.put("flow_external_id", text(batch.getFlowExternalId()));
             row.put("flow_version", batch.getFlowVersion());
+            row.put("data_set_id", batch.getDataSetId() == null ? 0 : batch.getDataSetId());
             row.put("processor", text(r.getProcessor()));
             row.put("processor_type", text(r.getProcessorType()));
             row.put("action", text(r.getAction()));
@@ -155,31 +159,30 @@ public final class RecordsTable {
         return out;
     }
 
-    /** A recorded write of a series: which run, attempt and processor claimed to write it, when. */
-    public record Write(UUID runId, int attempt, String flowExternalId, int flowVersion, String processor,
-                        Instant time, Instant windowStart, Instant windowEnd) {
+    /** A recorded write of a series: the run that claimed to write it, and its flow. */
+    public record Write(UUID runId, String flowExternalId) {
     }
 
     /**
-     * The recorded writes ({@code send}) of {@code externalId} whose window covers {@code at},
-     * latest first. Answered from the table's lookup projection.
+     * The latest recorded write ({@code send}) of {@code externalId} whose window covers {@code at},
+     * by a run of {@code dataSets} (any dataset when null). Rows written before the dataset was
+     * recorded have none, and are left out. Answered from the table's lookup projection.
      */
-    static List<Write> writes(Client client, String externalId, Instant at, int limit) {
+    static Optional<Write> latestWrite(Client client, String externalId, Instant at, Collection<Long> dataSets) {
+        if (dataSets != null && dataSets.isEmpty()) {
+            return Optional.empty();
+        }
         Map<String, Object> params = Map.of("x", externalId, "at", TIME.format(at));
-        String sql = "SELECT run_id, attempt, flow_external_id, flow_version, processor, event_time,"
-                + " transit_window_start, transit_window_end FROM flow_run_event"
+        String sql = "SELECT run_id, flow_external_id FROM flow_run_event"
                 + " WHERE transit_entity = 'timeseries' AND transit_external_id = {x:String}"
                 + " AND transit_window_start <= {at:DateTime64(3, 'UTC')}"
                 + " AND transit_window_end > {at:DateTime64(3, 'UTC')} AND action = 'send'"
-                + " ORDER BY event_time DESC LIMIT " + limit;
-        List<Write> out = new ArrayList<>();
-        for (GenericRecord r : client.queryAll(sql, params)) {
-            out.add(new Write(r.getUUID("run_id"), r.getInteger("attempt"),
-                    r.getString("flow_external_id"), (int) r.getLong("flow_version"),
-                    r.getString("processor"), r.getInstant("event_time"),
-                    r.getInstant("transit_window_start"), r.getInstant("transit_window_end")));
-        }
-        return out;
+                + " AND data_set_id != 0"
+                + (dataSets == null ? "" : " AND data_set_id IN (" + dataSets.stream().map(String::valueOf)
+                        .collect(Collectors.joining(",")) + ")")
+                + " ORDER BY event_time DESC LIMIT 1";
+        return client.queryAll(sql, params).stream().findFirst()
+                .map(r -> new Write(r.getUUID("run_id"), r.getString("flow_external_id")));
     }
 
     private static List<UUID> uuids(List<?> values) {

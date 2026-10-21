@@ -18,15 +18,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * {@code clip}: limits values to a range — a value below {@code min} becomes
- * {@code min}, one above {@code max} becomes {@code max}. Every point is kept. Sets {@code clip.count}, the number of points it changed.
+ * {@code clamp}: limits values to a range — a value below {@code min} becomes {@code min}, one above
+ * {@code max} becomes {@code max}. Every point is kept. Sets {@code clamp.count}, the number of
+ * points it changed.
  */
 @Component
-public class Clip implements Processor {
+public class Clamp implements Processor {
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
-            .builder("clip", "1.0.0")
-            .displayName("Clip")
+            .builder("clamp", "1.0.0")
+            .displayName("Clamp")
             .category(ProcessorDescriptor.Category.TRANSFORM)
             .description("Limits values to a range; every point is kept.")
             .property(PropertyDescriptor.builder("min", PropertyType.NUMBER)
@@ -34,7 +35,7 @@ public class Clip implements Processor {
                     .references().build())
             .property(PropertyDescriptor.builder("max", PropertyType.NUMBER)
                     .displayName("Max").references().build())
-            .relationship(Relationship.of("success", "The clipped series; clip.count is set."))
+            .relationship(Relationship.of("success", "The clamped series; clamp.count is set."))
             .accepts(ContentKind.TIMESERIES)
             .build();
 
@@ -57,14 +58,14 @@ public class Clip implements Processor {
         int changed = 0;
         for (int i = 0; i < in.rowCount(); i++) {
             double v = in.value(i);
-            double clipped = Math.min(Math.max(v, bounds.min()), bounds.max());
-            if (clipped != v) {
+            double clamped = Math.min(Math.max(v, bounds.min()), bounds.max());
+            if (clamped != v) {
                 changed++;
             }
-            out.add(in.timestamp(i), clipped);
+            out.add(in.timestamp(i), clamped);
         }
         item = session.write(item, out.build());
-        item = session.putAttribute(item, "clip.count", Integer.toString(changed));
+        item = session.putAttribute(item, "clamp.count", Integer.toString(changed));
         session.transfer(item, "success");
     }
 

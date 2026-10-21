@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.records;
 
+import org.apache.avro.JsonProperties;
 import org.apache.avro.Schema;
 import org.apache.avro.reflect.ReflectData;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,10 @@ class FlowRecordBatchSchemaTest {
         Schema batch = ReflectData.AllowNull.get().getSchema(FlowRecordBatch.class);
 
         assertThat(fields(batch)).isEqualTo(Set.of("runId", "attempt", "sequence", "flowExternalId",
-                "flowVersion", "records"));
+                "flowVersion", "dataSetId", "records"));
+        // Added after the topic's first schema: without a default, a batch from an older build would
+        // not decode, and the broker would refuse the new schema.
+        assertThat(batch.getField("dataSetId").defaultVal()).isEqualTo(JsonProperties.NULL_VALUE);
         Schema row = unwrap(unwrap(batch.getField("records").schema()).getElementType());
         assertThat(fields(row)).isEqualTo(Set.of("timeMillis", "processor", "processorType", "action",
                 "itemId", "parentItemIds", "relationship", "contentKind", "size", "hash",
@@ -53,6 +57,7 @@ class FlowRecordBatchSchemaTest {
         batch.setSequence(5);
         batch.setFlowExternalId("temp_hourly");
         batch.setFlowVersion(7);
+        batch.setDataSetId(42L);
         FlowRecordBatch.Row row = new FlowRecordBatch.Row();
         row.setTimeMillis(1_760_263_200_123L);
         row.setProcessor("out");
@@ -69,6 +74,7 @@ class FlowRecordBatchSchemaTest {
 
         assertThat(decoded.getRunId()).isEqualTo(batch.getRunId());
         assertThat(decoded.getSequence()).isEqualTo(5);
+        assertThat(decoded.getDataSetId()).isEqualTo(42L);
         assertThat(decoded.getRecords()).hasSize(2);
         FlowRecordBatch.Row first = decoded.getRecords().getFirst();
         assertThat(first.getHash()).isEqualTo(-1);

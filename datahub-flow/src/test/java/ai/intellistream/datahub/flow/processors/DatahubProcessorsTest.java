@@ -404,14 +404,14 @@ class DatahubProcessorsTest {
     void thePlansExampleFlowRunsEndToEnd() {
         FakeDatahub.Series temp = api.add("ts_out_temp", DatapointValueType.FLOAT);
         for (int i = 0; i < 10; i++) {
-            temp.put(T0 + i * MINUTE, i < 3 || i > 7 ? 20 : 70);   // clipped to 60, over the 50 below
+            temp.put(T0 + i * MINUTE, i < 3 || i > 7 ? 20 : 70);   // clamped to 60, over the 50 below
         }
         api.add("ts_out_temp_f", DatapointValueType.FLOAT);
 
         RunResult result = h.flow("""
                 { "id": "src", "type": "read-timeseries",
                   "properties": { "timeseries": "ts_out_temp" } },
-                { "id": "f", "type": "clip", "properties": { "min": 0, "max": 60 } },
+                { "id": "f", "type": "clamp", "properties": { "min": 0, "max": 60 } },
                 { "id": "out", "type": "write-timeseries",
                   "properties": { "target": "${timeseries.externalId}_f" } },
                 { "id": "over", "type": "threshold",

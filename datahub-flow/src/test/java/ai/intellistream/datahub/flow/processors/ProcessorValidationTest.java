@@ -31,17 +31,17 @@ class ProcessorValidationTest {
     }
 
     @Test
-    void clipNeedsABound() {
-        assertThat(problems("clip", "{}", "[\"success\"]"))
+    void clampNeedsABound() {
+        assertThat(problems("clamp", "{}", "[\"success\"]"))
                 .contains("Set min, max or both.");
-        assertThat(problems("clip", "{ \"min\": 5, \"max\": 1 }", "[\"success\"]"))
+        assertThat(problems("clamp", "{ \"min\": 5, \"max\": 1 }", "[\"success\"]"))
                 .contains("min must not be greater than max.");
-        assertThat(problems("clip", "{ \"min\": 0 }", "[\"success\"]")).isEmpty();
+        assertThat(problems("clamp", "{ \"min\": 0 }", "[\"success\"]")).isEmpty();
     }
 
     @Test
     void aBoundThatIsAReferenceIsCheckedAtRunTime() {
-        assertThat(problems("clip", "{ \"min\": \"${parameters.low}\", \"max\": 1 }",
+        assertThat(problems("clamp", "{ \"min\": \"${parameters.low}\", \"max\": 1 }",
                 "[\"success\"]")).noneMatch(p -> p.contains("greater"));
     }
 

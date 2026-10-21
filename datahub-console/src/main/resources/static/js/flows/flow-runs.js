@@ -6,6 +6,10 @@
  * (FlowRunStream), which writes the run again whenever its status changes and its records as they
  * land. The live view starts from the run's first record every time it connects, so records are
  * kept by (attempt, sequence, ordinal) and a reconnect adds nothing twice.
+ *
+ * Items are numbered in the order they first appear in the run and named after the series or events
+ * they carry. Clicking a record shows only that item's records and those of the items it came from
+ * or turned into: following one piece of data through the flow. Fork and copy records name the parent, which is how the two are linked.
  */
 (function(){
 	"use strict";
@@ -13,6 +17,49 @@
 	var ENDED = ["SUCCEEDED", "FAILED", "CANCELLED"];
 
 	function L(key, args){ return args ? $L(key, null, args) : $L(key); }
+
+	// What a record's action is called. A drop with a relationship is an item reaching the end of
+	// the flow; one without is the processor removing it.
+	function actionText(r){
+		if(r.action === "drop") return L(r.relationship ? "flows.action.end" : "flows.action.removed");
+		var key = "flows.action." + r.action;
+		var text = L(key);
+		return text === key ? r.action : text;
+	}
+
+	// A write with a relationship ended the item there; there is no separate record of its end.
+	function outcomeText(r){
+		if(!r.relationship) return "";
+		return r.action === "send" ? L("flows.outcome.ended", [r.relationship]) : r.relationship;
+	}
+
+	// DataHub's own transit URIs, datahub://timeseries/{externalId}?from=&to= and
+	// datahub://events?type=&subType=&from=&to=, in words; anything else as it is.
+	function parseTransit(uri){
+		var m = /^datahub:\/\/(timeseries)\/([^?]*)(?:\?(.*))?$/.exec(uri) || /^datahub:\/\/(events)()(?:\?(.*))?$/.exec(uri);
+		if(!m) return null;
+		var q = new URLSearchParams(m[3] || "");
+		var what = m[1] === "timeseries" ? decodeURIComponent(m[2])
+			: (q.get("type") || "*") + (q.get("subType") ? " / " + q.get("subType") : "");
+		return { kind: m[1], what: what, from: q.get("from"), to: q.get("to") };
+	}
+
+	function transitText(uri){
+		if(!uri) return "";
+		var t = parseTransit(uri);
+		if(!t) return uri;
+		var text = L("flows.transit." + t.kind, [t.what]);
+		if(t.from && t.to) text += " · " + window.formatLocalTime(t.from, { seconds: true }) + " – " + window.formatLocalTime(t.to, { seconds: true });
+		return text;
+	}
+	// How much data a record's content holds, in the unit of its kind.
+	var CONTENT_KEYS = { timeseries: "flows.content.timeseries", events: "flows.content.events" };
+
+	function contentText(r){
+		if(!r.contentKind) return "";
+		var n = Number(r.size || 0).toLocaleString(document.documentElement.lang || undefined);
+		return CONTENT_KEYS[r.contentKind] ? L(CONTENT_KEYS[r.contentKind], [n]) : r.contentKind + " · " + n;
+	}
 
 	function windowText(w){
 		if(!w) return "";
@@ -89,6 +136,11 @@
 		var filter = el("run-records-processor");
 		var seen = {};
 		var processors = {};
+		var itemNumbers = {};   // item id -> its number in this run, from 1
+		var itemNames = {};     // item id -> the series or events it carries, where a record says
+		var parentsOf = {};     // item id -> the ids of the items it came from
+		var following = null;   // the item id being followed, or null
+		var followingBox = el("run-records-following");
 		var cursor = null;
 		var stream = null;
 		var current = null;
@@ -134,7 +186,62 @@
 			el("run-rerun").hidden = !ended || run.preview;
 		}
 
-		function shortId(id){ return id ? String(id).slice(0, 8) : ""; }
+		function itemNumber(id){
+			if(!itemNumbers[id]) itemNumbers[id] = Object.keys(itemNumbers).length + 1;
+			return itemNumbers[id];
+		}
+
+		/**
+		 * Names an item after the data it carries: its timeseries.externalId attribute, else what
+		 * its read named, else what the item it came from carried. Later records do not rename it.
+		 */
+		function nameItem(r){
+			if(itemNames[r.itemId]) return;
+			var attrs = r.changedAttributes || {};
+			var t = r.action === "receive" && r.transitUri ? parseTransit(r.transitUri) : null;
+			var parent = (r.parentItemIds || []).map(function(p){ return itemNames[p]; }).filter(Boolean)[0];
+			var name = attrs["timeseries.externalId"] || (t && t.what) || parent;
+			if(name) itemNames[r.itemId] = name;
+		}
+
+		function itemText(id){
+			return "#" + itemNumber(id) + (itemNames[id] ? " · " + itemNames[id] : "");
+		}
+
+		/** The item and every item it came from, through fork and copy records. */
+		function ancestors(id){
+			var found = {};
+			var stack = [id];
+			while(stack.length){
+				var a = stack.pop();
+				if(found[a]) continue;
+				found[a] = true;
+				(parentsOf[a] || []).forEach(function(p){ stack.push(p); });
+			}
+			return found;
+		}
+
+		/** Whether a record's item is the followed one, one it came from, or one that came from it. */
+		function related(itemId){
+			return ancestors(following)[itemId] || ancestors(itemId)[following];
+		}
+
+		function applyFilters(){
+			Array.from(tbody.children).forEach(function(tr){
+				var item = tr.getAttribute("data-item");
+				tr.hidden = (!!filter.value && tr.getAttribute("data-processor") !== filter.value)
+					|| (!!following && !(item && related(item)));
+			});
+			followingBox.hidden = !following;
+			if(following){
+				followingBox.querySelector("span").textContent = L("flows.run.records.following", [itemText(following)]);
+			}
+		}
+
+		function followItem(id){
+			following = following === id ? null : id;
+			applyFilters();
+		}
 
 		function addRecords(records){
 			records.forEach(function(r){
@@ -147,17 +254,28 @@
 				}
 				var tr = document.createElement("tr");
 				tr.setAttribute("data-processor", r.processor || "");
+				if(r.parentItemIds && r.parentItemIds.length) parentsOf[r.itemId] = r.parentItemIds;
+				// The cap's marker row has no item: it is not something to follow.
+				var item = r.truncated || !r.itemId ? null : itemNumber(r.itemId);
+				if(item) nameItem(r);
+				if(item){
+					tr.setAttribute("data-item", r.itemId);
+					tr.classList.add("pointer");
+					tr.addEventListener("click", function(){ followItem(r.itemId); });
+				}
 				var changed = r.changedAttributes && Object.keys(r.changedAttributes).length
 					? Object.keys(r.changedAttributes).map(function(k){ return k + "=" + r.changedAttributes[k]; }).join(", ") : "";
-				var content = r.contentKind ? r.contentKind + (r.size ? " · " + r.size : "") : "";
 				[window.formatLocalTime(r.time, { seconds: true }), String(r.attempt), r.processor || "",
-					r.action + (r.truncated ? " · " + L("flows.run.truncated") : ""), r.relationship || "",
-					shortId(r.itemId), content, r.transitUri || "", changed].forEach(function(t){
-					tr.appendChild(Object.assign(document.createElement("td"), { textContent: t, title: t }));
+					actionText(r) + (r.truncated ? " · " + L("flows.run.truncated") : ""), outcomeText(r),
+					item ? itemText(r.itemId) : "", contentText(r), transitText(r.transitUri), changed].forEach(function(t, i){
+					var td = Object.assign(document.createElement("td"), { textContent: t, title: t });
+					if(i === 5 && item) td.title = r.itemId;
+					if(i === 7 && r.transitUri) td.title = r.transitUri;
+					tr.appendChild(td);
 				});
-				tr.hidden = !!filter.value && filter.value !== r.processor;
 				tbody.appendChild(tr);
 			});
+			applyFilters();
 			el("run-records-empty").hidden = tbody.children.length > 0;
 		}
 
@@ -187,11 +305,8 @@
 			}).open();
 		}
 
-		filter.addEventListener("change", function(){
-			Array.from(tbody.children).forEach(function(tr){
-				tr.hidden = !!filter.value && tr.getAttribute("data-processor") !== filter.value;
-			});
-		});
+		filter.addEventListener("change", applyFilters);
+		followingBox.querySelector("button").addEventListener("click", function(){ followItem(following); });
 		el("run-records-more").addEventListener("click", loadPage);
 		el("run-cancel").addEventListener("click", function(){
 			FlowApi.post("/runs/" + FlowApi.seg(runId) + "/cancel", {}).then(drawRun)
