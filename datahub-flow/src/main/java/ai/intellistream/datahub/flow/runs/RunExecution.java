@@ -241,7 +241,10 @@ public class RunExecution {
         String key = tenantId + "/" + claimed.flowId() + "/" + claimed.version();
         CompiledFlow flow = compiled.get(key);
         if (flow == null) {
-            String definition = flows.version(claimed.flowId(), claimed.version()).orElseThrow()
+            String definition = flows.version(claimed.flowId(), claimed.version()).orElseThrow(() ->
+                    new IllegalStateException("Flow " + claimed.flowId() + " has no version " + claimed.version()
+                            + " in the database of tenant " + tenantId + ": the run store holds a run this "
+                            + "tenant's database does not know"))
                     .definition();
             flow = compiler.compile(FlowDefinitions.parse(definition));
             compiled.put(key, flow);
