@@ -2,6 +2,9 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowSecretForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
 import ai.intellistream.datahub.tenant.LlmProvider;
@@ -9,7 +12,7 @@ import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.tenant.TenantLlm;
-import ai.intellistream.datahub.tenant.TenantLlmWriter;
+import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,11 +24,15 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,7 +50,7 @@ class TenantSettingsServiceTest {
     private static final String ORG_ID = "11111111-1111-1111-1111-111111111111";
 
     private TenantConfigService tenantConfigService;
-    private TenantLlmWriter writer;
+    private TenantConfigWriter writer;
     private TenantSettingsService service;
     private Tenant tenant;
 
@@ -55,7 +62,7 @@ class TenantSettingsServiceTest {
 
         tenantConfigService = mock(TenantConfigService.class);
         when(tenantConfigService.getConfig(anyString())).thenReturn(tenant);
-        writer = mock(TenantLlmWriter.class);
+        writer = mock(TenantConfigWriter.class);
         service = new TenantSettingsService(tenantConfigService, writer, JsonMapper.builder().build());
 
         TenantContext.setTenantId(ORG_ID);
@@ -339,5 +346,78 @@ class TenantSettingsServiceTest {
         stored.setBaseUrl(baseUrl);
         service.listModels(baseUrl, null);
         assertThat(authorization.get()).isEqualTo("Bearer gateway-token");
+    }
+
+    /** Runs each flow change against {@code stored}, as Vault would, and keeps the result. */
+    @SuppressWarnings("unchecked")
+    private Map<String, String> vaultHolding(Map<String, String> initial) {
+        Map<String, String> stored = new HashMap<>(initial);
+        when(writer.update(eq("acme"), any())).thenAnswer(invocation -> {
+            Map<String, String> changed = ((UnaryOperator<Map<String, String>>)
+                    invocation.getArgument(1)).apply(Map.copyOf(stored));
+            stored.clear();
+            stored.putAll(changed);
+            return Map.copyOf(stored);
+        });
+        when(writer.current("acme")).thenAnswer(invocation -> Map.copyOf(stored));
+        return stored;
+    }
+
+    @Test
+    void flowCredentialsAreListedByNameAndNeverByValue() {
+        vaultHolding(Map.of(
+                "llm.api-key", "sk-ant-stored",
+                "flow.secret.sftp-password", "hunter2",
+                "flow.client.ingest.client-id", "datahub-ingest",
+                "flow.client.ingest.client-secret", "client-secret-value",
+                "flow.token.42", "offline-token-value"));
+
+        TenantFlowSettings settings = service.readFlow();
+
+        assertThat(settings.secrets()).containsExactly("sftp-password");
+        assertThat(settings.clients())
+                .containsExactly(new TenantFlowSettings.Client("ingest", "datahub-ingest"));
+        assertThat(settings.toString())
+                .doesNotContain("hunter2", "client-secret-value", "offline-token-value", "sk-ant");
+    }
+
+    @Test
+    void severalClientsAndSecretsLiveSideBySide() {
+        Map<String, String> stored = vaultHolding(Map.of("flow.token.7", "offline"));
+
+        service.putFlowClient("ingest", new TenantFlowClientForm("datahub-ingest", "s1"));
+        service.putFlowClient("reporting", new TenantFlowClientForm("datahub-reporting", "s2"));
+        service.putFlowSecret("a", new TenantFlowSecretForm("v1"));
+        service.putFlowSecret("b", new TenantFlowSecretForm("v2"));
+        TenantFlowSettings settings = service.readFlow();
+
+        assertThat(settings.secrets()).containsExactly("a", "b");
+        assertThat(settings.clients()).extracting(TenantFlowSettings.Client::name)
+                .containsExactly("ingest", "reporting");
+        assertThat(stored).containsEntry("flow.client.reporting.client-secret", "s2")
+                .containsEntry("flow.token.7", "offline");
+
+        service.removeFlowClient("ingest");
+        settings = service.readFlow();
+        assertThat(settings.clients()).extracting(TenantFlowSettings.Client::name)
+                .containsExactly("reporting");
+        assertThat(stored).doesNotContainKeys("flow.client.ingest.client-id",
+                "flow.client.ingest.client-secret");
+    }
+
+    @Test
+    void aFlowWriteIsRefusedWithoutItsRequiredFields() {
+        vaultHolding(Map.of());
+
+        assertThatThrownBy(() -> service.putFlowClient("ingest",
+                new TenantFlowClientForm("datahub-ingest", " ")))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.putFlowSecret("pw", new TenantFlowSecretForm(null)))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.putFlowSecret("Not.Valid", new TenantFlowSecretForm("x")))
+                .isInstanceOf(BadRequestException.class);
+        assertThatThrownBy(() -> service.removeFlowClient("../llm"))
+                .isInstanceOf(BadRequestException.class);
+        verify(writer, never()).update(anyString(), any());
     }
 }

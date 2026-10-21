@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.clickhouse;
 
+import ai.intellistream.datahub.api.binary.ArrowSchemaCanon;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.responses.DataCollectionBin;
 import ai.intellistream.datahub.api.responses.DatapointBin;
@@ -17,7 +18,9 @@ import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.util.DatapointsResult;
 import ai.intellistream.datahub.util.SavedDatapointsStats;
 import com.clickhouse.client.api.Client;
+import com.clickhouse.client.api.ClientConfigProperties;
 import com.clickhouse.client.api.insert.InsertResponse;
+import com.clickhouse.client.api.insert.InsertSettings;
 import com.clickhouse.client.api.query.GenericRecord;
 import com.clickhouse.client.api.query.QueryResponse;
 import com.clickhouse.client.api.query.QuerySettings;
@@ -88,19 +91,125 @@ public class ClickHouseDatapointService extends ClickHouseService{
     }
 
     /**
-     * Binary frame path: an Arrow IPC stream in the value type's canonical schema, already merged
-     * by the consumer, streamed to the type's table as it is. A byte-array stream so the client can
-     * rewind it on a retry, which the piped stream of the RowBinary path cannot.
+     * Binary frame path: an Arrow IPC stream in the value type's canonical schema, the frames'
+     * record batches relayed by the consumer, streamed to the type's table as it is. A byte-array
+     * stream so the client can rewind it on a retry, which the piped stream of the RowBinary path
+     * cannot. {@code compressed} says every record batch carries its buffers zstd-compressed
+     * in-band, as the SDK sends them: the body then goes over HTTP as it is, since compressing zstd
+     * output again costs CPU for nothing, and ClickHouse decodes the buffers itself. Otherwise the
+     * transport compression of every other insert applies.
      */
-    public void insertArrowStream(String tenantId, DatapointValueType type, byte[] stream) {
+    public void insertArrowStream(String tenantId, DatapointValueType type, byte[] stream, boolean compressed) {
         Client client = getClickhouseClient(tenantId);
+        InsertSettings settings = compressed
+                ? new InsertSettings().setInputStreamCopyBufferSize(BUFFER_SIZE).compressClientRequest(false)
+                : getSettings();
         try (InsertResponse r = client.insert(type.tableName(), new ByteArrayInputStream(stream),
-                ClickHouseFormat.ArrowStream, getSettings()).get(30, TimeUnit.SECONDS)) {
+                ClickHouseFormat.ArrowStream, settings).get(30, TimeUnit.SECONDS)) {
             log.debug("Arrow stream written to {}. Server Time: {}", type.tableName(), r.getServerTime());
         } catch (Exception e) {
             log.error("Failed to insert an Arrow stream into ClickHouse table: {}", type.tableName(), e);
             throw new RuntimeException("ClickHouse insert failed", e);
         }
+    }
+
+    /**
+     * Binary read path: one series' points in a window, or their bucketed aggregates, as
+     * ClickHouse's own Arrow stream, handed over as it arrives so a window of any size is never
+     * held whole; closing the stream ends the query. The output settings make that stream the
+     * contract's canon with every record batch's buffers compressed in-band, so the API relays the
+     * batches into frames without decoding or compressing a byte. {@code maxBlockRows} is the frame's
+     * row cap, and the block size asked for is it rounded down to whole granules: ClickHouse reads
+     * {@value #GRANULE_ROWS} rows at a time and answers a block size that is not a multiple of that
+     * with the next multiple up, 16 384 rows for 10 000, which would not fit a frame and would have
+     * to be decoded and cut. {@code FINAL} because a ReplacingMergeTree holds a re-sent point twice
+     * until it merges, and a frame may not repeat a timestamp. A {@code limit} of 0 is none: the
+     * whole window in timestamp order, which the tables' {@code (timeseries_id, timestamp)} key
+     * lets ClickHouse read without a sort.
+     */
+    public InputStream openArrowStream(String tenantId, TimeseriesEntity node, RetrieveFilter f, long limit, int maxBlockRows) {
+        DatapointValueType type = DatapointValueType.fromId(node.getValueType().getId());
+        boolean aggregates = f.getAggregates() != null && !f.getAggregates().isEmpty();
+        boolean limited = limit > 0;
+        StringBuilder where = new StringBuilder("WHERE timeseries_id = {timeseriesId:Int64}");
+        Map<String, Object> params = new HashMap<>();
+        params.put("timeseriesId", node.getId());
+        if (limited) {
+            params.put("limit", limit);
+        }
+        if (f.getStart() != null) {
+            where.append(" AND timestamp >= {startTime:DateTime64(3, 'UTC')}");
+            params.put("startTime", toChDateTime(f.getStart()));
+        }
+        if (f.getEnd() != null) {
+            where.append(" AND timestamp < {endTime:DateTime64(3, 'UTC')}");
+            params.put("endTime", toChDateTime(f.getEnd()));
+        }
+        String table = type.tableName() + " FINAL";
+        String query;
+        if (aggregates) {
+            if (type == DatapointValueType.MIXED) {
+                where.append(" AND value_numeric IS NOT NULL");
+            }
+            String inner = buildAggregateQuery(ALL_AGGREGATES_SQL, TimeseriesValueType.aggregateValueSql(type.id()),
+                    createCHGranularity(f.getGranularity()), table, where.toString(), limited);
+            // A mixed series aggregates its Nullable value_numeric; the text rows are filtered out
+            // above, so the aggregates are never null, but their type still says they may be.
+            query = "SELECT {timeseriesId:Int64} AS timeseries_id, toDateTime64(timestamp_g, 3, 'UTC') AS timestamp, "
+                    + "assumeNotNull(avg) AS avg, assumeNotNull(min) AS min, assumeNotNull(max) AS max, "
+                    + "assumeNotNull(sum) AS sum FROM (" + inner + ") ORDER BY timestamp";
+        } else {
+            // The timestamp is converted because tables created before clickhouse.sql said 'UTC'
+            // hold a bare DateTime64(3), which Arrow would label with the session's zone instead.
+            List<String> values = ArrowSchemaCanon.of(type).columns().stream().skip(2).map(ArrowSchemaCanon.Column::name).toList();
+            query = "SELECT timeseries_id, toDateTime64(timestamp, 3, 'UTC') AS timestamp, " + String.join(", ", values)
+                    + " FROM " + table + " " + where + " ORDER BY timestamp" + (limited ? " LIMIT {limit:Int64}" : "");
+        }
+        QuerySettings qs = new QuerySettings()
+                .setQueryId(IdGenerator.getRandomUUID7AsString())
+                .setFormat(ClickHouseFormat.ArrowStream)
+                // No transport compression on this answer: the Arrow buffers come compressed
+                // already, and the pool's HTTP form would wrap them in a decoder that caps the read
+                // at about a million rows a second. See ClickHouseClientPool.transport for why the
+                // pool itself cannot switch.
+                .setOption(ClientConfigProperties.USE_HTTP_COMPRESSION.getKey(), Boolean.FALSE)
+                .setOption(ClientConfigProperties.COMPRESS_SERVER_RESPONSE.getKey(), Boolean.FALSE);
+        qs.serverSetting("output_format_arrow_string_as_string", "1");
+        qs.serverSetting("output_format_arrow_low_cardinality_as_dictionary", "0");
+        qs.serverSetting("output_format_arrow_compression_method", "zstd");
+        qs.serverSetting("max_block_size", Integer.toString(blockRows(maxBlockRows)));
+        log.debug("ClickHouse Arrow query {}: {} {}", qs.getQueryId(), query, params);
+        QueryResponse response;
+        try {
+            response = getClickhouseClient(tenantId).query(query, params, qs).get(30, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted reading datapoints of series " + node.getId(), e);
+        } catch (Exception e) {
+            throw new RuntimeException("ClickHouse Arrow read of series " + node.getId() + " failed", e);
+        }
+        return new FilterInputStream(response.getInputStream()) {
+            @Override
+            public void close() throws IOException {
+                try {
+                    super.close();
+                } finally {
+                    try {
+                        response.close();
+                    } catch (Exception e) {
+                        log.warn("Closing the ClickHouse Arrow read of series {} failed: {}", node.getId(), e.getMessage());
+                    }
+                }
+            }
+        };
+    }
+
+    /** The rows ClickHouse reads at a time, its default {@code index_granularity}. */
+    static final int GRANULE_ROWS = 8192;
+
+    /** The largest whole number of granules under {@code cap}, so a block fits a frame. */
+    static int blockRows(int cap) {
+        return cap >= GRANULE_ROWS ? cap - cap % GRANULE_ROWS : cap;
     }
 
     // One RowBinary row per datapoint: timeseries_id (Int64) + timestamp (DateTime64(3), epoch
@@ -182,21 +291,29 @@ public class ClickHouseDatapointService extends ClickHouseService{
         }
     }
 
+    /** Every aggregate at once, in the binary canon's column order: an aggregate frame carries all four. */
+    private static final String ALL_AGGREGATES_SQL = String.join(",",
+            aggregateSql(Aggregates.AVG), aggregateSql(Aggregates.MIN), aggregateSql(Aggregates.MAX), aggregateSql(Aggregates.SUM));
+
     public String handleAggregates(RetrieveFilter f) {
         List<String> aggregates = new ArrayList<>();
         f.getAggregates().forEach( aText -> {
             Aggregates a = Aggregates.findByDescription(aText);
             if(a != null){
-                switch (a) {
-                    case SUM -> aggregates.add("sumIf(contrib_value, contrib_kind = 'sample') as sum ");
-                    case AVG -> aggregates.add("avgWeighted(contrib_value, contrib_weight) AS avg ");
-                    case MIN -> aggregates.add("min(contrib_value) as min ");
-                    case MAX -> aggregates.add("max(contrib_value) as max ");
-                }
+                aggregates.add(aggregateSql(a));
             }
         });
         if(aggregates.isEmpty()) return null;
         return String.join(",", aggregates);
+    }
+
+    private static String aggregateSql(Aggregates a) {
+        return switch (a) {
+            case SUM -> "sumIf(contrib_value, contrib_kind = 'sample') as sum ";
+            case AVG -> "avgWeighted(contrib_value, contrib_weight) AS avg ";
+            case MIN -> "min(contrib_value) as min ";
+            case MAX -> "max(contrib_value) as max ";
+        };
     }
 
     public DatapointString findLatestDatapointInClickhouse(TimeseriesEntity ts){

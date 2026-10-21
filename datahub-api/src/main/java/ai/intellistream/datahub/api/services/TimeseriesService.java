@@ -1,6 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.services;
 
+import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
+import ai.intellistream.datahub.api.binary.DatapointValueType;
+import ai.intellistream.datahub.api.binary.FrameFormatException;
+import ai.intellistream.datahub.api.binary.FrameLimits;
+import ai.intellistream.datahub.api.binary.PayloadCodec;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.policy.PolicyCandidate;
 import ai.intellistream.datahub.api.policy.PolicyEnforcement;
 import ai.intellistream.datahub.models.paging.PageCursor;
@@ -37,6 +43,7 @@ import ai.intellistream.datahub.models.*;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.pulsar.EventAction;
+import ai.intellistream.datahub.responses.datapoints.Granularity;
 import ai.intellistream.datahub.pulsar.EventObject;
 import ai.intellistream.datahub.repositories.node.DataSetRepository;
 import ai.intellistream.datahub.repositories.node.EdgeRepository;
@@ -71,6 +78,9 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.math.BigDecimal;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -291,25 +301,7 @@ public class TimeseriesService {
      * @return a DataWrapper object containing a collection of retrieved datapoints.
      */
     public DataWrapper<DataCollection<?>> retrieveDatapointsFromCH(DataRetriever<RetrieveFilter> apiReqData) {
-
-        Set<ConstraintViolation<DataRetriever<RetrieveFilter>>> violations = validator.validate(apiReqData);
-        if (!violations.isEmpty()) {
-            var errors = new FieldErrors();
-            String message = null;
-            for (ConstraintViolation<DataRetriever<RetrieveFilter>> violation : violations) {
-                // Last one wins, as it always has — the detail is prose, and `fields` carries the
-                // per-field breakdown that a caller actually acts on.
-                message = violation.getMessage();
-                if(violation.getConstraintDescriptor().getAnnotation() instanceof AtLeastOneNotNull){
-                    String[] fieldNames = (String[])violation.getConstraintDescriptor().getAttributes().get("fieldNames");
-                    errors.addFieldError(violation.getPropertyPath().toString(), String.join(",", fieldNames));
-                } else {
-                    Object invalidValue = violation.getInvalidValue();
-                    errors.addFieldError(violation.getPropertyPath().toString(), invalidValue.toString());
-                }
-            }
-            throw new BadRequestException(message, errors);
-        }
+        validateRetriever(apiReqData);
 
         DataWrapper<DataCollection<?>> results = new DataWrapper<>();
 
@@ -374,6 +366,27 @@ public class TimeseriesService {
         }
 
         return results;
+    }
+
+    private void validateRetriever(DataRetriever<RetrieveFilter> apiReqData) {
+        Set<ConstraintViolation<DataRetriever<RetrieveFilter>>> violations = validator.validate(apiReqData);
+        if (!violations.isEmpty()) {
+            var errors = new FieldErrors();
+            String message = null;
+            for (ConstraintViolation<DataRetriever<RetrieveFilter>> violation : violations) {
+                // Last one wins, as it always has — the detail is prose, and `fields` carries the
+                // per-field breakdown that a caller actually acts on.
+                message = violation.getMessage();
+                if(violation.getConstraintDescriptor().getAnnotation() instanceof AtLeastOneNotNull){
+                    String[] fieldNames = (String[])violation.getConstraintDescriptor().getAttributes().get("fieldNames");
+                    errors.addFieldError(violation.getPropertyPath().toString(), String.join(",", fieldNames));
+                } else {
+                    Object invalidValue = violation.getInvalidValue();
+                    errors.addFieldError(violation.getPropertyPath().toString(), invalidValue.toString());
+                }
+            }
+            throw new BadRequestException(message, errors);
+        }
     }
 
     /**
@@ -444,6 +457,140 @@ public class TimeseriesService {
     }
 
     /**
+     * The named series the caller may read. The lookup is narrowed to the caller's readable
+     * datasets in SQL, so a series in a dataset the caller can't read simply isn't found.
+     */
+    private List<TimeseriesEntity> readableSeries(Set<Long> idSet, Set<String> externalIdSet) {
+        if (dataSecurity.hasReadAccessToEverything()) {
+            return timeseriesRepository.findAllByIdOrExternalId(idSet, externalIdSet);
+        }
+        Set<Long> allowed = dataSecurity.readableDataSetIds();
+        return allowed.isEmpty()
+                ? new ArrayList<>()
+                : timeseriesRepository.findAllByIdOrExternalIdAndDataSetIdIn(idSet, externalIdSet, allowed);
+    }
+
+    /** One series of a binary read: what to fetch, how many rows at most (0 for all), and the frame row cap. */
+    public record BinaryRead(TimeseriesEntity series, RetrieveFilter filter, long limit, boolean aggregates, int frameRows) {
+    }
+
+    /**
+     * Only for a record batch the relay cannot pass on as it came: one ClickHouse answered
+     * uncompressed, or one longer than a frame. Level 1, since level 3 bought 0.5% smaller frames
+     * for 20% fewer rows a second when every frame was compressed here.
+     */
+    private static final PayloadCodec READ_CODEC = new ZstdPayloadCodec(1);
+
+    /**
+     * Checks a binary read and resolves its series, before a byte of the answer is written, so
+     * every refusal is still a plain problem response. Rows are not budgeted: an item without a
+     * {@code limit} reads its whole window, however long, which {@link #writeFrames} streams. A
+     * request-level {@code limit}, when given, is the request's total: the items' own limits may
+     * not add up to more, and the items without one share what they leave.
+     */
+    public List<BinaryRead> planBinaryRead(DataRetriever<RetrieveFilter> request) {
+        validateRetriever(request);
+        List<RetrieveFilter> items = new ArrayList<>(request.getItems());
+        if (items.isEmpty()) {
+            throw new BadRequestException("Name at least one timeseries in `items`.", "items", "empty");
+        }
+        Set<Long> idSet = new HashSet<>();
+        Set<String> externalIdSet = new HashSet<>();
+        long explicitRows = 0;
+        int unlimited = 0;
+        for (RetrieveFilter f : items) {
+            if (f.getId() != null) idSet.add(f.getId());
+            if (f.getExternalId() != null) externalIdSet.add(f.getExternalId());
+            if (f.getCursor() != null) {
+                throw new BadRequestException("The binary read has no cursors; page by moving `start` past the last timestamp read.",
+                        "cursor", f.getCursor());
+            }
+            boolean aggregates = f.getAggregates() != null && !f.getAggregates().isEmpty();
+            if (aggregates) {
+                if (f.getGranularity() == null || f.getGranularity().isBlank()) {
+                    throw new BadRequestException("`aggregates` needs a `granularity`.", "granularity", "missing");
+                }
+                try {
+                    Granularity.createCHGranularity(f.getGranularity());
+                } catch (RuntimeException e) {
+                    throw new BadRequestException("`granularity` is not a number and a unit, such as `1h`.", "granularity", f.getGranularity());
+                }
+            }
+            if (f.hasLimit()) {
+                explicitRows += f.getLimit();
+            } else {
+                unlimited++;
+            }
+        }
+        long budget = request.getLimit() != null && request.getLimit() > 0 ? request.getLimit() : 0;
+        long share = 0;
+        if (budget > 0) {
+            if (explicitRows > budget) {
+                throw new BadRequestException("The items' limits add up to " + explicitRows + " rows; the request's `limit` is " + budget + ".",
+                        "limit", Long.toString(explicitRows));
+            }
+            if (unlimited > 0) {
+                share = (budget - explicitRows) / unlimited;
+                if (share < 1) {
+                    throw new BadRequestException("No rows are left for the items without a `limit`; give them one, or ask for fewer series.",
+                            "limit", "0");
+                }
+            }
+        }
+
+        List<TimeseriesEntity> nodes = readableSeries(idSet, externalIdSet);
+        List<BinaryRead> reads = new ArrayList<>(items.size());
+        List<String> unknown = new ArrayList<>();
+        for (RetrieveFilter f : items) {
+            Optional<TimeseriesEntity> node = nodes.stream()
+                    .filter(n -> n.getId().equals(f.getId()) || n.getExternalId().equals(f.getExternalId()))
+                    .findFirst();
+            if (node.isEmpty()) {
+                unknown.add(f.getId() != null ? f.getId().toString() : f.getExternalId());
+                continue;
+            }
+            DatapointValueType type = DatapointValueType.fromId(node.get().getValueType().getId());
+            boolean aggregates = f.getAggregates() != null && !f.getAggregates().isEmpty();
+            if (aggregates && type == DatapointValueType.TEXT) {
+                throw new BadRequestException("Series " + node.get().getExternalId() + " holds text, which has no aggregates.",
+                        "aggregates", String.join(",", f.getAggregates()));
+            }
+            long limit = f.hasLimit() ? f.getLimit() : share;
+            int frameRows = aggregates ? FrameLimits.MAX_AGGREGATE_ROWS : FrameLimits.maxRows(type);
+            reads.add(new BinaryRead(node.get(), f, limit, aggregates, frameRows));
+        }
+        if (!unknown.isEmpty() && !Boolean.TRUE.equals(request.getIgnoreUnknownIds())) {
+            throw new BadRequestException("These timeseries do not exist, or are in a dataset you cannot read: " + String.join(", ", unknown)
+                    + ". Set `ignoreUnknownIds` to read the rest.", "items", String.join(",", unknown));
+        }
+        return reads;
+    }
+
+    /**
+     * Writes each planned series as frames, in request order: ClickHouse's Arrow stream for it,
+     * its record batches already compressed, relayed whole into frames as it arrives, so the
+     * response holds one frame's batches at a time however long the series and this service
+     * compresses nothing. Each frame is flushed as it is complete. A series with no points in its
+     * window writes nothing. The end marker comes last and only on success, so a response that
+     * fails partway can never pass for a complete one.
+     */
+    public void writeFrames(List<BinaryRead> reads, OutputStream out) throws IOException {
+        String tenantId = TenantContext.getTenantId();
+        for (BinaryRead read : reads) {
+            TimeseriesEntity series = read.series();
+            DatapointValueType type = DatapointValueType.fromId(series.getValueType().getId());
+            try (InputStream stream = clickHouseDatapointService.openArrowStream(tenantId, series, read.filter(), read.limit(), read.frameRows())) {
+                DatapointFrameWriter.relayStream(type, read.aggregates(), series.getId(), series.getExternalId(), stream, READ_CODEC, out);
+            } catch (FrameFormatException e) {
+                // Our own query's output, so a mismatch is a server fault, not the caller's.
+                throw new IllegalStateException("ClickHouse answered series " + series.getId() + " outside the canon: " + e.getMessage(), e);
+            }
+        }
+        out.write(FrameLimits.END_OF_RESPONSE);
+        out.flush();
+    }
+
+    /**
      * Fetches datapoints asynchronously for the provided set of filters and nodes.
      * This method processes the input data, validates the presence of time series,
      * checks data access permissions, and retrieves raw or aggregated datapoints
@@ -464,17 +611,7 @@ public class TimeseriesService {
             if (f.getId() != null) idSet.add(f.getId());
             if( f.getExternalId() != null ) externalIdSet.add(f.getExternalId());
         }
-        // Narrow the lookup to the caller's readable datasets in SQL. Timeseries in datasets the
-        // caller can't read simply aren't found, so their filter yields an empty result below.
-        List<TimeseriesEntity> nodes;
-        if (dataSecurity.hasReadAccessToEverything()) {
-            nodes = timeseriesRepository.findAllByIdOrExternalId(idSet, externalIdSet);
-        } else {
-            Set<Long> allowed = dataSecurity.readableDataSetIds();
-            nodes = allowed.isEmpty()
-                    ? new ArrayList<>()
-                    : timeseriesRepository.findAllByIdOrExternalIdAndDataSetIdIn(idSet, externalIdSet, allowed);
-        }
+        List<TimeseriesEntity> nodes = readableSeries(idSet, externalIdSet);
         if(!nodes.isEmpty()){
 
             long maxDatapoints =

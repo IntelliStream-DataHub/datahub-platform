@@ -64,16 +64,41 @@ class TenantFeatureDefaultsTest {
     }
 
     @Test
+    void flowIsOffUnlessVaultOrTheDeploymentTurnsItOn() {
+        Tenant absent = jsonMapper.readValue("""
+                {"org-id": "t1", "tenant-config": {"files": true}}
+                """, Tenant.class);
+        Tenant explicit = jsonMapper.readValue("""
+                {"org-id": "t2", "tenant-config": {"flow": true}}
+                """, Tenant.class);
+
+        service.applyFeatureDefaults(absent.getFeatures());
+        service.applyFeatureDefaults(explicit.getFeatures());
+
+        assertThat(absent.getFeatures().isFlowFeatureEnabled()).isFalse();
+        assertThat(explicit.getFeatures().isFlowFeatureEnabled()).isTrue();
+
+        ReflectionTestUtils.setField(service, "flowFeatureDefault", true);
+        Tenant deploymentDefault = jsonMapper.readValue("""
+                {"org-id": "t3"}
+                """, Tenant.class);
+        service.applyFeatureDefaults(deploymentDefault.getFeatures());
+        assertThat(deploymentDefault.getFeatures().isFlowFeatureEnabled()).isTrue();
+    }
+
+    @Test
     void serializedFeatureKeysMatchTenantConfigContract() {
         TenantFeatures features = new TenantFeatures();
         features.setFilesEnabled(true);
         features.setPolicyFeatureEnabled(true);
         features.setStreamingFeatureEnabled(false);
+        features.setFlowFeatureEnabled(true);
 
         String json = jsonMapper.writeValueAsString(features);
 
         assertThat(json).contains("\"files\":true")
                 .contains("\"policy\":true")
-                .contains("\"streaming\":false");
+                .contains("\"streaming\":false")
+                .contains("\"flow\":true");
     }
 }

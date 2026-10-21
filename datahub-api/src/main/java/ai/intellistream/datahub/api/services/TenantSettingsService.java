@@ -3,14 +3,18 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowSecretForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettingsForm;
 import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
+import ai.intellistream.datahub.tenant.TenantFlowSection;
 import ai.intellistream.datahub.tenant.TenantLlm;
-import ai.intellistream.datahub.tenant.TenantLlmWriter;
+import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Service;
@@ -26,6 +30,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.UnaryOperator;
 
 /**
  * Reads and changes the calling tenant's own settings.
@@ -44,14 +49,14 @@ import java.util.Map;
 public class TenantSettingsService {
 
     private final TenantConfigService tenantConfigService;
-    private final TenantLlmWriter llmWriter;
+    private final TenantConfigWriter configWriter;
     private final JsonMapper jsonMapper;
     private final HttpClient http;
 
-    public TenantSettingsService(TenantConfigService tenantConfigService, TenantLlmWriter llmWriter,
-                                 JsonMapper jsonMapper) {
+    public TenantSettingsService(TenantConfigService tenantConfigService,
+                                 TenantConfigWriter configWriter, JsonMapper jsonMapper) {
         this.tenantConfigService = tenantConfigService;
-        this.llmWriter = llmWriter;
+        this.configWriter = configWriter;
         this.jsonMapper = jsonMapper;
         // The URL is the tenant's, so no redirects: one hop to where it says, never onwards.
         this.http = HttpClient.newBuilder()
@@ -93,10 +98,101 @@ public class TenantSettingsService {
         TenantLlm existing = tenant.getLlm();
         LlmSection section = validated(form, existing);
 
-        llmWriter.writeLlmSection(tenant.getOrganizationName(), section.keys(),
+        configWriter.writeLlmSection(tenant.getOrganizationName(), section.keys(),
                 section.keepStoredApiKey());
         tenantConfigService.refreshCache();
         return readLlm();
+    }
+
+    /**
+     * The flow credentials' names, read from Vault itself rather than the tenant cache, which does
+     * not hold them. Never a value.
+     */
+    public TenantFlowSettings readFlow() {
+        return flowSettings(configWriter.current(currentTenant().getOrganizationName()));
+    }
+
+    /** Stores or replaces the secret {@code name}; the value is never returned. */
+    public void putFlowSecret(String name, TenantFlowSecretForm form) {
+        var errors = new FieldErrors();
+        checkFlowName(name, errors);
+        String value = form == null ? null : form.value();
+        if (value == null || value.isBlank()) {
+            errors.addFieldError("value", "A value is required.");
+        }
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The secret is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.putSecret(name, value));
+    }
+
+    /** Removes the secret {@code name}. Removing one that is not there is not an error. */
+    public void removeFlowSecret(String name) {
+        var errors = new FieldErrors();
+        checkFlowName(name, errors);
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The secret name is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.removeSecret(name));
+    }
+
+    /**
+     * Registers or replaces the client {@code name}. Its credentials are not tried here: the flow
+     * service takes a token with them when a deployment names the client, and fails clearly there.
+     */
+    public void putFlowClient(String name, TenantFlowClientForm form) {
+        var errors = new FieldErrors();
+        checkFlowName(name, errors);
+        String clientId = form == null ? null : trimmed(form.clientId());
+        // Not trimmed: a secret is whatever Keycloak issued, and only blank means absent.
+        String clientSecret = form == null ? null : form.clientSecret();
+        if (clientId == null) {
+            errors.addFieldError("clientId", "A client id is required.");
+        }
+        if (clientSecret == null || clientSecret.isBlank()) {
+            errors.addFieldError("clientSecret",
+                    "A client secret is required, also when replacing a registered client.");
+        }
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The client is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.putClient(name, clientId, clientSecret));
+    }
+
+    /** Removes the client {@code name}. Removing one that is not there is not an error. */
+    public void removeFlowClient(String name) {
+        var errors = new FieldErrors();
+        checkFlowName(name, errors);
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The client name is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.removeClient(name));
+    }
+
+    /**
+     * Writes one flow change. Answers nothing: write does not imply read, so a caller who may only
+     * write learns no names from it. No cache refresh either: the tenant cache holds no flow keys,
+     * and the flow service reads them from Vault when a run starts.
+     */
+    private void updateFlow(UnaryOperator<Map<String, String>> change) {
+        String orgName = currentTenant().getOrganizationName();
+        TenantFlowSettings written = flowSettings(configWriter.update(orgName, change));
+        log.info("Flow settings updated for tenant {} ({} secrets, {} clients)", orgName,
+                written.secrets().size(), written.clients().size());
+    }
+
+    private static TenantFlowSettings flowSettings(Map<String, String> secret) {
+        List<TenantFlowSettings.Client> clients = new ArrayList<>();
+        TenantFlowSection.clientIds(secret).forEach((name, clientId) ->
+                clients.add(new TenantFlowSettings.Client(name, clientId)));
+        return new TenantFlowSettings(List.copyOf(TenantFlowSection.secretNames(secret)), clients);
+    }
+
+    private static void checkFlowName(String name, FieldErrors errors) {
+        if (name == null || !TenantFlowSection.NAME.matcher(name).matches()) {
+            errors.addFieldError("name", "Not a valid name: use lowercase letters, digits and"
+                    + " dashes, starting with a letter or digit, at most 63 characters.");
+        }
     }
 
     /**

@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.binary.DatapointFrame;
+import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.PayloadCodec;
@@ -32,6 +33,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -111,6 +113,30 @@ class DatapointBinaryIngestServiceTest {
         return w.build(ZSTD);
     }
 
+    /** A read's answer for the same points: the frame as the writer builds it, which is the form a read relays, then the end marker. */
+    private static byte[] answer(DatapointValueType type, long id) {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        out.writeBytes(frame(type, id));
+        out.writeBytes(FrameLimits.END_OF_RESPONSE);
+        return out.toByteArray();
+    }
+
+    @Test
+    void aReadsAnswerIsPublishedAsItCame() throws Exception {
+        series(4, DatapointValueType.TEXT, 20);
+        byte[] answer = answer(DatapointValueType.TEXT, 4);
+
+        DatapointBinaryIngestService.Summary summary = ingest(service, answer, answer.length);
+
+        assertThat(summary.frames()).isEqualTo(1);
+        assertThat(summary.rows()).isEqualTo(3);
+        ArgumentCaptor<byte[]> sent = ArgumentCaptor.forClass(byte[].class);
+        verify(message).value(sent.capture());
+        assertThat(sent.getValue()).isEqualTo(Arrays.copyOf(answer, answer.length - FrameLimits.END_OF_RESPONSE.length));
+        verify(message).property("compression", "2");
+        verify(latestDatapointCache).update("s4", 1_700_000_002_000L, "v2");
+    }
+
     private static DatapointBinaryIngestService.Summary ingest(DatapointBinaryIngestService service, byte[] body, long declared)
             throws IOException {
         return service.ingest(new ByteArrayInputStream(body), declared);
@@ -130,7 +156,7 @@ class DatapointBinaryIngestServiceTest {
         byte[] numeric = frame(DatapointValueType.FLOAT32, 1, 2);
         byte[] text = frame(DatapointValueType.TEXT, 3);
 
-        DatapointBinaryIngestService.Summary summary = ingest(service, body(numeric, text), 500);
+        DatapointBinaryIngestService.Summary summary = ingest(service, body(numeric, text), 100);
 
         assertThat(summary.frames()).isEqualTo(2);
         assertThat(summary.rows()).isEqualTo(9);
@@ -143,7 +169,7 @@ class DatapointBinaryIngestServiceTest {
         verify(message, times(2)).send();
         verify(message).property("valueTypeId", "7");
         verify(message).property("valueTypeId", "4");
-        verify(message, times(2)).property("compression", "1");
+        verify(message, times(2)).property("compression", "2");
 
         verify(dataSecurity, times(1)).assertCanWriteDataSet(10L);
         verify(dataSecurity, times(1)).assertCanWriteDataSet(20L);
@@ -155,7 +181,7 @@ class DatapointBinaryIngestServiceTest {
         verify(ingestQuota).record(IngestQuotaService.QuotaMetric.TEXT_DATAPOINTS, 3);
         long raw = 0;
         for (DatapointFrame f : DatapointFrame.parseEnvelopes(body(numeric, text))) raw += f.rawLength();
-        verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, raw - 500);
+        verify(ingestQuota).checkAndRecord(IngestQuotaService.QuotaMetric.BYTES, raw - 100);
 
         verify(latestDatapointCache).update("s1", 1_700_000_002_000L, "12.0");
         verify(latestDatapointCache).update("s2", 1_700_000_002_000L, "22.0");

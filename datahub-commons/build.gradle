@@ -38,7 +38,7 @@ dependencies {
     implementation 'com.fasterxml.uuid:java-uuid-generator:5.2.0'
 
     // Blake3
-    implementation 'commons-codec:commons-codec:1.22.1'
+    implementation 'commons-codec:commons-codec:1.23.0'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

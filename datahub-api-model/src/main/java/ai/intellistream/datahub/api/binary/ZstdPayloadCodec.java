@@ -35,14 +35,19 @@ public final class ZstdPayloadCodec implements PayloadCodec {
 
     @Override
     public byte[] decompress(byte[] compressed, int rawLength) {
-        long declared = Zstd.decompressedSize(compressed);
+        return decompress(compressed, 0, compressed.length, rawLength);
+    }
+
+    @Override
+    public byte[] decompress(byte[] compressed, int offset, int length, int rawLength) {
+        long declared = Zstd.decompressedSize(compressed, offset, length);
         if (declared > 0 && declared != rawLength) {
             throw new IllegalArgumentException("zstd frame declares " + declared + " bytes, envelope says " + rawLength);
         }
         byte[] out = new byte[rawLength];
         long produced;
         try {
-            produced = Zstd.decompressByteArray(out, 0, rawLength, compressed, 0, compressed.length);
+            produced = Zstd.decompressByteArray(out, 0, rawLength, compressed, offset, length);
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("zstd payload is not decodable: " + e.getMessage(), e);
         }

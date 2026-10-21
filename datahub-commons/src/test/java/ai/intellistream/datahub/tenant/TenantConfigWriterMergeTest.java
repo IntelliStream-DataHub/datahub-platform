@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * older value, produces a valid write that Vault accepts without complaint and that nothing
  * downstream reports. The symptom is a feature that stopped working some time later.
  */
-class TenantLlmWriterMergeTest {
+class TenantConfigWriterMergeTest {
 
     private static Map<String, String> existing() {
         Map<String, String> data = new LinkedHashMap<>();
@@ -39,8 +39,21 @@ class TenantLlmWriterMergeTest {
     }
 
     @Test
+    void theFlowSectionSurvivesAModelSave() {
+        Map<String, String> existing = existing();
+        existing.put("flow.client.ingest.client-secret", "s1");
+        existing.put("flow.token.42", "offline-token");
+
+        Map<String, String> merged = TenantConfigWriter.merge(
+                existing, section("anthropic", "claude-sonnet-5", null), true);
+
+        assertThat(merged).containsEntry("flow.client.ingest.client-secret", "s1")
+                .containsEntry("flow.token.42", "offline-token");
+    }
+
+    @Test
     void aSuppliedCredentialReplacesTheStoredOne() {
-        Map<String, String> merged = TenantLlmWriter.merge(
+        Map<String, String> merged = TenantConfigWriter.merge(
                 existing(), section("anthropic", "claude-sonnet-5", "sk-ant-new"), false);
 
         assertThat(merged).containsEntry("llm.api-key", "sk-ant-new")
@@ -56,7 +69,7 @@ class TenantLlmWriterMergeTest {
      */
     @Test
     void theKeptCredentialComesFromTheSecretRatherThanTheSection() {
-        Map<String, String> merged = TenantLlmWriter.merge(
+        Map<String, String> merged = TenantConfigWriter.merge(
                 existing(), section("anthropic", "claude-sonnet-5", null), true);
 
         assertThat(merged).containsEntry("llm.api-key", "sk-ant-stored")
@@ -68,7 +81,7 @@ class TenantLlmWriterMergeTest {
         Map<String, String> existing = new LinkedHashMap<>();
         existing.put("llm.provider", "openai-compatible");
 
-        Map<String, String> merged = TenantLlmWriter.merge(
+        Map<String, String> merged = TenantConfigWriter.merge(
                 existing, section("openai-compatible", "qwen3-32b", null), true);
 
         assertThat(merged).doesNotContainKey("llm.api-key");
@@ -79,7 +92,7 @@ class TenantLlmWriterMergeTest {
         // The other half of the same rule: this is how a setting gets unset, and it is exactly why
         // the caller must pass through anything it wants to keep. Nothing here can tell "the user
         // cleared this" from "the caller forgot it".
-        Map<String, String> merged = TenantLlmWriter.merge(
+        Map<String, String> merged = TenantConfigWriter.merge(
                 existing(), section("openai-compatible", "qwen3-32b", null), false);
 
         assertThat(merged).doesNotContainKey("llm.api-key")
@@ -88,7 +101,7 @@ class TenantLlmWriterMergeTest {
 
     @Test
     void anotherSectionIsNeverTouched() {
-        Map<String, String> merged = TenantLlmWriter.merge(
+        Map<String, String> merged = TenantConfigWriter.merge(
                 existing(), section("anthropic", "claude-opus-5", "sk-ant-stored"), false);
 
         assertThat(merged).containsEntry("billing.plan", "enterprise");
@@ -101,13 +114,13 @@ class TenantLlmWriterMergeTest {
         Map<String, String> section = section("anthropic", "claude-opus-5", "sk-ant-stored");
         section.put("instructions", "   ");
 
-        assertThat(TenantLlmWriter.merge(existing(), section, false))
+        assertThat(TenantConfigWriter.merge(existing(), section, false))
                 .doesNotContainKey("llm.instructions");
     }
 
     @Test
     void aFirstConfigurationStartsFromNothing() {
-        Map<String, String> merged = TenantLlmWriter.merge(
+        Map<String, String> merged = TenantConfigWriter.merge(
                 Map.of(), section("anthropic", "claude-opus-5", "sk-ant-new"), false);
 
         assertThat(merged).containsOnlyKeys("llm.provider", "llm.model", "llm.api-key");

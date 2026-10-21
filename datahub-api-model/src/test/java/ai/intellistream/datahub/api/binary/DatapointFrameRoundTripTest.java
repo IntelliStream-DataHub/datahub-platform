@@ -131,7 +131,7 @@ class DatapointFrameRoundTripTest {
         assertEquals(1, frame[4]);
         assertEquals(7, frame[5]);
         assertEquals(1, frame[6]);
-        assertEquals(1, frame[7]);
+        assertEquals(FrameLimits.COMPRESSION_ARROW_ZSTD, frame[7]);
         assertEquals(1, buf.getInt(8));
         assertEquals(1, buf.getInt(12));
         assertEquals(8 + 1 + 2, buf.getInt(16));

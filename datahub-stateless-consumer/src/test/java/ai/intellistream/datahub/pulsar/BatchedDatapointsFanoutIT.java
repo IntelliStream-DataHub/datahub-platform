@@ -306,7 +306,7 @@ class BatchedDatapointsFanoutIT {
         org.mockito.Mockito.verify(clickHouse, org.mockito.Mockito.timeout(10_000))
                 .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
                         org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.BIGINT),
-                        org.mockito.ArgumentMatchers.any());
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
     @Test
@@ -325,7 +325,7 @@ class BatchedDatapointsFanoutIT {
         org.mockito.Mockito.doThrow(new RuntimeException("insert refused")).when(clickHouse)
                 .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
                         org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.FLOAT),
-                        org.mockito.ArgumentMatchers.any());
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
         SubscriptionCache cache = new SubscriptionCache(
                 mock(SubscriptionRepository.class), mock(TenantConfigService.class));
         blocksListener = new BatchedDatapointBlocksListener(
@@ -354,11 +354,11 @@ class BatchedDatapointsFanoutIT {
         org.mockito.Mockito.verify(clickHouse, org.mockito.Mockito.timeout(20_000))
                 .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
                         org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.TEXT),
-                        org.mockito.ArgumentMatchers.any());
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
         org.mockito.Mockito.verify(clickHouse, org.mockito.Mockito.timeout(20_000))
                 .insertArrowStream(org.mockito.ArgumentMatchers.eq(TENANT_ID),
                         org.mockito.ArgumentMatchers.eq(ai.intellistream.datahub.api.binary.DatapointValueType.FLOAT),
-                        org.mockito.ArgumentMatchers.any());
+                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyBoolean());
 
         // Acks reach the broker on a ~100 ms grouping timer. An ack after the TEXT group would empty
         // the backlog within that; the message must instead stay pending for redelivery, since the
