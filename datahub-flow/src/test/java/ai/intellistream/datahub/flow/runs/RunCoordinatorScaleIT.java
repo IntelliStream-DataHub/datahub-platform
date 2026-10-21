@@ -240,7 +240,7 @@ class RunCoordinatorScaleIT {
             all.forEach(r -> latest.merge(Long.parseLong(r.get("flow_id")),
                     Instant.ofEpochMilli(Long.parseLong(r.get("window_end_ms"))), (x, y) -> x.isAfter(y) ? x : y));
             latest.forEach((flow, end) -> assertThat(flows.findById(flow).orElseThrow()).isNotNull());
-            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow WHERE last_tick IS NOT NULL", Integer.class))
+            assertThat(jdbc.queryForObject("SELECT count(*) FROM flow WHERE last_tick IS NOT NULL", Integer.class))
                     .isEqualTo(flowCount);
             assertThat(latest).hasSize(flowCount);
             return null;
@@ -301,7 +301,7 @@ class RunCoordinatorScaleIT {
                 int total = total();
                 assertThat(total).as("%s has its own twenty runs", tenant).isGreaterThanOrEqualTo(20);
                 assertThat(count("SUCCEEDED")).isEqualTo(total);
-                assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow WHERE external_id NOT LIKE ?",
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM flow WHERE external_id NOT LIKE ?",
                         Integer.class, tenant + "-flow-%")).as("only %s's flows are in its database", tenant).isZero();
                 return null;
             });
@@ -554,7 +554,7 @@ class RunCoordinatorScaleIT {
         // The next tick comes due (moved to now rather than waiting out the minute): b creates and
         // runs it, and the dead instance's tick is not repeated.
         in(tenant, () -> {
-            jdbc.update("UPDATE flow.flow SET next_tick = now(), next_due_at = now(), deployed_at = now() "
+            jdbc.update("UPDATE flow SET next_tick = now(), next_due_at = now(), deployed_at = now() "
                     + "WHERE id = ?", flow);
             b.syncFlow(flow);
             return null;
@@ -624,7 +624,7 @@ class RunCoordinatorScaleIT {
         // Flow ids are per database, and a scheduled run's id is made from the flow id and the tick:
         // tenants started from the same id would make the same run ids, and a leak between them
         // could not be told from a coincidence.
-        in(id, () -> jdbc.queryForObject("SELECT setval(pg_get_serial_sequence('flow.flow', 'id'), ?)",
+        in(id, () -> jdbc.queryForObject("SELECT setval(pg_get_serial_sequence('flow', 'id'), ?)",
                 Long.class, servers.get(id) * 1000L + 1000));
         return id;
     }

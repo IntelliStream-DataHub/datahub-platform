@@ -583,9 +583,9 @@ class RunCoordinatorIT {
         StoredRun cancelled = runs.find(run).orElseThrow();
         assertThat(cancelled.errorCode()).isEqualTo(RunCoordinator.DATASET_DELETED);
         assertThat(cancelled.failureEventOwed()).isFalse();
-        assertThat(jdbc.queryForObject("SELECT disabled_reason FROM flow.flow WHERE id = ?", String.class,
+        assertThat(jdbc.queryForObject("SELECT disabled_reason FROM flow WHERE id = ?", String.class,
                 flow)).isEqualTo(RunCoordinator.DATASET_DELETED);
-        assertThat(jdbc.queryForObject("SELECT enabled FROM flow.flow WHERE id = ?", Boolean.class, flow))
+        assertThat(jdbc.queryForObject("SELECT enabled FROM flow WHERE id = ?", Boolean.class, flow))
                 .isFalse();
         assertThat(SharedKvrocks.raw().hget("flow:meta:" + flow, "enabled")).as("the run store was told at once")
                 .isEqualTo("0");
@@ -764,7 +764,7 @@ class RunCoordinatorIT {
         assertThat(count("RUNNING")).as("the limit of one holds").isEqualTo(1);
         assertThat(count("PENDING")).isEqualTo(1);
 
-        jdbc.update("UPDATE flow.flow SET max_concurrent_runs = 2 WHERE id = ?", flow);
+        jdbc.update("UPDATE flow SET max_concurrent_runs = 2 WHERE id = ?", flow);
         a.sweepAll();
 
         assertThat(SharedKvrocks.raw().hget("flow:meta:" + flow, "max_concurrent")).isEqualTo("2");
@@ -785,7 +785,7 @@ class RunCoordinatorIT {
         a.sweepAll();
         await(() -> count("RUNNING") == 2);
 
-        jdbc.update("UPDATE flow.flow SET max_concurrent_runs = 1 WHERE id = ?", flow);
+        jdbc.update("UPDATE flow SET max_concurrent_runs = 1 WHERE id = ?", flow);
         a.sweepAll();
         assertThat(count("RUNNING")).as("the two running carry on").isEqualTo(2);
         assertThat(count("PENDING")).isEqualTo(1);
@@ -818,7 +818,7 @@ class RunCoordinatorIT {
         assertThat(SharedKvrocks.raw().hget("flow:meta:" + flow, "deployed")).isEqualTo("1");
 
         runs.purgeFlow(flow);
-        jdbc.update("DELETE FROM flow.flow WHERE id = ?", flow);
+        jdbc.update("DELETE FROM flow WHERE id = ?", flow);
         a.sweepAll();
 
         assertThat(SharedKvrocks.raw().keys("flow:*:" + flow)).as("nothing of it is left or told again").isEmpty();
@@ -846,7 +846,7 @@ class RunCoordinatorIT {
         long flow = storedFlow("healed", wait(0, "healed"), 2, 1);
         RunCoordinator a = coordinator("a", 0);
         a.sweepAll();
-        jdbc.update("UPDATE flow.flow SET max_concurrent_runs = 5 WHERE id = ?", flow);
+        jdbc.update("UPDATE flow SET max_concurrent_runs = 5 WHERE id = ?", flow);
         SharedKvrocks.raw().hset("flow:meta:" + flow, "max_concurrent", "9");
 
         a.sweepAll();
@@ -1100,7 +1100,7 @@ class RunCoordinatorIT {
         assertThat(windows.getFirst()).isEqualTo(fiveHoursAgo);
         assertThat(runs.schedule(flow).orElseThrow().lastTick()).isEqualTo(windows.getLast());
         a.checkpoint(TENANT);
-        assertThat(jdbc.queryForObject("SELECT last_tick FROM flow.flow WHERE id = ?", Timestamp.class, flow)
+        assertThat(jdbc.queryForObject("SELECT last_tick FROM flow WHERE id = ?", Timestamp.class, flow)
                 .toInstant()).as("saved to Postgres at the checkpoint").isEqualTo(windows.getLast());
 
         UUID first = a.claim(TENANT, null).getFirst();
@@ -1118,7 +1118,7 @@ class RunCoordinatorIT {
         assertThat(a.tick(TENANT)).isZero();
         assertThat(runs.schedule(flow)).as("nothing to make runs from").isEmpty();
 
-        jdbc.update("UPDATE flow.flow SET identity_state = 'ok' WHERE id = ?", flow);
+        jdbc.update("UPDATE flow SET identity_state = 'ok' WHERE id = ?", flow);
         a.syncFlow(flow);
         assertThat(a.tick(TENANT)).isPositive();
     }
@@ -1152,7 +1152,7 @@ class RunCoordinatorIT {
         flows.disable(off, "switched off by test");
         a.syncFlow(off);
         runs.purgeFlow(gone);
-        jdbc.update("DELETE FROM flow.flow WHERE id = ?", gone);
+        jdbc.update("DELETE FROM flow WHERE id = ?", gone);
         sleep(1100);
 
         assertThat(runs.schedule(off)).isEmpty();
@@ -1314,7 +1314,7 @@ class RunCoordinatorIT {
         RunCoordinator a = coordinator("a", 0);
         a.tick(TENANT);
         a.checkpoint(TENANT);
-        Instant saved = jdbc.queryForObject("SELECT next_tick FROM flow.flow WHERE id = ?", Timestamp.class, flow)
+        Instant saved = jdbc.queryForObject("SELECT next_tick FROM flow WHERE id = ?", Timestamp.class, flow)
                 .toInstant();
         assertThat(saved).as("Postgres has the position").isAfterOrEqualTo(start.plusSeconds(20));
 
@@ -1401,7 +1401,7 @@ class RunCoordinatorIT {
 
     /** Gives a deployed flow a schedule in Postgres, as a deployment does, and tells the run store of it. */
     private void schedule(long flow, String cron, Duration window, Instant firstTick) {
-        jdbc.update("UPDATE flow.flow SET trigger = ?::jsonb, next_tick = ?, next_due_at = ?, deployed_at = now() "
+        jdbc.update("UPDATE flow SET trigger = ?::jsonb, next_tick = ?, next_due_at = ?, deployed_at = now() "
                         + "WHERE id = ?",
                 new Schedule(Schedule.SCHEDULE, cron, ZoneOffset.UTC, window, null).toJson(JSON),
                 Timestamp.from(firstTick), Timestamp.from(firstTick), flow);
@@ -1565,7 +1565,7 @@ class RunCoordinatorIT {
     }
 
     private String externalIdOf(long flow) {
-        return jdbc.queryForObject("SELECT external_id FROM flow.flow WHERE id = ?", String.class, flow);
+        return jdbc.queryForObject("SELECT external_id FROM flow WHERE id = ?", String.class, flow);
     }
 
     private UUID pending(long flow, int hour) {
@@ -1576,7 +1576,7 @@ class RunCoordinatorIT {
         Instant end = Instant.parse("2026-10-12T00:00:00Z").plus(Duration.ofHours(hour + 1));
         UUID id = UUID.randomUUID();
         runs.enqueue(new NewRun(id, flow, externalIdOf(flow), 7, 1,
-                jdbc.queryForObject("SELECT max_attempts FROM flow.flow WHERE id = ?", Integer.class, flow),
+                jdbc.queryForObject("SELECT max_attempts FROM flow WHERE id = ?", Integer.class, flow),
                 timeout, new TimeWindow(end.minus(Duration.ofHours(1)), end),
                 null, "manual", "user-1", "user-1", null));
         return id;

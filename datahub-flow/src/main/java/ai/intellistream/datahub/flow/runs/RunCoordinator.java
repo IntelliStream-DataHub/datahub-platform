@@ -349,7 +349,7 @@ public class RunCoordinator {
         forEach(flowTenants(), "reaper", this::reap);
     }
 
-    /** The tenants the loops work for: flagged for flows, with the flow schema in place. */
+    /** The tenants the loops work for: flagged for flows, with the flow tables in place. */
     private List<String> flowTenants() {
         List<String> out = new ArrayList<>();
         Map<String, Tenant> registry = tenants.cachedTenants;

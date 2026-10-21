@@ -29,7 +29,7 @@ import java.net.URI;
  *       operator can fix it.</li>
  *   <li><b>403 {@code feature-disabled}</b> — the tenant exists but its {@code flow} flag is off, as
  *       the api answers for a tenant without files.</li>
- *   <li><b>503 {@code tenant-provisioning}</b> — the flag is on but the {@code flow} schema is not
+ *   <li><b>503 {@code tenant-provisioning}</b> — the flag is on but the flow tables are not
  *       there yet (see {@link FlowSchemaCheck}); retry after a while.</li>
  * </ul>
  *
