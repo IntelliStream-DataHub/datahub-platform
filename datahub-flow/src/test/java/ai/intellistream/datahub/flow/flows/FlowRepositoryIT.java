@@ -121,7 +121,7 @@ class FlowRepositoryIT {
         transaction.executeWithoutResult(s -> repository.delete(flow.id()));
 
         assertThat(repository.find("deleted")).isEmpty();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM flow.flow_version WHERE flow_id = ?",
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM flow_version WHERE flow_id = ?",
                 Integer.class, flow.id())).isZero();
     }
 

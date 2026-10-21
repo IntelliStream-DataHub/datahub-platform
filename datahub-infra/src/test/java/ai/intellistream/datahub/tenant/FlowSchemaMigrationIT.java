@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The {@code flow} schema (V46) as a tenant gets it: an empty database migrated by
+ * The flow tables (V46, moved to public by V51) as a tenant gets them: an empty database migrated by
  * {@link TenantMigrationService}, the engine datahub-api and datahub-cleanup provision tenants with.
  *
  * <p>Checks what the run protocol leans on rather than every column: the claim's and reaper's
@@ -50,19 +50,19 @@ class FlowSchemaMigrationIT {
     }
 
     @Test
-    void everyTableIsInTheFlowSchema() throws SQLException {
+    void theTablesAreInPublicAndThereIsNoFlowSchema() throws SQLException {
         assertThat(strings("SELECT table_name FROM information_schema.tables"
-                + " WHERE table_schema = 'flow' ORDER BY table_name"))
+                + " WHERE table_schema = 'public' AND table_name IN ('flow', 'flow_version')"
+                + " ORDER BY table_name"))
                 .containsExactly("flow", "flow_version");
-        assertThat(strings("SELECT table_name FROM information_schema.tables"
-                + " WHERE table_schema = 'public' AND table_name IN ('flow', 'flow_version', 'run')"))
-                .isEmpty();
+        assertThat(strings("SELECT schema_name FROM information_schema.schemata"
+                + " WHERE schema_name = 'flow'")).isEmpty();
     }
 
     @Test
     void runsAreNotKeptInPostgres() throws SQLException {
         assertThat(strings("SELECT table_name FROM information_schema.tables"
-                + " WHERE table_schema = 'flow' AND table_name = 'run'")).isEmpty();
+                + " WHERE table_name = 'run'")).isEmpty();
     }
 
     @Test
@@ -72,7 +72,7 @@ class FlowSchemaMigrationIT {
             insertFlow(s, "immutable_flow");
             c.commit();
 
-            assertThatThrownBy(() -> s.executeUpdate("UPDATE flow.flow_version"
+            assertThatThrownBy(() -> s.executeUpdate("UPDATE flow_version"
                     + " SET definition = '{\"changed\":true}' WHERE version = 1"))
                     .hasMessageContaining("immutable");
             c.rollback();
@@ -83,7 +83,7 @@ class FlowSchemaMigrationIT {
     void aFlowNeedsItsCurrentVersionByTheEndOfTheTransaction() throws SQLException {
         try (Connection c = connect(); Statement s = c.createStatement()) {
             c.setAutoCommit(false);
-            s.executeUpdate("INSERT INTO flow.flow (external_id, data_set_id, data_set_external_id,"
+            s.executeUpdate("INSERT INTO flow (external_id, data_set_id, data_set_external_id,"
                     + " name, current_version, created_by, updated_by)"
                     + " VALUES ('versionless', 1, 'ds', 'n', 1, 'u', 'u')");
 
@@ -98,27 +98,27 @@ class FlowSchemaMigrationIT {
             insertFlow(s, "deployed_flow");
             c.commit();
 
-            assertThatThrownBy(() -> s.executeUpdate("UPDATE flow.flow SET deployed_version = 1"
+            assertThatThrownBy(() -> s.executeUpdate("UPDATE flow SET deployed_version = 1"
                     + " WHERE external_id = 'deployed_flow'"))
                     .hasMessageContaining("check constraint");
             c.rollback();
 
-            s.executeUpdate("UPDATE flow.flow SET deployed_version = 1, enabled = true,"
+            s.executeUpdate("UPDATE flow SET deployed_version = 1, enabled = true,"
                     + " trigger = '{\"type\":\"manual\"}', identity_kind = 'deployer',"
                     + " identity_subject = 'sub-1' WHERE external_id = 'deployed_flow'");
             c.commit();
         }
         assertThat(strings("SELECT indexdef FROM pg_indexes"
-                + " WHERE schemaname = 'flow' AND indexname = 'flow_due_idx'"))
+                + " WHERE schemaname = 'public' AND indexname = 'flow_due_idx'"))
                 .singleElement().asString().contains("WHERE (enabled AND (next_due_at IS NOT NULL))");
     }
 
     private static void insertFlow(Statement s, String externalId) throws SQLException {
-        try (ResultSet rs = s.executeQuery("INSERT INTO flow.flow (external_id, data_set_id,"
+        try (ResultSet rs = s.executeQuery("INSERT INTO flow (external_id, data_set_id,"
                 + " data_set_external_id, name, current_version, created_by, updated_by)"
                 + " VALUES ('" + externalId + "', 1, 'ds', 'n', 1, 'u', 'u') RETURNING id")) {
             rs.next();
-            s.executeUpdate("INSERT INTO flow.flow_version (flow_id, version, definition, created_by)"
+            s.executeUpdate("INSERT INTO flow_version (flow_id, version, definition, created_by)"
                     + " VALUES (" + rs.getLong(1) + ", 1, '{}', 'u')");
         }
     }

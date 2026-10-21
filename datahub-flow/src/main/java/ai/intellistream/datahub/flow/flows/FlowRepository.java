@@ -15,9 +15,9 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The flows of the current tenant and their versions, in its {@code flow} schema (V46). Every name is
- * schema-qualified: connections go through pgbouncer in transaction mode, so there is no
- * {@code search_path} to rely on.
+ * The flows of the current tenant and their versions, in its {@code flow} and {@code flow_version}
+ * tables (V46, in {@code public} since V51). Names are unqualified: the tables are in the default
+ * schema, which is all a pgbouncer connection in transaction mode has.
  *
  * <p>A version is written once and never changed (the table refuses updates); a flow's current
  * version moves forward with every save. Callers run the writes in one transaction.
@@ -79,7 +79,7 @@ public class FlowRepository {
                              String definition, String by) {
         // The flow's current version is checked against flow_version by a deferred key, so the
         // flow goes first and its version second, in the caller's transaction.
-        Long id = jdbc.queryForObject("INSERT INTO flow.flow (external_id, data_set_id, "
+        Long id = jdbc.queryForObject("INSERT INTO flow (external_id, data_set_id, "
                         + "data_set_external_id, name, current_version, created_by, updated_by) "
                         + "VALUES (?, ?, ?, ?, 1, ?, ?) RETURNING id",
                 Long.class, externalId, dataSetId, dataSetExternalId, name, by, by);
@@ -96,7 +96,7 @@ public class FlowRepository {
                                            String dataSetExternalId, String name, String definition,
                                            String by) {
         // Every expression in SET reads the row as it was, so data_set_id here is the old dataset.
-        int updated = jdbc.update("UPDATE flow.flow SET current_version = current_version + 1, "
+        int updated = jdbc.update("UPDATE flow SET current_version = current_version + 1, "
                         + "disabled_reason = CASE WHEN disabled_reason = ? AND data_set_id <> ? "
                         + "THEN NULL ELSE disabled_reason END, "
                         + "data_set_id = ?, data_set_external_id = ?, name = ?, updated_by = ?, "
@@ -111,12 +111,12 @@ public class FlowRepository {
     }
 
     public Optional<StoredFlow> find(String externalId) {
-        return jdbc.query("SELECT " + FLOW_COLUMNS + " FROM flow.flow WHERE external_id = ?",
+        return jdbc.query("SELECT " + FLOW_COLUMNS + " FROM flow WHERE external_id = ?",
                 FLOW, externalId).stream().findFirst();
     }
 
     public Optional<StoredFlow> findById(long id) {
-        return jdbc.query("SELECT " + FLOW_COLUMNS + " FROM flow.flow WHERE id = ?", FLOW, id)
+        return jdbc.query("SELECT " + FLOW_COLUMNS + " FROM flow WHERE id = ?", FLOW, id)
                 .stream().findFirst();
     }
 
@@ -129,7 +129,7 @@ public class FlowRepository {
         if (!readable.all() && readable.ids().isEmpty() && !orphans) {
             return List.of();
         }
-        StringBuilder sql = new StringBuilder("SELECT " + FLOW_COLUMNS + " FROM flow.flow WHERE true");
+        StringBuilder sql = new StringBuilder("SELECT " + FLOW_COLUMNS + " FROM flow WHERE true");
         List<Object> args = new ArrayList<>();
         if (!readable.all()) {
             // The driver binds a Long[] as a bigint[].
@@ -152,7 +152,7 @@ public class FlowRepository {
     /** The definition of a flow's {@code version}; empty when there is no such version. */
     public Optional<StoredVersion> version(long flowId, int version) {
         return jdbc.query("SELECT version, definition::text AS definition, created_by, created_at "
-                        + "FROM flow.flow_version WHERE flow_id = ? AND version = ?",
+                        + "FROM flow_version WHERE flow_id = ? AND version = ?",
                 (rs, n) -> new StoredVersion(rs.getInt("version"), rs.getString("definition"),
                         rs.getString("created_by"), instant(rs.getTimestamp("created_at"))),
                 flowId, version).stream().findFirst();
@@ -160,7 +160,7 @@ public class FlowRepository {
 
     /** Every version of a flow, newest first, without their definitions. */
     public List<StoredVersion> versions(long flowId) {
-        return jdbc.query("SELECT version, created_by, created_at FROM flow.flow_version "
+        return jdbc.query("SELECT version, created_by, created_at FROM flow_version "
                         + "WHERE flow_id = ? ORDER BY version DESC",
                 (rs, n) -> new StoredVersion(rs.getInt("version"), null, rs.getString("created_by"),
                         instant(rs.getTimestamp("created_at"))),
@@ -187,7 +187,7 @@ public class FlowRepository {
                         + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
                         + "identity_kind, identity_subject, identity_client_name, identity_state, "
                         + "identity_state_reason, deployed_by, deployed_at, next_tick, next_due_at, "
-                        + "last_tick FROM flow.flow WHERE id = ? AND deployed_version IS NOT NULL",
+                        + "last_tick FROM flow WHERE id = ? AND deployed_version IS NOT NULL",
                 (rs, n) -> new Deployment(rs.getInt("deployed_version"), rs.getBoolean("enabled"),
                         rs.getString("disabled_reason"), rs.getString("trigger"),
                         rs.getInt("max_concurrent_runs"), rs.getInt("max_attempts"),
@@ -249,7 +249,7 @@ public class FlowRepository {
         args.add(timestamp(nextTick));
         args.add(timestamp(nextDueAt));
         args.add(flowId);
-        jdbc.update("UPDATE flow.flow SET deployed_version = ?, enabled = ?, disabled_reason = NULL, "
+        jdbc.update("UPDATE flow SET deployed_version = ?, enabled = ?, disabled_reason = NULL, "
                         + "trigger = ?::jsonb, max_concurrent_runs = ?, max_attempts = ?, "
                         + "run_timeout = make_interval(secs => ?), "
                         + identityColumns
@@ -264,7 +264,7 @@ public class FlowRepository {
      */
     public Optional<IdentityState> identity(long flowId) {
         return jdbc.query("SELECT identity_kind, identity_subject, identity_client_name, identity_state, "
-                        + "identity_state_reason FROM flow.flow WHERE id = ? AND identity_kind IS NOT NULL",
+                        + "identity_state_reason FROM flow WHERE id = ? AND identity_kind IS NOT NULL",
                 (rs, n) -> new IdentityState(new Identity(rs.getString("identity_kind"),
                         rs.getString("identity_subject"), rs.getString("identity_client_name")),
                         "ok".equals(rs.getString("identity_state")),
@@ -281,7 +281,7 @@ public class FlowRepository {
      * secret changed): no more runs are created for it until someone deploys it afresh.
      */
     public void needsReauthorisation(long flowId, String reason) {
-        jdbc.update("UPDATE flow.flow SET identity_state = 'needs-reauthorisation', "
+        jdbc.update("UPDATE flow SET identity_state = 'needs-reauthorisation', "
                 + "identity_state_reason = ? WHERE id = ? AND identity_state = 'ok'", reason, flowId);
     }
 
@@ -304,7 +304,7 @@ public class FlowRepository {
     private static final String DEPLOYED = "SELECT id, external_id, data_set_id, enabled, max_concurrent_runs, "
             + "deployed_version, trigger::text AS trigger, next_tick, deployed_at, max_attempts, "
             + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
-            + "coalesce(identity_subject, identity_client_name) AS run_as, identity_state FROM flow.flow "
+            + "coalesce(identity_subject, identity_client_name) AS run_as, identity_state FROM flow "
             + "WHERE deployed_version IS NOT NULL";
 
     private static DeployedFlow deployed(java.sql.ResultSet rs) throws java.sql.SQLException {
@@ -354,11 +354,11 @@ public class FlowRepository {
             }
         }
         if (!moving.isEmpty()) {
-            jdbc.batchUpdate("UPDATE flow.flow SET next_tick = ?, next_due_at = ?, last_tick = coalesce(?, last_tick) "
+            jdbc.batchUpdate("UPDATE flow SET next_tick = ?, next_due_at = ?, last_tick = coalesce(?, last_tick) "
                     + "WHERE id = ? AND deployed_at = ? AND (next_tick IS NULL OR next_tick < ?)", moving);
         }
         if (!finished.isEmpty()) {
-            jdbc.batchUpdate("UPDATE flow.flow SET next_tick = NULL, next_due_at = NULL, "
+            jdbc.batchUpdate("UPDATE flow SET next_tick = NULL, next_due_at = NULL, "
                     + "last_tick = coalesce(?, last_tick) WHERE id = ? AND deployed_at = ?", finished);
         }
     }
@@ -381,7 +381,7 @@ public class FlowRepository {
             return List.of();
         }
         StringBuilder sql = new StringBuilder("SELECT id, external_id, name, deployed_version, enabled, "
-                + "disabled_reason, identity_state, next_due_at FROM flow.flow WHERE deployed_version IS NOT NULL");
+                + "disabled_reason, identity_state, next_due_at FROM flow WHERE deployed_version IS NOT NULL");
         List<Object> args = new ArrayList<>();
         if (!readable.all()) {
             sql.append(" AND data_set_id = ANY (?)");
@@ -401,12 +401,12 @@ public class FlowRepository {
 
     /** Deletes a flow with its versions and runs. */
     public void delete(long flowId) {
-        jdbc.update("DELETE FROM flow.flow WHERE id = ?", flowId);
+        jdbc.update("DELETE FROM flow WHERE id = ?", flowId);
     }
 
     /** Switches a flow off on the service's own account, saying why, and stops its schedule. */
     public void disable(long flowId, String reason) {
-        jdbc.update("UPDATE flow.flow SET enabled = false, disabled_reason = ?, next_tick = NULL, "
+        jdbc.update("UPDATE flow SET enabled = false, disabled_reason = ?, next_tick = NULL, "
                 + "next_due_at = NULL WHERE id = ?", reason, flowId);
     }
 
@@ -415,7 +415,7 @@ public class FlowRepository {
     }
 
     private void insertVersion(long flowId, int version, String definition, String by) {
-        jdbc.update("INSERT INTO flow.flow_version (flow_id, version, definition, created_by) "
+        jdbc.update("INSERT INTO flow_version (flow_id, version, definition, created_by) "
                 + "VALUES (?, ?, ?::jsonb, ?)", flowId, version, definition, by);
     }
 
