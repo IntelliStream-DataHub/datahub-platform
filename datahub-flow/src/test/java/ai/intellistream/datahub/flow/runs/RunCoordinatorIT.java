@@ -821,7 +821,7 @@ class RunCoordinatorIT {
         jdbc.update("DELETE FROM flow WHERE id = ?", flow);
         a.sweepAll();
 
-        assertThat(SharedKvrocks.raw().keys("flow:*:" + flow)).as("nothing of it is left or told again").isEmpty();
+        assertThat(SharedKvrocks.keys("flow:*:" + flow)).as("nothing of it is left or told again").isEmpty();
     }
 
     @Test
@@ -1275,9 +1275,9 @@ class RunCoordinatorIT {
         List<Instant> windows = windowStartsOfAllRuns();
         assertThat(windows).hasSizeGreaterThanOrEqualTo(10);
         assertThat(windows).as("one run for each second, in a row").isEqualTo(everySecondFrom(start.minusSeconds(1), windows.size()));
-        assertThat(SharedKvrocks.raw().keys("flow:run:*")).as("and no second made twice").hasSize(windows.size());
+        assertThat(SharedKvrocks.keys("flow:run:*")).as("and no second made twice").hasSize(windows.size());
         await(() -> count("SUCCEEDED") == windows.size());
-        long worstLateness = SharedKvrocks.raw().keys("flow:run:*").stream()
+        long worstLateness = SharedKvrocks.keys("flow:run:*").stream()
                 .mapToLong(key -> Long.parseLong(SharedKvrocks.raw().hget(key, "created_ms"))
                         - Long.parseLong(SharedKvrocks.raw().hget(key, "window_end_ms"))).max().orElseThrow();
         assertThat(worstLateness).as("how long after its tick a run was made, ms").isLessThan(2000);
@@ -1297,7 +1297,7 @@ class RunCoordinatorIT {
         });
 
         loop(instances, Duration.ofMillis(200), Duration.ofSeconds(2));
-        assertThat(SharedKvrocks.raw().keys("flow:run:*")).as("nothing while the dead instance holds it").isEmpty();
+        assertThat(SharedKvrocks.keys("flow:run:*")).as("nothing while the dead instance holds it").isEmpty();
         loop(instances, Duration.ofMillis(200), Duration.ofSeconds(7));
 
         List<Instant> windows = windowStartsOfAllRuns();
@@ -1368,10 +1368,11 @@ class RunCoordinatorIT {
         schedule(flow, "* * * * * *", Duration.ofSeconds(1), start);
         List<int[]> samples = new CopyOnWriteArrayList<>();
         java.util.concurrent.atomic.AtomicBoolean done = new java.util.concurrent.atomic.AtomicBoolean();
+        var raw = SharedKvrocks.raw();
         Thread sampler = Thread.ofVirtual().start(() -> {
             while (!done.get()) {
                 // Only while there is more waiting than all the slots could take at once.
-                if (SharedKvrocks.raw().zcard("flow:q:" + flow) > 24) {
+                if (raw.zcard("flow:q:" + flow) > 24) {
                     samples.add(new int[]{instances.get(0).running(), instances.get(1).running(),
                             instances.get(2).running()});
                 }
@@ -1433,13 +1434,13 @@ class RunCoordinatorIT {
 
     /** The window start of every run in the run store, earliest first. */
     private List<Instant> windowStartsOfAllRuns() {
-        return SharedKvrocks.raw().keys("flow:run:*").stream()
+        return SharedKvrocks.keys("flow:run:*").stream()
                 .map(key -> Instant.ofEpochMilli(Long.parseLong(SharedKvrocks.raw().hget(key, "window_start_ms"))))
                 .sorted().toList();
     }
 
     private List<UUID> windowRunIds() {
-        return SharedKvrocks.raw().keys("flow:run:*").stream()
+        return SharedKvrocks.keys("flow:run:*").stream()
                 .map(key -> UUID.fromString(key.substring("flow:run:".length()))).toList();
     }
 
@@ -1592,14 +1593,14 @@ class RunCoordinatorIT {
 
     private List<String> attemptsOfAllRuns() {
         List<String> out = new ArrayList<>();
-        SharedKvrocks.raw().keys("flow:run:*").forEach(key -> out.add(SharedKvrocks.raw().hget(key, "attempt")));
+        SharedKvrocks.keys("flow:run:*").forEach(key -> out.add(SharedKvrocks.raw().hget(key, "attempt")));
         return out;
     }
 
     /** The end of every run's window, in the order the runs were made. */
     private List<Instant> windowEndsByCreation() {
         List<String[]> rows = new ArrayList<>();
-        for (String key : SharedKvrocks.raw().keys("flow:run:*")) {
+        for (String key : SharedKvrocks.keys("flow:run:*")) {
             rows.add(new String[]{SharedKvrocks.raw().hget(key, "created_ms"), SharedKvrocks.raw().hget(key, "window_end_ms")});
         }
         rows.sort((x, y) -> {
@@ -1612,7 +1613,7 @@ class RunCoordinatorIT {
     /** How many runs the run store holds in this state. */
     private int count(String status) {
         int n = 0;
-        for (String key : SharedKvrocks.raw().keys("flow:run:*")) {
+        for (String key : SharedKvrocks.keys("flow:run:*")) {
             if (status.equals(SharedKvrocks.raw().hget(key, "status"))) {
                 n++;
             }

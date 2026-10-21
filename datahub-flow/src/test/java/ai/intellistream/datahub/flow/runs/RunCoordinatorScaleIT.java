@@ -741,7 +741,7 @@ class RunCoordinatorScaleIT {
 
     /** How many runs the current tenant's store holds, ended or not. */
     private int total() {
-        return raw().keys("flow:run:*").size();
+        return SharedKvrocks.keys(servers.get(TenantContext.getTenantId()), "flow:run:*").size();
     }
 
     /**
@@ -755,7 +755,7 @@ class RunCoordinatorScaleIT {
     /** Every run of the current tenant as its stored fields. */
     private List<Map<String, String>> rows() {
         List<Map<String, String>> out = new ArrayList<>();
-        for (String key : raw().keys("flow:run:*")) {
+        for (String key : SharedKvrocks.keys(servers.get(TenantContext.getTenantId()), "flow:run:*")) {
             out.add(raw().hgetall(key));
         }
         return out;

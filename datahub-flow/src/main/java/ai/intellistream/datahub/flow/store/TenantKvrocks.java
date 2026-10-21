@@ -10,10 +10,13 @@ import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.TimeoutOptions;
 import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.codec.RedisCodec;
+import io.lettuce.core.codec.StringCodec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.nio.ByteBuffer;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -31,6 +34,8 @@ import java.util.function.Function;
  * <p>A KVRocks that cannot be reached fails the call at once rather than queueing it for when it
  * comes back, so a tenant whose KVRocks is down gets errors, not a growing backlog of commands, and
  * the other tenants are unaffected.
+ *
+ * <p>Every key is kept under the tenant ({@link #codec}), so callers name keys without one.
  */
 @Slf4j
 @Component
@@ -110,7 +115,39 @@ public class TenantKvrocks implements AutoCloseable {
             uri.withPassword(config.getPassword().toCharArray());
         }
         log.info("Connecting to the KVRocks of tenant {} at {}:{}", id, config.getHost(), config.getPort());
-        return client.connect(uri.build());
+        return client.connect(codec(id), uri.build());
+    }
+
+    /**
+     * Strings, with every key put under {@code {tenantId}:} on the way out and taken off on the way
+     * back, so tenants may share a KVRocks without one taking another's runs. The braces make the
+     * tenant the key's hash tag: in a cluster all of a tenant's keys share a slot, which the
+     * transactions need.
+     */
+    static RedisCodec<String, String> codec(String tenantId) {
+        String prefix = "{" + tenantId + "}:";
+        return new RedisCodec<>() {
+            @Override
+            public String decodeKey(ByteBuffer bytes) {
+                String key = StringCodec.UTF8.decodeKey(bytes);
+                return key.startsWith(prefix) ? key.substring(prefix.length()) : key;
+            }
+
+            @Override
+            public String decodeValue(ByteBuffer bytes) {
+                return StringCodec.UTF8.decodeValue(bytes);
+            }
+
+            @Override
+            public ByteBuffer encodeKey(String key) {
+                return StringCodec.UTF8.encodeKey(prefix + key);
+            }
+
+            @Override
+            public ByteBuffer encodeValue(String value) {
+                return StringCodec.UTF8.encodeValue(value);
+            }
+        };
     }
 
     @EventListener

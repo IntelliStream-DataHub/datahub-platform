@@ -29,7 +29,9 @@ authoritative for everything except run state.
 
 ## Keys
 
-One KVRocks per tenant, so keys carry no tenant. Times are epoch milliseconds taken from the KVRocks
+Every key is kept under its tenant, `{<tenantId>}:flow:...`, by the connection's codec
+(`TenantKvrocks`), so tenants may share a KVRocks; the table names keys without it. The braces make
+the tenant the hash tag, so in a cluster a tenant's keys share the slot its transactions need. Times are epoch milliseconds taken from the KVRocks
 server clock (`TIME`), so no instance's clock decides a lease or a back-off.
 
 | Key | Type | Holds |

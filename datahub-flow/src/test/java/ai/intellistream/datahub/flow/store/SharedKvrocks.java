@@ -4,6 +4,7 @@ package ai.intellistream.datahub.flow.store;
 import ai.intellistream.datahub.tenant.KVRocksTenant;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantContext;
 import io.lettuce.core.RedisClient;
 import io.lettuce.core.RedisURI;
 import io.lettuce.core.api.sync.RedisCommands;
@@ -13,6 +14,8 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
@@ -28,6 +31,7 @@ public final class SharedKvrocks {
 
     private static final List<GenericContainer<?>> CONTAINERS = new ArrayList<>();
     private static final List<RedisCommands<String, String>> ADMINS = new ArrayList<>();
+    private static final Map<String, RedisCommands<String, String>> VIEWS = new ConcurrentHashMap<>();
     private static RedisClient client;
 
     static {
@@ -77,14 +81,38 @@ public final class SharedKvrocks {
         ADMINS.forEach(RedisCommands::flushall);
     }
 
-    /** A connection to the first server for looking at the raw keys, as the invariants do. */
+    /**
+     * The current tenant's keys on the first server, for looking at them as the invariants do. Its
+     * keys are named without the tenant, as the store names them.
+     */
     public static RedisCommands<String, String> raw() {
         return raw(0);
     }
 
-    /** A connection to the {@code i}th server. */
+    /** The current tenant's keys on the {@code i}th server. */
     public static synchronized RedisCommands<String, String> raw(int i) {
         ensure(i + 1);
-        return ADMINS.get(i);
+        String tenantId = TenantContext.getTenantId();
+        if (tenantId == null) {
+            throw new IllegalStateException("No tenant on the context to look at the keys of");
+        }
+        return VIEWS.computeIfAbsent(i + "|" + tenantId, view -> client.connect(TenantKvrocks.codec(tenantId),
+                RedisURI.create(CONTAINERS.get(i).getHost(), CONTAINERS.get(i).getMappedPort(6666))).sync());
+    }
+
+    /**
+     * The current tenant's keys matching {@code pattern} on the first server, named as the store
+     * names them. {@code KEYS} on {@link #raw} would not do: Lettuce sends its pattern without the
+     * codec, so it would match no tenant's keys.
+     */
+    public static List<String> keys(String pattern) {
+        return keys(0, pattern);
+    }
+
+    /** The current tenant's keys matching {@code pattern} on the {@code i}th server. */
+    public static List<String> keys(int i, String pattern) {
+        RedisCommands<String, String> view = raw(i);
+        String prefix = "{" + TenantContext.getTenantId() + "}:";
+        return view.keys(prefix + pattern);
     }
 }

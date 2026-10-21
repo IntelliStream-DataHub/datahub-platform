@@ -604,10 +604,11 @@ class RunStoreIT {
                 TenantContext.clear();
             }
         }));
+        var raw = SharedKvrocks.raw();
         threads.add(Thread.ofVirtual().start(() -> {
             while (done.get() < total) {
                 for (int f = 1; f <= 3; f++) {
-                    long running = SharedKvrocks.raw().scard("flow:running:" + f);
+                    long running = raw.scard("flow:running:" + f);
                     top[f].accumulateAndGet((int) running, Math::max);
                     if (running > limits[f]) {
                         problems.add("flow " + f + " seen with " + running + " running");
@@ -747,7 +748,7 @@ class RunStoreIT {
         Thread.sleep(1500);
 
         assertThat(store.find(ids)).as("whichever came second let it expire").isEmpty();
-        assertThat(SharedKvrocks.raw().keys("flow:run:*")).isEmpty();
+        assertThat(SharedKvrocks.keys("flow:run:*")).isEmpty();
     }
 
     // ---------------------------------------------------------------- schedules

@@ -27,13 +27,13 @@ public final class StoreInvariants {
         RedisCommands<String, String> r = SharedKvrocks.raw();
         List<String> bad = new ArrayList<>();
         Set<String> flows = new HashSet<>();
-        for (String key : r.keys("flow:meta:*")) {
+        for (String key : SharedKvrocks.keys("flow:meta:*")) {
             flows.add(key.substring("flow:meta:".length()));
         }
-        for (String key : r.keys("flow:q:*")) {
+        for (String key : SharedKvrocks.keys("flow:q:*")) {
             flows.add(key.substring("flow:q:".length()));
         }
-        for (String key : r.keys("flow:retrying:*")) {
+        for (String key : SharedKvrocks.keys("flow:retrying:*")) {
             flows.add(key.substring("flow:retrying:".length()));
         }
         Set<String> queued = new HashSet<>();
@@ -86,7 +86,7 @@ public final class StoreInvariants {
                 }
             }
         }
-        for (String key : r.keys("flow:run:*")) {
+        for (String key : SharedKvrocks.keys("flow:run:*")) {
             String id = key.substring("flow:run:".length());
             Map<String, String> h = r.hgetall(key);
             String status = h.get("status");
@@ -139,7 +139,7 @@ public final class StoreInvariants {
                 bad.add("lease of " + id + " which is " + r.hget("flow:run:" + id, "status"));
             }
         }
-        for (String key : r.keys("flow:sched:*")) {
+        for (String key : SharedKvrocks.keys("flow:sched:*")) {
             if (key.startsWith("flow:sched-lock:")) {
                 continue;
             }
