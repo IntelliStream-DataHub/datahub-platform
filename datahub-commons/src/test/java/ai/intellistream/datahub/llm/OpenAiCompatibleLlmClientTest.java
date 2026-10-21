@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
@@ -14,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.openAiCompatible;
+import static ai.intellistream.datahub.llm.LlmSettingsFixture.openAiCompatible;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenAiCompatibleLlmClientTest {
@@ -35,7 +34,7 @@ class OpenAiCompatibleLlmClientTest {
     @Test
     void sendsTheSystemPromptAsTheFirstMessageAndSchemaUnderFunctionParameters() throws Exception {
         withServer(reply("hello"), (client, settings, request) -> {
-            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             JsonNode body = request.get();
             assertThat(body.path("messages").path(0).path("role").asString()).isEqualTo("system");
@@ -61,7 +60,7 @@ class OpenAiCompatibleLlmClientTest {
                             new LlmBlock.ToolResult("call_1", "{\"items\":[]}", false),
                             new LlmBlock.ToolResult("call_2", "boom", true))));
 
-            client.send(settings, "system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
+            client.send(settings, "system", List.of(DATASET_LIST), transcript, LlmEffort.HIGH);
 
             JsonNode messages = request.get().path("messages");
             // system, user, assistant, tool, tool — the single batched message became two.
@@ -85,13 +84,37 @@ class OpenAiCompatibleLlmClientTest {
                   "tool_calls":[{"id":"call_9","type":"function","function":{
                     "name":"dataset_list","arguments":"{\\"limit\\":25}"}}]}}]}""";
         withServer(toolCall, (client, settings, request) -> {
-            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.TOOL_USE);
             assertThat(turn.toolUses()).hasSize(1);
             assertThat(turn.toolUses().getFirst().id()).isEqualTo("call_9");
             assertThat(turn.toolUses().getFirst().name()).isEqualTo("dataset_list");
             assertThat(turn.toolUses().getFirst().args()).containsEntry("limit", 25);
+        });
+    }
+
+    @Test
+    void reportsWhatTheCallCostAndWhyItStopped() throws Exception {
+        String cutOff = """
+                {"choices":[{"index":0,"finish_reason":"length",
+                 "message":{"role":"assistant","content":"The pump is"}}],
+                 "usage":{"prompt_tokens":900,"completion_tokens":4096,
+                          "prompt_tokens_details":{"cached_tokens":600}}}""";
+        withServer(cutOff, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
+
+            assertThat(turn.wantsTools()).isFalse();
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.MAX_TOKENS);
+            assertThat(turn.usage()).isEqualTo(new LlmTurn.Usage(900, 4096, 600, 0));
+        });
+        // A server that reports no usage at all is a count of zero, not a failed turn.
+        withServer(reply("hi"), (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
+
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.END_TURN);
+            assertThat(turn.usage()).isEqualTo(LlmTurn.Usage.NONE);
         });
     }
 
@@ -105,7 +128,7 @@ class OpenAiCompatibleLlmClientTest {
                   "tool_calls":[{"id":"call_9","type":"function","function":{
                     "name":"dataset_list","arguments":"{limit: 25"}}]}}]}""";
         withServer(broken, (client, settings, request) -> {
-            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
             assertThat(turn.toolUses().getFirst().args()).isEmpty();
@@ -116,7 +139,7 @@ class OpenAiCompatibleLlmClientTest {
     void noAuthorizationHeaderWhenNoKeyIsConfigured() throws Exception {
         // Ollama rejects nothing, but sending a bogus bearer to a gateway that checks it would.
         withServer(reply("hi"), (client, settings, request, headers) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
             assertThat(headers.get()).isNull();
         });
     }
@@ -126,7 +149,7 @@ class OpenAiCompatibleLlmClientTest {
         // "OpenAI-compatible" is a family, not a specification: a strict server 400s on a field it
         // does not know, so an upgrade must not start sending one to a working deployment.
         withServer(reply("hi"), (client, settings, request) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.MAX);
             assertThat(request.get().has("reasoning_effort")).isFalse();
         });
     }
@@ -134,12 +157,12 @@ class OpenAiCompatibleLlmClientTest {
     @Test
     void mappedSendsTheLevelTheUserPicked() throws Exception {
         withServer(reply("hi"), "mapped", (client, settings, request) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.LOW);
             assertThat(request.get().path("reasoning_effort").asString()).isEqualTo("low");
 
             // Only three values exist on this wire, so the two deep levels collapse onto "high"
             // rather than sending a value the server would reject.
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.MAX);
             assertThat(request.get().path("reasoning_effort").asString()).isEqualTo("high");
         });
     }
@@ -149,7 +172,7 @@ class OpenAiCompatibleLlmClientTest {
         // How "none" is reachable at all: no effort level maps to it, and a self-hosted thinking
         // model that spends its budget reasoning returns nothing this client can read.
         withServer(reply("hi"), "none", (client, settings, request) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.MAX);
             assertThat(request.get().path("reasoning_effort").asString()).isEqualTo("none");
         });
     }
@@ -157,7 +180,7 @@ class OpenAiCompatibleLlmClientTest {
     @Test
     void aBlankValueSendsNothing() throws Exception {
         withServer(reply("hi"), "   ", (client, settings, request) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.LOW);
             assertThat(request.get().has("reasoning_effort")).isFalse();
         });
     }
@@ -165,12 +188,12 @@ class OpenAiCompatibleLlmClientTest {
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
-        void run(OpenAiCompatibleLlmClient client, ChatSettings settings,
+        void run(OpenAiCompatibleLlmClient client, LlmSettings settings,
                  AtomicReference<JsonNode> request) throws Exception;
     }
 
     private interface HeaderScenario {
-        void run(OpenAiCompatibleLlmClient client, ChatSettings settings,
+        void run(OpenAiCompatibleLlmClient client, LlmSettings settings,
                  AtomicReference<JsonNode> request, AtomicReference<String> authorization)
                 throws Exception;
     }

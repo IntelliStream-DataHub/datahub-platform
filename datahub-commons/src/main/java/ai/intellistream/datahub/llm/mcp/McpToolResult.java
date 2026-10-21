@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.mcp;
+package ai.intellistream.datahub.llm.mcp;
 
 /**
  * The outcome of one {@code tools/call}, flattened to the text the model will see.
@@ -8,9 +8,9 @@ package ai.intellistream.dhconsole.chat.mcp;
  * block, so {@code text} is normally that JSON. It is passed to the model verbatim — do not
  * re-parse or re-shape it.
  *
- * <p>{@code isError} covers both failure surfaces (a JSON-RPC {@code error} object and a
- * {@code result.isError}). Tool failures are values, not exceptions: the model needs to see them
- * as a tool result so it can adapt, rather than having the turn aborted underneath it.
+ * <p>{@code isError} is the server's own {@code result.isError}. Tool failures are values, not
+ * exceptions: the model needs to see them as a tool result so it can adapt, rather than having
+ * the turn aborted underneath it.
  */
 public record McpToolResult(String text, boolean isError) {
 

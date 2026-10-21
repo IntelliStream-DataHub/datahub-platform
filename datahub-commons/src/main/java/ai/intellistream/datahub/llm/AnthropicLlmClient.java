@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.JsonValue;
+import com.anthropic.core.RequestOptions;
 import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.ContentBlockParam;
@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * {@link LlmClient} backed by the Anthropic API.
@@ -32,6 +33,10 @@ import java.util.Map;
  * <p>All Anthropic-specific shapes are confined to this class: the batched tool-result message, the
  * {@code stop_reason} vocabulary, prompt-cache breakpoints, and the refusal stop reason. The loop
  * and the stored transcript stay neutral, so a second provider is a sibling of this file.
+ *
+ * <p>The only class in commons that touches the SDK, which is why the SDK is a compile-only
+ * dependency there: nothing loads this class until {@link LlmBackends} builds it for a tenant that
+ * configured the provider.
  */
 @Slf4j
 public class AnthropicLlmClient implements LlmClient {
@@ -49,8 +54,8 @@ public class AnthropicLlmClient implements LlmClient {
     }
 
     @Override
-    public LlmTurn send(ChatSettings settings, String systemPrompt, List<LlmToolDef> tools,
-                        List<LlmMessage> messages, ChatEffort effort) {
+    public LlmTurn send(LlmSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                        List<LlmMessage> messages, LlmEffort effort) {
         MessageCreateParams.Builder params = MessageCreateParams.builder()
                 .model(settings.model())
                 .maxTokens(settings.maxOutputTokensFor(effort))
@@ -78,14 +83,21 @@ public class AnthropicLlmClient implements LlmClient {
             params.addMessage(toMessageParam(message));
         }
 
-        Message response = client.messages().create(params.build());
+        // The turn budget bounds the call, as it does on the OpenAI-compatible client. Per request
+        // rather than on the client, which is shared by every tenant on the credential: the budget
+        // is each tenant's own.
+        Message response = client.messages().create(params.build(),
+                RequestOptions.builder().timeout(settings.turnTimeout()).build());
+        LlmTurn.Usage usage = toUsage(response);
+        logUsage(usage);
 
         if (response.stopReason().filter(StopReason.REFUSAL::equals).isPresent()) {
             // A safety classifier declined. Content is empty or partial, so don't read it as an
             // answer — say so plainly instead of surfacing a blank reply.
             log.info("Anthropic declined the request (stop_reason=refusal)");
             return new LlmTurn(List.of(new LlmBlock.Text(
-                    "I can't help with that request. Try rephrasing it, or ask about your data directly.")), false);
+                    "I can't help with that request. Try rephrasing it, or ask about your data directly.")),
+                    false, LlmTurn.StopReason.OTHER, usage);
         }
 
         List<LlmBlock> blocks = new ArrayList<>();
@@ -95,25 +107,23 @@ public class AnthropicLlmClient implements LlmClient {
                     new LlmBlock.ToolUse(t.id(), t.name(), toArgumentMap(t._input()))));
         }
 
-        if (response.stopReason().filter(StopReason.MAX_TOKENS::equals).isPresent()) {
+        LlmTurn.StopReason stopReason = toStopReason(response.stopReason());
+        if (stopReason == LlmTurn.StopReason.MAX_TOKENS) {
             // The configured roof wins over the effort level by design, so this is the one place the
             // cost of that shows up. Without it a truncated answer just looks like a poor answer.
-            log.warn("Answer truncated at the {}-token ceiling (effort {}). Raise "
-                            + "datahub.chat.max-output-tokens, or ask at a lower effort.",
+            log.warn("Answer truncated at the {}-token ceiling (effort {}). Raise the tenant's "
+                            + "llm.max-output-tokens, or ask at a lower effort.",
                     settings.maxOutputTokensFor(effort), effort);
         }
-
-        boolean wantsTools = response.stopReason().filter(StopReason.TOOL_USE::equals).isPresent();
-        logUsage(response);
-        return new LlmTurn(blocks, wantsTools);
+        return new LlmTurn(blocks, stopReason == LlmTurn.StopReason.TOOL_USE, stopReason, usage);
     }
 
     @Override
-    public String providerId(ChatSettings settings) {
+    public String providerId(LlmSettings settings) {
         return "anthropic/" + settings.model();
     }
 
-    private static OutputConfig.Effort toEffort(ChatEffort effort) {
+    private static OutputConfig.Effort toEffort(LlmEffort effort) {
         return switch (effort) {
             case LOW -> OutputConfig.Effort.LOW;
             case MEDIUM -> OutputConfig.Effort.MEDIUM;
@@ -121,6 +131,30 @@ public class AnthropicLlmClient implements LlmClient {
             case XHIGH -> OutputConfig.Effort.XHIGH;
             case MAX -> OutputConfig.Effort.MAX;
         };
+    }
+
+    /** Compared with {@code equals}, not {@code known()}: a value this SDK does not know is OTHER, not an exception. */
+    private static LlmTurn.StopReason toStopReason(Optional<StopReason> reason) {
+        if (reason.isEmpty()) {
+            return LlmTurn.StopReason.OTHER;
+        }
+        StopReason stop = reason.get();
+        if (StopReason.TOOL_USE.equals(stop)) {
+            return LlmTurn.StopReason.TOOL_USE;
+        }
+        if (StopReason.MAX_TOKENS.equals(stop)) {
+            return LlmTurn.StopReason.MAX_TOKENS;
+        }
+        if (StopReason.END_TURN.equals(stop) || StopReason.STOP_SEQUENCE.equals(stop)) {
+            return LlmTurn.StopReason.END_TURN;
+        }
+        return LlmTurn.StopReason.OTHER;
+    }
+
+    private static LlmTurn.Usage toUsage(Message response) {
+        var usage = response.usage();
+        return new LlmTurn.Usage(usage.inputTokens(), usage.outputTokens(),
+                usage.cacheReadInputTokens().orElse(0L), usage.cacheCreationInputTokens().orElse(0L));
     }
 
     private Tool toAnthropicTool(LlmToolDef def, boolean cacheable) {
@@ -218,16 +252,11 @@ public class AnthropicLlmClient implements LlmClient {
         return node.asString();
     }
 
-    private void logUsage(Message response) {
-        if (!log.isDebugEnabled()) {
-            return;
-        }
-        var usage = response.usage();
+    private static void logUsage(LlmTurn.Usage usage) {
         // cacheReadInputTokens should be non-zero from the second turn onwards; if it stays at
         // zero the tool list or system prompt is changing between requests.
         log.debug("Anthropic turn: input={} output={} cacheWrite={} cacheRead={}",
                 usage.inputTokens(), usage.outputTokens(),
-                usage.cacheCreationInputTokens().orElse(0L),
-                usage.cacheReadInputTokens().orElse(0L));
+                usage.cacheCreationInputTokens(), usage.cacheReadInputTokens());
     }
 }

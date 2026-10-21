@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.agent;
 
+import ai.intellistream.datahub.llm.LlmBlock;
+import ai.intellistream.datahub.llm.LlmClient;
+import ai.intellistream.datahub.llm.LlmClients;
+import ai.intellistream.datahub.llm.LlmEffort;
+import ai.intellistream.datahub.llm.LlmMessage;
+import ai.intellistream.datahub.llm.LlmSettings;
+import ai.intellistream.datahub.llm.LlmToolDef;
+import ai.intellistream.datahub.llm.LlmTurn;
+import ai.intellistream.datahub.llm.ToolLoop;
+import ai.intellistream.datahub.llm.mcp.McpToolResult;
 import ai.intellistream.dhconsole.chat.config.ChatProperties;
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
-import ai.intellistream.dhconsole.chat.llm.ChatEffort;
-import ai.intellistream.dhconsole.chat.llm.LlmBlock;
-import ai.intellistream.dhconsole.chat.llm.LlmClient;
-import ai.intellistream.dhconsole.chat.llm.LlmClients;
-import ai.intellistream.dhconsole.chat.llm.LlmMessage;
-import ai.intellistream.dhconsole.chat.llm.LlmToolDef;
-import ai.intellistream.dhconsole.chat.llm.LlmTurn;
 import ai.intellistream.dhconsole.chat.mcp.McpBridge;
-import ai.intellistream.dhconsole.chat.mcp.McpToolResult;
 import ai.intellistream.dhconsole.chat.policy.ToolPolicy;
 import ai.intellistream.dhconsole.chat.state.ChatConversation;
 import lombok.extern.slf4j.Slf4j;
@@ -24,8 +25,9 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * The agent loop: ask the model, run whatever read-only tools it asks for, feed the results back,
- * repeat until it answers.
+ * One chat turn: {@link ToolLoop} with the console's own pieces around it — the read-only tool
+ * policy, the signed-in user's token on every tool call, the navigation tools that run locally,
+ * and the transcript in the HTTP session.
  *
  * <p>Runs entirely on the request thread, so {@code SecurityContextHolder} and
  * {@code RequestContextHolder} are intact and the caller's bearer token can simply be passed in.
@@ -66,8 +68,8 @@ public class ChatService {
      *               to every iteration of this turn: a turn that earned a deep first pass has
      *               earned an equally deep pass over the tool results it just fetched.
      */
-    public ChatReply send(ChatConversation conversation, ChatSettings settings, String bearer,
-                          String userMessage, ZoneId zone, ChatEffort effort) {
+    public ChatReply send(ChatConversation conversation, LlmSettings settings, String bearer,
+                          String userMessage, ZoneId zone, LlmEffort effort) {
         String systemPrompt = prompt.build(zone, settings.instructions());
         conversation.append(LlmMessage.user(userMessage));
 
@@ -84,67 +86,66 @@ public class ChatService {
 
         // A turn is one HTTP request that can legitimately run for minutes, so it logs as it goes.
         // Without this a slow model and a hung one look identical: silence either way.
-        long modelMs = 0;
-        long toolMs = 0;
-        for (int iteration = 0; iteration < settings.maxIterations(); iteration++) {
-            long callStartedAt = System.nanoTime();
-            LlmTurn turn = llm.send(settings, systemPrompt, tools, conversation.messages(), effort);
-            long callMs = millisSince(callStartedAt);
-            modelMs += callMs;
-            log.info("Chat turn: model call {}/{} took {} ms, {}", iteration + 1,
-                    settings.maxIterations(), callMs,
-                    turn.wantsTools() ? "wants " + toolNames(turn) : "answering");
-            conversation.append(LlmMessage.assistant(turn.blocks()));
+        var timing = new ToolLoop.Listener() {
+            long modelMs;
+            long toolMs;
 
-            if (!turn.wantsTools()) {
-                conversation.trimTo(properties.getMaxMessages());
-                logBreakdown(iteration + 1, modelMs, toolMs, "answered");
-                return new ChatReply(turn.text(), List.copyOf(toolsUsed), limited(views), false);
+            @Override
+            public void modelCalled(int iteration, LlmTurn turn, long millis) {
+                modelMs += millis;
+                log.info("Chat turn: model call {}/{} took {} ms, {}", iteration,
+                        settings.maxIterations(), millis,
+                        turn.wantsTools() ? "wants " + toolNames(turn) : "answering");
             }
 
-            List<LlmBlock> results = new ArrayList<>();
-            for (LlmBlock.ToolUse call : turn.toolUses()) {
-                // A console-owned navigation tool: handled here, never sent to datahub-api. It is not
-                // a data lookup, so it does not go in the consulted-tools trace.
-                if (consoleViews.isLocalTool(call.name())) {
-                    consoleViews.fromLocalCall(call).ifPresent(views::add);
-                    results.add(new LlmBlock.ToolResult(call.id(),
-                            "Done. The user now has a button to open the events page with that filter.",
-                            false));
-                    continue;
-                }
-                toolsUsed.add(call.name());
-                long toolStartedAt = System.nanoTime();
-                LlmBlock.ToolResult result = execute(bearer, call);
-                long thisToolMs = millisSince(toolStartedAt);
-                toolMs += thisToolMs;
-                log.debug("Chat turn: tool {} took {} ms{}", call.name(), thisToolMs,
+            @Override
+            public void toolCalled(LlmBlock.ToolUse call, LlmBlock.ToolResult result, long millis) {
+                toolMs += millis;
+                log.debug("Chat turn: tool {} took {} ms{}", call.name(), millis,
                         result.isError() ? " (error)" : "");
-                results.add(result);
-                consoleViews.from(call, result).ifPresent(views::add);
             }
-            // One message carrying every result from this assistant turn — splitting them would
-            // teach the model to stop making parallel calls, and Anthropic rejects the shape.
-            conversation.append(LlmMessage.toolResults(results));
-        }
+        };
+        ToolLoop.ToolExecutor executor = call -> {
+            // A console-owned navigation tool: handled here, never sent to datahub-api. It is not
+            // a data lookup, so it does not go in the consulted-tools trace.
+            if (consoleViews.isLocalTool(call.name())) {
+                consoleViews.fromLocalCall(call).ifPresent(views::add);
+                return new LlmBlock.ToolResult(call.id(),
+                        "Done. The user now has a button to open the events page with that filter.",
+                        false);
+            }
+            toolsUsed.add(call.name());
+            LlmBlock.ToolResult result = execute(bearer, call);
+            consoleViews.from(call, result).ifPresent(views::add);
+            return result;
+        };
 
-        log.warn("Chat turn hit the {}-iteration cap at effort {}", settings.maxIterations(), effort);
+        ToolLoop.Outcome outcome = ToolLoop.run(llm, settings, systemPrompt, tools, conversation,
+                effort, executor, timing, () -> false);
+
         conversation.trimTo(properties.getMaxMessages());
-        logBreakdown(settings.maxIterations(), modelMs, toolMs, "truncated at the iteration cap");
-        return new ChatReply(lastAssistantText(conversation), List.copyOf(toolsUsed), limited(views), true);
+        boolean truncated = outcome.ended() == ToolLoop.Ended.ITERATION_CAP;
+        if (truncated) {
+            log.warn("Chat turn hit the {}-iteration cap at effort {}", settings.maxIterations(), effort);
+        }
+        // Where a turn's wall-clock and tokens went, which is the first question a slow one raises.
+        log.info("Chat turn {}: {} model call(s) {} ms, tools {} ms, {} tokens in / {} out",
+                describe(outcome.ended()), outcome.iterations(), timing.modelMs, timing.toolMs,
+                outcome.usage().inputTokens(), outcome.usage().outputTokens());
+        return new ChatReply(outcome.lastText(), List.copyOf(toolsUsed), limited(views), truncated);
     }
 
-    /** Where a turn's wall-clock actually went, which is the first question a slow one raises. */
-    private static void logBreakdown(int iterations, long modelMs, long toolMs, String outcome) {
-        log.info("Chat turn {}: {} model call(s) {} ms, tools {} ms", outcome, iterations, modelMs, toolMs);
+    private static String describe(ToolLoop.Ended ended) {
+        return switch (ended) {
+            case ANSWERED -> "answered";
+            case MAX_TOKENS -> "answered, cut off at the output ceiling";
+            case ITERATION_CAP -> "truncated at the iteration cap";
+            case STOPPED -> "stopped";
+        };
     }
 
     private static String toolNames(LlmTurn turn) {
         return turn.toolUses().stream().map(LlmBlock.ToolUse::name).toList().toString();
-    }
-
-    private static long millisSince(long startedAtNanos) {
-        return (System.nanoTime() - startedAtNanos) / 1_000_000;
     }
 
     private static List<ConsoleView> limited(Set<ConsoleView> views) {
@@ -160,27 +161,9 @@ public class ChatService {
                     "This tool is not available in chat. Only read-only tools are permitted.", true);
         }
         McpToolResult result = mcp.callTool(bearer, call.name(), call.args());
-        return new LlmBlock.ToolResult(call.id(), truncate(result.text()), result.isError());
-    }
-
-    private String truncate(String text) {
-        int max = properties.getMaxToolResultChars();
-        if (text.length() <= max) {
-            return text;
-        }
-        // Tell the model it was cut off, so it narrows the query rather than reasoning over a
-        // half-object it thinks is complete.
-        return text.substring(0, max) + "\n…[truncated; narrow the query to see more]";
-    }
-
-    private static String lastAssistantText(ChatConversation conversation) {
-        List<LlmMessage> messages = conversation.messages();
-        for (int i = messages.size() - 1; i >= 0; i--) {
-            LlmMessage message = messages.get(i);
-            if (message.role() == LlmMessage.Role.ASSISTANT && !message.text().isBlank()) {
-                return message.text();
-            }
-        }
-        return "";
+        // A single timeseries_fetch_datapoints can return far more than the conversation needs,
+        // and the transcript is serialised into the session on every request.
+        return new LlmBlock.ToolResult(call.id(),
+                ToolLoop.truncate(result.text(), properties.getMaxToolResultChars()), result.isError());
     }
 }

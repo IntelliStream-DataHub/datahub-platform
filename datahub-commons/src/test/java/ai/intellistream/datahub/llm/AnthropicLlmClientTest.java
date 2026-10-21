@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.dhconsole.chat.llm;
+package ai.intellistream.datahub.llm;
 
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
+import ai.intellistream.datahub.tenant.LlmProvider;
 import com.anthropic.client.okhttp.AnthropicOkHttpClient;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -10,12 +10,14 @@ import tools.jackson.databind.json.JsonMapper;
 
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static ai.intellistream.dhconsole.chat.config.ChatSettingsFixture.anthropic;
+import static ai.intellistream.datahub.llm.LlmSettingsFixture.anthropic;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Drives the adapter against a local server standing in for the Anthropic API, so the request
@@ -51,7 +53,7 @@ class AnthropicLlmClientTest {
     @Test
     void sendsToolSchemaThroughUnchanged() throws Exception {
         withApi(textResponse("hello"), (client, settings, request) -> {
-            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            client.send(settings, "You are a data assistant.", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             JsonNode tool = request.get().path("tools").path(0);
             assertThat(tool.path("name").asString()).isEqualTo("dataset_list");
@@ -67,7 +69,7 @@ class AnthropicLlmClientTest {
     void marksTheStaticPrefixCacheable() throws Exception {
         withApi(textResponse("hello"), (client, settings, request) -> {
             client.send(settings, "You are a data assistant.",
-                    List.of(DATASET_LIST, UNIT_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+                    List.of(DATASET_LIST, UNIT_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             // Two breakpoints — the system block and the LAST tool — so both static sections are
             // cached. A breakpoint on the system block alone leaves the tool schemas (the bulk of
@@ -94,7 +96,7 @@ class AnthropicLlmClientTest {
                             new LlmBlock.ToolResult("t1", "{\"items\":[]}", false),
                             new LlmBlock.ToolResult("t2", "boom", true))));
 
-            client.send(settings, "system", List.of(DATASET_LIST), transcript, ChatEffort.HIGH);
+            client.send(settings, "system", List.of(DATASET_LIST), transcript, LlmEffort.HIGH);
 
             JsonNode messages = request.get().path("messages");
             assertThat(messages.size()).isEqualTo(3);
@@ -123,9 +125,10 @@ class AnthropicLlmClientTest {
                  "stop_reason":"tool_use","stop_sequence":null,
                  "usage":{"input_tokens":10,"output_tokens":5}}""";
         withApi(toolUse, (client, settings, request) -> {
-            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             assertThat(turn.wantsTools()).isTrue();
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.TOOL_USE);
             assertThat(turn.text()).isEqualTo("Let me look.");
             assertThat(turn.toolUses()).hasSize(1);
             LlmBlock.ToolUse call = turn.toolUses().getFirst();
@@ -137,16 +140,43 @@ class AnthropicLlmClientTest {
     }
 
     @Test
+    void reportsWhatTheCallCostAndWhyItStopped() throws Exception {
+        // An answer cut off at max_tokens looks like an answer; only the stop reason says it is
+        // not, and an unattended run has nobody to notice the missing sentence.
+        String cutOff = """
+                {"id":"msg_4","type":"message","role":"assistant","model":"claude-opus-5",
+                 "content":[{"type":"text","text":"The pump is"}],
+                 "stop_reason":"max_tokens","stop_sequence":null,
+                 "usage":{"input_tokens":1200,"output_tokens":4096,
+                          "cache_read_input_tokens":1000,"cache_creation_input_tokens":150}}""";
+        withApi(cutOff, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
+
+            assertThat(turn.wantsTools()).isFalse();
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.MAX_TOKENS);
+            assertThat(turn.usage()).isEqualTo(new LlmTurn.Usage(1200, 4096, 1000, 150));
+        });
+        withApi(textResponse("hello"), (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
+
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.END_TURN);
+            // Cache figures absent from the response count as zero, not as missing data.
+            assertThat(turn.usage()).isEqualTo(new LlmTurn.Usage(10, 5, 0, 0));
+        });
+    }
+
+    @Test
     void aRefusalBecomesAPlainAnswerRatherThanAnEmptyReply() throws Exception {
         String refusal = """
                 {"id":"msg_3","type":"message","role":"assistant","model":"claude-opus-5",
                  "content":[],"stop_reason":"refusal","stop_sequence":null,
                  "usage":{"input_tokens":10,"output_tokens":0}}""";
         withApi(refusal, (client, settings, request) -> {
-            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
 
             // Reading content[0] unconditionally here would throw; the user gets a sentence instead.
             assertThat(turn.wantsTools()).isFalse();
+            assertThat(turn.stopReason()).isEqualTo(LlmTurn.StopReason.OTHER);
             assertThat(turn.text()).contains("can't help with that");
         });
     }
@@ -154,7 +184,7 @@ class AnthropicLlmClientTest {
     @Test
     void sendsTheRequestedEffortAndAdaptiveThinking() throws Exception {
         withApi(textResponse("hello"), (client, settings, request) -> {
-            client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), ChatEffort.LOW);
+            client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.LOW);
 
             assertThat(request.get().path("output_config").path("effort").asString()).isEqualTo("low");
             // Stated rather than defaulted: on an older model omitting it means no thinking at all,
@@ -166,12 +196,12 @@ class AnthropicLlmClientTest {
     @Test
     void withNoRoofConfiguredTheDeepestLevelsGetMoreRoom() throws Exception {
         withApi(textResponse("hello"), (client, settings, request) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.HIGH);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(4096);
 
             // max_tokens caps thinking and answer together, so a turn told to think its hardest
             // under a 4096 ceiling would spend the budget reasoning and truncate the answer.
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.MAX);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(32_000);
         });
     }
@@ -179,15 +209,52 @@ class AnthropicLlmClientTest {
     @Test
     void aConfiguredRoofIsSentEvenAtTheDeepestLevel() throws Exception {
         withApi(textResponse("hello"), 800, (client, settings, request) -> {
-            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), ChatEffort.MAX);
+            client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.MAX);
             assertThat(request.get().path("max_tokens").asInt()).isEqualTo(800);
         });
+    }
+
+    @Test
+    void theTurnTimeoutBoundsTheCall() throws Exception {
+        // A hung provider must not hold a chat request, or an agent run's slot, for the SDK's own
+        // ten-minute default: the tenant's turn budget is the bound, as on the OpenAI-compatible
+        // client.
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/messages", exchange -> {
+            try {
+                Thread.sleep(5_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            exchange.sendResponseHeaders(500, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            AnthropicLlmClient client = new AnthropicLlmClient(
+                    AnthropicOkHttpClient.builder()
+                            .apiKey("test-key")
+                            .baseUrl("http://127.0.0.1:" + server.getAddress().getPort())
+                            .maxRetries(0)
+                            .build(),
+                    JSON);
+            LlmSettings impatient = new LlmSettings(LlmProvider.ANTHROPIC, "test-key", "claude-opus-5",
+                    null, null, Duration.ofMillis(300), null, LlmEffort.DEFAULT, 6, null);
+
+            long startedAt = System.nanoTime();
+            assertThatThrownBy(() -> client.send(impatient, "system", List.of(),
+                    List.of(LlmMessage.user("hi")), LlmEffort.HIGH))
+                    .isInstanceOf(RuntimeException.class);
+            assertThat(Duration.ofNanos(System.nanoTime() - startedAt)).isLessThan(Duration.ofSeconds(3));
+        } finally {
+            server.stop(0);
+        }
     }
 
     // ---- harness -------------------------------------------------------------------------------
 
     private interface Scenario {
-        void run(AnthropicLlmClient client, ChatSettings settings,
+        void run(AnthropicLlmClient client, LlmSettings settings,
                  AtomicReference<JsonNode> request) throws Exception;
     }
 

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.agent;
 
-import ai.intellistream.dhconsole.chat.llm.LlmBlock;
-import ai.intellistream.dhconsole.chat.llm.LlmToolDef;
+import ai.intellistream.datahub.llm.LlmBlock;
+import ai.intellistream.datahub.llm.LlmToolDef;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 

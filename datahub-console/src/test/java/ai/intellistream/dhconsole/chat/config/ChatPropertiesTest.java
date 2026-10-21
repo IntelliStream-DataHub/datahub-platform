@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.config;
 
-import ai.intellistream.dhconsole.chat.llm.ChatEffort;
+import ai.intellistream.datahub.llm.LlmEffort;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -16,9 +16,9 @@ class ChatPropertiesTest {
     void withNoRoofConfiguredTheLevelChoosesTheBudget() {
         ChatProperties properties = new ChatProperties();
 
-        assertThat(properties.maxOutputTokensFor(ChatEffort.HIGH)).isEqualTo(4_096);
-        assertThat(properties.maxOutputTokensFor(ChatEffort.XHIGH)).isEqualTo(16_000);
-        assertThat(properties.maxOutputTokensFor(ChatEffort.MAX)).isEqualTo(32_000);
+        assertThat(properties.maxOutputTokensFor(LlmEffort.HIGH)).isEqualTo(4_096);
+        assertThat(properties.maxOutputTokensFor(LlmEffort.XHIGH)).isEqualTo(16_000);
+        assertThat(properties.maxOutputTokensFor(LlmEffort.MAX)).isEqualTo(32_000);
     }
 
     @Test
@@ -28,7 +28,7 @@ class ChatPropertiesTest {
         ChatProperties properties = new ChatProperties();
         properties.setMaxOutputTokens(800);
 
-        for (ChatEffort effort : ChatEffort.values()) {
+        for (LlmEffort effort : LlmEffort.values()) {
             assertThat(properties.maxOutputTokensFor(effort)).as("effort %s", effort).isEqualTo(800);
         }
     }
@@ -38,7 +38,7 @@ class ChatPropertiesTest {
         ChatProperties properties = new ChatProperties();
         properties.setMaxOutputTokens(64_000);
 
-        assertThat(properties.maxOutputTokensFor(ChatEffort.LOW)).isEqualTo(64_000);
-        assertThat(properties.maxOutputTokensFor(ChatEffort.MAX)).isEqualTo(64_000);
+        assertThat(properties.maxOutputTokensFor(LlmEffort.LOW)).isEqualTo(64_000);
+        assertThat(properties.maxOutputTokensFor(LlmEffort.MAX)).isEqualTo(64_000);
     }
 }

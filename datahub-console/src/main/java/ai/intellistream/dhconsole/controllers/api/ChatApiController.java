@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.controllers.api;
 
+import ai.intellistream.datahub.llm.LlmBlock;
+import ai.intellistream.datahub.llm.LlmEffort;
+import ai.intellistream.datahub.llm.LlmMessage;
+import ai.intellistream.datahub.llm.LlmSettings;
+import ai.intellistream.datahub.llm.mcp.McpException;
 import ai.intellistream.dhconsole.chat.agent.ChatReply;
 import ai.intellistream.dhconsole.chat.agent.ChatService;
 import ai.intellistream.dhconsole.chat.agent.ConsoleView;
 import ai.intellistream.dhconsole.chat.agent.ConsoleViews;
-import ai.intellistream.dhconsole.chat.config.ChatSettings;
 import ai.intellistream.dhconsole.chat.config.ChatSettingsResolver;
-import ai.intellistream.dhconsole.chat.llm.ChatEffort;
-import ai.intellistream.dhconsole.chat.llm.LlmBlock;
-import ai.intellistream.dhconsole.chat.llm.LlmMessage;
-import ai.intellistream.dhconsole.chat.mcp.McpException;
 import ai.intellistream.dhconsole.chat.state.ChatConversation;
 import ai.intellistream.dhconsole.security.AccessTokens;
 import jakarta.servlet.http.HttpSession;
@@ -123,8 +123,8 @@ public class ChatApiController {
         try {
             // Resolved per turn, on the request thread: a tenant may have been reconfigured since
             // the last one, and TenantConfigService refreshes from Vault on its own schedule.
-            ChatSettings settings = settingsResolver.forCurrentTenant();
-            ChatEffort effort = ChatEffort.parse(request.effort(), settings.defaultEffort());
+            LlmSettings settings = settingsResolver.forCurrentTenant();
+            LlmEffort effort = LlmEffort.parse(request.effort(), settings.defaultEffort());
             // Logged before the work, not only after: a turn can legitimately run for minutes, and
             // the first thing to establish about one that never came back is that it arrived at all.
             // The message itself is never logged - it is the user's data, and its length is enough.
@@ -233,7 +233,7 @@ public class ChatApiController {
         // a slow self-hosted model raises it, and a panel still aborting at the deployment default
         // would show a network error while the server was still working. Effort is not per tenant,
         // so it keeps coming from the deployment configuration.
-        ChatSettings settings = settingsResolver.forCurrentTenant();
+        LlmSettings settings = settingsResolver.forCurrentTenant();
         return new ChatHistory(turns, settings.defaultEffort().wireName(),
                 settings.turnTimeout().toMillis());
     }
