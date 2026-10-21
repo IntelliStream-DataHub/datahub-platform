@@ -180,7 +180,8 @@ public class TimeseriesMcpTools {
             name = "timeseries_send_datapoint",
             description = """
                     Write a single datapoint to a timeseries. A datapoint at a timestamp
-                    that already holds one replaces it. Identify the target by
+                    that already holds one supersedes it, though reads may return both
+                    until storage merges them. Identify the target by
                     externalId OR id (supply exactly one). Timestamp accepts ISO-8601
                     with an offset (e.g. '2026-04-23T14:05:00Z') or a UTC epoch in
                     milliseconds as a string.

@@ -127,7 +127,8 @@ public class McpConfig {
 
     /**
      * Updates count as destructive because they overwrite the fields they set, and so does
-     * {@code timeseries_send_datapoint}: a datapoint at an existing timestamp replaces it.
+     * {@code timeseries_send_datapoint}: a datapoint at an existing timestamp replaces it once
+     * ClickHouse merges the two rows.
      * Nothing here is open-world — every tool acts on this DataHub tenant only.
      */
     private static ToolAnnotations hintsFor(String tool) {
