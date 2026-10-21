@@ -16,8 +16,8 @@ import java.util.Optional;
 
 /**
  * The flows of the current tenant and their versions, in its {@code flow} and {@code flow_version}
- * tables (V46, in {@code public} since V51). Names are unqualified: the tables are in the default
- * schema, which is all a pgbouncer connection in transaction mode has.
+ * tables (V46). Names are unqualified: the tables are in the default schema, which is all a
+ * pgbouncer connection in transaction mode has.
  *
  * <p>A version is written once and never changed (the table refuses updates); a flow's current
  * version moves forward with every save. Callers run the writes in one transaction.
