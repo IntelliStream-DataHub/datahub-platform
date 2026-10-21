@@ -18,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The flow tables (V46, moved to public by V51) as a tenant gets them: an empty database migrated by
+ * The flow tables (V46) as a tenant gets them: an empty database migrated by
  * {@link TenantMigrationService}, the engine datahub-api and datahub-cleanup provision tenants with.
  *
  * <p>Checks what the run protocol leans on rather than every column: the claim's and reaper's
