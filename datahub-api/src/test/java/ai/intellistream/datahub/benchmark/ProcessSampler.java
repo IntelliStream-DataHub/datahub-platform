@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.e2e;
+package ai.intellistream.datahub.benchmark;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

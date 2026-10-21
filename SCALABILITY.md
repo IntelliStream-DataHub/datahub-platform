@@ -127,8 +127,8 @@ Arrow-capable tool can produce. `FrameLimits` and `ArrowSchemaCanon` in `datahub
 the normative caps and schemas; the byte-level spec belongs in the SDK documentation.
 
 Measured 2026-09-12 on one 32-core host running the clients, both services, Pulsar and ClickHouse
-together. Re-run with `./gradlew :datahub-e2e:benchmark`; `datahub-e2e/README.md` has the setup
-and the two product limits that must be off. **Everything must be built optimised.** `bootRun`
+together. Re-run with `./gradlew :datahub-api:benchmark`; [BENCHMARK.md](BENCHMARK.md) has the
+setup and the two product limits that must be off. **Everything must be built optimised.** `bootRun`
 disables C2, `cargo test` defaults to `opt-level = 0`, and a debug PyO3 module is equally
 useless. A first run of this comparison reported Rust as slower than Java purely from that.
 

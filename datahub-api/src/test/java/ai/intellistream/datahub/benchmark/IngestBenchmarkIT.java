@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.e2e;
+package ai.intellistream.datahub.benchmark;
 
 import ai.intellistream.datahub.api.responses.DatapointString;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * the rows readable, which is the number that matters for "when can I query it".
  *
  * <p>Size is {@code DATAHUB_BENCH_POINTS} (default 100 million) across
- * {@code DATAHUB_BENCH_SERIES} series. Needs a running stack; see README.md.
+ * {@code DATAHUB_BENCH_SERIES} series. Needs a running stack; see BENCHMARK.md.
  */
 @Tag("performance")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

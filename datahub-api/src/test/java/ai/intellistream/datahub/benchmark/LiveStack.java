@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-package ai.intellistream.datahub.e2e;
+package ai.intellistream.datahub.benchmark;
 
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
@@ -55,9 +55,9 @@ final class LiveStack {
     /** Skips the test unless the api answers; a configured-but-down stack is not a code failure. */
     static void requireReachable() {
         Assumptions.assumeTrue(env("DATAHUB_BASE_URL", null) != null,
-                "DATAHUB_BASE_URL is not set; see datahub-e2e/README.md");
+                "DATAHUB_BASE_URL is not set; see BENCHMARK.md");
         Assumptions.assumeTrue(env("DATAHUB_CLIENT_ID", null) != null,
-                "DATAHUB_CLIENT_ID is not set; see datahub-e2e/README.md");
+                "DATAHUB_CLIENT_ID is not set; see BENCHMARK.md");
         try (HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()) {
             HttpRequest probe = HttpRequest.newBuilder(URI.create(baseUrl() + "/timeseries"))
                     .timeout(Duration.ofSeconds(5)).GET().build();
@@ -128,7 +128,7 @@ final class LiveStack {
     private static String require(String name) {
         String value = env(name, null);
         if (value == null) {
-            throw new IllegalStateException(name + " is not set; see datahub-e2e/README.md");
+            throw new IllegalStateException(name + " is not set; see BENCHMARK.md");
         }
         return value;
     }
