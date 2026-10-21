@@ -8,10 +8,16 @@ import ai.intellistream.datahub.api.mcp.tools.LabelMcpTools;
 import ai.intellistream.datahub.api.mcp.tools.ResourceMcpTools;
 import ai.intellistream.datahub.api.mcp.tools.TimeseriesMcpTools;
 import ai.intellistream.datahub.api.mcp.tools.UnitMcpTools;
-import org.springframework.ai.tool.ToolCallbackProvider;
+import io.modelcontextprotocol.server.McpStatelessServerFeatures.SyncToolSpecification;
+import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+import org.springframework.ai.mcp.McpToolUtils;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * MCP (Model Context Protocol) server wiring for datahub-api.
@@ -43,9 +49,16 @@ import org.springframework.context.annotation.Configuration;
  * <h3>Adding tools</h3>
  * Declare a Spring bean in the {@code mcp.tools} sub-package and annotate its public
  * methods with {@link org.springframework.ai.tool.annotation.Tool @Tool}. Register the
- * new bean in {@link #datahubMcpTools(TimeseriesMcpTools, DatasetMcpTools)}. That's it —
- * Spring AI introspects the methods and builds the MCP tool schema from parameter types,
- * {@code @ToolParam} descriptions, and Jackson's view of the return type.
+ * new bean in {@link #datahubMcpTools} and classify each new tool in {@link #hintsFor} —
+ * startup fails for a tool that has no hints. Spring AI introspects the methods and builds
+ * the MCP tool schema from parameter types, {@code @ToolParam} descriptions, and Jackson's
+ * view of the return type.
+ *
+ * <h3>Tool hints</h3>
+ * Spring AI's {@code @Tool} has no way to carry MCP's tool annotations, and a tool without
+ * them is treated by clients as the worst case: not read-only, destructive, open-world. So
+ * this config converts the tools to stateless specifications itself and attaches the hints
+ * from {@link #hintsFor}, rather than handing Spring AI a {@code ToolCallbackProvider}.
  *
  * <h3>Tool naming convention</h3>
  * {@code <domain>_<action>} in snake_case (e.g. {@code timeseries_create}). Keeps the
@@ -68,13 +81,20 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class McpConfig {
 
+    /** Reads only; repeating it changes nothing. */
+    private static final ToolAnnotations READ_ONLY = new ToolAnnotations(null, true, false, true, false, null);
+    /** Adds something new; calling it twice adds it twice, or fails the second time. */
+    private static final ToolAnnotations ADDITIVE = new ToolAnnotations(null, false, false, false, false, null);
+    /** Overwrites or removes what is there; repeating it has no further effect. */
+    private static final ToolAnnotations OVERWRITING = new ToolAnnotations(null, false, true, true, false, null);
+
     /**
-     * The single {@link ToolCallbackProvider} bean Spring AI's MCP auto-configuration
-     * uses to publish tools to clients. Add every {@code @Tool}-bearing bean to this
-     * list — if it's not here, the MCP server doesn't advertise it.
+     * The tool specifications Spring AI's stateless MCP server publishes. Add every
+     * {@code @Tool}-bearing bean to this list — if it's not here, the MCP server doesn't
+     * advertise it.
      */
     @Bean
-    public ToolCallbackProvider datahubMcpTools(
+    public List<SyncToolSpecification> datahubMcpTools(
             TimeseriesMcpTools timeseriesTools,
             DatasetMcpTools datasetTools,
             ResourceMcpTools resourceTools,
@@ -82,7 +102,7 @@ public class McpConfig {
             EventMcpTools eventTools,
             UnitMcpTools unitTools,
             LabelMcpTools labelTools) {
-        return MethodToolCallbackProvider.builder()
+        var callbacks = MethodToolCallbackProvider.builder()
                 .toolObjects(
                         timeseriesTools,
                         datasetTools,
@@ -92,6 +112,41 @@ public class McpConfig {
                         unitTools,
                         labelTools
                 )
-                .build();
+                .build()
+                .getToolCallbacks();
+        return Arrays.stream(callbacks)
+                .map(callback -> {
+                    var spec = McpToolUtils.toStatelessSyncToolSpecification(callback, null);
+                    McpSchema.Tool tool = spec.tool();
+                    return new SyncToolSpecification(new McpSchema.Tool(tool.name(), tool.title(),
+                            tool.description(), tool.inputSchema(), tool.outputSchema(),
+                            hintsFor(tool.name()), tool.meta(), tool.icons()), spec.callHandler());
+                })
+                .toList();
+    }
+
+    /**
+     * Updates count as destructive because they overwrite the fields they set, and so does
+     * {@code timeseries_send_datapoint}: a datapoint at an existing timestamp replaces it.
+     * Nothing here is open-world — every tool acts on this DataHub tenant only.
+     */
+    private static ToolAnnotations hintsFor(String tool) {
+        return switch (tool) {
+            case "dataset_search", "dataset_list",
+                 "edge_get", "edge_list_types",
+                 "event_get", "event_search", "event_filter",
+                 "label_list",
+                 "resource_get", "resource_search", "resource_fetch_related", "resource_fetch_nearest",
+                 "timeseries_get", "timeseries_search", "timeseries_get_latest", "timeseries_list",
+                 "timeseries_fetch_datapoints",
+                 "unit_list", "unit_get" -> READ_ONLY;
+            case "dataset_create", "edge_create", "edge_create_type", "event_create", "label_create",
+                 "resource_create", "timeseries_create" -> ADDITIVE;
+            case "dataset_update", "dataset_delete", "edge_delete", "event_update", "event_delete",
+                 "label_update", "resource_update", "resource_delete", "timeseries_update",
+                 "timeseries_delete", "timeseries_send_datapoint" -> OVERWRITING;
+            default -> throw new IllegalStateException(
+                    "MCP tool '" + tool + "' has no hints; classify it in McpConfig.hintsFor");
+        };
     }
 }

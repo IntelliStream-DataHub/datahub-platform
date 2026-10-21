@@ -15,17 +15,16 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
-import static org.hamcrest.Matchers.containsString;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * {@code /mcp} through the real stateless transport: it must sit behind the same JWT +
  * {@code ROLE_DATAHUB_ACCESS} gate as {@code /analysis} (no MCP-specific bypass), and a
- * {@code tools/list} must advertise {@code analysis_related_series}. Mirrors
+ * {@code tools/list} must advertise {@code analysis_related_series}, once, as read-only. Mirrors
  * {@code AnalysisSecurityTest}'s harness.
  */
 @SpringBootTest
@@ -71,6 +70,9 @@ class McpEndpointTest {
                         .with(jwt().authorities(new SimpleGrantedAuthority("ROLE_DATAHUB_ACCESS")))
                         .contentType(MediaType.APPLICATION_JSON).content(TOOLS_LIST))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("analysis_related_series")));
+                .andExpect(jsonPath("$.result.tools.length()").value(1))
+                .andExpect(jsonPath("$.result.tools[0].name").value("analysis_related_series"))
+                .andExpect(jsonPath("$.result.tools[0].annotations.readOnlyHint").value(true))
+                .andExpect(jsonPath("$.result.tools[0].annotations.openWorldHint").value(false));
     }
 }
