@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.analysis.mcp;
 
-import org.springframework.ai.tool.ToolCallbackProvider;
+import io.modelcontextprotocol.server.McpStatelessServerFeatures.SyncToolSpecification;
+import io.modelcontextprotocol.spec.McpSchema;
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+import org.springframework.ai.mcp.McpToolUtils;
 import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * MCP server wiring for datahub-analysis — the analysis engine's agent-facing surface,
@@ -26,15 +32,39 @@ import org.springframework.context.annotation.Configuration;
  *
  * <h3>Adding tools</h3>
  * Annotate public methods on a bean in this package with {@code @Tool} and register the bean
- * below — if it's not in this list, the MCP server doesn't advertise it.
+ * below — if it's not in this list, the MCP server doesn't advertise it. Classify each new tool
+ * in {@link #hintsFor}; startup fails for one that has no hints. As in the api's config, the
+ * tools are converted to specifications here rather than handed over as a
+ * {@code ToolCallbackProvider}, because {@code @Tool} cannot carry MCP's tool annotations.
  */
 @Configuration
 public class AnalysisMcpConfig {
 
+    /** Reads only; repeating it changes nothing. Closed-world: it reads this DataHub tenant. */
+    private static final ToolAnnotations READ_ONLY = new ToolAnnotations(null, true, false, true, false, null);
+
     @Bean
-    public ToolCallbackProvider analysisToolCallbacks(AnalysisMcpTools analysisTools) {
-        return MethodToolCallbackProvider.builder()
+    public List<SyncToolSpecification> analysisToolSpecifications(AnalysisMcpTools analysisTools) {
+        var callbacks = MethodToolCallbackProvider.builder()
                 .toolObjects(analysisTools)
-                .build();
+                .build()
+                .getToolCallbacks();
+        return Arrays.stream(callbacks)
+                .map(callback -> {
+                    var spec = McpToolUtils.toStatelessSyncToolSpecification(callback, null);
+                    McpSchema.Tool tool = spec.tool();
+                    return new SyncToolSpecification(new McpSchema.Tool(tool.name(), tool.title(),
+                            tool.description(), tool.inputSchema(), tool.outputSchema(),
+                            hintsFor(tool.name()), tool.meta(), tool.icons()), spec.callHandler());
+                })
+                .toList();
+    }
+
+    private static ToolAnnotations hintsFor(String tool) {
+        return switch (tool) {
+            case "analysis_related_series" -> READ_ONLY;
+            default -> throw new IllegalStateException(
+                    "MCP tool '" + tool + "' has no hints; classify it in AnalysisMcpConfig.hintsFor");
+        };
     }
 }
