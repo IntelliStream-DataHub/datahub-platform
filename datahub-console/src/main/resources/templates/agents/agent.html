@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{agents.agent.title}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/settings.css}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'agents')}">
+<main class="layout-body">
+	<nav th:replace="~{agents/nav :: navbar('list')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{agents.not.enabled}">Agents need flows and a model configured for your organization.</p>
+	</div>
+
+	<!--/* An agent: a form over a flow of kind agent (read-events → agent → write-events), saved,
+	       previewed, deployed and run against datahub-flow by agents/agent-form.js; an id the
+	       service does not know opens as a new agent. The tree itself is in the Flows section. */-->
+	<div th:if="${!featureDisabled}" class="flows-page agent-page pad20" data-type="agent-page"
+		 th:attr="data-flow-id=${flowExternalId}">
+
+		<div class="flows-header">
+			<div>
+				<h2 data-type="agent-title" th:text="${flowExternalId}"></h2>
+				<p class="flows-intro" data-type="agent-state" th:text="#{loading}"></p>
+			</div>
+			<div class="flow-actions">
+				<button type="button" class="dh-btn primary small" data-type="agent-save" th:text="#{datahub.save}"></button>
+				<button type="button" class="dh-btn secondary small" data-type="agent-preview" th:text="#{flows.preview}"
+						th:title="#{agents.preview.help}"></button>
+				<button type="button" class="dh-btn secondary small" data-type="agent-run" th:text="#{flows.run.now}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="agent-deploy" th:text="#{flows.deploy}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="agent-run-as" th:text="#{flows.run.as}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="agent-toggle" hidden></button>
+				<a class="dh-btn secondary small" data-type="agent-open-flow" th:text="#{agents.open.flow}" hidden></a>
+				<button type="button" class="dh-btn danger small" data-type="agent-delete" th:text="#{delete}" hidden></button>
+			</div>
+		</div>
+
+		<div class="flows-banner" data-type="agent-readonly" hidden>
+			<i class="fa-regular fa-eye"></i>
+			<span th:text="#{flows.readonly}"></span>
+		</div>
+
+		<ul class="flow-problems" data-type="agent-problems" hidden></ul>
+
+		<div class="flow-tabs" role="tablist">
+			<button type="button" class="selected" data-tab="agent" th:text="#{agents.tab.agent}"></button>
+			<button type="button" data-tab="runs" th:text="#{agents.tab.runs}"></button>
+			<button type="button" data-tab="attention" th:text="#{agents.tab.attention}"></button>
+			<button type="button" data-tab="versions" th:text="#{agents.tab.versions}"></button>
+		</div>
+
+		<section class="flow-pane" data-pane="agent">
+			<form class="datahub-form-fields settings-form agent-form" data-type="agent-form" novalidate>
+
+				<section class="settings-group">
+					<h3 class="settings-group-title" th:text="#{agents.section.prompt}"></h3>
+					<div class="settings-field">
+						<label for="agent-name" th:text="#{agents.field.name}"></label>
+						<input id="agent-name" name="name" type="text" required/>
+						<p class="field-help" data-type="agent-new-id"></p>
+						<p class="field-error" data-error-for="name" hidden></p>
+					</div>
+					<div class="settings-field">
+						<label for="agent-description" th:text="#{agents.field.description}"></label>
+						<input id="agent-description" name="description" type="text"/>
+						<p class="field-error" data-error-for="description" hidden></p>
+					</div>
+					<div class="settings-field">
+						<label for="agent-instructions" th:text="#{agents.field.instructions}"></label>
+						<textarea id="agent-instructions" name="instructions" rows="8" required
+								  th:placeholder="#{agents.field.instructions.placeholder}"></textarea>
+						<p class="field-help" th:text="#{agents.field.instructions.help}"></p>
+						<p class="field-error" data-error-for="instructions" hidden></p>
+					</div>
+				</section>
+
+				<section class="settings-group">
+					<h3 class="settings-group-title" th:text="#{agents.section.schedule}"></h3>
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="agent-trigger" th:text="#{agents.field.trigger}"></label>
+							<select id="agent-trigger" name="triggerType">
+								<option value="schedule" th:text="#{agents.trigger.schedule}"></option>
+								<option value="manual" th:text="#{agents.trigger.manual}"></option>
+							</select>
+						</div>
+						<div class="settings-field" data-when-trigger="schedule">
+							<label for="agent-every" th:text="#{agents.field.every}"></label>
+							<select id="agent-every" name="every">
+								<option value="0 */5 * * * *" th:text="#{agents.every.5m}"></option>
+								<option value="0 */15 * * * *" th:text="#{agents.every.15m}"></option>
+								<option value="0 */30 * * * *" th:text="#{agents.every.30m}"></option>
+								<option value="0 0 * * * *" th:text="#{agents.every.1h}"></option>
+								<option value="0 0 6 * * *" th:text="#{agents.every.day}"></option>
+								<option value="" th:text="#{agents.every.custom}"></option>
+							</select>
+						</div>
+					</div>
+					<div class="settings-row" data-when-trigger="schedule">
+						<div class="settings-field">
+							<label for="agent-cron" th:text="#{agents.field.cron}"></label>
+							<input id="agent-cron" name="cron" type="text" placeholder="0 */15 * * * *"/>
+							<p class="field-error" data-error-for="cron" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-timezone" th:text="#{agents.field.timezone}"></label>
+							<input id="agent-timezone" name="timezone" type="text" list="agent-timezones" autocomplete="off"/>
+							<datalist id="agent-timezones" data-type="agent-timezones"></datalist>
+							<p class="field-error" data-error-for="timezone" hidden></p>
+						</div>
+					</div>
+					<p class="field-help" th:text="#{agents.schedule.help}"></p>
+				</section>
+
+				<section class="settings-group">
+					<h3 class="settings-group-title" th:text="#{agents.section.events}"></h3>
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="agent-event-types" th:text="#{agents.field.event.types}"></label>
+							<textarea id="agent-event-types" name="eventTypes" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventTypes" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-event-subtypes" th:text="#{agents.field.event.subtypes}"></label>
+							<textarea id="agent-event-subtypes" name="eventSubTypes" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventSubTypes" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-event-statuses" th:text="#{agents.field.event.statuses}"></label>
+							<textarea id="agent-event-statuses" name="eventStatuses" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventStatuses" hidden></p>
+						</div>
+					</div>
+					<p class="field-help" th:text="#{agents.events.help}"></p>
+					<p class="field-help" th:text="#{agents.events.fixed}"></p>
+				</section>
+
+				<section class="settings-group">
+					<h3 class="settings-group-title" th:text="#{agents.section.access}"></h3>
+					<div class="settings-field">
+						<label for="agent-dataset" th:text="#{agents.field.dataset}"></label>
+						<select id="agent-dataset" name="dataSet" required></select>
+						<p class="field-help" th:text="#{agents.field.dataset.help}"></p>
+						<p class="field-error" data-error-for="dataSet" hidden></p>
+					</div>
+					<p class="field-help" th:text="#{agents.access.help}"></p>
+				</section>
+
+				<section class="settings-group">
+					<h3 class="settings-group-title" th:text="#{agents.section.tools}"></h3>
+					<p class="settings-group-intro" th:text="#{agents.tools.help}"></p>
+					<div class="agent-tools" data-type="agent-tools">
+						<p class="flows-hint" th:text="#{agents.tools.loading}"></p>
+					</div>
+					<p class="field-error" data-error-for="tools" hidden></p>
+				</section>
+
+				<section class="settings-group">
+					<h3 class="settings-group-title" th:text="#{agents.section.model}"></h3>
+					<p class="settings-group-intro" th:text="#{agents.model.help}"></p>
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="agent-effort" th:text="#{agents.field.effort}"></label>
+							<select id="agent-effort" name="effort">
+								<option value="" th:text="#{agents.field.default}"></option>
+								<option value="low">low</option>
+								<option value="medium">medium</option>
+								<option value="high">high</option>
+								<option value="xhigh">xhigh</option>
+								<option value="max">max</option>
+							</select>
+							<p class="field-error" data-error-for="effort" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-max-iterations" th:text="#{agents.field.max.iterations}"></label>
+							<input id="agent-max-iterations" name="maxIterations" type="number" min="1" th:placeholder="#{agents.field.default}"/>
+							<p class="field-error" data-error-for="maxIterations" hidden></p>
+						</div>
+					</div>
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="agent-max-output-tokens" th:text="#{agents.field.max.output.tokens}"></label>
+							<input id="agent-max-output-tokens" name="maxOutputTokens" type="number" min="1" th:placeholder="#{agents.field.default}"/>
+							<p class="field-error" data-error-for="maxOutputTokens" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-turn-timeout" th:text="#{agents.field.turn.timeout}"></label>
+							<input id="agent-turn-timeout" name="turnTimeout" type="text" th:placeholder="#{agents.field.default}"/>
+							<p class="field-help" th:text="#{agents.field.turn.timeout.help}"></p>
+							<p class="field-error" data-error-for="turnTimeout" hidden></p>
+						</div>
+					</div>
+				</section>
+			</form>
+		</section>
+
+		<section class="flow-pane" data-pane="runs" data-section="agents" hidden>
+			<label class="flows-check">
+				<input type="checkbox" data-type="flow-runs-previews"/>
+				<span th:text="#{flows.runs.show.previews}"></span>
+			</label>
+			<table class="listing slim pointer w100" data-type="flow-runs">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.status}"></th>
+						<th th:text="#{flows.column.window}"></th>
+						<th th:text="#{flows.column.trigger}"></th>
+						<th th:text="#{flows.column.attempt}"></th>
+						<th th:text="#{flows.column.created}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+			<p class="flows-empty" data-type="flow-runs-empty" hidden th:text="#{flows.runs.empty}"></p>
+			<div class="flows-actions">
+				<button type="button" class="dh-btn secondary" data-type="flow-runs-more" hidden
+						th:text="#{flows.load.more}"></button>
+			</div>
+		</section>
+
+		<section class="flow-pane" data-pane="attention" hidden>
+			<!--/* This agent's open attention entries: agents/agents-attention.js, scoped by data-flow. */-->
+			<div data-type="agents-attention-page" th:attr="data-flow=${flowExternalId}">
+				<div class="flows-actions">
+					<button type="button" class="dh-btn secondary small" data-type="attention-dismiss-all" hidden
+							th:text="#{agents.attention.dismiss.all}"></button>
+				</div>
+				<div th:replace="~{agents/attention :: table}"></div>
+			</div>
+		</section>
+
+		<section class="flow-pane" data-pane="versions" hidden>
+			<table class="listing slim w100" data-type="flow-versions">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.version}"></th>
+						<th th:text="#{flows.column.saved.by}"></th>
+						<th th:text="#{flows.column.saved.at}"></th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</section>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('agents')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>
