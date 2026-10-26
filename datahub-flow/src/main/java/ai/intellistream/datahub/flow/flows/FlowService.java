@@ -207,8 +207,12 @@ public class FlowService {
         return FlowView.of(flow, parseJson(current.definition()), null);
     }
 
-    public DataWrapper<FlowView> list(String cursor, Integer limit) {
+    /** The flows the caller may see: of one {@code kind} ({@code flow} or {@code agent}), or all with null. */
+    public DataWrapper<FlowView> list(String kind, String cursor, Integer limit) {
         Caller caller = requireRead();
+        if (kind != null && !FlowValidator.KIND_FLOW.equals(kind) && !FlowValidator.KIND_AGENT.equals(kind)) {
+            throw FlowProblems.badRequest("kind is flow or agent.");
+        }
         int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
         if (pageSize > MAX_LIMIT) {
             throw FlowProblems.badRequest("limit is at most " + MAX_LIMIT + ".");
@@ -218,7 +222,7 @@ public class FlowService {
             throw FlowProblems.badRequest("The cursor belongs to another listing.");
         }
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredFlow> page = repository.list(readable, caller.seesOrphans(),
+        List<StoredFlow> page = repository.list(readable, caller.seesOrphans(), kind,
                 after == null ? null : after.value(), pageSize);
         DataWrapper<FlowView> out = new DataWrapper<>();
         out.setItems(page.stream().map(flow -> FlowView.of(flow, null, null)).toList());

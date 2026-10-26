@@ -92,11 +92,18 @@ class FlowRepositoryIT {
         create("list_b", 200);
         create("list_c", 100);
 
-        assertThat(repository.list(new DataSets(false, Set.of(100L)), false, "list_", 10))
+        assertThat(repository.list(new DataSets(false, Set.of(100L)), false, null, "list_", 10))
                 .extracting(StoredFlow::externalId).containsExactly("list_a", "list_c");
-        assertThat(repository.list(new DataSets(false, Set.of()), false, "list_", 10)).isEmpty();
-        assertThat(repository.list(DataSets.ALL, false, "list_a", 1))
+        assertThat(repository.list(new DataSets(false, Set.of()), false, null, "list_", 10)).isEmpty();
+        assertThat(repository.list(DataSets.ALL, false, null, "list_a", 1))
                 .extracting(StoredFlow::externalId).containsExactly("list_b");
+        transaction.execute(s -> repository.create("list_agent", 100, "ds_100", "Watch", "agent",
+                definition("list_agent"), "user-1"));
+        assertThat(repository.list(DataSets.ALL, false, "agent", "list_", 10))
+                .extracting(StoredFlow::externalId, StoredFlow::kind)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple("list_agent", "agent"));
+        assertThat(repository.list(DataSets.ALL, false, "flow", "list_", 3))
+                .extracting(StoredFlow::externalId).containsExactly("list_a", "list_b", "list_c");
     }
 
     @Test
@@ -106,11 +113,11 @@ class FlowRepositoryIT {
         repository.disable(orphan.id(), FlowRepository.DATASET_DELETED);
 
         DataSets none = new DataSets(false, Set.of(400L));
-        assertThat(repository.list(none, false, "orphan_", 10)).extracting(StoredFlow::externalId)
+        assertThat(repository.list(none, false, null, "orphan_", 10)).extracting(StoredFlow::externalId)
                 .containsExactly("orphan_b");
-        assertThat(repository.list(none, true, "orphan_", 10)).extracting(StoredFlow::externalId)
+        assertThat(repository.list(none, true, null, "orphan_", 10)).extracting(StoredFlow::externalId)
                 .containsExactly("orphan_a", "orphan_b");
-        assertThat(repository.list(new DataSets(false, Set.of()), true, "orphan_", 10))
+        assertThat(repository.list(new DataSets(false, Set.of()), true, null, "orphan_", 10))
                 .extracting(StoredFlow::externalId).containsExactly("orphan_a");
         assertThat(repository.find("orphan_a")).get().satisfies(f -> {
             assertThat(f.orphaned()).isTrue();
