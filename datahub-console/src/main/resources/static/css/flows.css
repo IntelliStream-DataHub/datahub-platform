@@ -311,6 +311,53 @@
 .flow-advanced {
 	margin-top: 12px;
 }
+
+/* The info icon on a property that takes ${…} references, and what it explains. */
+.flow-ref-help {
+	position: relative;
+	margin-left: 4px;
+	color: var(--icon-primary);
+	cursor: help;
+	outline: none;
+}
+.flow-ref-help:hover > i,
+.flow-ref-help:focus-visible > i {
+	color: var(--accent);
+}
+.flow-ref-help-text {
+	display: none;
+	position: absolute;
+	top: calc(100% + 4px);
+	left: 0;
+	z-index: 30;
+	width: min(340px, calc(100vw - 32px));
+	padding: 10px 12px;
+	background: var(--menu-bg);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	box-shadow: var(--card-shadow);
+	font-size: 13px;
+	font-weight: 400;
+	line-height: 1.4;
+	text-transform: none;
+	letter-spacing: normal;
+	white-space: normal;
+}
+.flow-ref-help:hover > .flow-ref-help-text,
+.flow-ref-help:focus > .flow-ref-help-text {
+	display: block;
+}
+.flow-ref-help-text dl {
+	margin: 6px 0;
+}
+.flow-ref-help-text dt {
+	margin-top: 6px;
+}
+.flow-ref-help-text dd {
+	margin: 0;
+	color: var(--text-muted);
+}
 .flow-switch {
 	margin: var(--space) 0;
 }
