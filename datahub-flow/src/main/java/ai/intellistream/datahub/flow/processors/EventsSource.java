@@ -64,7 +64,7 @@ public class EventsSource implements Processor {
             .property(PropertyDescriptor.builder("maxEventsPerItem", PropertyType.NUMBER)
                     .displayName("Max events per item")
                     .description("More events are split into several items.")
-                    .defaultValue(10_000).build())
+                    .defaultValue(10_000).hidden().build())
             .relationship(Relationship.of("success", "The events read; none is no item."))
             .build();
 
