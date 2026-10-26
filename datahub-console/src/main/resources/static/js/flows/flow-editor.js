@@ -22,7 +22,10 @@
 (function(){
 	"use strict";
 
-	var NUMBER = /^-?\d+(\.\d+)?([eE][-+]?\d+)?$/;
+	var NUMBER = /^-?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?$/;
+	// NUMBER or a single ${…} reference, as an input's pattern (compiled with the v flag, so the
+	// class characters are escaped).
+	var NUMBER_OR_REFERENCE = "-?(\\d+(\\.\\d*)?|\\.\\d+)([eE][\\-+]?\\d+)?|\\$\\{[^\\}]+\\}";
 
 	document.addEventListener("DOMContentLoaded", function(){
 		var page = document.querySelector('[data-type="flow-page"]');
@@ -218,6 +221,13 @@
 						<input type="text" placeholder="${L("flows.series.search")}" ${required ? "data-required" : ""}/>
 						<input type="hidden" name="${escapeHtml(field)}" value="${escapeHtml(current)}"/>
 					</div>`;
+				} else if(kind.type === "number" && !kind.references){
+					input = `<input type="number" step="any" name="${escapeHtml(field)}" value="${escapeHtml(current)}"
+						placeholder="${placeholder}" ${required && !placeholder ? "required" : ""}/>`;
+				} else if(kind.type === "number"){
+					// A number, or one reference resolved when the flow runs.
+					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}" pattern="${NUMBER_OR_REFERENCE}"
+						title="${L("flows.field.number.invalid")}" placeholder="${placeholder}" ${required && !placeholder ? "required" : ""}/>`;
 				} else if(kind.type === "array"){
 					input = `<textarea name="${escapeHtml(field)}" rows="3" class="w100" placeholder="${L("flows.field.list.placeholder")}">${escapeHtml(Array.isArray(value) ? value.join("\n") : current)}</textarea>`;
 				} else {
@@ -226,7 +236,7 @@
 					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}" ${lookup}
 						placeholder="${escapeHtml(schema["x-lookup"] ? L("flows.field.lookup.placeholder") : ph)}" ${required && !placeholder ? "required" : ""}/>`;
 				}
-				return `<label>${label}</label>${input}${hint}`;
+				return `<label>${label}${kind.references ? referenceHelp(kind.type === "string") : ""}</label>${input}${hint}`;
 			}
 
 			submit(){
@@ -399,6 +409,26 @@
 			if(typeof value === "string") return value;
 			if(Array.isArray(value)) return value.join(", ");
 			return JSON.stringify(value);
+		}
+
+		/** The info icon on a property that takes references, and what it shows on hover or focus. */
+		function referenceHelp(text){
+			// The names are code, not translated; quoted rather than in a template literal, which would
+			// read them as its own ${…}.
+			var rows = [
+				["${parameters.<name>}", L("flows.references.parameters")],
+				["${run.window.start}", L("flows.references.window")],
+				["${item.mean}", L("flows.references.item")],
+				["${<attribute>}", L("flows.references.attribute")]
+			].map(r => `<dt><code>${escapeHtml(r[0])}</code></dt><dd>${r[1]}</dd>`).join("");
+			return `<span class="flow-ref-help" tabindex="0" aria-label="${L("flows.references.title")}">
+				<i class="fa fa-fw fa-circle-info"></i>
+				<span class="flow-ref-help-text" role="tooltip">
+					<strong>${L("flows.references.title")}</strong>
+					<dl>${rows}</dl>
+					<span>${L(text ? "flows.references.text" : "flows.references.whole")}</span>
+				</span>
+			</span>`;
 		}
 
 		/** What an input should be for a property's schema. */
