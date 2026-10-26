@@ -54,6 +54,8 @@ final class FakeDatahub implements AutoCloseable {
     final List<JsonNode> events = new ArrayList<>();
     /** Events /events/filter answers from, two per page so that paging is exercised. */
     final List<Map<String, Object>> stored = new ArrayList<>();
+    /** Every POST /events/filter body, for what the source asked. */
+    final List<JsonNode> filterRequests = new ArrayList<>();
     final List<String> requests = new ArrayList<>();
     /** When set, the binary write answers this status with a problem document. */
     Integer writeStatus;
@@ -104,23 +106,36 @@ final class FakeDatahub implements AutoCloseable {
         }
     }
 
-    /** An event /events/filter can return. */
+    /** An event /events/filter can return, recorded when it happened. */
     void storeEvent(String externalId, String type, long eventTime, String status) {
-        stored.add(Map.of("id", "e" + stored.size(), "externalId", externalId, "type", type,
-                "eventTime", eventTime, "status", status, "metadata", Map.of("k", "v")));
+        storeEvent(externalId, type, eventTime, eventTime, status);
     }
 
-    /** By type and an inclusive event-time window, as the api filters, two at a time. */
+    /** An event /events/filter can return, recorded at {@code createdTime}. */
+    void storeEvent(String externalId, String type, long eventTime, long createdTime, String status) {
+        stored.add(Map.of("id", "e" + stored.size(), "externalId", externalId, "type", type,
+                "eventTime", eventTime, "createdTime", Instant.ofEpochMilli(createdTime).toString(),
+                "status", status, "metadata", Map.of("k", "v")));
+    }
+
+    /** By type and an inclusive window on the event time or the created time, as the api filters, two at a time. */
     private Map<String, Object> filterEvents(byte[] body) {
         JsonNode request = JSON.readTree(body);
+        filterRequests.add(request);
         JsonNode filter = request.get("filter");
         JsonNode types = filter.get("type");
-        long min = instant(filter.get("eventTime").get("min"));
-        long max = instant(filter.get("eventTime").get("max"));
+        boolean byCreated = filter.hasNonNull("createdTime");
+        JsonNode window = byCreated ? filter.get("createdTime") : filter.get("eventTime");
+        long min = instant(window.get("min"));
+        long max = instant(window.get("max"));
         List<Map<String, Object>> matching = stored.stream()
                 .filter(e -> types == null || types.isNull() || types.valueStream()
                         .anyMatch(t -> t.stringValue().equals(e.get("type"))))
-                .filter(e -> (long) e.get("eventTime") >= min && (long) e.get("eventTime") <= max)
+                .filter(e -> {
+                    long t = byCreated ? Instant.parse((String) e.get("createdTime")).toEpochMilli()
+                            : (long) e.get("eventTime");
+                    return t >= min && t <= max;
+                })
                 .toList();
         JsonNode cursor = request.get("cursor");
         int from = cursor == null || cursor.isNull() ? 0 : Integer.parseInt(cursor.stringValue());

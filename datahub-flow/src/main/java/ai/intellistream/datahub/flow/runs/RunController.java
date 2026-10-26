@@ -97,6 +97,19 @@ public class RunController {
         return runs.get(id);
     }
 
+    /**
+     * What an agent run said and did, one attempt at a time (default: the run's latest), from the
+     * row after {@code after}: what the Agents page follows while a run is live. Takes the write
+     * grant and write access to the flow's dataset, since the rows hold tool results. 404 for a
+     * run the caller may not change, as if it did not exist.
+     */
+    @GetMapping("/runs/{id}/transcript")
+    public RunService.TranscriptView transcript(@PathVariable UUID id,
+                                                @RequestParam(required = false) Integer attempt,
+                                                @RequestParam(defaultValue = "-1") long after) {
+        return runs.transcript(id, attempt, after);
+    }
+
     /** 200 with the run; 409 when it has already ended. */
     @PostMapping("/runs/{id}/cancel")
     public RunView cancel(@PathVariable UUID id) {

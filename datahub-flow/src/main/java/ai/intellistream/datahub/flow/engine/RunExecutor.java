@@ -31,6 +31,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -82,7 +83,8 @@ public final class RunExecutor {
             parameters = parameters(flow.definition(), request.parameters());
             Map<String, NodeContext> contexts = new LinkedHashMap<>();
             for (CompiledFlow.Node node : flow.nodes()) {
-                contexts.put(node.id(), context(node, request, parameters, secretsUsed, log));
+                contexts.put(node.id(), context(node, flow.definition().externalId(), request, parameters,
+                        secretsUsed, log));
             }
             for (CompiledFlow.Node node : flow.nodes()) {
                 if (node.source()) {
@@ -208,7 +210,7 @@ public final class RunExecutor {
     }
 
     /** A processor's context, with its properties' run-level references resolved once. */
-    private NodeContext context(CompiledFlow.Node node, RunRequest request,
+    private NodeContext context(CompiledFlow.Node node, String flowExternalId, RunRequest request,
                                 Map<String, Object> parameters, Set<String> secretsUsed,
                                 List<LogLine> log) {
         TimeWindow window = request.window();
@@ -236,8 +238,8 @@ public final class RunExecutor {
         node.properties().forEach((name, v) -> properties.put(name, v.resolve(runLevel, ITEM_LEVEL)));
         Map<String, PropertyValue> dynamic = new LinkedHashMap<>();
         node.dynamicProperties().forEach((name, v) -> dynamic.put(name, v.resolve(runLevel, ITEM_LEVEL)));
-        return new NodeContext(node.id(), properties, Collections.unmodifiableMap(dynamic), window,
-                parameters, request, secretsUsed, log, clock);
+        return new NodeContext(node.id(), flowExternalId, properties, Collections.unmodifiableMap(dynamic),
+                window, parameters, request, secretsUsed, log, clock);
     }
 
     /** What an item's references resolve to: its attributes, and a summary of its series. */
@@ -313,6 +315,7 @@ public final class RunExecutor {
 
     private static final class NodeContext implements ProcessContext {
         private final String processorId;
+        private final String flowExternalId;
         private final Map<String, ConfiguredValue> properties;
         private final Map<String, PropertyValue> dynamic;
         private final TimeWindow window;
@@ -321,11 +324,12 @@ public final class RunExecutor {
         private final Set<String> secretsUsed;
         private final RunLog runLog;
 
-        NodeContext(String processorId, Map<String, ConfiguredValue> properties,
+        NodeContext(String processorId, String flowExternalId, Map<String, ConfiguredValue> properties,
                     Map<String, PropertyValue> dynamic, TimeWindow window,
                     Map<String, Object> parameters, RunRequest request, Set<String> secretsUsed,
                     List<LogLine> log, Clock clock) {
             this.processorId = processorId;
+            this.flowExternalId = flowExternalId;
             this.properties = properties;
             this.dynamic = dynamic;
             this.window = window;
@@ -407,6 +411,29 @@ public final class RunExecutor {
         @Override
         public RunLog log() {
             return runLog;
+        }
+
+        @Override
+        public UUID runId() {
+            return request.runId();
+        }
+
+        @Override
+        public int attempt() {
+            return request.attempt();
+        }
+
+        @Override
+        public String flowExternalId() {
+            return flowExternalId;
+        }
+
+        @Override
+        public String accessToken() {
+            if (request.accessToken() == null) {
+                throw new ProcessException("This run has no access token");
+            }
+            return request.accessToken().get();
         }
     }
 }

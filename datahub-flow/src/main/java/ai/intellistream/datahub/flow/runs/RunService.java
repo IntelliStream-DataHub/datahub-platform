@@ -8,6 +8,7 @@ import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.definition.ConfiguredValue;
 import ai.intellistream.datahub.flow.definition.FlowDefinition;
 import ai.intellistream.datahub.flow.definition.FlowDefinitions;
+import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.flows.FlowRepository.Deployment;
@@ -17,6 +18,7 @@ import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
 import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.identity.RegisteredClients;
+import ai.intellistream.datahub.flow.store.AgentTranscripts;
 import ai.intellistream.datahub.flow.store.RunHistory;
 import ai.intellistream.datahub.flow.store.RunStore;
 import ai.intellistream.datahub.flow.store.RunStore.NewPreview;
@@ -60,6 +62,11 @@ public class RunService {
     static final int DEFAULT_MAX_CONCURRENT_RUNS = 1;
     static final int DEFAULT_MAX_ATTEMPTS = 2;
     static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(15);
+    /**
+     * For a flow with an agent step: six turns of two minutes plus tool calls exceed the flow
+     * default, while an hour would let a few agents starve every flow and preview on an instance.
+     */
+    static final Duration AGENT_TIMEOUT = Duration.ofMinutes(20);
 
     /** A preview's window when none is given. */
     static final Duration PREVIEW_WINDOW = Duration.ofHours(1);
@@ -78,10 +85,12 @@ public class RunService {
     private final JsonMapper json;
     private final RegisteredClients clients;
     private final FlowTokens offlineTokens;
+    private final AgentTranscripts transcripts;
 
     public RunService(FlowService flowService, FlowRepository flows, RunStore store, RunHistory history,
                       RunCoordinator coordinator, FlowCompiler compiler, TransactionTemplate transaction,
-                      JsonMapper json, RegisteredClients clients, FlowTokens offlineTokens) {
+                      JsonMapper json, RegisteredClients clients, FlowTokens offlineTokens,
+                      AgentTranscripts transcripts) {
         this.flowService = flowService;
         this.flows = flows;
         this.store = store;
@@ -92,6 +101,7 @@ public class RunService {
         this.json = json;
         this.clients = clients;
         this.offlineTokens = offlineTokens;
+        this.transcripts = transcripts;
     }
 
     /**
@@ -190,8 +200,38 @@ public class RunService {
 
     private static Duration timeout(FlowDefinition definition) {
         FlowDefinition.Execution execution = definition.execution();
-        return execution == null || execution.timeout() == null
-                ? DEFAULT_TIMEOUT : Duration.parse(execution.timeout());
+        if (execution != null && execution.timeout() != null) {
+            return Duration.parse(execution.timeout());
+        }
+        boolean agent = definition.processors().stream()
+                .anyMatch(p -> FlowValidator.AGENT_PROCESSOR.equals(p.type()));
+        return agent ? AGENT_TIMEOUT : DEFAULT_TIMEOUT;
+    }
+
+    /** What {@code GET /runs/{id}/transcript} answers: one attempt's rows, from where the caller left off. */
+    public record TranscriptView(UUID runId, int attempt, String status, List<AgentTranscripts.Row> rows) {
+    }
+
+    /**
+     * An agent run's transcript: attempt {@code attempt} (default the run's latest), the rows after
+     * {@code after}. Gated on the write side, unlike the run itself: the records hold hashes and
+     * sizes, but the transcript holds tool results, which carry data from every dataset the run's
+     * identity could reach, so a reader must be someone who may change the flow. Read from the run
+     * store while the run is in hand or just ended, from ClickHouse after.
+     */
+    public TranscriptView transcript(UUID runId, Integer attempt, long after) {
+        Caller caller = flowService.requireWrite();
+        Optional<StoredRun> live = store.find(runId);
+        StoredRun run = live.or(() -> history.find(TenantContext.getTenantId(), runId))
+                .filter(r -> r.dataSetId() != null && caller.canWrite(r.dataSetId()))
+                .orElseThrow(() -> FlowProblems.notFound("No run " + runId + "."));
+        int a = attempt == null ? run.attempt() : attempt;
+        if (a < 1 || a > run.attempt()) {
+            throw FlowProblems.badRequest("attempt is between 1 and " + run.attempt() + ".");
+        }
+        List<AgentTranscripts.Row> rows = live.isPresent() ? transcripts.read(runId, a, after)
+                : history.transcript(TenantContext.getTenantId(), runId, a, after);
+        return new TranscriptView(runId, a, run.status(), rows);
     }
 
     /**

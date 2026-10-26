@@ -35,11 +35,14 @@ public class RunArchiver {
     private final TenantConfigService tenants;
     private final RunStore store;
     private final RunHistory history;
+    private final AgentTranscripts transcripts;
 
-    public RunArchiver(TenantConfigService tenants, RunStore store, RunHistory history) {
+    public RunArchiver(TenantConfigService tenants, RunStore store, RunHistory history,
+                       AgentTranscripts transcripts) {
         this.tenants = tenants;
         this.store = store;
         this.history = history;
+        this.transcripts = transcripts;
     }
 
     @Scheduled(initialDelayString = "${datahub.flow.runs.archive-interval:PT1S}",
@@ -73,6 +76,13 @@ public class RunArchiver {
             }
             try {
                 history.insert(tenantId, batch);
+                // An agent run's transcripts go with it, one list per attempt, before the run is
+                // marked archived and its lists expire.
+                for (StoredRun run : batch) {
+                    for (int attempt = 1; attempt <= run.attempt(); attempt++) {
+                        history.insertTranscript(tenantId, run.id(), attempt, transcripts.read(run.id(), attempt, -1));
+                    }
+                }
             } catch (Exception e) {
                 log.warn("Writing {} finished runs of tenant {} to ClickHouse failed; they come back in {}: {}",
                         batch.size(), tenantId, HIDE, e.getMessage());

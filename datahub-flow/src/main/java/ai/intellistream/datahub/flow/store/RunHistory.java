@@ -94,6 +94,50 @@ public class RunHistory {
         }
     }
 
+    /**
+     * Writes one attempt's transcript rows, deduplicated on the attempt, so a batch an archiver
+     * died over is stored once when the next one writes it again.
+     */
+    public void insertTranscript(String tenantId, UUID runId, int attempt, List<AgentTranscripts.Row> rows)
+            throws Exception {
+        if (rows.isEmpty()) {
+            return;
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        for (AgentTranscripts.Row r : rows) {
+            ObjectNode row = JSON.createObjectNode();
+            row.put("run_id", runId.toString());
+            row.put("attempt", attempt);
+            row.put("seq", r.seq());
+            row.put("time", time(r.time()));
+            row.put("kind", r.kind());
+            row.put("payload", JSON.writeValueAsString(r.payload()));
+            out.writeBytes(JSON.writeValueAsBytes(row));
+            out.write('\n');
+        }
+        InsertSettings settings = new InsertSettings().setDeduplicationToken("transcript:" + runId + ":" + attempt)
+                .serverSetting("async_insert", "0");
+        try (var response = writer.apply(tenantId).insert("flow_run_transcript",
+                List.of("run_id", "attempt", "seq", "time", "kind", "payload"),
+                new ByteArrayInputStream(out.toByteArray()), ClickHouseFormat.JSONEachRow, settings)
+                .get(WAIT.toSeconds(), TimeUnit.SECONDS)) {
+            // Nothing to read from an insert.
+        }
+    }
+
+    /** One attempt's transcript rows after {@code after} ({@code -1} for all), in order. */
+    public List<AgentTranscripts.Row> transcript(String tenantId, UUID runId, int attempt, long after) {
+        List<AgentTranscripts.Row> rows = new ArrayList<>();
+        for (GenericRecord r : reader.apply(tenantId).queryAll("SELECT seq, toUnixTimestamp64Milli(time) AS time_ms, "
+                        + "kind, payload FROM flow_run_transcript WHERE run_id = {id:UUID} AND attempt = {attempt:UInt16} "
+                        + "AND seq > {after:Int64} ORDER BY seq LIMIT 1 BY seq",
+                Map.of("id", runId.toString(), "attempt", attempt, "after", after))) {
+            rows.add(new AgentTranscripts.Row(r.getLong("seq"), Instant.ofEpochMilli(r.getLong("time_ms")),
+                    r.getString("kind"), JSON.readTree(r.getString("payload"))));
+        }
+        return rows;
+    }
+
     private static List<String> columns() {
         return List.of("run_id", "flow_id", "flow_external_id", "data_set_id", "version", "status", "attempt",
                 "max_attempts", "preview", "trigger", "triggered_by", "run_as", "window_start", "window_end",

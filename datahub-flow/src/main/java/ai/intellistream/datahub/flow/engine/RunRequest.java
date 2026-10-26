@@ -9,6 +9,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * What one attempt of a run is executed with.
@@ -22,10 +23,13 @@ import java.util.function.Function;
  * @param dataSetId   the flow's dataset, or null for a definition that names none
  * @param datahub     the run's DataHub client, acting as its identity; null for a run that never
  *                    reaches DataHub
+ * @param accessToken the run's access token, fresh on every call and refusing once the lease is
+ *                    lost; null for a run that calls nothing but DataHub
  */
 public record RunRequest(UUID runId, int attempt, TimeWindow window, Map<String, Object> parameters,
                          boolean preview, long memoryBytes, Function<String, String> secrets,
-                         BooleanSupplier cancelled, Long dataSetId, DatahubClient datahub) {
+                         BooleanSupplier cancelled, Long dataSetId, DatahubClient datahub,
+                         Supplier<String> accessToken) {
 
     public RunRequest {
         Objects.requireNonNull(runId, "runId");

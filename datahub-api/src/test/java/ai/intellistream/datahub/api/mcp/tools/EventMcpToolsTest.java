@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.api.mcp.tools;
 
+import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.services.EventService;
+import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.events.EventRetreiver;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -32,6 +35,19 @@ class EventMcpToolsTest {
         ArgumentCaptor<EventRetreiver> captor = ArgumentCaptor.forClass(EventRetreiver.class);
         verify(eventService).queryEvents(captor.capture(), any());
         return captor.getValue();
+    }
+
+    @Test
+    void creatingAnEventCarriesItsSourceAndMetadata() throws Exception {
+        tools.createEvent("pump_21_alarm", "Alarm", 7L, "2026-10-23T13:00:00Z", null, "open", null, null,
+                "agent:pump_watch", Map.of("severity", "high"));
+
+        ArgumentCaptor<DataWrapper<EventModel>> captor = ArgumentCaptor.captor();
+        verify(eventService).create(captor.capture());
+        EventModel created = captor.getValue().getItems().getFirst();
+        assertThat(created.getSource()).isEqualTo("agent:pump_watch");
+        assertThat(created.getMetadata()).containsEntry("severity", "high");
+        assertThat(created.getStatus()).isEqualTo("open");
     }
 
     @Test

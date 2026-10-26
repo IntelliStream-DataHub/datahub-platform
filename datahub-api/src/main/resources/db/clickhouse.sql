@@ -259,3 +259,25 @@ CREATE TABLE IF NOT EXISTS flow_run (
         ORDER BY (data_set_id, flow_id, created_at, run_id)
         TTL toDateTime(finished_at) + INTERVAL 90 DAY
         SETTINGS non_replicated_deduplication_window = 1000;
+
+-- What an agent run (intellistream-flow) said and did: one row per transcript entry of one attempt,
+-- in order (seq). Kept in the tenant's KVRocks while the run is live and written here with the run
+-- by the archiver; read here once KVRocks has let the run go. payload is the entry as JSON: the
+-- prompt, the model's prose, a tool call and its result, a model call's token usage, a note.
+-- Only whoever may write the flow reads it, since tool results carry data from the datasets the
+-- run's identity could reach.
+--
+-- Expires with the tenant's flow retention, like flow_run; the same statement rules as above.
+CREATE TABLE IF NOT EXISTS flow_run_transcript (
+    run_id   UUID,
+    attempt  UInt16,
+    seq      UInt32,
+    time     DateTime64(3, 'UTC'),
+    kind     LowCardinality(String),
+    payload  String CODEC(ZSTD(3))
+)
+    ENGINE = ReplacingMergeTree
+        PARTITION BY toYYYYMM(time)
+        ORDER BY (run_id, attempt, seq)
+        TTL toDateTime(time) + INTERVAL 90 DAY
+        SETTINGS non_replicated_deduplication_window = 1000;

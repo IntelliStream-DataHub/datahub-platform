@@ -150,6 +150,14 @@ public final class StatelessMcpClient {
         if (response.statusCode() == 401 || response.statusCode() == 403) {
             throw new McpException("Not authorised to call " + name + " (" + response.statusCode() + ")", true);
         }
+        if (response.statusCode() == 429) {
+            // datahub-api's RateLimitFilter says how many seconds are left of the window.
+            Duration retryAfter = response.headers().firstValue("Retry-After")
+                    .filter(v -> v.matches("\\d{1,6}")).map(v -> Duration.ofSeconds(Long.parseLong(v)))
+                    .orElse(null);
+            throw new McpException(name + " is rate limiting this caller"
+                    + (retryAfter == null ? "" : "; retry after " + retryAfter.toSeconds() + " s"), retryAfter);
+        }
         if (response.statusCode() != 200) {
             // A 400 with an empty body here almost always means the Accept header was wrong.
             throw new McpException("MCP " + method + " returned HTTP " + response.statusCode()

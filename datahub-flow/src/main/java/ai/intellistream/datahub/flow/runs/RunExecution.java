@@ -189,7 +189,7 @@ public class RunExecution {
 
         RunRequest request = new RunRequest(claimed.id(), claimed.attempt(), claimed.window(),
                 parameters(claimed.parameters()), claimed.preview(), memoryCap, secret,
-                run::shouldStop, dataSetId, datahub);
+                run::shouldStop, dataSetId, datahub, fenced);
         RunRecords sink = records.open(run.tenantId, claimed.id(), claimed.attempt(),
                 flowExternalId == null ? "" : flowExternalId,
                 claimed.version() == null ? 0 : claimed.version(), dataSetId);

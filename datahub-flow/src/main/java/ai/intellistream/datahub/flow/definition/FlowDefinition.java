@@ -15,6 +15,8 @@ import java.util.Map;
  * JSON until the flow is compiled, since what they mean depends on the processor's declaration.
  *
  * @param schemaVersion the definition format's version; only {@code 1} exists
+ * @param kind          {@code flow} (null means the same) or {@code agent}: a flow whose steps
+ *                      include an {@code agent} processor, listed and shown apart from the rest
  * @param externalId    the flow's stable id within the tenant
  * @param dataSet       external id of the dataset the flow belongs to, which decides who sees it
  * @param parameters    values a run is given, by name, in the order written
@@ -23,8 +25,8 @@ import java.util.Map;
  * @param trigger       when runs start; null means manual only
  * @param execution     limits; null means the defaults
  */
-public record FlowDefinition(Integer schemaVersion, String externalId, String dataSet, String name,
-                             String description, Map<String, Parameter> parameters,
+public record FlowDefinition(Integer schemaVersion, String kind, String externalId, String dataSet,
+                             String name, String description, Map<String, Parameter> parameters,
                              List<ProcessorSpec> processors, List<Connection> connections,
                              Trigger trigger, Execution execution) {
 

@@ -23,6 +23,7 @@ does for datapoints and for a run's records.
 | A run while pending, running or recently finished | KVRocks | The only copy. |
 | A finished run, for good | ClickHouse `flow_run` | One row per finished run. Written from KVRocks by the archiver. |
 | A run's records | ClickHouse `flow_run_event` | Unchanged, through Pulsar. |
+| An agent run's transcript | KVRocks while live, then ClickHouse `flow_run_transcript` | Written row by row as the run goes; archived with the run. |
 
 This is an exception to CONSTRAINTS.md invariant 2 and is written there narrowly: Postgres stays
 authoritative for everything except run state.
@@ -53,6 +54,7 @@ server clock (`TIME`), so no instance's clock decides a lease or a back-off.
 | `flow:failed-windows:{flow}` | set | window starts that ended in a failure with no success since |
 | `flow:last:{flow}` | hash | the flow's latest finished run: id, status, error code, finished at |
 | `flow:unarchived` | sorted set | finished runs not yet in ClickHouse, by finish time |
+| `flow:transcript:{run}:{attempt}` | list | what an agent run said and did on that attempt, one JSON row per entry, appended as it happens (`AgentTranscripts`). Copied to ClickHouse `flow_run_transcript` with the run and expired with its hash |
 
 A finished run's hash stays for `datahub.flow.runs.finished-ttl` (default 15 minutes) after
 ClickHouse has it, so a run that just ended is readable at once and the console's run page never

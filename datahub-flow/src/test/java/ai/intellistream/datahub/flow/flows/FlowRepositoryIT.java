@@ -7,6 +7,7 @@ import ai.intellistream.datahub.testsupport.SharedPostgres;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -55,10 +56,22 @@ class FlowRepositoryIT {
     }
 
     @Test
+    void aFlowsKindIsStoredWithItAndIsFlowOrAgent() {
+        StoredFlow agent = transaction.execute(s -> repository.create("kind_agent", 1, "ds_1", "Watch",
+                "agent", definition("kind_agent"), "user-1"));
+        assertThat(jdbc.queryForObject("SELECT kind FROM flow WHERE id = ?", String.class, agent.id())).isEqualTo("agent");
+        transaction.execute(s -> repository.addVersion(agent.id(), 1, 1, "ds_1", "Watch", "flow",
+                definition("kind_agent"), "user-1"));
+        assertThat(jdbc.queryForObject("SELECT kind FROM flow WHERE id = ?", String.class, agent.id())).isEqualTo("flow");
+        assertThatThrownBy(() -> transaction.execute(s -> repository.create("kind_robot", 1, "ds_1", "Robot",
+                "robot", definition("kind_robot"), "user-1"))).isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
     void aChangeIsTheNextVersionAndAStaleOneIsRefused() {
         StoredFlow flow = create("versioned", 1);
 
-        StoredFlow v2 = transaction.execute(s -> repository.addVersion(flow.id(), 1, 2, "ds_2", "renamed",
+        StoredFlow v2 = transaction.execute(s -> repository.addVersion(flow.id(), 1, 2, "ds_2", "renamed", "flow",
                 definition("versioned"), "user-2")).orElseThrow();
         assertThat(v2.currentVersion()).isEqualTo(2);
         assertThat(v2.dataSetId()).isEqualTo(2);
@@ -66,7 +79,7 @@ class FlowRepositoryIT {
         assertThat(v2.updatedBy()).isEqualTo("user-2");
 
         Optional<StoredFlow> late = transaction.execute(s -> repository.addVersion(flow.id(), 1, 2,
-                "ds_2", "late", definition("versioned"), "user-3"));
+                "ds_2", "late", "flow", definition("versioned"), "user-3"));
         assertThat(late).isEmpty();
         assertThat(repository.versions(flow.id())).extracting(FlowRepository.StoredVersion::version)
                 .containsExactly(2, 1);
@@ -107,7 +120,7 @@ class FlowRepositoryIT {
         // A save into the same, deleted dataset could not happen (it is not found); one into
         // another dataset moves it: no longer orphaned, still off.
         StoredFlow moved = transaction.execute(s -> repository.addVersion(orphan.id(), 1, 400, "ds_400",
-                "moved", definition("orphan_a"), "admin-1")).orElseThrow();
+                "moved", "flow", definition("orphan_a"), "admin-1")).orElseThrow();
         assertThat(moved.orphaned()).isFalse();
         assertThat(moved.disabledReason()).isNull();
         assertThat(moved.enabled()).isFalse();
@@ -207,7 +220,7 @@ class FlowRepositoryIT {
 
     private static StoredFlow create(String externalId, long dataSetId) {
         return transaction.execute(s -> repository.create(externalId, dataSetId, "ds_" + dataSetId,
-                "Flow " + externalId, definition(externalId), "user-1"));
+                "Flow " + externalId, "flow", definition(externalId), "user-1"));
     }
 
     private static String definition(String externalId) {

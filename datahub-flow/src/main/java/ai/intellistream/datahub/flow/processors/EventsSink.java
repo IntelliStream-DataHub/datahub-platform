@@ -74,6 +74,11 @@ public class EventsSink implements Processor {
             .property(PropertyDescriptor.builder("description", PropertyType.STRING)
                     .displayName("Description").description("The events' description.")
                     .references().advanced().build())
+            .property(PropertyDescriptor.builder("source", PropertyType.STRING)
+                    .displayName("Source")
+                    .description("The events' source, their provenance: what wrote them. An agent's "
+                            + "are agent:<its external id>, which read-events can leave out.")
+                    .references().advanced().build())
             .dynamicProperties(new DynamicPropertyDescriptor(
                     "A metadata key on the events.",
                     "Its value, e.g. ${timeseries.externalId}.",
@@ -98,6 +103,7 @@ public class EventsSink implements Processor {
         String subType = context.property("subType").evaluate(item).asString();
         String externalId = context.property("externalId").evaluate(item).asString();
         String description = context.property("description").evaluate(item).asString();
+        String source = context.property("source").evaluate(item).asString();
         Map<String, String> metadata = new LinkedHashMap<>();
         for (Map.Entry<String, PropertyValue> e : context.dynamicProperties().entrySet()) {
             metadata.put(e.getKey(), e.getValue().evaluate(item).asString());
@@ -136,6 +142,7 @@ public class EventsSink implements Processor {
             event.setType(type);
             event.setSubType(subType);
             event.setDescription(description);
+            event.setSource(source);
             event.setDataSetId(dataSetId);
             event.setMetadata(meta);
             event.setId(id(event, row.eventTime().toEpochMilli()).toString());

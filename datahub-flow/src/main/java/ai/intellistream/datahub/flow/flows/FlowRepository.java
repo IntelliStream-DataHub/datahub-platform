@@ -76,13 +76,13 @@ public class FlowRepository {
      * @throws DuplicateKeyException when the tenant already has a flow with that external id
      */
     public StoredFlow create(String externalId, long dataSetId, String dataSetExternalId, String name,
-                             String definition, String by) {
+                             String kind, String definition, String by) {
         // The flow's current version is checked against flow_version by a deferred key, so the
         // flow goes first and its version second, in the caller's transaction.
         Long id = jdbc.queryForObject("INSERT INTO flow (external_id, data_set_id, "
-                        + "data_set_external_id, name, current_version, created_by, updated_by) "
-                        + "VALUES (?, ?, ?, ?, 1, ?, ?) RETURNING id",
-                Long.class, externalId, dataSetId, dataSetExternalId, name, by, by);
+                        + "data_set_external_id, name, kind, current_version, created_by, updated_by) "
+                        + "VALUES (?, ?, ?, ?, ?, 1, ?, ?) RETURNING id",
+                Long.class, externalId, dataSetId, dataSetExternalId, name, kind, by, by);
         insertVersion(id, 1, definition, by);
         return find(externalId).orElseThrow();
     }
@@ -93,15 +93,15 @@ public class FlowRepository {
      * another dataset is no longer orphaned; it stays switched off until someone deploys it.
      */
     public Optional<StoredFlow> addVersion(long flowId, int expectedVersion, long dataSetId,
-                                           String dataSetExternalId, String name, String definition,
-                                           String by) {
+                                           String dataSetExternalId, String name, String kind,
+                                           String definition, String by) {
         // Every expression in SET reads the row as it was, so data_set_id here is the old dataset.
         int updated = jdbc.update("UPDATE flow SET current_version = current_version + 1, "
                         + "disabled_reason = CASE WHEN disabled_reason = ? AND data_set_id <> ? "
                         + "THEN NULL ELSE disabled_reason END, "
-                        + "data_set_id = ?, data_set_external_id = ?, name = ?, updated_by = ?, "
+                        + "data_set_id = ?, data_set_external_id = ?, name = ?, kind = ?, updated_by = ?, "
                         + "updated_at = now() WHERE id = ? AND current_version = ?",
-                DATASET_DELETED, dataSetId, dataSetId, dataSetExternalId, name, by, flowId,
+                DATASET_DELETED, dataSetId, dataSetId, dataSetExternalId, name, kind, by, flowId,
                 expectedVersion);
         if (updated == 0) {
             return Optional.empty();

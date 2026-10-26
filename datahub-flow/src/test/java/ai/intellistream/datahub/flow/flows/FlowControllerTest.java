@@ -103,7 +103,7 @@ class FlowControllerTest {
 
         create(TestFlows.EXAMPLE).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/forbidden"));
-        verify(repository, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(), anyString());
+        verify(repository, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(), anyString(), anyString());
     }
 
     @Test
@@ -118,7 +118,7 @@ class FlowControllerTest {
     void aSaveCreatesTheDeclaredSeriesThatDoNotExistYet() throws Exception {
         callerIs(writer(new DataSets(false, Set.of(DS_DEMO))));
         when(repository.find("temp_hourly")).thenReturn(Optional.empty());
-        when(repository.create(eq("temp_hourly"), eq(DS_DEMO), eq("ds_demo"), anyString(), anyString(),
+        when(repository.create(eq("temp_hourly"), eq(DS_DEMO), eq("ds_demo"), anyString(), eq("flow"), anyString(),
                 eq("user-1"))).thenReturn(stored("temp_hourly", DS_DEMO, 1));
 
         create(TestFlows.EXAMPLE).andExpect(status().isCreated())
@@ -230,7 +230,7 @@ class FlowControllerTest {
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("https://intellistream.ai/errors/dataset-forbidden"));
         verify(repository, never()).addVersion(anyLong(), anyInt(), anyLong(), anyString(), anyString(),
-                anyString(), anyString());
+                anyString(), anyString(), anyString());
     }
 
     @Test
@@ -238,12 +238,12 @@ class FlowControllerTest {
         callerIs(writer(DataSets.ALL));
         StoredFlow flow = stored("temp_hourly", DS_DEMO, 1);
         when(repository.find("temp_hourly")).thenReturn(Optional.of(flow));
-        when(repository.addVersion(eq(flow.id()), eq(1), eq(DS_DEMO), eq("ds_demo"), anyString(),
+        when(repository.addVersion(eq(flow.id()), eq(1), eq(DS_DEMO), eq("ds_demo"), anyString(), eq("flow"),
                 anyString(), eq("user-1"))).thenReturn(Optional.of(stored("temp_hourly", DS_DEMO, 2)));
 
         update(TestFlows.EXAMPLE).andExpect(status().isOk()).andExpect(jsonPath("$.version").value(2));
 
-        when(repository.addVersion(anyLong(), anyInt(), anyLong(), anyString(), anyString(), anyString(),
+        when(repository.addVersion(anyLong(), anyInt(), anyLong(), anyString(), anyString(), anyString(), anyString(),
                 anyString())).thenReturn(Optional.empty());
         update(TestFlows.EXAMPLE).andExpect(status().isConflict());
     }
@@ -271,7 +271,7 @@ class FlowControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.valid").value(false))
                 .andExpect(jsonPath("$.problems[0].field").value("#/dataSet"));
-        verify(repository, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(), isNull());
+        verify(repository, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(), anyString(), isNull());
         verify(timeseries, never()).create(any(List.class));
     }
 
@@ -301,7 +301,7 @@ class FlowControllerTest {
     @Test
     void anOrphanIsMovedBySavingItIntoAnotherDataset() throws Exception {
         when(repository.find("temp_hourly")).thenReturn(Optional.of(orphan("temp_hourly")));
-        when(repository.addVersion(eq(7L), eq(1), eq(DS_DEMO), eq("ds_demo"), anyString(), anyString(),
+        when(repository.addVersion(eq(7L), eq(1), eq(DS_DEMO), eq("ds_demo"), anyString(), eq("flow"), anyString(),
                 eq("user-1"))).thenReturn(Optional.of(stored("temp_hourly", DS_DEMO, 2)));
 
         callerIs(writer(new DataSets(false, Set.of(DS_DEMO))));

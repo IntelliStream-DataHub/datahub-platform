@@ -26,7 +26,8 @@ import java.util.regex.Pattern;
 /**
  * What intellistream-flow leaves behind expires together, after one retention period (the plan's
  * <em>Retention</em>): the history of finished runs in each tenant's ClickHouse ({@code flow_run})
- * and the records of what they did ({@code flow_run_event}), both by the table's TTL. So a record
+ * the records of what they did ({@code flow_run_event}) and what its agent runs said and did
+ * ({@code flow_run_transcript}), each by the table's TTL. So a record
  * never outlives its run, and a run never shows records that already expired. Runs that are queued,
  * running or just ended are in the tenant's KVRocks, which expires them itself.
  *
@@ -47,7 +48,8 @@ import java.util.regex.Pattern;
 public class FlowRetentionTask {
 
     /** The tables, and the time column each expires by. */
-    static final Map<String, String> TABLES = Map.of("flow_run_event", "event_time", "flow_run", "finished_at");
+    static final Map<String, String> TABLES = Map.of("flow_run_event", "event_time", "flow_run", "finished_at",
+            "flow_run_transcript", "time");
 
     private final TenantConfigService tenants;
     private final Function<Tenant, Client> clickhouse;

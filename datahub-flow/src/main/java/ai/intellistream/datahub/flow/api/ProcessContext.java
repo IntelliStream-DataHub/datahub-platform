@@ -5,6 +5,7 @@ import ai.intellistream.datahub.sdk.client.DatahubClient;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * What a processor is invoked with: its resolved property values, and what it may know about the
@@ -58,4 +59,23 @@ public interface ProcessContext extends PropertyValues {
 
     /** Messages that end up on the run's page. */
     RunLog log();
+
+    UUID runId();
+
+    /** Which attempt of the run this is, from 1: a processor that must not repeat itself looks. */
+    int attempt();
+
+    /** The flow's external id, as the definition names it; what a processor stamps as provenance. */
+    String flowExternalId();
+
+    /**
+     * The run's current access token, for a processor that calls something other than DataHub as
+     * the run's identity (an MCP server). Like {@link #secret}: never log it, put it in an attribute
+     * or put it in a transit URI. Taken fresh on every call, because it is refreshed under the run
+     * and refused once the run has lost its lease.
+     *
+     * @throws ProcessException for a run that was given none
+     * @throws IllegalStateException once the run no longer holds its lease: nothing more may go out
+     */
+    String accessToken();
 }

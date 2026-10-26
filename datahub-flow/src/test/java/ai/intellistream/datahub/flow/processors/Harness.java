@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -54,6 +56,14 @@ final class Harness implements AutoCloseable {
     final Given given = new Given();
     final Collect collect = new Collect();
     final List<FlowRecord> records = new ArrayList<>();
+    /** Processors beyond the built-ins a test runs, such as an agent made with fakes. */
+    final List<Processor> extra = new ArrayList<>();
+    /** What a run's {@code accessToken()} answers; a test replaces it to play a lost lease. */
+    Supplier<String> accessToken = () -> "harness-token";
+    /** Whether the run is told to stop; a test replaces it to cancel mid-way. */
+    BooleanSupplier cancelled = () -> false;
+    /** Which attempt of the run the next flow is, for a processor that looks at the one before. */
+    int attempt = 1;
     private final List<RunResult> results = new ArrayList<>();
 
     /** A series {@code ts1} in {@link #WINDOW}, as the source would make it. */
@@ -97,12 +107,13 @@ final class Harness implements AutoCloseable {
                 }
                 """.formatted(processors, connections);
         List<Processor> catalog = new ArrayList<>(builtIns());
+        catalog.addAll(extra);
         catalog.add(given);
         catalog.add(collect);
         FlowValidator validator = new FlowValidator(catalog, FlowValidator.Limits.DEFAULTS);
         CompiledFlow flow = new FlowCompiler(validator).compile(FlowDefinitions.parse(json));
-        RunResult result = executor.execute(flow, new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(),
-                preview, 64L * 1024 * 1024, null, null, dataSetId, datahub), records::add);
+        RunResult result = executor.execute(flow, new RunRequest(UUID.randomUUID(), attempt, WINDOW, Map.of(),
+                preview, 64L * 1024 * 1024, null, cancelled, dataSetId, datahub, accessToken), records::add);
         results.add(result);
         return result;
     }

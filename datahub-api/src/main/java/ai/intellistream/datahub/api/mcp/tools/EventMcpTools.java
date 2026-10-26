@@ -25,7 +25,9 @@ import org.springframework.ai.tool.annotation.ToolParam;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -72,7 +74,12 @@ public class EventMcpTools {
             String description,
             @ToolParam(required = false, description =
                     "ExternalIds of the resources this event is about. They must already exist.")
-            List<String> relatedResourceExternalIds
+            List<String> relatedResourceExternalIds,
+            @ToolParam(required = false, description = "Where the event comes from, its provenance "
+                    + "(e.g. 'sap', 'agent:pump_watch'). Filters can include or exclude events by it.")
+            String source,
+            @ToolParam(required = false, description = "Free-form string key/value pairs stored on the event.")
+            Map<String, String> metadata
     ) throws Exception {
         EventModel e = new EventModel();
         e.setExternalId(externalId);
@@ -83,6 +90,8 @@ public class EventMcpTools {
         if (subType != null) e.setSubType(subType);
         if (status != null) e.setStatus(status);
         if (description != null) e.setDescription(description);
+        if (source != null) e.setSource(source);
+        if (metadata != null) e.setMetadata(new HashMap<>(metadata));
         if (relatedResourceExternalIds != null) {
             relatedResourceExternalIds.stream()
                     .filter(Objects::nonNull)
