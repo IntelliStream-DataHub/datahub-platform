@@ -1,0 +1,8 @@
+<nav class="sub-nav" th:fragment="navbar (pageSelected)">
+	<a th:href="@{/agents}" th:classappend="${pageSelected} == 'list' ? 'selected' : ''">
+		<span th:text="#{agents.nav.list}"></span>
+	</a>
+	<a th:href="@{/agents(tab='attention')}" th:classappend="${pageSelected} == 'attention' ? 'selected' : ''">
+		<span th:text="#{agents.nav.attention}"></span>
+	</a>
+</nav>

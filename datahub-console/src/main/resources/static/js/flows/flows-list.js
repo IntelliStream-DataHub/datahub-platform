@@ -2,6 +2,9 @@
  * The flows list: GET {flow}/flows a page at a time, newest cursor first, as datahub-flow filters
  * it to the flows whose dataset the user may read. A new flow is made on the flow page. Each row
  * can deploy its flow (through Keycloak, as the flow page does) or switch it on or off, in place.
+ *
+ * The Agents section lists the same way: its page says data-kind="agent" (GET /flows?kind=agent)
+ * and data-section="agents", where the rows link to.
  */
 (function(){
 	"use strict";
@@ -12,6 +15,8 @@
 		var tbody = page.querySelector('[data-type="flows-table"] tbody');
 		var empty = page.querySelector('[data-type="flows-empty"]');
 		var more = page.querySelector('[data-type="flows-load-more"]');
+		var kind = page.getAttribute("data-kind");
+		var section = page.getAttribute("data-section") || "flows";
 		var cursor = null;
 
 		function deploymentText(flow){
@@ -99,13 +104,14 @@
 			var tr = document.createElement("tr");
 			draw(flow, tr);
 			tr.addEventListener("click", function(){
-				window.location.href = "/flows/" + FlowApi.seg(flow.externalId);
+				window.location.href = "/" + section + "/" + FlowApi.seg(flow.externalId);
 			});
 			return tr;
 		}
 
 		function load(){
-			var q = "?limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
+			var q = "?limit=100" + (kind ? "&kind=" + encodeURIComponent(kind) : "")
+				+ (cursor ? "&cursor=" + encodeURIComponent(cursor) : "");
 			more.disabled = true;
 			FlowApi.get("/flows" + q)
 				.then(function(wrapper){

@@ -489,3 +489,33 @@
 .runs-warning { color: var(--flash-warning-bg); }
 .runs-fine { margin-top: var(--space-xl); }
 .runs-fine > summary { cursor: pointer; margin-bottom: var(--space-sm); }
+
+/* ---- Agents ------------------------------------------------------------------------------- */
+
+/* The form reuses the settings page's groups and fields (settings.css); these are the agent's own. */
+.agent-form .settings-group-intro { margin-bottom: var(--space-lg); }
+.agent-tools h4 { margin: var(--space-lg) 0 var(--space); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.agent-tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space) var(--space-lg); }
+.agent-tool { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space); align-items: start; cursor: pointer; }
+.agent-tool input { margin-top: 3px; }
+.agent-tool strong { font-weight: 500; }
+.agent-tool span { grid-column: 2; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.agent-tool.disabled { color: var(--text-muted); cursor: default; }
+.agent-tool-badge { grid-column: 2; display: inline-block; margin-left: 0; padding: 0 6px; border-radius: 10px; font-size: 11px; font-style: normal; background: var(--border); color: var(--text-muted); width: fit-content; }
+.agent-tool-badge.warn { background: var(--flash-warn-bg, #f6e5b6); color: var(--flash-warn-fg, #5a4300); }
+.transcript-row .agent-tool-badge { margin-left: var(--space); vertical-align: middle; }
+
+.agent-transcript { margin: var(--space-xl) 0; }
+.agent-outcome { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: var(--border); }
+.agent-outcome.attention { background: var(--flash-warn-bg, #f6e5b6); color: var(--flash-warn-fg, #5a4300); }
+.transcript { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 6px; }
+.transcript-row { padding: var(--space) var(--space-lg); border-bottom: 1px solid var(--border); font-size: 13px; }
+.transcript-row:last-child { border-bottom: 0; }
+.transcript-row p { margin: 0; white-space: pre-wrap; }
+.transcript-row details > summary { cursor: pointer; color: var(--text-muted); }
+.transcript-row details.error > summary { color: var(--input-error-fg); }
+.transcript-row pre { margin: var(--space) 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+.transcript-assistant { background: var(--surface-2, transparent); }
+.transcript-usage, .transcript-note { color: var(--text-muted); font-size: 12px; }
+.transcript-label { color: var(--text-muted); }
+.agent-summary { white-space: pre-wrap; }

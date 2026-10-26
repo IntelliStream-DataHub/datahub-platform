@@ -30,8 +30,13 @@ import static org.mockito.Mockito.when;
 class FlowsNavTemplateTest {
 
     private static String renderNav(boolean flows) {
+        return renderNav(flows, false);
+    }
+
+    private static String renderNav(boolean flows, boolean agents) {
         FlowAccess flowAccess = mock(FlowAccess.class);
         when(flowAccess.available()).thenReturn(flows);
+        when(flowAccess.agentsAvailable()).thenReturn(agents);
         try (var context = new AnnotationConfigApplicationContext()) {
             context.registerBean("flowAccess", FlowAccess.class, () -> flowAccess);
             context.refresh();
@@ -74,6 +79,16 @@ class FlowsNavTemplateTest {
 
     @Test
     void aTenantWithoutFlowsDoesNot() {
-        assertThat(renderNav(false)).doesNotContain("/flows").contains("/events/index");
+        assertThat(renderNav(false)).doesNotContain("/flows").doesNotContain("/agents").contains("/events/index");
+    }
+
+    @Test
+    void aTenantWithAModelSeesTheAgentsEntryAndItsCount() {
+        assertThat(renderNav(true, false)).doesNotContain("/agents");
+        String nav = renderNav(true, true);
+        assertThat(nav).contains("href=\"/agents\"")
+                .contains(">Agents<")
+                .contains("data-type=\"agents-attention-count\"")
+                .doesNotContain("??");
     }
 }

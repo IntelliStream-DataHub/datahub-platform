@@ -73,8 +73,9 @@
 		return s;
 	}
 
-	function runPath(flowId, run){
-		return "/flows/" + FlowApi.seg(run.flow || flowId) + "/runs/" + FlowApi.seg(run.id);
+	/** Where a run's page is: in Flows, or in Agents when the page says data-section="agents". */
+	function runPath(section, flowId, run){
+		return "/" + (section || "flows") + "/" + FlowApi.seg(run.flow || flowId) + "/runs/" + FlowApi.seg(run.id);
 	}
 
 	// ---- the list on a flow's page -------------------------------------------------------------
@@ -89,6 +90,7 @@
 			var tbody = page.querySelector('[data-type="flow-runs"] tbody');
 			var empty = page.querySelector('[data-type="flow-runs-empty"]');
 			var more = page.querySelector('[data-type="flow-runs-more"]');
+			var section = page.getAttribute("data-section");
 			var key = flowId + "|" + previews.checked;
 			if(listed === key) return;
 			listed = key;
@@ -112,7 +114,7 @@
 							if(i === 0) td.className = "run-status-" + run.status.toLowerCase();
 							tr.appendChild(td);
 						});
-						tr.addEventListener("click", function(){ window.location.href = runPath(flowId, run); });
+						tr.addEventListener("click", function(){ window.location.href = runPath(section, flowId, run); });
 						tbody.appendChild(tr);
 					});
 					runsCursor = wrapper.nextCursor || null;
@@ -131,6 +133,7 @@
 		if(!page) return;
 		var flowId = page.getAttribute("data-flow-id");
 		var runId = page.getAttribute("data-run-id");
+		var section = page.getAttribute("data-section");
 		var el = function(type){ return page.querySelector('[data-type="' + type + '"]'); };
 		var tbody = el("run-records").querySelector("tbody");
 		var filter = el("run-records-processor");
@@ -314,7 +317,7 @@
 		});
 		el("run-rerun").addEventListener("click", function(){
 			FlowApi.post("/runs/" + FlowApi.seg(runId) + "/rerun", {}).then(function(run){
-				window.location.href = runPath(flowId, run);
+				window.location.href = runPath(section, flowId, run);
 			}).catch(function(err){ FlowApi.flashError(err, "flows.error.run"); });
 		});
 		window.addEventListener("beforeunload", function(){ if(stream) stream.close(); });

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{agents.nav.attention}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'agents')}">
+<main class="layout-body">
+	<nav th:replace="~{agents/nav :: navbar('attention')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{agents.not.enabled}">Agents need flows and a model configured for your organization.</p>
+	</div>
+
+	<!--/* What agents asked a person to look at: the agent/attention lifecycles in datahub-api whose
+	       latest event is open, POST {api}/events/latest, filled by agents/agents-attention.js.
+	       Dismissing writes the dismissed event as the person dismissing. */-->
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="agents-attention-page">
+		<div class="flows-header">
+			<div>
+				<h2 th:text="#{agents.nav.attention}"></h2>
+				<p class="flows-intro" th:text="#{agents.attention.intro}"></p>
+			</div>
+			<div class="flows-header-actions">
+				<button type="button" class="dh-btn secondary" data-type="attention-dismiss-all" hidden
+						th:text="#{agents.attention.dismiss.all}"></button>
+			</div>
+		</div>
+		<div th:replace="~{agents/attention :: table}"></div>
+	</div>
+
+	<!--/* The list itself, shared with the tab on an agent's page. */-->
+	<th:block th:fragment="table">
+		<table class="listing slim w100" data-type="attention-table">
+			<thead>
+				<tr>
+					<th th:text="#{agents.column.agent}"></th>
+					<th th:text="#{agents.column.when}"></th>
+					<th th:text="#{agents.column.summary}"></th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="attention-empty" hidden th:text="#{agents.attention.empty}"></p>
+		<div class="flows-actions">
+			<button type="button" class="dh-btn secondary" data-type="attention-more" hidden
+					th:text="#{flows.load.more}"></button>
+		</div>
+	</th:block>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('agents')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

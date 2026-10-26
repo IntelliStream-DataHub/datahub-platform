@@ -368,6 +368,22 @@ class BrowserPayloadContractTest {
                         new TypeReference<DataWrapper<EventModel>>() {},
                         "static/js/flows/flows-attention.js"),
 
+                // The Agents section's Needs-attention lists and the count on its header entry: the
+                // agent/attention lifecycles whose latest event is open, of one agent by its metadata.
+                new Payload("POST /events/latest (agents needing attention)", """
+                        {"filter":{"type":["agent"],"subType":["attention"],"metadata":{"flow":"pump_watch"}},
+                        "status":["open"],"limit":100,"cursor":"1755000000000_0190a5d2-0000-7000-8000-000000000001"}""",
+                        new TypeReference<LatestEventsQuery>() {},
+                        "static/js/flows/attention-badge.js"),
+
+                // Dismissing what an agent asked a person to look at: a dismissed event in the same lifecycle.
+                new Payload("POST /events/create (dismiss an agent's attention)", """
+                        {"items":[{"externalId":"agent:pump_watch:0190a5d2-0000-7000-8000-000000000001","type":"agent",
+                        "subType":"attention","status":"dismissed","eventTime":1755000000000,
+                        "dataSetId":"9223372036854775806","metadata":{"dismissedBy":"ada"}}]}""",
+                        new TypeReference<DataWrapper<EventModel>>() {},
+                        "static/js/agents/agents-attention.js"),
+
                 // Not datahub-api: the Analyze tab posts this straight to datahub-analysis.
                 new Payload("POST /analysis", """
                         {"focusExternalId":"21-PT-1234","start":"2026-08-01T00:00:00Z",
