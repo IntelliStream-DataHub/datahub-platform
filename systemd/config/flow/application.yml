@@ -34,6 +34,10 @@ datahub:
   # Point it at the api's load balancer, or a local api instance.
   api:
     url: http://localhost:8081
+  # datahub-analysis, the second MCP server an agent's tools may come from, besides the api's.
+  # Leave it out to offer the api's tools only.
+  #analysis:
+  #  url: http://localhost:8082
   flow:
     # Deploying a flow round-trips the browser through Keycloak to <public-url>/flows/deployment/callback,
     # which must be a redirect URI of the intellistream-flow client; then on to the console.
@@ -43,3 +47,14 @@ datahub:
       # What the runs on this instance may hold at once, each under its own cap. Unset, half the
       # heap (8 GB with flow.env's 16 GB); at most half, or the service refuses to start.
       #memory-budget: 8GB
+    # Agents, the flows whose step is a model with the platform's tools. The model itself is the
+    # tenant's own (llm.* in its Vault secret); these bound one run of it, and an agent's step may
+    # set its own. A running agent holds one of the instance's run slots (runs.max-running) for up
+    # to its timeout, 20 minutes by default.
+    #agents:
+    #  effort: high                 # the model's reasoning effort when the step sets none
+    #  turn-timeout: PT2M           # one model call
+    #  max-iterations: 6            # model calls in one run; the cap ends the run as failed
+    #  max-output-tokens:           # per model call; unset, the tenant's or the provider's default
+    #  max-tool-result-chars: 24000 # what of a tool's answer the model is shown
+    #  transcript-max-bytes: 1MB    # what of a run's transcript is kept

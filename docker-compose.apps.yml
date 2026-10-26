@@ -190,16 +190,19 @@ services:
       dockerfile: deploy/app/Dockerfile
       args:
         MODULE: datahub-flow
-    depends_on: ["postgres", "clickhouse", "pulsar", "keycloak", "datahub-api"]
+    depends_on: ["postgres", "clickhouse", "pulsar", "keycloak", "datahub-api", "datahub-analysis"]
     environment:
       <<: *app-env
       # A bigger heap than the others: runs hold their data on it. The run memory budget is half
       # the heap and must hold one run's default 512 MB cap, or the service refuses to start.
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1536m -XX:MaxDirectMemorySize=128m"
-      # The console's Flows section calls this service from the browser.
+      # The console's Flows and Agents sections call this service from the browser.
       CORS_ALLOWED_ORIGINS: http://localhost:8080
       # Asked what a caller may do, and called as the caller.
       DATAHUB_API_URL: http://datahub-api:8081
+      # The second MCP server an agent's tools may come from, besides the api's. Leave it unset to
+      # offer the api's tools only.
+      DATAHUB_ANALYSIS_URL: http://datahub-analysis:8082
       WAIT_FOR_API_URL: http://datahub-api:8081/
     restart: unless-stopped
     ports: ["8084:8084", "9086:9086"]
