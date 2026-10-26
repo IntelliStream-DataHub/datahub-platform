@@ -14,6 +14,7 @@ import ai.intellistream.datahub.flow.api.PropertyDescriptor;
 import ai.intellistream.datahub.flow.api.PropertyType;
 import ai.intellistream.datahub.flow.api.PropertyValues;
 import ai.intellistream.datahub.flow.api.Relationship;
+import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.datafilters.TimeFilter;
 import ai.intellistream.datahub.models.events.EventFilter;
@@ -29,7 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * {@code read-events}: reads the events whose event time is in a window, one {@code events} item
+ * {@code read-events}: reads the events whose event time is in the run's window, one {@code events} item
  * of at most {@code maxEventsPerItem} rows at a time, oldest first. Optionally only some types,
  * subtypes or statuses. A row carries the event's external id, time, status and metadata, which is
  * what {@code write-events} writes.
@@ -48,7 +49,7 @@ public class EventsSource implements Processor {
             .builder(TYPE, "1.0.0")
             .displayName("Read events")
             .category(ProcessorDescriptor.Category.READ_WRITE)
-            .description("Reads the events in a window from DataHub, oldest first.")
+            .description("Reads the events in the run's window from DataHub, oldest first.")
             .property(PropertyDescriptor.builder("type", PropertyType.LIST)
                     .displayName("Types")
                     .description("Event types to read; every type when unset.").build())
@@ -60,14 +61,6 @@ public class EventsSource implements Processor {
                     .displayName("Statuses")
                     .description("Statuses to read; every status when unset.")
                     .advanced().build())
-            .property(PropertyDescriptor.builder("from", PropertyType.INSTANT)
-                    .displayName("From")
-                    .description("Start of the window, inclusive.")
-                    .references().defaultValue("${run.window.start}").build())
-            .property(PropertyDescriptor.builder("to", PropertyType.INSTANT)
-                    .displayName("To")
-                    .description("End of the window, exclusive.")
-                    .references().defaultValue("${run.window.end}").build())
             .property(PropertyDescriptor.builder("maxEventsPerItem", PropertyType.NUMBER)
                     .displayName("Max events per item")
                     .description("More events are split into several items.")
@@ -88,14 +81,10 @@ public class EventsSource implements Processor {
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) {
-        Instant from = context.property("from").asInstant();
-        Instant to = context.property("to").asInstant();
-        if (from == null || to == null) {
-            throw new ProcessException("from and to must be set: the run has no window");
-        }
-        if (!from.isBefore(to)) {
-            throw new ProcessException("from (" + from + ") must be before to (" + to + ")");
-        }
+        TimeWindow runWindow = context.window()
+                .orElseThrow(() -> new ProcessException("The run has no window to read"));
+        Instant from = runWindow.start();
+        Instant to = runWindow.end();
         int maxRows = context.property("maxEventsPerItem").asDouble().intValue();
 
         EventFilter filter = new EventFilter();

@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.flow.catalog;
 
 import ai.intellistream.datahub.flow.api.Processor;
+import ai.intellistream.datahub.flow.fake.FakeProcessors;
 import ai.intellistream.datahub.flow.processors.EventsSink;
 import ai.intellistream.datahub.flow.processors.TimeseriesSink;
 import ai.intellistream.datahub.flow.processors.TimeseriesSource;
@@ -56,7 +57,7 @@ class ProcessorSchemaTest {
 
     @Test
     void aPropertyThatTakesReferencesSaysSo() {
-        JsonNode p = entry(new TimeseriesSource()).get("properties").get("properties");
+        JsonNode p = entry(new FakeProcessors.Source()).get("properties").get("properties");
 
         // An instant may be one reference instead: ${run.window.start}.
         JsonNode from = p.get("from");
@@ -77,7 +78,7 @@ class ProcessorSchemaTest {
 
         assertThat(p.get("timeseries").get("x-lookup").stringValue()).isEqualTo("timeseries");
         assertThat(p.get("timeseries").has("x-advanced")).isFalse();
-        assertThat(p.get("from").has("x-lookup")).isFalse();
+        assertThat(p.get("lookback").has("x-lookup")).isFalse();
         // An optional property without a default is folded away by being marked advanced.
         JsonNode events = entry(new EventsSink()).get("properties").get("properties");
         assertThat(events.get("subType").get("x-advanced").booleanValue()).isTrue();
@@ -109,11 +110,12 @@ class ProcessorSchemaTest {
     }
 
     @Test
-    void anEnumListsItsValuesWithTheirDescriptions() {
+    void anEnumListsItsValuesWithTheirNamesAndDescriptions() {
         JsonNode onMissing = entry(new TimeseriesSource()).get("properties").get("properties").get("onMissing");
 
         assertThat(onMissing.get("type").stringValue()).isEqualTo("string");
         assertThat(onMissing.get("oneOf").findValuesAsString("const")).containsExactly("fail", "skip");
+        assertThat(onMissing.get("oneOf").get(0).get("title").stringValue()).isEqualTo("Fail");
         assertThat(onMissing.get("oneOf").get(0).get("description").stringValue()).isEqualTo("Fail the run.");
     }
 }

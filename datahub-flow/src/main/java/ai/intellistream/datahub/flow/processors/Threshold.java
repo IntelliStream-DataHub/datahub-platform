@@ -54,8 +54,8 @@ public class Threshold implements Processor {
                     .displayName("Threshold").required().references().build())
             .property(PropertyDescriptor.builder("direction", PropertyType.ENUM)
                     .displayName("Direction")
-                    .allowableValues(new AllowableValue("above", "Periods above the threshold."),
-                            new AllowableValue("below", "Periods below it."))
+                    .allowableValues(new AllowableValue("above", "Above", "Periods above the threshold."),
+                            new AllowableValue("below", "Below", "Periods below the threshold."))
                     .defaultValue("above").build())
             .property(PropertyDescriptor.builder("minDuration", PropertyType.DURATION)
                     .displayName("Min duration").description("Ignore periods shorter than this.")

@@ -69,6 +69,12 @@
 					form.querySelectorAll(".flow-switch button").forEach(o => o.classList.toggle("selected", o === b));
 					form.querySelector("[data-only-with]").hidden = b.getAttribute("data-on") !== "true";
 				}));
+				// A choice explains itself on hover; the select carries it too, as an open list may not.
+				form.querySelectorAll("select").forEach(select => {
+					var explain = () => { select.title = select.selectedOptions[0] ? select.selectedOptions[0].title : ""; };
+					select.addEventListener("change", explain);
+					explain();
+				});
 				this.formElement.querySelectorAll("input[data-lookup='timeseries']").forEach(lookupTimeseries);
 				this.formElement.querySelectorAll("[data-series]").forEach(seriesPicker);
 				this.formElement.querySelectorAll("select[data-lookup='dataset']")
@@ -150,27 +156,31 @@
 				var rels = ((this.entry && this.entry.relationships) || [])
 					.filter(r => r.whenUnconnected !== "must-connect").map(r => r.name);
 				if(rels.length){
-					advanced += `<label>${L("flows.field.terminate")}</label><div class="flow-checks">`;
+					html += `<label>${L("flows.field.terminate")}</label><div class="flow-checks">`;
 					rels.forEach(r => {
 						var checked = (spec.terminate || []).indexOf(r) >= 0 ? "checked" : "";
-						advanced += `<label class="flows-check"><input type="checkbox" name="__terminate" value="${escapeHtml(r)}" ${checked}/> <span>${escapeHtml(r)}</span></label>`;
+						html += `<label class="flows-check"><input type="checkbox" name="__terminate" value="${escapeHtml(r)}" ${checked}/> <span>${escapeHtml(r)}</span></label>`;
 					});
-					advanced += `</div><p class="field-hint">${L("flows.field.terminate.help")}</p>`;
-					open = open || (spec.terminate || []).length > 0;
+					html += `</div><p class="field-hint">${L("flows.field.terminate.help")}</p>`;
 				}
-				var retry = spec.retry || {};
-				open = open || spec.retry != null;
-				html += `
+				// Retrying calls the processor again with the same items, so only one that reaches outside
+				// the run can succeed the second time; transforms and detectors are pure.
+				if(!this.entry || this.entry.category === "read-write"){
+					var retry = spec.retry || {};
+					open = open || spec.retry != null;
+					advanced += `
+						<label>${L("flows.field.retry")}</label>
+						<div class="flow-inline">
+							<input type="number" name="__retryAttempts" min="1" max="10" step="1"
+								   value="${retry.maxAttempts == null ? "" : escapeHtml(String(retry.maxAttempts))}"
+								   placeholder="${L("flows.field.retry.attempts")}"/>
+							<input type="text" name="__retryBackoff" value="${escapeHtml(friendlyDuration(retry.backoff))}"
+								   placeholder="${L("flows.field.retry.backoff")}"/>
+						</div>`;
+				}
+				if(advanced) html += `
 					<details class="flow-advanced" ${open ? "open" : ""}><summary>${L("flows.field.advanced")}</summary>
 					${advanced}
-					<label>${L("flows.field.retry")}</label>
-					<div class="flow-inline">
-						<input type="number" name="__retryAttempts" min="1" step="1"
-							   value="${retry.maxAttempts == null ? "" : escapeHtml(String(retry.maxAttempts))}"
-							   placeholder="${L("flows.field.retry.attempts")}"/>
-						<input type="text" name="__retryBackoff" value="${escapeHtml(friendlyDuration(retry.backoff))}"
-							   placeholder="${L("flows.field.retry.backoff")}"/>
-					</div>
 					</details>`;
 				return html;
 			}
@@ -185,16 +195,18 @@
 				var lookup = schema["x-lookup"] ? `data-lookup="${escapeHtml(schema["x-lookup"])}"` : "";
 				var current = value === undefined ? "" : kind.format === "duration" ? friendlyDuration(text(value)) : text(value);
 				var input;
+				// A choice with a default starts on it, with no blank to leave it unset: the two mean the
+				// same, and submit() leaves the default out of the definition.
+				var picked = current || (schema["default"] === undefined ? "" : text(schema["default"]));
+				var blank = schema["default"] === undefined ? `<option value=""></option>` : "";
 				if(kind.type === "enum"){
-					input = `<select name="${escapeHtml(field)}">
-						<option value="">${placeholder ? L("flows.field.default", [placeholder]) : ""}</option>
-						${kind.values.map(v => `<option value="${escapeHtml(v.const)}" ${current === v.const ? "selected" : ""}>${escapeHtml(v.const)}${v.description ? " — " + escapeHtml(v.description) : ""}</option>`).join("")}
+					input = `<select name="${escapeHtml(field)}">${blank}
+						${kind.values.map(v => `<option value="${escapeHtml(v.const)}" title="${escapeHtml(v.description || "")}" ${picked === v.const ? "selected" : ""}>${escapeHtml(v.title || v.const)}</option>`).join("")}
 					</select>`;
 				} else if(kind.type === "boolean" && !kind.references){
-					input = `<select name="${escapeHtml(field)}">
-						<option value="">${placeholder ? L("flows.field.default", [placeholder]) : ""}</option>
-						<option value="true" ${current === "true" ? "selected" : ""}>true</option>
-						<option value="false" ${current === "false" ? "selected" : ""}>false</option>
+					input = `<select name="${escapeHtml(field)}">${blank}
+						<option value="true" ${picked === "true" ? "selected" : ""}>true</option>
+						<option value="false" ${picked === "false" ? "selected" : ""}>false</option>
 					</select>`;
 				} else if(schema["x-lookup"] === "dataset"){
 					// Filled with the writable datasets in render().
@@ -226,6 +238,7 @@
 					if(!input) return;
 					var raw = input.value.trim();
 					if(raw === "") return;
+					if(input.tagName === "SELECT" && props[name]["default"] !== undefined && raw === text(props[name]["default"])) return;
 					var kind = schemaKind(props[name]);
 					if(kind.type === "array"){
 						properties[name] = raw.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
@@ -254,16 +267,18 @@
 					});
 				}
 				var terminate = Array.from(form.querySelectorAll('input[name="__terminate"]:checked')).map(c => c.value);
-				var attempts = form.elements.__retryAttempts.value.trim();
-				var backoff = isoDuration(form.elements.__retryBackoff.value.trim());
 				this.spec.properties = properties;
 				if(terminate.length) this.spec.terminate = terminate; else delete this.spec.terminate;
-				if(attempts || backoff){
-					this.spec.retry = {};
-					if(attempts) this.spec.retry.maxAttempts = Number(attempts);
-					if(backoff) this.spec.retry.backoff = backoff;
-				} else {
-					delete this.spec.retry;
+				if(form.elements.__retryAttempts){
+					var attempts = form.elements.__retryAttempts.value.trim();
+					var backoff = isoDuration(form.elements.__retryBackoff.value.trim());
+					if(attempts || backoff){
+						this.spec.retry = {};
+						if(attempts) this.spec.retry.maxAttempts = Number(attempts);
+						if(backoff) this.spec.retry.backoff = backoff;
+					} else {
+						delete this.spec.retry;
+					}
 				}
 				if(this.adding){
 					def.processors = def.processors || [];
@@ -291,6 +306,16 @@
 			render(){
 				super.render();
 				fillDataSets(this.formElement.elements.dataSet, def.dataSet);
+				var f = this.formElement.elements, scheduled = this.formElement.querySelector("[data-schedule-only]"),
+					manual = this.formElement.querySelector("[data-manual-only]");
+				var show = () => {
+					var schedule = f.triggerType.value === "schedule";
+					scheduled.hidden = !schedule;
+					manual.hidden = schedule;
+					f.window.required = !schedule;   // the Run button starts a run without a window of its own
+				};
+				f.triggerType.addEventListener("change", show);
+				show();
 				var fields = { name: "name", description: "description", dataSet: "dataSet" };
 				markProblems(this.formElement, p => {
 					var path = problemPath(p.field);
@@ -318,25 +343,24 @@
 						<option value="manual" ${t.type !== "schedule" ? "selected" : ""}>${L("flows.trigger.manual")}</option>
 						<option value="schedule" ${t.type === "schedule" ? "selected" : ""}>${L("flows.trigger.schedule")}</option>
 					</select>
-					<label>${L("flows.field.cron")}</label>
-					<input type="text" name="cron" value="${v(t.cron)}" placeholder="0 0 * * * *"/>
-					<label>${L("flows.field.timezone")}</label>
-					<input type="text" name="timezone" value="${v(t.timezone)}" placeholder="Europe/Oslo"/>
-					<label>${L("flows.field.delay")}</label>
-					<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="5m"/>
-					<p class="field-hint">${L("flows.field.trigger.help")}</p>
-					<details class="flow-advanced" ${t.window ? "open" : ""}><summary>${L("flows.field.advanced")}</summary>
+					<div data-manual-only>
 						<label>${L("flows.field.window")}</label>
-						<input type="text" name="window" value="${v(friendlyDuration(t.window))}"/>
+						<input type="text" name="window" value="${v(friendlyDuration(t.window))}" placeholder="1h"/>
 						<p class="field-hint">${L("flows.field.window.help")}</p>
-					</details>
+					</div>
+					<div data-schedule-only>
+						<label>${L("flows.field.cron")}</label>
+						<input type="text" name="cron" value="${v(t.cron)}" placeholder="0 0 * * * *"/>
+						<label>${L("flows.field.timezone")}</label>
+						<input type="text" name="timezone" value="${v(t.timezone)}" placeholder="UTC"/>
+						<label>${L("flows.field.delay")}</label>
+						<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="0s"/>
+						<p class="field-hint">${L("flows.field.trigger.help")}</p>
+					</div>
 
 					<label>${L("flows.field.execution")}</label>
 					<div class="flow-inline">
-						<input type="number" name="maxConcurrentRuns" min="1" value="${v(x.maxConcurrentRuns)}" placeholder="${L("flows.field.max.concurrent")}"/>
-						<input type="number" name="maxAttempts" min="1" value="${v(x.maxAttempts)}" placeholder="${L("flows.field.max.attempts")}"/>
-					</div>
-					<div class="flow-inline">
+						<input type="number" name="maxAttempts" min="1" max="10" value="${v(x.maxAttempts)}" placeholder="${L("flows.field.max.attempts")}"/>
 						<input type="text" name="timeout" value="${v(friendlyDuration(x.timeout))}" placeholder="15m"/>
 					</div>
 					<p class="field-hint">${L("flows.field.parameters.help")}</p>`;
@@ -348,12 +372,19 @@
 				def.name = val("name");
 				if(val("description")) def.description = val("description"); else delete def.description;
 				def.dataSet = val("dataSet");
+				// a schedule's window and maxConcurrentRuns are only set in the JSON view; keep what is there
 				var trigger = { type: f.triggerType.value };
-				["cron", "timezone"].forEach(k => { if(val(k)) trigger[k] = val(k); });
-				["window", "delay"].forEach(k => { if(val(k)) trigger[k] = isoDuration(val(k)); });
+				if(trigger.type === "schedule"){
+					["cron", "timezone"].forEach(k => { if(val(k)) trigger[k] = val(k); });
+					if(val("delay")) trigger.delay = isoDuration(val("delay"));
+					if(def.trigger && def.trigger.window) trigger.window = def.trigger.window;
+				} else if(val("window")){
+					trigger.window = isoDuration(val("window"));
+				}
 				def.trigger = trigger;
 				var execution = {};
-				["maxConcurrentRuns", "maxAttempts"].forEach(k => { if(val(k)) execution[k] = Number(val(k)); });
+				if(def.execution && def.execution.maxConcurrentRuns) execution.maxConcurrentRuns = def.execution.maxConcurrentRuns;
+				if(val("maxAttempts")) execution.maxAttempts = Number(val("maxAttempts"));
 				if(val("timeout")) execution.timeout = isoDuration(val("timeout"));
 				if(Object.keys(execution).length) def.execution = execution; else delete def.execution;
 				changed();
