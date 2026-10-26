@@ -120,7 +120,7 @@
 				// something in it is set.
 				var advanced = "", open = false;
 				Object.keys(props).forEach(name => {
-					if(name === tabs) return;
+					if(name === tabs || props[name]["x-hidden"]) return;
 					var value = spec.properties ? spec.properties[name] : undefined;
 					var field = this.propertyField(name, props[name], required.indexOf(name) >= 0 || props[name]["x-required"], value);
 					if(tabs && props[name]["x-onlyWith"] === tabs){
@@ -148,10 +148,8 @@
 						.map(k => k + " = " + text(spec.properties[k]))
 						.join("\n");
 					var dynamic = `
-						<label>${L("flows.field.dynamic")}</label>
-						<textarea name="__dynamic" rows="4" class="w100">${escapeHtml(lines)}</textarea>
-						<p class="field-hint">${escapeHtml(additional["x-keyDescription"] || "")} — ${escapeHtml(additional.description || "")}</p>
-						<p class="field-hint">${L("flows.field.dynamic.help")}</p>`;
+						<label>${L("flows.field.dynamic")}${help(`${escapeHtml(additional["x-keyDescription"] || "")} — ${escapeHtml(additional.description || "")}<br>${L("flows.field.dynamic.help")}`)}</label>
+						<textarea name="__dynamic" rows="4" class="w100">${escapeHtml(lines)}</textarea>`;
 					advanced += dynamic;
 					open = open || lines !== "";
 				}
@@ -159,12 +157,12 @@
 				var rels = ((this.entry && this.entry.relationships) || [])
 					.filter(r => r.whenUnconnected !== "must-connect").map(r => r.name);
 				if(rels.length){
-					html += `<label>${L("flows.field.terminate")}</label><div class="flow-checks">`;
+					html += `<label>${L("flows.field.terminate")}${help(L("flows.field.terminate.help"))}</label><div class="flow-checks">`;
 					rels.forEach(r => {
 						var checked = (spec.terminate || []).indexOf(r) >= 0 ? "checked" : "";
 						html += `<label class="flows-check"><input type="checkbox" name="__terminate" value="${escapeHtml(r)}" ${checked}/> <span>${escapeHtml(r)}</span></label>`;
 					});
-					html += `</div><p class="field-hint">${L("flows.field.terminate.help")}</p>`;
+					html += `</div>`;
 				}
 				// Retrying calls the processor again with the same items, so only one that reaches outside
 				// the run can succeed the second time; transforms and detectors are pure.
@@ -172,7 +170,7 @@
 					var retry = spec.retry || {};
 					open = open || spec.retry != null;
 					advanced += `
-						<label>${L("flows.field.retry")}</label>
+						<label>${L("flows.field.retry")}${help(L("flows.field.retry.help"))}</label>
 						<div class="flow-inline">
 							<input type="number" name="__retryAttempts" min="1" max="10" step="1"
 								   value="${retry.maxAttempts == null ? "" : escapeHtml(String(retry.maxAttempts))}"
@@ -191,7 +189,6 @@
 			propertyField(name, schema, required, value){
 				var kind = schemaKind(schema);
 				var label = escapeHtml(schema.title || name) + (required ? " *" : "");
-				var hint = schema.description ? `<p class="field-hint">${escapeHtml(schema.description)}</p>` : "";
 				var placeholder = schema["default"] === undefined ? ""
 					: escapeHtml(kind.format === "duration" ? friendlyDuration(text(schema["default"])) : text(schema["default"]));
 				var field = "f_" + name;
@@ -236,13 +233,17 @@
 					input = `<input type="text" name="${escapeHtml(field)}" value="${escapeHtml(current)}" ${lookup}
 						placeholder="${escapeHtml(schema["x-lookup"] ? L("flows.field.lookup.placeholder") : ph)}" ${required && !placeholder ? "required" : ""}/>`;
 				}
-				return `<label>${label}${kind.references ? referenceHelp(kind.type === "string") : ""}</label>${input}${hint}`;
+				return `<label>${label}${help(escapeHtml(schema.description || ""))}</label>${input}`;
 			}
 
 			submit(){
 				var form = this.formElement;
 				var props = this.schemaProperties();
 				var properties = {};
+				// What the form leaves out keeps the value the JSON view gave it.
+				Object.keys(props).filter(name => props[name]["x-hidden"] && this.spec.properties
+					&& this.spec.properties[name] !== undefined)
+					.forEach(name => properties[name] = this.spec.properties[name]);
 				Object.keys(props).forEach(name => {
 					var input = form.elements["f_" + name];
 					if(!input) return;
@@ -340,35 +341,32 @@
 				var x = def.execution || {};
 				var v = s => escapeHtml(s == null ? "" : String(s));
 				return `
-					<label>${L("flows.column.name")}</label>
+					<label>${L("flows.column.name")}${help(L("flows.field.name.help"))}</label>
 					<input type="text" name="name" required value="${v(def.name)}"/>
-					<label>${L("description")}</label>
+					<label>${L("description")}${help(L("flows.field.description.help"))}</label>
 					<textarea name="description" rows="2" class="w100">${v(def.description)}</textarea>
-					<label>${L("flows.field.dataset")}</label>
+					<label>${L("flows.field.dataset")}${help(L("flows.field.dataset.help"))}</label>
 					<select name="dataSet" required></select>
-					<p class="field-hint">${L("flows.field.dataset.help")}</p>
 
-					<label>${L("flows.field.trigger")}</label>
+					<label>${L("flows.field.trigger")}${help(L("flows.field.trigger.type.help"))}</label>
 					<select name="triggerType">
 						<option value="manual" ${t.type !== "schedule" ? "selected" : ""}>${L("flows.trigger.manual")}</option>
 						<option value="schedule" ${t.type === "schedule" ? "selected" : ""}>${L("flows.trigger.schedule")}</option>
 					</select>
 					<div data-manual-only>
-						<label>${L("flows.field.window")}</label>
+						<label>${L("flows.field.window")}${help(L("flows.field.window.help"))}</label>
 						<input type="text" name="window" value="${v(friendlyDuration(t.window))}" placeholder="1h"/>
-						<p class="field-hint">${L("flows.field.window.help")}</p>
 					</div>
 					<div data-schedule-only>
-						<label>${L("flows.field.cron")}</label>
+						<label>${L("flows.field.cron")}${help(L("flows.field.cron.help"))}</label>
 						<input type="text" name="cron" value="${v(t.cron)}" placeholder="0 0 * * * *"/>
-						<label>${L("flows.field.timezone")}</label>
+						<label>${L("flows.field.timezone")}${help(L("flows.field.timezone.help"))}</label>
 						<input type="text" name="timezone" value="${v(t.timezone)}" placeholder="UTC"/>
-						<label>${L("flows.field.delay")}</label>
+						<label>${L("flows.field.delay")}${help(L("flows.field.trigger.help"))}</label>
 						<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="0s"/>
-						<p class="field-hint">${L("flows.field.trigger.help")}</p>
 					</div>
 
-					<label>${L("flows.field.execution")}</label>
+					<label>${L("flows.field.execution")}${help(L("flows.field.execution.help"))}</label>
 					<div class="flow-inline">
 						<input type="number" name="maxAttempts" min="1" max="10" value="${v(x.maxAttempts)}" placeholder="${L("flows.field.max.attempts")}"/>
 						<input type="text" name="timeout" value="${v(friendlyDuration(x.timeout))}" placeholder="15m"/>
@@ -411,23 +409,11 @@
 			return JSON.stringify(value);
 		}
 
-		/** The info icon on a property that takes references, and what it shows on hover or focus. */
-		function referenceHelp(text){
-			// The names are code, not translated; quoted rather than in a template literal, which would
-			// read them as its own ${…}.
-			var rows = [
-				["${parameters.<name>}", L("flows.references.parameters")],
-				["${run.window.start}", L("flows.references.window")],
-				["${item.mean}", L("flows.references.item")],
-				["${<attribute>}", L("flows.references.attribute")]
-			].map(r => `<dt><code>${escapeHtml(r[0])}</code></dt><dd>${r[1]}</dd>`).join("");
-			return `<span class="flow-ref-help" tabindex="0" aria-label="${L("flows.references.title")}">
-				<i class="fa fa-fw fa-circle-info"></i>
-				<span class="flow-ref-help-text" role="tooltip">
-					<strong>${L("flows.references.title")}</strong>
-					<dl>${rows}</dl>
-					<span>${L(text ? "flows.references.text" : "flows.references.whole")}</span>
-				</span>
+		/** The info icon after a field's label, showing what the field does on hover or focus; html is escaped. */
+		function help(html){
+			if(!html) return "";
+			return `<span class="flow-help" tabindex="0" aria-label="${L("flows.field.help")}">
+				<i class="fa fa-fw fa-circle-info"></i><span class="flow-help-text" role="tooltip">${html}</span>
 			</span>`;
 		}
 

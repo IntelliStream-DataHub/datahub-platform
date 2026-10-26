@@ -68,7 +68,7 @@ public class TimeseriesSource implements Processor {
             .property(PropertyDescriptor.builder("maxPointsPerItem", PropertyType.NUMBER)
                     .displayName("Max points per item")
                     .description("A longer series is split into several items.")
-                    .defaultValue(100_000).build())
+                    .defaultValue(100_000).hidden().build())
             .property(PropertyDescriptor.builder("onMissing", PropertyType.ENUM)
                     .displayName("When the series is missing")
                     .description("What to do when the series does not exist or the run may not "

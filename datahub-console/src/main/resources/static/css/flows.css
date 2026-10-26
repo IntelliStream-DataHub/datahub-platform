@@ -312,26 +312,26 @@
 	margin-top: 12px;
 }
 
-/* The info icon on a property that takes ${…} references, and what it explains. */
-.flow-ref-help {
+/* The info icon after a field's label, and what the field does, shown on hover or focus. */
+.flow-help {
 	position: relative;
 	margin-left: 4px;
 	color: var(--icon-primary);
 	cursor: help;
 	outline: none;
 }
-.flow-ref-help:hover > i,
-.flow-ref-help:focus-visible > i {
+.flow-help:hover > i,
+.flow-help:focus-visible > i {
 	color: var(--accent);
 }
-.flow-ref-help-text {
+.flow-help-text {
 	display: none;
 	position: absolute;
 	top: calc(100% + 4px);
 	left: 0;
 	z-index: 30;
-	width: min(340px, calc(100vw - 32px));
-	padding: 10px 12px;
+	width: min(320px, calc(100vw - 32px));
+	padding: 8px 12px;
 	background: var(--menu-bg);
 	color: var(--text);
 	border: 1px solid var(--border);
@@ -344,19 +344,9 @@
 	letter-spacing: normal;
 	white-space: normal;
 }
-.flow-ref-help:hover > .flow-ref-help-text,
-.flow-ref-help:focus > .flow-ref-help-text {
+.flow-help:hover > .flow-help-text,
+.flow-help:focus > .flow-help-text {
 	display: block;
-}
-.flow-ref-help-text dl {
-	margin: 6px 0;
-}
-.flow-ref-help-text dt {
-	margin-top: 6px;
-}
-.flow-ref-help-text dd {
-	margin: 0;
-	color: var(--text-muted);
 }
 .flow-switch {
 	margin: var(--space) 0;

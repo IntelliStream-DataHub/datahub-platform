@@ -23,7 +23,8 @@ import java.util.Map;
  * small enough that a schema generator would add a dependency and nothing else. What JSON Schema
  * cannot say is carried in {@code x-} keywords: {@code x-references} (the value may contain
  * {@code ${…}} references), {@code x-sensitive}, {@code x-lookup} (what to search for the value),
- * {@code x-advanced}, {@code x-required} (required, though a default satisfies it), {@code x-tabs}
+ * {@code x-advanced}, {@code x-hidden} (left out of the form; set in the JSON view),
+ * {@code x-required} (required, though a default satisfies it), {@code x-tabs}
  * (a boolean's false and true, offered as two tabs) and {@code x-onlyWith} (the boolean it applies
  * only when true).
  */
@@ -101,6 +102,9 @@ final class ProcessorSchema {
         }
         if (p.advanced()) {
             schema.put("x-advanced", true);
+        }
+        if (p.hidden()) {
+            schema.put("x-hidden", true);
         }
         if (p.required() && p.defaultValue() != null) {
             schema.put("x-required", true);

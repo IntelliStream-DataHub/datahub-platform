@@ -51,9 +51,13 @@ public class Threshold implements Processor {
             .description("Finds the periods a series is above or below a threshold, as event "
                     + "lifecycles.")
             .property(PropertyDescriptor.builder("threshold", PropertyType.NUMBER)
-                    .displayName("Threshold").required().references().build())
+                    .displayName("Threshold")
+                    .description("The value a period starts when the series crosses.")
+                    .required().references().build())
             .property(PropertyDescriptor.builder("direction", PropertyType.ENUM)
                     .displayName("Direction")
+                    .description("Whether a period is when the series is above or below the "
+                            + "threshold.")
                     .allowableValues(new AllowableValue("above", "Above", "Periods above the threshold."),
                             new AllowableValue("below", "Below", "Periods below the threshold."))
                     .defaultValue("above").build())
