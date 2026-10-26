@@ -134,7 +134,7 @@ class RunControllerTest {
 
         when(flows.find("temp_hourly")).thenReturn(Optional.of(new StoredFlow(FLOW_ID, "temp_hourly",
                 DS_DEMO, "ds_demo", "Hourly temperature", 1, null, false, "user-1", Instant.EPOCH,
-                "user-1", Instant.EPOCH, null)));
+                "user-1", Instant.EPOCH, null, "flow")));
         when(flows.version(FLOW_ID, 1)).thenReturn(Optional.of(new StoredVersion(1, TestFlows.EXAMPLE,
                 "user-1", Instant.EPOCH)));
         when(flows.now()).thenReturn(Instant.parse("2026-10-12T11:06:00Z"));

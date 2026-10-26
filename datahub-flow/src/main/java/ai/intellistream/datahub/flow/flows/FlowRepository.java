@@ -34,7 +34,7 @@ public class FlowRepository {
 
     private static final String FLOW_COLUMNS = "id, external_id, data_set_id, data_set_external_id, "
             + "name, current_version, deployed_version, enabled, created_by, created_at, updated_by, "
-            + "updated_at, disabled_reason";
+            + "updated_at, disabled_reason, kind";
 
     private static final RowMapper<StoredFlow> FLOW = (rs, n) -> new StoredFlow(
             rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
@@ -42,7 +42,7 @@ public class FlowRepository {
             (Integer) rs.getObject("deployed_version"), rs.getBoolean("enabled"),
             rs.getString("created_by"), instant(rs.getTimestamp("created_at")),
             rs.getString("updated_by"), instant(rs.getTimestamp("updated_at")),
-            rs.getString("disabled_reason"));
+            rs.getString("disabled_reason"), rs.getString("kind"));
 
     private final JdbcTemplate jdbc;
 
@@ -54,11 +54,12 @@ public class FlowRepository {
      * A flow as stored, without its definition.
      *
      * @param disabledReason why the service switched it off, or null
+     * @param kind           {@code flow} or {@code agent}: a flow whose step is the agent processor
      */
     public record StoredFlow(long id, String externalId, long dataSetId, String dataSetExternalId,
                              String name, int currentVersion, Integer deployedVersion, boolean enabled,
                              String createdBy, Instant createdAt, String updatedBy, Instant updatedAt,
-                             String disabledReason) {
+                             String disabledReason, String kind) {
 
         /** Its dataset was deleted: see {@link #DATASET_DELETED}. */
         public boolean orphaned() {
@@ -122,15 +123,20 @@ public class FlowRepository {
 
     /**
      * A page of the flows in {@code readable} datasets — and the orphaned ones too, when
-     * {@code orphans} — by external id, starting after {@code afterExternalId} (null for the first
-     * page).
+     * {@code orphans} — of one {@code kind} (null for every kind), by external id, starting after
+     * {@code afterExternalId} (null for the first page).
      */
-    public List<StoredFlow> list(DataSets readable, boolean orphans, String afterExternalId, int limit) {
+    public List<StoredFlow> list(DataSets readable, boolean orphans, String kind, String afterExternalId,
+                                 int limit) {
         if (!readable.all() && readable.ids().isEmpty() && !orphans) {
             return List.of();
         }
         StringBuilder sql = new StringBuilder("SELECT " + FLOW_COLUMNS + " FROM flow WHERE true");
         List<Object> args = new ArrayList<>();
+        if (kind != null) {
+            sql.append(" AND kind = ?");
+            args.add(kind);
+        }
         if (!readable.all()) {
             // The driver binds a Long[] as a bigint[].
             sql.append(orphans ? " AND (data_set_id = ANY (?) OR disabled_reason = ?)"

@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.flow.identity;
 
 import ai.intellistream.datahub.flow.access.Caller;
+import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.flows.FlowRepository.Identity;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
@@ -197,8 +198,7 @@ public class DeployAuthorization {
         log.info("Flow {} deployed at version {} as its deployer", flow.externalId(), state.version());
         return consoleUrl.isEmpty()
                 ? new Outcome.Page(true, "Flow " + flow.externalId() + " is deployed. You can close this page.")
-                : new Outcome.Redirect(URI.create(consoleUrl + "/flows/" + encode(flow.externalId())
-                + "?deployed=1"));
+                : new Outcome.Redirect(URI.create(consoleUrl + page(flow) + "?deployed=1"));
     }
 
     /**
@@ -268,8 +268,13 @@ public class DeployAuthorization {
         if (consoleUrl.isEmpty()) {
             return new Outcome.Page(false, message);
         }
-        String path = flow == null ? "/flows" : "/flows/" + encode(flow.externalId());
+        String path = flow == null ? "/flows" : page(flow);
         return new Outcome.Redirect(URI.create(consoleUrl + path + "?deployError=" + encode(code)));
+    }
+
+    /** The flow's page in the console: agents have pages of their own. */
+    private static String page(StoredFlow flow) {
+        return (FlowValidator.KIND_AGENT.equals(flow.kind()) ? "/agents/" : "/flows/") + encode(flow.externalId());
     }
 
     String redirectUri() {

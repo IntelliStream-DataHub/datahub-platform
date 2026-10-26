@@ -87,6 +87,11 @@ public class FlowProblems {
         return new ProblemException(of(HttpStatus.SERVICE_UNAVAILABLE, "permissions-unavailable", detail), 5);
     }
 
+    /** A 503: a tool server (datahub-api's or datahub-analysis's MCP endpoint) did not answer. */
+    public static ProblemException toolsUnavailable(String detail) {
+        return new ProblemException(of(HttpStatus.SERVICE_UNAVAILABLE, "tools-unavailable", detail), 5);
+    }
+
     /** A 503: Keycloak could not be asked, so an identity could not be checked or obtained. */
     public static ProblemException identityProviderUnavailable(String detail) {
         return new ProblemException(of(HttpStatus.SERVICE_UNAVAILABLE, "identity-provider-unavailable",

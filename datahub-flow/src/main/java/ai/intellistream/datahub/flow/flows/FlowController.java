@@ -48,11 +48,12 @@ public class FlowController {
         return flows.validate(definition);
     }
 
-    /** The flows the caller may see, by external id, in pages. */
+    /** The flows the caller may see, by external id, in pages; of one {@code kind} ({@code flow}, {@code agent}) when given. */
     @GetMapping
-    public DataWrapper<FlowView> list(@RequestParam(required = false) String cursor,
+    public DataWrapper<FlowView> list(@RequestParam(required = false) String kind,
+                                      @RequestParam(required = false) String cursor,
                                       @RequestParam(required = false) Integer limit) {
-        return flows.list(cursor, limit);
+        return flows.list(kind, cursor, limit);
     }
 
     /** 200 with the flow and its current definition; 404 when it does not exist for the caller. */

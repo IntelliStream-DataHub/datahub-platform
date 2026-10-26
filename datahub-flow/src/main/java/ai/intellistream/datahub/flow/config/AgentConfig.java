@@ -37,10 +37,11 @@ public class AgentConfig {
         this.backends = new LlmBackends(tenants, json);
     }
 
+    /** The platform's tool servers, in the order a tool name is looked up: datahub-api first. */
     @Bean
-    Agent agent(AgentTranscripts transcripts, AgentProperties properties, TenantConfigService tenants,
-                JsonMapper json, @Value("${datahub.api.url:http://localhost:8081}") String apiUrl,
-                @Value("${datahub.analysis.url:}") String analysisUrl) {
+    List<StatelessMcpClient> mcpServers(JsonMapper json,
+                                        @Value("${datahub.api.url:http://localhost:8081}") String apiUrl,
+                                        @Value("${datahub.analysis.url:}") String analysisUrl) {
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
         List<StatelessMcpClient> servers = new ArrayList<>();
         servers.add(new StatelessMcpClient("datahub-api", apiUrl, http, json));
@@ -49,7 +50,13 @@ public class AgentConfig {
         }
         log.info("Agents wired with the tools of {}. Each tenant supplies its own model via its llm settings.",
                 servers.stream().map(StatelessMcpClient::name).toList());
-        return new Agent(backends, servers, transcripts, properties, tenants, Clock.systemUTC());
+        return List.copyOf(servers);
+    }
+
+    @Bean
+    Agent agent(List<StatelessMcpClient> mcpServers, AgentTranscripts transcripts, AgentProperties properties,
+                TenantConfigService tenants) {
+        return new Agent(backends, mcpServers, transcripts, properties, tenants, Clock.systemUTC());
     }
 
     @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)

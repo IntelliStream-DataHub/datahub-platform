@@ -37,6 +37,7 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -166,26 +167,40 @@ class FlowControllerTest {
 
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
         callerIs(reader(readable));
-        when(repository.list(readable, false, null, FlowService.DEFAULT_LIMIT))
+        when(repository.list(readable, false, null, null, FlowService.DEFAULT_LIMIT))
                 .thenReturn(List.of(stored("temp_hourly", DS_DEMO, 2)));
         mvc.perform(get("/flows")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].externalId").value("temp_hourly"))
                 .andExpect(jsonPath("$.items[0].version").value(2))
+                .andExpect(jsonPath("$.items[0].kind").value("flow"))
                 .andExpect(jsonPath("$.items[0].definition").doesNotExist())
                 .andExpect(jsonPath("$.nextCursor").doesNotExist());
     }
 
     @Test
+    void aListingCanBeOfOneKind() throws Exception {
+        callerIs(reader(DataSets.ALL));
+        when(repository.list(DataSets.ALL, false, "agent", null, FlowService.DEFAULT_LIMIT))
+                .thenReturn(List.of(new StoredFlow(8, "pump_watch", DS_DEMO, "ds_demo", "Pump watch", 1, null,
+                        false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, null, "agent")));
+        mvc.perform(get("/flows").param("kind", "agent")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].externalId").value("pump_watch"))
+                .andExpect(jsonPath("$.items[0].kind").value("agent"));
+        mvc.perform(get("/flows").param("kind", "robot")).andExpect(status().isBadRequest());
+        verify(repository, never()).list(any(), anyBoolean(), eq("robot"), any(), anyInt());
+    }
+
+    @Test
     void aFullPageCarriesACursorThatContinuesAfterItsLastFlow() throws Exception {
         callerIs(reader(DataSets.ALL));
-        when(repository.list(DataSets.ALL, false, null, 1)).thenReturn(List.of(stored("a", DS_DEMO, 1)));
+        when(repository.list(DataSets.ALL, false, null, null, 1)).thenReturn(List.of(stored("a", DS_DEMO, 1)));
         String body = mvc.perform(get("/flows").param("limit", "1")).andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString();
         String cursor = JsonMapper.builder().build().readTree(body).get("nextCursor").asString();
 
-        when(repository.list(DataSets.ALL, false, "a", 1)).thenReturn(List.of());
+        when(repository.list(DataSets.ALL, false, null, "a", 1)).thenReturn(List.of());
         mvc.perform(get("/flows").param("limit", "1").param("cursor", cursor)).andExpect(status().isOk());
-        verify(repository).list(DataSets.ALL, false, "a", 1);
+        verify(repository).list(DataSets.ALL, false, null, "a", 1);
 
         mvc.perform(get("/flows").param("cursor", "not-a-cursor")).andExpect(status().isBadRequest());
         mvc.perform(get("/flows").param("limit", "1001")).andExpect(status().isBadRequest());
@@ -292,7 +307,7 @@ class FlowControllerTest {
                 .andExpect(jsonPath("$.enabled").value(false));
 
         DataSets readable = new DataSets(false, Set.of(DS_DEMO));
-        when(repository.list(readable, true, null, FlowService.DEFAULT_LIMIT))
+        when(repository.list(readable, true, null, null, FlowService.DEFAULT_LIMIT))
                 .thenReturn(List.of(orphan("orphaned")));
         mvc.perform(get("/flows")).andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].externalId").value("orphaned"));
@@ -355,7 +370,7 @@ class FlowControllerTest {
     @Test
     void anAdminMayDoEverything() throws Exception {
         callerIs(new Caller("admin-1", true, false, false, DataSets.ALL, DataSets.ALL));
-        when(repository.list(DataSets.ALL, true, null, FlowService.DEFAULT_LIMIT)).thenReturn(List.of());
+        when(repository.list(DataSets.ALL, true, null, null, FlowService.DEFAULT_LIMIT)).thenReturn(List.of());
 
         mvc.perform(get("/flows")).andExpect(status().isOk());
         mvc.perform(post("/flows/validate").contentType(MediaType.APPLICATION_JSON).content(TestFlows.EXAMPLE))
@@ -384,13 +399,13 @@ class FlowControllerTest {
 
     private static StoredFlow stored(String externalId, long dataSetId, int version) {
         return new StoredFlow(7, externalId, dataSetId, "ds_demo", "Hourly temperature", version, null,
-                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, null);
+                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, null, "flow");
     }
 
     /** A flow whose dataset was deleted, so the service switched it off. */
     private static StoredFlow orphan(String externalId) {
         return new StoredFlow(7, externalId, DS_GONE, "ds_gone", "Hourly temperature", 1, 1,
-                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, FlowRepository.DATASET_DELETED);
+                false, "user-1", Instant.EPOCH, "user-1", Instant.EPOCH, FlowRepository.DATASET_DELETED, "flow");
     }
 
     private static DataSetModel dataSet(long id, String externalId) {
