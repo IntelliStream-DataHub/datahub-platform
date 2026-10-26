@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -136,6 +137,35 @@ class StatelessMcpClientTest {
                         .isInstanceOf(McpException.class)
                         .hasMessageContaining("HTTP 500")
                         .satisfies(e -> assertThat(((McpException) e).isUnauthorized()).isFalse()));
+    }
+
+    @Test
+    void aRateLimitedCallSaysHowLongToWait() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/mcp", exchange -> {
+            exchange.getRequestBody().readAllBytes();
+            exchange.getResponseHeaders().add("Retry-After", "17");
+            exchange.sendResponseHeaders(429, -1);
+            exchange.close();
+        });
+        server.start();
+        try {
+            StatelessMcpClient client = new StatelessMcpClient("datahub-api",
+                    "http://127.0.0.1:" + server.getAddress().getPort(),
+                    HttpClient.newHttpClient(), JsonMapper.builder().build());
+            assertThatThrownBy(() -> client.callTool("tok-1", "dataset_list", Map.of()))
+                    .isInstanceOf(McpException.class)
+                    .satisfies(e -> {
+                        assertThat(((McpException) e).retryAfter()).isEqualTo(Duration.ofSeconds(17));
+                        assertThat(((McpException) e).isUnauthorized()).isFalse();
+                    });
+        } finally {
+            server.stop(0);
+        }
+        // Any other failure names no wait.
+        withServer(500, "boom", (client, recorded) ->
+                assertThatThrownBy(() -> client.listTools("tok-1"))
+                        .satisfies(e -> assertThat(((McpException) e).retryAfter()).isNull()));
     }
 
     // ---- harness -------------------------------------------------------------------------------

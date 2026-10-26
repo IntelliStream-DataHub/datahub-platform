@@ -756,15 +756,22 @@ public class RunStore {
         for (String id : ids) {
             // One transaction per run, so a run is forgotten whole. A claim racing it watches the run
             // and looks again at a queue without it.
-            optimistic(c -> new Verdict<>(null, w -> {
-                w.del(runKey(id));
-                w.zrem(LEASES, id);
-                w.zrem(DEADLINES, id);
-                w.zrem(UNARCHIVED, id);
-                w.zrem(LIVE, id);
-                w.zrem(DELAYED, id);
-                w.srem(OWED, id);
-            }));
+            optimistic(c -> {
+                c.watch(runKey(id));
+                Map<String, String> h = c.hgetall(runKey(id));
+                return new Verdict<>(null, w -> {
+                    for (int attempt = 1; attempt <= attempts(h); attempt++) {
+                        w.del(AgentTranscripts.key(UUID.fromString(id), attempt));
+                    }
+                    w.del(runKey(id));
+                    w.zrem(LEASES, id);
+                    w.zrem(DEADLINES, id);
+                    w.zrem(UNARCHIVED, id);
+                    w.zrem(LIVE, id);
+                    w.zrem(DELAYED, id);
+                    w.srem(OWED, id);
+                });
+            });
         }
         sync.del(queueKey(flow), delayedKey(flow), runningKey(flow), retryingKey(flow), metaKey(flow),
                 lastKey(flow), failedWindowsKey(flow), scheduleKey(flow), scheduleLockKey(flowId));
@@ -1019,7 +1026,7 @@ public class RunStore {
                 if (!h.isEmpty()) {
                     w.hset(rk, "failure_event_owed", "0");
                     if ("1".equals(h.get("archived"))) {
-                        w.expire(rk, finishedTtl.toSeconds());
+                        expireWithTranscripts(w, rk, uuid, h);
                     }
                 }
             });
@@ -1062,12 +1069,27 @@ public class RunStore {
                         w.hset(rk, "archived", "1");
                         // A run that still owes its lifecycle event is kept until that is written.
                         if (!"1".equals(h.get("failure_event_owed"))) {
-                            w.expire(rk, finishedTtl.toSeconds());
+                            expireWithTranscripts(w, rk, uuid, h);
                         }
                     }
                 });
             });
         }
+    }
+
+    /** The run's hash and the transcript list of each of its attempts go after the finished TTL. */
+    private void expireWithTranscripts(RedisAsyncCommands<String, String> w, String rk, UUID id,
+                                       Map<String, String> h) {
+        w.expire(rk, finishedTtl.toSeconds());
+        for (int attempt = 1; attempt <= attempts(h); attempt++) {
+            w.expire(AgentTranscripts.key(id, attempt), finishedTtl.toSeconds());
+        }
+    }
+
+    /** The attempts a run has had, from its hash; one when the hash does not say. */
+    private static int attempts(Map<String, String> h) {
+        Integer attempt = intOrNull(h, "attempt");
+        return attempt == null ? 1 : attempt;
     }
 
     // ---------------------------------------------------------------- the indexes

@@ -243,8 +243,14 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             throw new IllegalStateException("Could not reach the model server at " + endpoint, e);
         }
         if (response.statusCode() != 200) {
-            throw new IllegalStateException(
-                    "Model server returned HTTP " + response.statusCode() + ": " + response.body());
+            // The body is the operator's to read in the log. It is not put in the message: that
+            // ends up in places a user sees (a chat error, an agent's transcript), and the server
+            // it came from is one the tenant configured.
+            String answer = response.body();
+            log.warn("Model server at {} returned HTTP {}: {}", endpoint, response.statusCode(),
+                    answer.length() > 2000 ? answer.substring(0, 2000) + "…" : answer);
+            throw new IllegalStateException("Model server at " + endpoint + " returned HTTP "
+                    + response.statusCode() + "; see the log for its answer.");
         }
         return json.readTree(response.body());
     }

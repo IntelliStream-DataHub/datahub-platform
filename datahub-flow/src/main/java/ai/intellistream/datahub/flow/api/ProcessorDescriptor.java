@@ -43,7 +43,7 @@ public record ProcessorDescriptor(String name, String displayName, Category cate
 
     /** The segments of the console's processor list, in the order it shows them. */
     public enum Category {
-        READ_WRITE("read-write"), TRANSFORM("transform"), DETECT("detect");
+        READ_WRITE("read-write"), TRANSFORM("transform"), DETECT("detect"), AGENT("agent");
 
         private final String wireName;
 

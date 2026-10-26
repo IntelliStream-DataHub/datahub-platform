@@ -60,6 +60,21 @@ class FlowSchemaMigrationIT {
     }
 
     @Test
+    void aFlowIsAFlowUnlessSavedAsAnAgent() throws SQLException {
+        try (Connection c = connect(); Statement s = c.createStatement()) {
+            c.setAutoCommit(false);
+            insertFlow(s, "kind_default");
+            c.commit();
+            assertThat(strings("SELECT kind FROM flow WHERE external_id = 'kind_default'")).containsExactly("flow");
+            s.executeUpdate("UPDATE flow SET kind = 'agent' WHERE external_id = 'kind_default'");
+            c.commit();
+            assertThatThrownBy(() -> s.executeUpdate("UPDATE flow SET kind = 'robot' WHERE external_id = 'kind_default'"))
+                    .hasMessageContaining("check constraint");
+            c.rollback();
+        }
+    }
+
+    @Test
     void runsAreNotKeptInPostgres() throws SQLException {
         assertThat(strings("SELECT table_name FROM information_schema.tables"
                 + " WHERE table_name = 'run'")).isEmpty();

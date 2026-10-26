@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.definition;
 
+import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.fake.ExampleFlow;
 import ai.intellistream.datahub.flow.fake.FakeProcessors;
+import ai.intellistream.datahub.flow.processors.Agent;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Consumer;
@@ -16,8 +20,14 @@ import static org.assertj.core.api.Assertions.tuple;
 
 class FlowValidatorTest {
 
-    private final FlowValidator validator = new FlowValidator(FakeProcessors.catalog(),
-            FlowValidator.Limits.DEFAULTS);
+    private final FlowValidator validator = new FlowValidator(catalog(), FlowValidator.Limits.DEFAULTS);
+
+    /** The fakes plus the real agent processor, whose rules are the definition's, not its collaborators'. */
+    private static List<Processor> catalog() {
+        List<Processor> catalog = new ArrayList<>(FakeProcessors.catalog());
+        catalog.add(new Agent(null, List.of(), null, null, null, Clock.systemUTC()));
+        return catalog;
+    }
 
     private List<ValidationProblem> problems(Consumer<ObjectNode> edit) {
         return problems(edit, null);
@@ -35,6 +45,42 @@ class FlowValidatorTest {
 
     private static ObjectNode properties(ObjectNode tree, int index) {
         return (ObjectNode) processor(tree, index).get("properties");
+    }
+
+    @Test
+    void kindIsFlowOrAgentAndAnAgentHasAnAgentStep() {
+        assertThat(problems(tree -> tree.put("kind", "flow"))).isEmpty();
+        assertThat(problems(tree -> tree.put("kind", "robot"))).extracting(ValidationProblem::pointer)
+                .containsExactly("#/kind");
+        List<ValidationProblem> problems = problems(tree -> tree.put("kind", "agent"));
+        assertThat(problems).singleElement().satisfies(p -> {
+            assertThat(p.pointer()).isEqualTo("#/processors");
+            assertThat(p.message()).contains("agent step");
+        });
+    }
+
+    @Test
+    void anAgentStepIsFedByAConnectionAndNeverRetriedInsideAnAttempt() {
+        List<ValidationProblem> problems = problems(tree -> {
+            ObjectNode agent = ((ArrayNode) tree.get("processors")).addObject().put("id", "ai").put("type", "agent");
+            agent.putObject("properties").put("instructions", "Look at each event.")
+                    .putArray("tools").add("event_*").add("bad name");
+            agent.putObject("retry").put("maxAttempts", 2);
+            agent.putArray("terminate").add("attention");
+        });
+        assertThat(problems).extracting(ValidationProblem::pointer)
+                .containsExactlyInAnyOrder("#/processors/5/retry", "#/processors/5", "#/processors/5/properties");
+        assertThat(problems).anySatisfy(p -> assertThat(p.message()).contains("not retried inside an attempt"));
+        assertThat(problems).anySatisfy(p -> assertThat(p.message()).contains("events connected into it"));
+        assertThat(problems).anySatisfy(p -> assertThat(p.message()).contains("\"bad name\""));
+
+        assertThat(problems(tree -> {
+            tree.put("kind", "agent");
+            ObjectNode agent = ((ArrayNode) tree.get("processors")).addObject().put("id", "ai").put("type", "agent");
+            agent.putObject("properties").put("instructions", "Look at each event.");
+            agent.putArray("terminate").add("attention");
+            ((ArrayNode) tree.get("connections")).addObject().put("from", "src").put("relationship", "success").put("to", "ai");
+        })).isEmpty();
     }
 
     @Test

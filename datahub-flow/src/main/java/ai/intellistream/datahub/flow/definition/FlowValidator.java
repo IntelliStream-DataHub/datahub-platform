@@ -47,6 +47,10 @@ public final class FlowValidator {
         public static final Limits DEFAULTS = new Limits(Duration.ofHours(1));
     }
 
+    public static final String KIND_FLOW = "flow";
+    public static final String KIND_AGENT = "agent";
+    /** The processor that makes a flow an agent, by its catalog name. */
+    public static final String AGENT_PROCESSOR = "agent";
     static final Pattern EXTERNAL_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}");
     static final Pattern PROCESSOR_ID = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,63}");
     static final Pattern NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_]{0,63}");
@@ -194,6 +198,9 @@ public final class FlowValidator {
             if (d.schemaVersion() == null || d.schemaVersion() != 1) {
                 problem("#/schemaVersion", "Must be 1, the only definition format there is.");
             }
+            if (d.kind() != null && !KIND_FLOW.equals(d.kind()) && !KIND_AGENT.equals(d.kind())) {
+                problem("#/kind", "Must be flow or agent.");
+            }
             if (d.externalId() == null || !EXTERNAL_ID.matcher(d.externalId()).matches()) {
                 problem("#/externalId", "Required: letters, digits and _ . : -, starting with a "
                         + "letter or digit, at most 255 characters.");
@@ -254,6 +261,10 @@ public final class FlowValidator {
                 }
                 properties(at, spec, processor, descriptor);
                 retry(at, spec);
+            }
+            if (KIND_AGENT.equals(d.kind()) && d.processors().stream()
+                    .noneMatch(spec -> AGENT_PROCESSOR.equals(spec.type()))) {
+                problem("#/processors", "An agent has an agent step: a processor of type \"agent\".");
             }
         }
 
@@ -444,6 +455,11 @@ public final class FlowValidator {
             if (spec.retry() == null) {
                 return;
             }
+            if (AGENT_PROCESSOR.equals(spec.type())) {
+                problem(at + "/retry", "An agent step is not retried inside an attempt: a retry "
+                        + "repeats what it did. The run's second attempt decides for itself.");
+                return;
+            }
             Integer attempts = spec.retry().maxAttempts();
             if (attempts != null && (attempts < 1 || attempts > MAX_RETRY_ATTEMPTS)) {
                 problem(at + "/retry/maxAttempts", "Must be between 1 and " + MAX_RETRY_ATTEMPTS + ".");
@@ -488,6 +504,17 @@ public final class FlowValidator {
             }
             outcomes(connected);
             cycles(edges);
+            agentsAreFed(edges);
+        }
+
+        /** An agent step acts on the events connected into it; one with nothing connected has nothing to act on. */
+        private void agentsAreFed(Map<String, Set<String>> edges) {
+            for (int i = 0; i < d.processors().size(); i++) {
+                ProcessorSpec spec = d.processors().get(i);
+                if (AGENT_PROCESSOR.equals(spec.type()) && edges.values().stream().noneMatch(to -> to.contains(spec.id()))) {
+                    problem("#/processors/" + i, "An agent step needs events connected into it, from read-events.");
+                }
+            }
         }
 
         /** Whether {@code id} names a processor in the flow; reports it when not. */

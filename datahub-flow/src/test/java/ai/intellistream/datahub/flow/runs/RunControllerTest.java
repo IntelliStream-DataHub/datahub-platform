@@ -5,6 +5,7 @@ import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.flow.access.Caller;
 import ai.intellistream.datahub.flow.access.Caller.DataSets;
 import ai.intellistream.datahub.flow.access.CallerAccess;
+import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
@@ -18,6 +19,8 @@ import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.flows.TestFlows;
 import ai.intellistream.datahub.flow.identity.FlowTokens;
 import ai.intellistream.datahub.flow.identity.RegisteredClients;
+import ai.intellistream.datahub.flow.processors.Agent;
+import ai.intellistream.datahub.flow.store.AgentTranscripts;
 import ai.intellistream.datahub.flow.store.RunHistory;
 import ai.intellistream.datahub.flow.store.RunStore;
 import ai.intellistream.datahub.flow.store.RunStore.NewPreview;
@@ -45,8 +48,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -91,6 +96,7 @@ class RunControllerTest {
     private final FlowTokens offlineTokens = mock(FlowTokens.class);
     private final DatahubClient api = mock(DatahubClient.class);
     private final DatasetService datasets = mock(DatasetService.class);
+    private final AgentTranscripts transcripts = mock(AgentTranscripts.class);
     private MockMvc mvc;
 
     @AfterEach
@@ -100,7 +106,9 @@ class RunControllerTest {
 
     @BeforeEach
     void setUp() {
-        FlowValidator validator = new FlowValidator(TestFlows.builtIns(), FlowValidator.Limits.DEFAULTS);
+        List<Processor> catalog = new ArrayList<>(TestFlows.builtIns());
+        catalog.add(new Agent(null, List.of(), null, null, null, Clock.systemUTC()));
+        FlowValidator validator = new FlowValidator(catalog, FlowValidator.Limits.DEFAULTS);
         TransactionTemplate transaction = new TransactionTemplate(mock(PlatformTransactionManager.class));
         TenantConfigService tenants = mock(TenantConfigService.class);
         Tenant tenant = new Tenant();
@@ -119,7 +127,7 @@ class RunControllerTest {
         FlowService flowService = new FlowService(flows, access, validator, tenants, tenantConfig,
                 transaction, JSON, offlineTokens, runs);
         RunService service = new RunService(flowService, flows, runs, history, coordinator,
-                new FlowCompiler(validator), transaction, JSON, clients, offlineTokens);
+                new FlowCompiler(validator), transaction, JSON, clients, offlineTokens, transcripts);
         mvc = MockMvcBuilders.standaloneSetup(new RunController(service))
                 .setControllerAdvice(new FlowProblems())
                 .build();
@@ -132,6 +140,67 @@ class RunControllerTest {
         when(flows.now()).thenReturn(Instant.parse("2026-10-12T11:06:00Z"));
         // Any run asked for exists, as the run the test is about; a test narrows it where it matters.
         when(runs.find(any(UUID.class))).thenAnswer(inv -> Optional.of(stored(inv.getArgument(0), DS_DEMO, "PENDING")));
+    }
+
+    /** An agent: read-events feeding an agent step, as the Agents form writes it. */
+    private static final String AGENT = """
+            {
+              "schemaVersion": 1, "kind": "agent", "externalId": "temp_hourly", "dataSet": "ds_demo",
+              "name": "Pump watch",
+              "processors": [
+                { "id": "src", "type": "read-events", "properties": { "type": ["error"] } },
+                { "id": "ai", "type": "agent", "properties": { "instructions": "Look at each event." },
+                  "terminate": ["attention"] }
+              ],
+              "connections": [ { "from": "src", "relationship": "success", "to": "ai" } ],
+              "trigger": { "type": "manual" }
+            }
+            """;
+
+    @Test
+    void aFlowWithAnAgentStepIsDeployedWithATwentyMinuteTimeoutUnlessItSaysOtherwise() throws Exception {
+        callerIs(writer());
+        when(flows.version(FLOW_ID, 1)).thenReturn(Optional.of(new StoredVersion(1, AGENT, "user-1", Instant.EPOCH)));
+        when(flows.identity(FLOW_ID)).thenReturn(Optional.of(new IdentityState(Identity.deployer("user-9"), true, null)));
+        when(flows.deployment(FLOW_ID)).thenReturn(Optional.of(deployment(true)));
+
+        deploy("{}").andExpect(status().isOk());
+
+        verify(flows).deploy(eq(FLOW_ID), eq(1), eq(true), anyString(), eq(1), eq(2),
+                eq(Duration.ofMinutes(20)), isNull(), eq("user-1"), isNull(), isNull());
+    }
+
+    @Test
+    void theTranscriptTakesWriteAccessAndFollowsTheRunFromTheStoreToTheHistory() throws Exception {
+        UUID id = UUID.randomUUID();
+        callerIs(new Caller("user-1", false, true, false, DataSets.ALL, DataSets.ALL));
+        mvc.perform(get("/runs/" + id + "/transcript")).andExpect(status().isForbidden());
+
+        // Read access to the run's dataset shows the run, not its transcript: that holds tool results.
+        callerIs(new Caller("user-1", false, true, true, DataSets.ALL, new DataSets(false, Set.of(99L))));
+        mvc.perform(get("/runs/" + id + "/transcript")).andExpect(status().isNotFound());
+
+        callerIs(writer());
+        when(transcripts.read(id, 1, -1)).thenReturn(List.of(new AgentTranscripts.Row(0, Instant.EPOCH, "note",
+                JSON.readTree("{\"text\":\"hello\"}"))));
+        mvc.perform(get("/runs/" + id + "/transcript")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.attempt").value(1))
+                .andExpect(jsonPath("$.status").value("PENDING"))
+                .andExpect(jsonPath("$.rows[0].seq").value(0))
+                .andExpect(jsonPath("$.rows[0].kind").value("note"))
+                .andExpect(jsonPath("$.rows[0].payload.text").value("hello"));
+        mvc.perform(get("/runs/" + id + "/transcript?after=4")).andExpect(status().isOk());
+        verify(transcripts).read(id, 1, 4);
+        mvc.perform(get("/runs/" + id + "/transcript?attempt=2")).andExpect(status().isBadRequest());
+
+        // Once the run store has let the run go, the rows come from ClickHouse.
+        when(runs.find(id)).thenReturn(Optional.empty());
+        when(history.find(any(), eq(id))).thenReturn(Optional.of(stored(id, DS_DEMO, "SUCCEEDED")));
+        when(history.transcript(any(), eq(id), eq(1), eq(-1L))).thenReturn(List.of());
+        mvc.perform(get("/runs/" + id + "/transcript")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("SUCCEEDED"))
+                .andExpect(jsonPath("$.rows").isEmpty());
+        verify(history).transcript(any(), eq(id), eq(1), eq(-1L));
     }
 
     @Test
@@ -378,7 +447,7 @@ class RunControllerTest {
         assertThat(created.getValue().window().start()).isEqualTo(Instant.parse("2026-10-01T00:00:00Z"));
         // Saving is not previewing: no flow is created, and no declared series either.
         verify(flows, never()).create(anyString(), anyLong(), anyString(), anyString(), anyString(),
-                anyString());
+                anyString(), anyString());
         verify(api, never()).timeseries();
     }
 

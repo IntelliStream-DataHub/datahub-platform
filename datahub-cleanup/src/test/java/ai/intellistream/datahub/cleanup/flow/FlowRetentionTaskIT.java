@@ -45,7 +45,8 @@ class FlowRetentionTaskIT {
         String schema = Files.readAllLines(Path.of("../datahub-api/src/main/resources/db/clickhouse.sql"))
                 .stream().filter(line -> !line.strip().startsWith("--")).collect(Collectors.joining("\n"));
         for (String statement : schema.split(";")) {
-            if (statement.contains("flow_run_event (") || statement.contains("flow_run (")) {
+            if (statement.contains("flow_run_event (") || statement.contains("flow_run (")
+                    || statement.contains("flow_run_transcript (")) {
                 ch.query(statement).get().close();
             }
         }
@@ -80,6 +81,8 @@ class FlowRetentionTaskIT {
         task(Duration.ofDays(90)).expire(tenant);
         assertThat(ttl("flow_run_event")).contains("toIntervalDay(90)");
         assertThat(ttl("flow_run")).contains("toIntervalDay(90)");
+        assertThat(ttl("flow_run_transcript")).as("the agents' transcripts go with their runs")
+                .contains("toIntervalDay(90)");
     }
 
     @Test

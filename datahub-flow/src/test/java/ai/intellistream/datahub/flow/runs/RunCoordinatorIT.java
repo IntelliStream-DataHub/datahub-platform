@@ -1459,7 +1459,7 @@ class RunCoordinatorIT {
                 { "schemaVersion": 1, "externalId": "%s", "dataSet": "ds", "name": "%s",
                   "processors": [ %s ], "connections": [ %s ] }
                 """.formatted(externalId, externalId, processors, connections);
-        return transaction.execute(s -> flows.create(externalId, 7, "ds", externalId, definition,
+        return transaction.execute(s -> flows.create(externalId, 7, "ds", externalId, "flow", definition,
                 "user-1").id());
     }
 
@@ -1551,7 +1551,7 @@ class RunCoordinatorIT {
                   "processors": [ %s ], "connections": [] }
                 """.formatted(externalId, externalId, processor);
         long id = transaction.execute(s -> {
-            long created = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
+            long created = flows.create(externalId, 7, "ds", externalId, "flow", definition, "user-1").id();
             flows.deploy(created, 1, true, new Schedule(Schedule.MANUAL, null, null, null, null).toJson(JSON),
                     maxConcurrent, maxAttempts, Duration.ofMinutes(15),
                     FlowRepository.Identity.deployer("user-1"), "user-1", null, null);

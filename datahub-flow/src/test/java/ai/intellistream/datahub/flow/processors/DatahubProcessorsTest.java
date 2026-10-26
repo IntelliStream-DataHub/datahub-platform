@@ -21,6 +21,7 @@ import static ai.intellistream.datahub.flow.processors.Harness.MINUTE;
 import static ai.intellistream.datahub.flow.processors.Harness.T0;
 import static ai.intellistream.datahub.flow.processors.Harness.WINDOW;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** The source and the sinks against a fake datahub-api, through the real SDK client. */
 class DatahubProcessorsTest {
@@ -274,6 +275,40 @@ class DatahubProcessorsTest {
     }
 
     @Test
+    void excludedSourcesGoToTheApiAsAnExpressionItBinds() {
+        api.storeEvent("a", "alarm", T0, "active");
+
+        readEvents("{ \"excludeSource\": [\"agent:*\", \"sap\"] }");
+
+        assertThat(api.filterRequests.getFirst().get("advancedFilter").stringValue())
+                .isEqualTo("(source IS NULL OR source NOT LIKE 'agent:%') AND (source IS NULL OR source NOT LIKE 'sap')");
+        assertThatThrownBy(() -> readEvents("{ \"excludeSource\": [\"it's\"] }"))
+                .as("a quote never reaches the expression").hasMessageContaining("not a source pattern");
+        assertThat(readEvents("{}").error()).isNull();
+        assertThat(api.filterRequests.getLast().get("advancedFilter").isNull()).as("none asked, none sent").isTrue();
+    }
+
+    @Test
+    void theWindowCanBoundWhenAnEventWasRecordedInsteadOfWhenItHappened() {
+        // Happened before the window, recorded in it: a late-stamped event, or a status change on
+        // an older lifecycle.
+        api.storeEvent("late", "alarm", T0 - 5 * MINUTE, T0 + MINUTE, "cleared");
+        // Happened in the window, recorded after it: the next run's.
+        api.storeEvent("early", "alarm", T0 + MINUTE, T0 + 61 * MINUTE, "active");
+        // Recorded exactly at the window's end: the next window's.
+        api.storeEvent("edge", "alarm", T0 + MINUTE, T0 + 60 * MINUTE, "active");
+
+        RunResult result = readEvents("{ \"timeField\": \"createdTime\" }");
+
+        assertThat(result.error()).isNull();
+        assertThat(h.at("out").getFirst().rows()).extracting(EventRow::externalId).containsExactly("late");
+        assertThat(h.at("out").getFirst().rows().getFirst().eventTime())
+                .as("the row keeps the event's own time").isEqualTo(Instant.ofEpochMilli(T0 - 5 * MINUTE));
+        assertThat(api.filterRequests.getFirst().get("filter").get("createdTime").get("min").isNull()).isFalse();
+        assertThat(api.filterRequests.getFirst().get("filter").hasNonNull("eventTime")).isFalse();
+    }
+
+    @Test
     void manyEventsAreSplitIntoSeveralItems() {
         for (int i = 0; i < 5; i++) {
             api.storeEvent("e" + i, "alarm", T0 + i * MINUTE, "active");
@@ -339,6 +374,16 @@ class DatahubProcessorsTest {
         assertThat(records("ev", Action.SEND)).extracting(FlowRecord::transitUri)
                 .containsExactly("datahub://events?type=temperature&subType=over-limit&from="
                         + Instant.ofEpochMilli(T0) + "&to=" + Instant.ofEpochMilli(T0 + 3 * MINUTE + 1));
+    }
+
+    @Test
+    void theEventsSinkStampsTheSourceItIsGiven() {
+        h.events(Map.of(Points.EXTERNAL_ID, "ts1"), ROWS);
+
+        RunResult result = events("{ \"type\": \"temperature\", \"source\": \"agent:pump_watch\" }", false);
+
+        assertThat(result.error()).isNull();
+        assertThat(api.events).extracting(e -> e.get("source").stringValue()).containsOnly("agent:pump_watch");
     }
 
     @Test
