@@ -137,7 +137,7 @@ final class ProcessorSchema {
         if (p.type() == PropertyType.ENUM) {
             List<Map<String, Object>> values = new ArrayList<>();
             for (AllowableValue v : p.allowableValues()) {
-                values.add(Map.of("const", v.value(), "description", v.description()));
+                values.add(Map.of("const", v.value(), "title", v.displayName(), "description", v.description()));
             }
             schema.put("oneOf", values);
         }

@@ -142,7 +142,7 @@ public final class FakeProcessors {
             return ProcessorDescriptor.builder("test.threshold", "1.0.0")
                     .property(PropertyDescriptor.builder("threshold", PropertyType.NUMBER).required().references().build())
                     .property(PropertyDescriptor.builder("direction", PropertyType.ENUM).defaultValue("above")
-                            .allowableValues(new AllowableValue("above", "Above"), new AllowableValue("below", "Below"))
+                            .allowableValues(new AllowableValue("above", "Above", "Above"), new AllowableValue("below", "Below", "Below"))
                             .build())
                     .relationship(new Relationship("alarms", "Periods over the threshold",
                             Relationship.Unconnected.MUST_CONNECT))

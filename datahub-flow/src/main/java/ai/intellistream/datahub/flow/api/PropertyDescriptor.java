@@ -46,8 +46,14 @@ public record PropertyDescriptor(String name, String displayName, String descrip
         return new Builder(name, type);
     }
 
-    /** One value an {@link PropertyType#ENUM} property may take. */
-    public record AllowableValue(String value, String description) {
+    /**
+     * One value an {@link PropertyType#ENUM} property may take.
+     *
+     * @param value       what the definition holds
+     * @param displayName what the editor shows
+     * @param description what it means, shown on hover
+     */
+    public record AllowableValue(String value, String displayName, String description) {
     }
 
     public static final class Builder {

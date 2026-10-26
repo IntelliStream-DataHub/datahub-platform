@@ -17,6 +17,7 @@ import ai.intellistream.datahub.flow.api.PropertyDescriptor.AllowableValue;
 import ai.intellistream.datahub.flow.api.PropertyType;
 import ai.intellistream.datahub.flow.api.PropertyValues;
 import ai.intellistream.datahub.flow.api.Relationship;
+import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
 import ai.intellistream.datahub.sdk.http.DatahubApiException;
@@ -33,8 +34,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * {@code read-timeseries}: reads one series over a window as a {@code timeseries} item, or several
- * when it has more than {@code maxPointsPerItem} points.
+ * {@code read-timeseries}: reads one series over the run's window as a {@code timeseries} item, or
+ * several when it has more than {@code maxPointsPerItem} points. The flow's trigger decides the
+ * window; a source only reaches further back, through {@code lookback}.
  *
  * <p>Reads through datahub-api's binary read, so a run never parses JSON: frames of Arrow batches in
  * the platform's canonical schema, which the SDK has already decompressed and checked, read here
@@ -53,23 +55,15 @@ public class TimeseriesSource implements Processor {
             .builder(TYPE, "1.0.0")
             .displayName("Read timeseries")
             .category(ProcessorDescriptor.Category.READ_WRITE)
-            .description("Reads a series over a window from DataHub.")
+            .description("Reads a series over the run's window from DataHub.")
             .property(PropertyDescriptor.builder("timeseries", PropertyType.STRING)
                     .displayName("Timeseries external id")
                     .description("External id of the series to read, not its name or numeric id.")
                     .lookup("timeseries").required().build())
-            .property(PropertyDescriptor.builder("from", PropertyType.INSTANT)
-                    .displayName("From")
-                    .description("Start of the window, inclusive.")
-                    .references().defaultValue("${run.window.start}").build())
-            .property(PropertyDescriptor.builder("to", PropertyType.INSTANT)
-                    .displayName("To")
-                    .description("End of the window, exclusive.")
-                    .references().defaultValue("${run.window.end}").build())
             .property(PropertyDescriptor.builder("lookback", PropertyType.DURATION)
                     .displayName("Lookback")
-                    .description("Also read this much before from, as history for alarms. Sinks "
-                            + "write only from the window's start on.")
+                    .description("Also read this much before the run's window, as history for "
+                            + "alarms. Sinks write only from the window's start on.")
                     .defaultValue("PT0S").build())
             .property(PropertyDescriptor.builder("maxPointsPerItem", PropertyType.NUMBER)
                     .displayName("Max points per item")
@@ -79,8 +73,8 @@ public class TimeseriesSource implements Processor {
                     .displayName("When the series is missing")
                     .description("What to do when the series does not exist or the run may not "
                             + "read it.")
-                    .allowableValues(new AllowableValue("fail", "Fail the run."),
-                            new AllowableValue("skip", "Read nothing."))
+                    .allowableValues(new AllowableValue("fail", "Fail", "Fail the run."),
+                            new AllowableValue("skip", "Skip", "Leave the series out; the rest of the flow runs."))
                     .defaultValue("fail").build())
             .relationship(Relationship.of("success", "The series read, or each part of it."))
             .build();
@@ -107,11 +101,10 @@ public class TimeseriesSource implements Processor {
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) {
         String externalId = context.property("timeseries").asString();
-        Instant from = required(context.property("from").asInstant(), "from");
-        Instant to = required(context.property("to").asInstant(), "to");
-        if (!from.isBefore(to)) {
-            throw new ProcessException("from (" + from + ") must be before to (" + to + ")");
-        }
+        TimeWindow window = context.window()
+                .orElseThrow(() -> new ProcessException("The run has no window to read"));
+        Instant from = window.start();
+        Instant to = window.end();
         Instant readFrom = from.minus(context.property("lookback").asDuration());
         int maxPoints = context.property("maxPointsPerItem").asDouble().intValue();
 
@@ -212,13 +205,6 @@ public class TimeseriesSource implements Processor {
         };
     }
 
-    private static Instant required(Instant value, String property) {
-        if (value == null) {
-            throw new ProcessException(property + " is not set, and the run has no window to "
-                    + "take it from");
-        }
-        return value;
-    }
 
     /** One series' points as read, in arrival order. */
     private static final class Series {
