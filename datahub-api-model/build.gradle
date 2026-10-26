@@ -55,8 +55,8 @@ dependencies {
 
     // ZstdPayloadCodec compiles against zstd-jni but the artifact does not carry it: the SDK, the
     // API and the consumer each put the native library on their own classpath.
-    compileOnly 'com.github.luben:zstd-jni:1.5.7-23'
-    testImplementation 'com.github.luben:zstd-jni:1.5.7-23'
+    compileOnly 'com.github.luben:zstd-jni:1.5.7-24'
+    testImplementation 'com.github.luben:zstd-jni:1.5.7-24'
 
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'
