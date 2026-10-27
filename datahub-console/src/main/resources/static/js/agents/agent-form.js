@@ -8,11 +8,16 @@
  *   POST /flows/{id}/runs             a manual run of the deployed version
  *   POST /flows/{id}/deployment/authorize, PUT /flows/{id}/deployment, DELETE /flows/{id}
  *
- * The form writes a fixed definition: read-events (what wakes the agent, bounded by when events
- * were recorded, never events agents wrote) → agent (the instructions, tools and model overrides,
- * done ends there) → write-events (what the agent asks a person to look at, as an agent/attention
- * lifecycle in the agent's dataset). Reading it back finds the three steps by type, so a definition
- * edited in Flows keeps whatever else it has.
+ * The form writes a fixed definition: agent (the instructions, tools and model overrides, done ends
+ * there) → write-events (what the agent asks a person to look at, as an agent/attention lifecycle in
+ * the agent's dataset). How it runs is the definition's shape, not a field of its own:
+ *
+ *   manual     a manual trigger, the agent on its own
+ *   schedule   a schedule, the agent on its own: every tick is a run of the model
+ *   events     a schedule with read-events into the agent (the filter, bounded by when events were
+ *              recorded, never events agents wrote): a tick with no matching events never runs it
+ *
+ * Reading it back finds the steps by type, so a definition edited in Flows keeps whatever else it has.
  */
 (function(){
 	"use strict";
@@ -35,6 +40,7 @@
 		var def = null;            // the definition as loaded or last saved
 		var savedJson = null;
 		var problems = [];         // {field, message} from the last save
+		var sent = null;           // the definition the problems are about
 		var tools = [];            // {server, name, description, readOnly, destructive}
 		var toolsLoaded = false;
 
@@ -82,10 +88,12 @@
 
 		function step(type){ return (def.processors || []).find(function(p){ return p.type === type; }); }
 
+		function readEvents(){ return { id: "events", type: "read-events", properties: { timeField: "createdTime", excludeSource: ["agent:*"] } }; }
+
 		function emptyDefinition(){
 			return { schemaVersion: 1, kind: "agent", externalId: flowId, name: "", dataSet: "",
 				processors: [
-					{ id: "events", type: "read-events", properties: { timeField: "createdTime", excludeSource: ["agent:*"] } },
+					readEvents(),
 					{ id: "agent", type: "agent", properties: { instructions: "", tools: [] }, terminate: ["done"] },
 					{ id: "attention", type: "write-events", properties: { type: ATTENTION_TYPE, subType: ATTENTION_SUBTYPE, source: "agent:" + flowId } }
 				],
@@ -101,6 +109,9 @@
 			try { return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; } catch(e){ return "UTC"; }
 		}
 
+		/** The schedule's time zone: one set in the definition stays, else the browser's. Not on the form. */
+		function zone(){ return (def && def.trigger && def.trigger.timezone) || localZone(); }
+
 		/** The form from the definition. */
 		function fill(){
 			var events = (step("read-events") || {}).properties || {};
@@ -109,14 +120,16 @@
 			setVal("name", def.name);
 			setVal("description", def.description);
 			setVal("instructions", agent.instructions);
-			field("triggerType").value = t.type === "manual" ? "manual" : "schedule";
+			field("triggerType").value = t.type === "manual" ? "manual" : step("read-events") ? "events" : "schedule";
 			setVal("cron", t.cron || CRON_DEFAULT);
-			var preset = Array.from(field("every").options).some(function(o){ return o.value && o.value === val("cron"); });
-			field("every").value = preset ? val("cron") : "";
-			setVal("timezone", t.timezone || localZone());
+			field("every").value = isPreset(val("cron")) ? val("cron") : "";
 			setLines("eventTypes", events.type);
 			setLines("eventSubTypes", events.subType);
 			setLines("eventStatuses", events.status);
+			setLines("eventSources", events.source);
+			setLines("eventDataSets", events.dataSet);
+			setLines("eventMetadata", events.metadata);
+			setVal("eventAdvancedFilter", events.advancedFilter);
 			setVal("effort", agent.effort);
 			setVal("maxIterations", agent.maxIterations);
 			setVal("maxOutputTokens", agent.maxOutputTokens);
@@ -133,14 +146,31 @@
 			out.name = val("name");
 			if(val("description")) out.description = val("description"); else delete out.description;
 			out.dataSet = val("dataSet");
-			var find = function(type){ return (out.processors || []).find(function(p){ return p.type === type; }); };
-			var events = find("read-events"), agent = find("agent"), attention = find("write-events");
+			var mode = field("triggerType").value;
+			out.processors = out.processors || [];
+			out.connections = out.connections || [];
+			var find = function(type){ return out.processors.find(function(p){ return p.type === type; }); };
+			var agent = find("agent"), attention = find("write-events");
+			// Only an events agent reads events; for the others the step and its connections go.
+			var unread = out.processors.filter(function(p){ return p.type === "read-events"; }).map(function(p){ return p.id; });
+			if(mode !== "events" && unread.length){
+				out.processors = out.processors.filter(function(p){ return unread.indexOf(p.id) < 0; });
+				out.connections = out.connections.filter(function(c){ return unread.indexOf(c.from) < 0 && unread.indexOf(c.to) < 0; });
+			}
+			var events = mode === "events" ? find("read-events") : null;
+			if(mode === "events" && !events){
+				events = readEvents();
+				out.processors.unshift(events);
+				if(agent) out.connections.unshift({ from: events.id, relationship: "success", to: agent.id });
+			}
 			if(events){
 				var ep = events.properties = events.properties || {};
-				["type", "subType", "status"].forEach(function(k, i){
-					var list = lines(["eventTypes", "eventSubTypes", "eventStatuses"][i]);
-					if(list.length) ep[k] = list; else delete ep[k];
+				[["type", "eventTypes"], ["subType", "eventSubTypes"], ["status", "eventStatuses"], ["source", "eventSources"],
+					["dataSet", "eventDataSets"], ["metadata", "eventMetadata"]].forEach(function(k){
+					var list = lines(k[1]);
+					if(list.length) ep[k[0]] = list; else delete ep[k[0]];
 				});
+				if(val("eventAdvancedFilter")) ep.advancedFilter = val("eventAdvancedFilter"); else delete ep.advancedFilter;
 				ep.timeField = "createdTime";
 				ep.excludeSource = ["agent:*"];
 			}
@@ -155,11 +185,13 @@
 				if(val("turnTimeout")) ap.turnTimeout = isoDuration(val("turnTimeout")); else delete ap.turnTimeout;
 			}
 			if(attention && attention.properties) attention.properties.source = "agent:" + flowId;
-			if(field("triggerType").value === "manual"){
-				// Started by hand, a run looks at the last hour.
+			if(mode === "manual"){
+				// A manual run is given a window, though an agent on its own reads nothing in it.
 				out.trigger = { type: "manual", window: "PT1H" };
 			} else {
-				out.trigger = { type: "schedule", cron: val("cron") || CRON_DEFAULT, timezone: val("timezone") || localZone(), delay: "PT1M" };
+				out.trigger = { type: "schedule", cron: val("cron") || CRON_DEFAULT, timezone: zone() };
+				// An events check waits a minute past the tick, so events still on their way have arrived.
+				if(mode === "events") out.trigger.delay = "PT1M";
 			}
 			return out;
 		}
@@ -167,8 +199,18 @@
 		function isDirty(){ return savedJson !== JSON.stringify(outgoing()); }
 
 		function applyTrigger(){
-			var schedule = field("triggerType").value !== "manual";
-			form.querySelectorAll("[data-when-trigger]").forEach(function(block){ block.hidden = !schedule; });
+			var mode = field("triggerType").value;
+			form.querySelectorAll("[data-when-trigger]").forEach(function(block){
+				block.hidden = block.getAttribute("data-when-trigger").split(" ").indexOf(mode) < 0;
+			});
+			el("agent-every-label").textContent = L(mode === "events" ? "agents.field.every.events" : "agents.field.every");
+			// The cron box only for a custom schedule; a preset is its own cron.
+			el("agent-cron-field").hidden = mode === "manual" || !!field("every").value;
+			el("agent-zone").textContent = L("agents.field.every.zone", [zone()]);
+		}
+
+		function isPreset(cron){
+			return Array.from(field("every").options).some(function(o){ return o.value && o.value === cron; });
 		}
 
 		// ---- the tools -----------------------------------------------------------------------------
@@ -232,7 +274,7 @@
 			});
 		}
 
-		// ---- datasets and time zones ---------------------------------------------------------------
+		// ---- datasets ----------------------------------------------------------------------------
 
 		/** The datasets the user may write, which an agent can belong to. */
 		function fillDataSets(current){
@@ -250,14 +292,6 @@
 				});
 				select.value = current || "";
 			}).catch(function(err){ FlowApi.flashError(err, "flows.error.datasets"); });
-		}
-
-		function fillTimeZones(){
-			var list = el("agent-timezones");
-			var zones = [];
-			try { zones = Intl.supportedValuesOf ? Intl.supportedValuesOf("timeZone") : []; } catch(e){ zones = []; }
-			if(zones.indexOf("UTC") < 0) zones.push("UTC");
-			zones.forEach(function(z){ list.appendChild(Object.assign(document.createElement("option"), { value: z })); });
 		}
 
 		// ---- the header and the problems -----------------------------------------------------------
@@ -301,10 +335,14 @@
 			var path = String(pointer || "").replace(/^#?\//, "").split("/").filter(Boolean);
 			var top = { name: "name", description: "description", dataSet: "dataSet" };
 			if(path.length === 1 && top[path[0]]) return top[path[0]];
-			if(path[0] === "trigger") return path[1] === "timezone" ? "timezone" : "cron";
-			if(path[0] === "processors" && path[2] === "properties" && def.processors[Number(path[1])]){
-				var type = def.processors[Number(path[1])].type;
-				if(type === "read-events") return { type: "eventTypes", subType: "eventSubTypes", status: "eventStatuses" }[path[3]] || null;
+			// A bad time zone came from the JSON, so it goes in the list rather than on a field.
+			if(path[0] === "trigger") return path[1] === "timezone" ? null : "cron";
+			// The pointers are into what was sent, which can have a step more or less than what was loaded.
+			var processors = (sent || def).processors || [];
+			if(path[0] === "processors" && path[2] === "properties" && processors[Number(path[1])]){
+				var type = processors[Number(path[1])].type;
+				if(type === "read-events") return { type: "eventTypes", subType: "eventSubTypes", status: "eventStatuses", source: "eventSources",
+					dataSet: "eventDataSets", metadata: "eventMetadata", advancedFilter: "eventAdvancedFilter" }[path[3]] || null;
 				if(type === "agent") return ["instructions", "tools", "effort", "maxIterations", "maxOutputTokens", "turnTimeout"].indexOf(path[3]) >= 0 ? path[3] : null;
 			}
 			return null;
@@ -363,7 +401,8 @@
 		}
 
 		function save(){
-			var body = JSON.stringify(outgoing());
+			sent = outgoing();
+			var body = JSON.stringify(sent);
 			var call = flow ? FlowApi.put("/flows/" + FlowApi.seg(flowId), body) : FlowApi.post("/flows", body);
 			return call.then(function(view){
 				if(!flow){
@@ -388,7 +427,8 @@
 		}
 
 		function preview(){
-			var body = flow && !isDirty() ? { flow: flowId, version: flow.version } : { definition: outgoing() };
+			sent = flow && !isDirty() ? def : outgoing();
+			var body = flow && !isDirty() ? { flow: flowId, version: flow.version } : { definition: sent };
 			return FlowApi.post("/previews", body).then(openRun).catch(function(err){ refuse(err, "flows.error.preview"); });
 		}
 
@@ -476,7 +516,6 @@
 
 		function load(){
 			var notFound = function(err){ return (err instanceof DataHubProblem && err.status === 404) ? null : Promise.reject(err); };
-			fillTimeZones();
 			return (flowId ? FlowApi.get("/flows/" + FlowApi.seg(flowId)).catch(notFound) : Promise.resolve(null)).then(function(view){
 				flow = view;
 				def = flow ? flow.definition : emptyDefinition();
@@ -506,10 +545,10 @@
 		on("agent-toggle", toggle);
 		on("agent-delete", remove);
 		field("triggerType").addEventListener("change", applyTrigger);
-		field("every").addEventListener("change", function(){ if(field("every").value) setVal("cron", field("every").value); });
-		field("cron").addEventListener("input", function(){
-			var preset = Array.from(field("every").options).some(function(o){ return o.value && o.value === val("cron"); });
-			field("every").value = preset ? val("cron") : "";
+		field("every").addEventListener("change", function(){
+			if(field("every").value) setVal("cron", field("every").value);
+			applyTrigger();
+			if(!field("every").value) field("cron").focus();
 		});
 		form.addEventListener("input", function(){
 			if(!flow && idFromName){

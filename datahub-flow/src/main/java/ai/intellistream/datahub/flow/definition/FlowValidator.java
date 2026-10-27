@@ -504,17 +504,6 @@ public final class FlowValidator {
             }
             outcomes(connected);
             cycles(edges);
-            agentsAreFed(edges);
-        }
-
-        /** An agent step acts on the events connected into it; one with nothing connected has nothing to act on. */
-        private void agentsAreFed(Map<String, Set<String>> edges) {
-            for (int i = 0; i < d.processors().size(); i++) {
-                ProcessorSpec spec = d.processors().get(i);
-                if (AGENT_PROCESSOR.equals(spec.type()) && edges.values().stream().noneMatch(to -> to.contains(spec.id()))) {
-                    problem("#/processors/" + i, "An agent step needs events connected into it, from read-events.");
-                }
-            }
         }
 
         /** Whether {@code id} names a processor in the flow; reports it when not. */

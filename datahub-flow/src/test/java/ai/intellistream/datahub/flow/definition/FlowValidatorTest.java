@@ -60,7 +60,7 @@ class FlowValidatorTest {
     }
 
     @Test
-    void anAgentStepIsFedByAConnectionAndNeverRetriedInsideAnAttempt() {
+    void anAgentStepIsNeverRetriedInsideAnAttemptAndMayStandAlone() {
         List<ValidationProblem> problems = problems(tree -> {
             ObjectNode agent = ((ArrayNode) tree.get("processors")).addObject().put("id", "ai").put("type", "agent");
             agent.putObject("properties").put("instructions", "Look at each event.")
@@ -69,9 +69,8 @@ class FlowValidatorTest {
             agent.putArray("terminate").add("attention");
         });
         assertThat(problems).extracting(ValidationProblem::pointer)
-                .containsExactlyInAnyOrder("#/processors/5/retry", "#/processors/5", "#/processors/5/properties");
+                .containsExactlyInAnyOrder("#/processors/5/retry", "#/processors/5/properties");
         assertThat(problems).anySatisfy(p -> assertThat(p.message()).contains("not retried inside an attempt"));
-        assertThat(problems).anySatisfy(p -> assertThat(p.message()).contains("events connected into it"));
         assertThat(problems).anySatisfy(p -> assertThat(p.message()).contains("\"bad name\""));
 
         assertThat(problems(tree -> {
@@ -81,6 +80,12 @@ class FlowValidatorTest {
             agent.putArray("terminate").add("attention");
             ((ArrayNode) tree.get("connections")).addObject().put("from", "src").put("relationship", "success").put("to", "ai");
         })).isEmpty();
+        assertThat(problems(tree -> {
+            tree.put("kind", "agent");
+            ObjectNode agent = ((ArrayNode) tree.get("processors")).addObject().put("id", "ai").put("type", "agent");
+            agent.putObject("properties").put("instructions", "Check the pumps.");
+            agent.putArray("terminate").add("attention");
+        })).as("nothing connected: it runs on its instructions alone").isEmpty();
     }
 
     @Test

@@ -53,7 +53,7 @@ class AgentsTemplateTest {
                 Arguments.of("agents/agent", "[data-type='agent-page']",
                         new String[]{"agent-form", "agent-save", "agent-preview", "agent-run", "agent-deploy",
                                 "agent-run-as", "agent-toggle", "agent-open-flow", "agent-delete", "agent-readonly",
-                                "agent-problems", "agent-new-id", "agent-tools", "agent-timezones", "flow-runs",
+                                "agent-problems", "agent-new-id", "agent-tools", "agent-zone", "flow-runs",
                                 "flow-runs-previews", "flow-runs-more", "flow-versions", "agents-attention-page",
                                 "attention-table", "attention-dismiss-all"}),
                 Arguments.of("agents/run", "[data-type='run-page']",

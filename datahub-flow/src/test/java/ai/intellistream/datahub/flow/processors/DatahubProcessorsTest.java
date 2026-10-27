@@ -289,6 +289,28 @@ class DatahubProcessorsTest {
     }
 
     @Test
+    void theEventsPagesFiltersGoToTheApiAndAnOrCannotUndoAnExclusion() {
+        readEvents("""
+                { "source": ["sap"], "dataSet": ["plant_a"], "metadata": ["severity=high", "ack"],
+                  "advancedFilter": "status = 'open' OR status = 'new'", "excludeSource": ["agent:*"] }""");
+
+        JsonNode sent = api.filterRequests.getFirst();
+        assertThat(sent.get("advancedFilter").stringValue()).isEqualTo(
+                "(status = 'open' OR status = 'new') AND (source IS NULL OR source NOT LIKE 'agent:%')");
+        JsonNode filter = sent.get("filter");
+        assertThat(filter.get("source").get(0).stringValue()).isEqualTo("sap");
+        assertThat(filter.get("dataSetId").get(0).get("externalId").stringValue()).isEqualTo("plant_a");
+        assertThat(filter.get("metadata").get("severity").stringValue()).isEqualTo("high");
+        assertThat(filter.get("metadata").get("ack").isNull()).as("a key alone").isTrue();
+
+        readEvents("{}");
+        assertThat(api.filterRequests.getLast().get("filter").path("dataSetId").isMissingNode()
+                || api.filterRequests.getLast().get("filter").get("dataSetId").isNull())
+                .as("no datasets is no restriction, never an empty list").isTrue();
+        assertThatThrownBy(() -> readEvents("{ \"metadata\": [\"=high\"] }")).hasMessageContaining("metadata");
+    }
+
+    @Test
     void theWindowCanBoundWhenAnEventWasRecordedInsteadOfWhenItHappened() {
         // Happened before the window, recorded in it: a late-stamped event, or a status change on
         // an older lifecycle.

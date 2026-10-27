@@ -401,6 +401,30 @@ class AgentTest {
     }
 
     @Test
+    void withNothingConnectedTheAgentRunsOnItsInstructionsAlone() {
+        llm.thenToolCalls(call("c1", "event_get", Map.of("externalIds", List.of("pump_21:alarm"))))
+                .thenToolCalls(finish("attention", "Pump 21 has been down since the morning."));
+        h.extra.add(agent());
+
+        RunResult result = h.flow("""
+                { "id": "p", "type": "agent", "properties": %s },
+                { "id": "done", "type": "test.collect" },
+                { "id": "attention", "type": "test.collect" }""".formatted(DEFAULTS), """
+                { "from": "p", "relationship": "done", "to": "done" },
+                { "from": "p", "relationship": "attention", "to": "attention" }""", false, null, null);
+
+        assertThat(result.error()).isNull();
+        assertThat(llm.firstSent().systemPrompt()).doesNotContain("The events are from the window");
+        assertThat(llm.firstSent().messages().getFirst().text()).startsWith("No events are attached")
+                .contains("2026-10-01T");
+        assertThat(h.at(Agent.DONE)).singleElement()
+                .satisfies(done -> assertThat(done.attribute("agent.outcome")).isEqualTo("attention"));
+        assertThat(h.at(Agent.ATTENTION)).singleElement().satisfies(a -> assertThat(a.rows().getFirst().metadata())
+                .containsEntry("summary", "Pump 21 has been down since the morning."));
+        assertThat(records(Action.RECEIVE)).extracting(FlowRecord::transitUri).containsExactly("mcp://datahub-api/event_get");
+    }
+
+    @Test
     void aQuietTickNeverReachesTheModel() throws IOException {
         try (FakeDatahub datahub = new FakeDatahub()) {
             h.extra.add(agent());
