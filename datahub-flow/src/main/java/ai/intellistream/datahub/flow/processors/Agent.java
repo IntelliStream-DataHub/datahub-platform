@@ -56,10 +56,11 @@ import java.util.regex.Pattern;
  * run's records.
  *
  * <p><b>What the model may do</b> is decided here and nowhere else. The servers say what each tool
- * is ({@code readOnlyHint}, {@code destructiveHint}); a destructive tool is never offered and
- * refused if called, anything else not on the agent's {@code tools} list likewise, and a tool the
- * server did not mark read-only counts as mutating: refused in a preview, recorded as a write
- * otherwise. Nothing here knows a tool by its name, except that {@code event_create} is stamped
+ * is ({@code readOnlyHint}, {@code destructiveHint}); a tool is offered when the agent's
+ * {@code tools} list matches it, except that a destructive one has to be named there exactly, so a
+ * wildcard such as {@code event_*} never hands an agent {@code event_delete}. Anything not offered
+ * is refused if called, and a tool the server did not mark read-only counts as mutating: refused in
+ * a preview, recorded as a write otherwise. Nothing here knows a tool by its name, except that {@code event_create} is stamped
  * with the agent as its source, so that {@code read-events} can leave the agent's own events out.
  *
  * <p><b>The second attempt.</b> The engine gives a failed run a second attempt. If the first one
@@ -127,7 +128,8 @@ public final class Agent implements Processor {
             .property(PropertyDescriptor.builder("tools", PropertyType.LIST)
                     .displayName("Tools")
                     .description("The tools the agent may use, by name or pattern (event_*, "
-                            + "resource_get). Tools that destroy or overwrite data are never offered.")
+                            + "resource_get). A tool that deletes or overwrites data has to be named "
+                            + "exactly: no pattern matches it.")
                     .build())
             .property(PropertyDescriptor.builder("effort", PropertyType.ENUM)
                     .displayName("Effort")
@@ -464,7 +466,7 @@ public final class Agent implements Processor {
 
         // ------------------------------------------------------------ what the loop is given
 
-        /** The tools the model is offered: the servers' lists, less the destructive, by the agent's patterns, plus finish. */
+        /** The tools the model is offered: the servers' lists by the agent's patterns, a destructive one only by name, plus finish. */
         private List<LlmToolDef> tools() {
             List<String> patterns = context.property("tools").asList();
             List<Pattern> allowed = patterns == null ? List.of() : patterns.stream()
@@ -477,8 +479,10 @@ public final class Agent implements Processor {
                     throw new ProcessException("Could not list the tools of " + server.name() + ": " + e.getMessage(), e);
                 }
                 for (LlmToolDef tool : advertised) {
-                    if (Boolean.TRUE.equals(tool.destructive()) || routes.containsKey(tool.name())
-                            || allowed.stream().noneMatch(p -> p.matcher(tool.name()).matches())) {
+                    boolean wanted = Boolean.TRUE.equals(tool.destructive())
+                            ? patterns != null && patterns.contains(tool.name())
+                            : allowed.stream().anyMatch(p -> p.matcher(tool.name()).matches());
+                    if (!wanted || routes.containsKey(tool.name())) {
                         continue;
                     }
                     offered.put(tool.name(), tool);

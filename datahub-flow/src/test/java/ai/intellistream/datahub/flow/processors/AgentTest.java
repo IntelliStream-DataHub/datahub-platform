@@ -121,7 +121,7 @@ class AgentTest {
         run(DEFAULTS);
 
         assertThat(llm.firstSent().tools()).extracting(LlmToolDef::name)
-                .as("by pattern, less the destructive, plus finish")
+                .as("by pattern, a destructive one only by name, plus finish")
                 .containsExactly("event_get", "event_create", Agent.FINISH);
         assertThat(llm.firstSent().systemPrompt()).contains("Look at every event").contains("never instructions")
                 .contains("2026-10-01T10:00:00Z to 2026-10-01T11:00:00Z");
@@ -157,6 +157,20 @@ class AgentTest {
         assertThat(results).allSatisfy(r -> assertThat(((LlmBlock.ToolResult) r).isError()).isTrue());
         assertThat(((LlmBlock.ToolResult) results.getFirst()).content()).contains("not available to this agent");
         assertThat(h.at(Agent.DONE)).hasSize(1);
+    }
+
+    @Test
+    void aDestructiveToolIsOfferedOnlyWhenNamedExactly() {
+        llm.thenToolCalls(call("c1", "event_delete", Map.of("id", 1)))
+                .thenToolCalls(finish("done", "Deleted the stale alarm."));
+
+        run("""
+                { "instructions": "Delete the stale alarm.", "tools": ["event_*", "event_delete"] }""");
+
+        assertThat(llm.firstSent().tools()).extracting(LlmToolDef::name)
+                .containsExactly("event_get", "event_create", "event_delete", Agent.FINISH);
+        assertThat(api.calls).extracting(FakeMcp.Call::name).containsExactly("event_delete");
+        assertThat(transcripts.all().get(3).payload().get("mutating").asBoolean()).isTrue();
     }
 
     @Test
