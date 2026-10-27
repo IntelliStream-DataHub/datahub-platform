@@ -16,6 +16,7 @@ import ai.intellistream.datahub.flow.api.PropertyValues;
 import ai.intellistream.datahub.flow.api.Relationship;
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.models.EventModel;
+import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.datafilters.TimeFilter;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
@@ -29,7 +30,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * {@code read-events}: reads the events whose event time is in the run's window, one {@code events} item
@@ -43,7 +43,9 @@ import java.util.stream.Collectors;
  * <p>The window bounds the event time, or with {@code timeField: createdTime} the time the event
  * was recorded, so a run sees what landed since the last one: a producer's late-stamped event, a
  * backfill, a status change on an older lifecycle. {@code excludeSource} leaves out events by their
- * source, which is how an agent never reads what an agent wrote.
+ * source, which is how an agent never reads what an agent wrote. The other filters are the events
+ * page's, less its time: source, dataset, metadata and an advanced expression, which is ANDed in
+ * parentheses with the exclusions.
  */
 @Component
 public class EventsSource implements Processor {
@@ -71,6 +73,25 @@ public class EventsSource implements Processor {
             .property(PropertyDescriptor.builder("status", PropertyType.LIST)
                     .displayName("Statuses")
                     .description("Statuses to read; every status when unset.")
+                    .advanced().build())
+            .property(PropertyDescriptor.builder("source", PropertyType.LIST)
+                    .displayName("Sources")
+                    .description("Sources to read; every source when unset.")
+                    .advanced().build())
+            .property(PropertyDescriptor.builder("dataSet", PropertyType.LIST)
+                    .displayName("Datasets")
+                    .description("Datasets to read from, by external id, each with the datasets "
+                            + "beneath it; every dataset the run may read when unset.")
+                    .advanced().build())
+            .property(PropertyDescriptor.builder("metadata", PropertyType.LIST)
+                    .displayName("Metadata")
+                    .description("Metadata entries that must all be present, as key=value; a key "
+                            + "alone matches any value.")
+                    .advanced().build())
+            .property(PropertyDescriptor.builder("advancedFilter", PropertyType.STRING)
+                    .displayName("Advanced filter")
+                    .description("An expression over the events' fields, as in the events page's "
+                            + "advanced filter.")
                     .advanced().build())
             .property(PropertyDescriptor.builder("timeField", PropertyType.ENUM)
                     .displayName("Time field")
@@ -101,6 +122,14 @@ public class EventsSource implements Processor {
     public List<String> validate(PropertyValues properties) {
         List<String> problems = new ArrayList<>();
         Double max = Literal.number(properties.property("maxEventsPerItem"));
+        List<String> metadata = Literal.list(properties.property("metadata"));
+        if (metadata != null) {
+            for (String entry : metadata) {
+                if (entry == null || entry.isBlank() || entry.strip().startsWith("=")) {
+                    problems.add("metadata: \"" + entry + "\" is not key=value or a key.");
+                }
+            }
+        }
         if (max != null && max < 1) {
             problems.add("maxEventsPerItem must be at least 1.");
         }
@@ -116,6 +145,12 @@ public class EventsSource implements Processor {
         return problems;
     }
 
+    private static IdCollection byExternalId(String externalId) {
+        IdCollection id = new IdCollection();
+        id.setExternalId(externalId);
+        return id;
+    }
+
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) {
         TimeWindow runWindow = context.window()
@@ -129,6 +164,19 @@ public class EventsSource implements Processor {
         filter.setType(context.property("type").asList());
         filter.setSubType(context.property("subType").asList());
         filter.setStatus(context.property("status").asList());
+        filter.setSource(context.property("source").asList());
+        List<String> dataSets = context.property("dataSet").asList();
+        // Null is no restriction; an empty list would match no events at all.
+        filter.setDataSetId(dataSets == null || dataSets.isEmpty() ? null
+                : dataSets.stream().map(EventsSource::byExternalId).toList());
+        List<String> metadata = context.property("metadata").asList();
+        if (metadata != null) {
+            for (String entry : metadata) {
+                int eq = entry.indexOf('=');
+                filter.getMetadata().put(eq < 0 ? entry.trim() : entry.substring(0, eq).trim(),
+                        eq < 0 ? null : entry.substring(eq + 1).trim());
+            }
+        }
         TimeFilter window = new TimeFilter();
         window.setMin(from.atZone(ZoneOffset.UTC));
         window.setMax(to.atZone(ZoneOffset.UTC));
@@ -140,10 +188,17 @@ public class EventsSource implements Processor {
         // The exclusion goes as an expression the api parses and binds; * is SQL's %, and the
         // patterns were checked at save time (no quote can be in one). An event with no source is
         // kept: the guard is for a store that keeps that as null.
+        // The user's own expression goes in parentheses, so an OR in it cannot undo an exclusion.
         List<String> exclude = context.property("excludeSource").asList();
-        String advanced = exclude == null || exclude.isEmpty() ? null : exclude.stream()
-                .map(p -> "(source IS NULL OR source NOT LIKE '" + p.replace("*", "%") + "')")
-                .collect(Collectors.joining(" AND "));
+        List<String> clauses = new ArrayList<>();
+        String own = context.property("advancedFilter").asString();
+        if (own != null && !own.isBlank()) {
+            clauses.add("(" + own.strip() + ")");
+        }
+        if (exclude != null) {
+            exclude.forEach(p -> clauses.add("(source IS NULL OR source NOT LIKE '" + p.replace("*", "%") + "')"));
+        }
+        String advanced = clauses.isEmpty() ? null : String.join(" AND ", clauses);
 
         List<EventRow> rows = new ArrayList<>();
         String cursor = null;

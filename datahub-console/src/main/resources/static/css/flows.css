@@ -494,6 +494,9 @@
 
 /* The form reuses the settings page's groups and fields (settings.css); these are the agent's own. */
 .agent-form .settings-group-intro { margin-bottom: var(--space-lg); }
+/* A row's grid outranks the browser's own [hidden] rule, so the parts of the form the run mode
+   hides would otherwise stay on screen. */
+.agent-form [data-when-trigger][hidden] { display: none; }
 .agent-tools h4 { margin: var(--space-lg) 0 var(--space); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
 .agent-tool-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: var(--space) var(--space-lg); }
 .agent-tool { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space); align-items: start; cursor: pointer; }

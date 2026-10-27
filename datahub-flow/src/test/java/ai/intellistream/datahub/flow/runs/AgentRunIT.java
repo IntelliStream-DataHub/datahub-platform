@@ -53,6 +53,8 @@ import org.testcontainers.clickhouse.ClickHouseContainer;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.utility.DockerImageName;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
@@ -316,6 +318,25 @@ class AgentRunIT {
     }
 
     @Test
+    void anAgentOnItsOwnRunsOnItsInstructionsWithoutReadingEvents() {
+        model.thenToolCalls(call("c1", "resource_get", Map.of("externalId", "pump_21")))
+                .thenToolCalls(call("c2", "finish", Map.of("outcome", "done", "summary", "Pump 21 is running.")));
+        long flow = deployedAgent(2, false);
+        UUID run = pending(flow, 2);
+
+        coordinator().claim(TENANT, null);
+        await(() -> "SUCCEEDED".equals(runs.find(run).orElseThrow().status()));
+
+        assertThat(filterRequests).as("nothing reads events").isEmpty();
+        assertThat(model.requests).hasSize(2);
+        assertThat(model.requests.getFirst().path("messages").get(1).path("content").asString())
+                .startsWith("No events are attached");
+        assertThat(mcp.calls).extracting(FakeMcp.Call::name).containsExactly("resource_get");
+        assertThat(mcpRecords()).containsExactly("receive mcp://datahub-api/resource_get");
+        assertThat(createdEvents).isEmpty();
+    }
+
+    @Test
     void aModelServerDownOnTheFirstAttemptIsTriedAgainAndTheSecondAttemptRuns() {
         storeEvent("pump_21:error", "error", "2026-10-12T01:30:00Z", "2026-10-12T01:31:00Z", null);
         model.failNext = 1;
@@ -526,8 +547,13 @@ class AgentRunIT {
 
     // ---------------------------------------------------------------- fixtures
 
-    /** The definition the console's Agents form writes, deployed to run as user-1. */
+    /** The definition the console's Agents form writes for an events agent, deployed to run as user-1. */
     private long deployedAgent(int maxAttempts) {
+        return deployedAgent(maxAttempts, true);
+    }
+
+    /** The same, or with {@code readsEvents} false the form's manual or scheduled agent: no read-events. */
+    private long deployedAgent(int maxAttempts, boolean readsEvents) {
         String definition = """
                 { "schemaVersion": 1, "kind": "agent", "externalId": "%s", "dataSet": "ds", "name": "Pump watch",
                   "processors": [
@@ -544,8 +570,15 @@ class AgentRunIT {
                     { "from": "agent", "relationship": "attention", "to": "attention" }
                   ] }
                 """.formatted(FLOW, FLOW);
+        if (!readsEvents) {
+            ObjectNode tree = (ObjectNode) JSON.readTree(definition);
+            ((ArrayNode) tree.get("processors")).remove(0);
+            ((ArrayNode) tree.get("connections")).remove(0);
+            definition = tree.toString();
+        }
+        String stored = definition;
         long id = transaction.execute(s -> {
-            long created = flows.create(FLOW, 7, "ds", "Pump watch", "agent", definition, "user-1").id();
+            long created = flows.create(FLOW, 7, "ds", "Pump watch", "agent", stored, "user-1").id();
             flows.deploy(created, 1, true, new Schedule(Schedule.MANUAL, null, null, null, null).toJson(JSON),
                     1, maxAttempts, Duration.ofMinutes(15), FlowRepository.Identity.deployer("user-1"),
                     "user-1", null, null);

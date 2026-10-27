@@ -83,39 +83,38 @@
 						<div class="settings-field">
 							<label for="agent-trigger" th:text="#{agents.field.trigger}"></label>
 							<select id="agent-trigger" name="triggerType">
-								<option value="schedule" th:text="#{agents.trigger.schedule}"></option>
 								<option value="manual" th:text="#{agents.trigger.manual}"></option>
+								<option value="schedule" th:text="#{agents.trigger.schedule}"></option>
+								<option value="events" th:text="#{agents.trigger.events}"></option>
 							</select>
 						</div>
-						<div class="settings-field" data-when-trigger="schedule">
-							<label for="agent-every" th:text="#{agents.field.every}"></label>
+						<div class="settings-field" data-when-trigger="schedule events">
+							<label for="agent-every" data-type="agent-every-label" th:text="#{agents.field.every}"></label>
 							<select id="agent-every" name="every">
 								<option value="0 */5 * * * *" th:text="#{agents.every.5m}"></option>
 								<option value="0 */15 * * * *" th:text="#{agents.every.15m}"></option>
 								<option value="0 */30 * * * *" th:text="#{agents.every.30m}"></option>
 								<option value="0 0 * * * *" th:text="#{agents.every.1h}"></option>
 								<option value="0 0 6 * * *" th:text="#{agents.every.day}"></option>
+								<option value="0 0 8 * * MON-FRI" th:text="#{agents.every.weekdays}"></option>
+								<option value="0 0 8 * * MON" th:text="#{agents.every.week}"></option>
 								<option value="" th:text="#{agents.every.custom}"></option>
 							</select>
+							<p class="field-help" data-type="agent-zone"></p>
 						</div>
-					</div>
-					<div class="settings-row" data-when-trigger="schedule">
-						<div class="settings-field">
+						<div class="settings-field" data-when-trigger="schedule events" data-type="agent-cron-field">
 							<label for="agent-cron" th:text="#{agents.field.cron}"></label>
 							<input id="agent-cron" name="cron" type="text" placeholder="0 */15 * * * *"/>
+							<p class="field-help" th:text="#{agents.field.cron.help}"></p>
 							<p class="field-error" data-error-for="cron" hidden></p>
 						</div>
-						<div class="settings-field">
-							<label for="agent-timezone" th:text="#{agents.field.timezone}"></label>
-							<input id="agent-timezone" name="timezone" type="text" list="agent-timezones" autocomplete="off"/>
-							<datalist id="agent-timezones" data-type="agent-timezones"></datalist>
-							<p class="field-error" data-error-for="timezone" hidden></p>
-						</div>
 					</div>
-					<p class="field-help" th:text="#{agents.schedule.help}"></p>
+					<p class="field-help" data-when-trigger="manual" th:text="#{agents.trigger.manual.help}"></p>
+					<p class="field-help" data-when-trigger="schedule" th:text="#{agents.trigger.schedule.help}"></p>
+					<p class="field-help" data-when-trigger="events" th:text="#{agents.trigger.events.help}"></p>
 				</section>
 
-				<section class="settings-group">
+				<section class="settings-group" data-when-trigger="events">
 					<h3 class="settings-group-title" th:text="#{agents.section.events}"></h3>
 					<div class="settings-row">
 						<div class="settings-field">
@@ -133,6 +132,29 @@
 							<textarea id="agent-event-statuses" name="eventStatuses" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
 							<p class="field-error" data-error-for="eventStatuses" hidden></p>
 						</div>
+					</div>
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="agent-event-sources" th:text="#{agents.field.event.sources}"></label>
+							<textarea id="agent-event-sources" name="eventSources" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventSources" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-event-datasets" th:text="#{agents.field.event.datasets}"></label>
+							<textarea id="agent-event-datasets" name="eventDataSets" rows="3" th:placeholder="#{agents.field.event.datasets.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventDataSets" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="agent-event-metadata" th:text="#{agents.field.event.metadata}"></label>
+							<textarea id="agent-event-metadata" name="eventMetadata" rows="3" th:placeholder="#{agents.field.event.metadata.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventMetadata" hidden></p>
+						</div>
+					</div>
+					<div class="settings-field">
+						<label for="agent-event-advanced" th:text="#{events.advanced.filter}"></label>
+						<textarea id="agent-event-advanced" class="dh-expression" name="eventAdvancedFilter" rows="2" spellcheck="false"
+								  th:placeholder="#{events.advanced.filter.placeholder}"></textarea>
+						<p class="field-error" data-error-for="eventAdvancedFilter" hidden></p>
 					</div>
 					<p class="field-help" th:text="#{agents.events.help}"></p>
 					<p class="field-help" th:text="#{agents.events.fixed}"></p>
