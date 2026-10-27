@@ -17,11 +17,11 @@
 	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="flows-list-page">
 		<div class="flows-header">
 			<div>
-				<h2 th:text="#{flows}"></h2>
+				<div class="flows-title">
+					<h2 th:text="#{flows}"></h2>
+					<a class="dh-btn primary" data-type="flows-create" th:href="@{/flows(new='')}" th:text="#{flows.create}"></a>
+				</div>
 				<p class="flows-intro" th:text="#{flows.list.intro}"></p>
-			</div>
-			<div class="flows-header-actions">
-				<a class="dh-btn primary" data-type="flows-create" th:href="@{/flows(new='')}" th:text="#{flows.create}"></a>
 			</div>
 		</div>
 
