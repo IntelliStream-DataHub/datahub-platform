@@ -43,6 +43,7 @@
 		var sent = null;           // the definition the problems are about
 		var tools = [];            // {server, name, description, readOnly, destructive}
 		var toolsLoaded = false;
+		var confirmed = [];        // destructive tools the person has confirmed giving the agent
 
 		function L(key, args){ return args ? $L(key, null, args) : $L(key); }
 		function field(name){ return form.elements[name]; }
@@ -228,37 +229,179 @@
 
 		function drawTools(){
 			if(!toolsLoaded) return;
+			var patterns = ((step("agent") || {}).properties || {}).tools || [];
+			// A destructive tool is the agent's only when named, as the processor reads it: a
+			// wildcard such as event_* never ticks event_delete.
+			var selected = tools.filter(function(t){
+				return t.destructive === true ? patterns.indexOf(t.name) >= 0 : matches(t.name, patterns);
+			}).map(function(t){ return t.name; });
+			// What the saved agent already has was confirmed when it was given.
+			confirmed = selected.filter(isDestructive);
+			renderTools(selected);
+		}
+
+		var ACCESS = ["read", "change", "destructive"];
+
+		function accessOf(t){ return t.destructive === true ? "destructive" : t.readOnly === true ? "read" : "change"; }
+
+		/** What a tool affects, from its name: timeseries_get → timeseries. */
+		function areaOf(t){ return t.name.split("_")[0]; }
+
+		function groupLabel(by, key){
+			var msg = "agents.tools." + by + "." + key, text = $L(msg);
+			return text && text !== msg ? text : key.charAt(0).toUpperCase() + key.slice(1);
+		}
+
+		function groupBy(){
+			var by = "area";
+			try { by = localStorage.getItem("agents.tools.groupBy") || by; } catch(e){}
+			return by === "access" ? "access" : "area";
+		}
+
+		/** The first sentence of a description: the list stays scannable, the whole is the row's title. */
+		function firstSentence(text){
+			var whole = (text || "").replace(/\s+/g, " ").trim();
+			var end = whole.search(/(?<!\b(?:e\.g|i\.e))[.!?](?= [A-Z]|$)/);
+			return end < 0 ? whole : whole.slice(0, end + 1);
+		}
+
+		/** The groups the person folded, as "by:key"; kept in the browser like the grouping. */
+		function collapsedGroups(){
+			try { return JSON.parse(localStorage.getItem("agents.tools.collapsed") || "[]"); } catch(e){ return []; }
+		}
+
+		function setCollapsed(id, folded){
+			var list = collapsedGroups().filter(function(g){ return g !== id; });
+			if(folded) list.push(id);
+			try { localStorage.setItem("agents.tools.collapsed", JSON.stringify(list)); } catch(e){}
+		}
+
+		/** The picker, grouped as the person chose, with the given tools ticked. */
+		function renderTools(selected){
 			var box = el("agent-tools");
 			box.innerHTML = "";
-			var patterns = ((step("agent") || {}).properties || {}).tools || [];
+			el("agent-tools-bar").hidden = !tools.length;
 			if(!tools.length){
 				box.appendChild(Object.assign(document.createElement("p"), { className: "flows-hint", textContent: L("agents.tools.none") }));
 				return;
 			}
-			var servers = [];
-			tools.forEach(function(t){ if(servers.indexOf(t.server) < 0) servers.push(t.server); });
-			servers.forEach(function(server){
-				box.appendChild(Object.assign(document.createElement("h4"), { textContent: server }));
-				var grid = Object.assign(document.createElement("div"), { className: "agent-tool-grid" });
-				tools.filter(function(t){ return t.server === server; }).forEach(function(t){
-					var label = Object.assign(document.createElement("label"), { className: "agent-tool" + (t.destructive === true ? " disabled" : "") });
+			var by = groupBy(), folded = collapsedGroups();
+			form.querySelectorAll('input[name="toolsGroupBy"]').forEach(function(r){ r.checked = r.value === by; });
+			var keys = [];
+			tools.forEach(function(t){ var k = by === "access" ? accessOf(t) : areaOf(t); if(keys.indexOf(k) < 0) keys.push(k); });
+			keys.sort(by === "access"
+				? function(a, b){ return ACCESS.indexOf(a) - ACCESS.indexOf(b); }
+				: function(a, b){ return groupLabel(by, a).localeCompare(groupLabel(by, b)); });
+			keys.forEach(function(key){
+				var id = by + ":" + key;
+				var members = tools.filter(function(t){ return (by === "access" ? accessOf(t) : areaOf(t)) === key; })
+					.sort(function(a, b){ return a.name.localeCompare(b.name); });
+				var group = Object.assign(document.createElement("div"), { className: "agent-tool-group" });
+				var head = Object.assign(document.createElement("div"), { className: "agent-tool-group-head" });
+				var toggle = Object.assign(document.createElement("button"), { type: "button", className: "agent-tool-group-toggle",
+					title: L("agents.tools.toggle") });
+				var label = document.createElement("label");
+				var all = Object.assign(document.createElement("input"), { type: "checkbox" });
+				var count = Object.assign(document.createElement("span"), { className: "agent-tool-group-count" });
+				label.append(all, Object.assign(document.createElement("strong"), { textContent: groupLabel(by, key) }));
+				head.append(toggle, label, count);
+				var body = Object.assign(document.createElement("div"), { className: "agent-tool-group-body" });
+				group.append(head, body);
+				var boxes = members.map(function(t){
+					var row = Object.assign(document.createElement("label"), { className: "agent-tool", title: t.description || "" });
+					row.setAttribute("data-search", (t.name + " " + (t.description || "")).toLowerCase());
 					var input = Object.assign(document.createElement("input"), { type: "checkbox", name: "tools", value: t.name });
-					input.checked = t.destructive !== true && matches(t.name, patterns);
-					input.disabled = t.destructive === true;
-					var name = Object.assign(document.createElement("strong"), { textContent: t.name });
-					var desc = Object.assign(document.createElement("span"), { textContent: t.description || "" });
-					label.append(input, name);
+					input.checked = selected.indexOf(t.name) >= 0;
+					var line = Object.assign(document.createElement("span"), { className: "agent-tool-line" });
+					line.appendChild(Object.assign(document.createElement("strong"), { textContent: t.name }));
 					if(t.destructive === true){
-						label.appendChild(Object.assign(document.createElement("em"), { className: "agent-tool-badge", textContent: L("agents.tools.destructive") }));
+						line.appendChild(Object.assign(document.createElement("em"), { className: "agent-tool-badge danger", textContent: L("agents.tools.destructive") }));
 					} else if(t.readOnly !== true){
-						label.appendChild(Object.assign(document.createElement("em"), { className: "agent-tool-badge warn", textContent: L("agents.tools.mutating") }));
+						line.appendChild(Object.assign(document.createElement("em"), { className: "agent-tool-badge warn", textContent: L("agents.tools.mutating") }));
 					}
-					label.appendChild(desc);
-					label.title = t.description || "";
-					grid.appendChild(label);
+					row.append(input, line, Object.assign(document.createElement("span"), { className: "agent-tool-desc", textContent: firstSentence(t.description) }));
+					body.appendChild(row);
+					return input;
 				});
-				box.appendChild(grid);
+				group.folded = folded.indexOf(id) >= 0;
+				group.drawHead = function(){
+					var n = boxes.filter(function(b){ return b.checked; }).length;
+					all.checked = n === boxes.length;
+					all.indeterminate = n > 0 && n < boxes.length;
+					count.textContent = n + "/" + boxes.length;
+				};
+				group.fold = function(yes){
+					group.folded = yes;
+					setCollapsed(id, yes);
+				};
+				toggle.addEventListener("click", function(){ group.fold(!group.folded); filterTools(); });
+				// With a search on, ticking the group ticks what the search shows, not what it hides.
+				all.addEventListener("change", function(){
+					boxes.forEach(function(b){ if(!b.closest(".agent-tool").hidden) b.checked = all.checked; });
+					toolsChanged();
+				});
+				boxes.forEach(function(b){ b.addEventListener("change", toolsChanged); });
+				box.appendChild(group);
 			});
+			box.appendChild(Object.assign(document.createElement("p"), { className: "flows-hint agent-tools-nomatch", textContent: L("agents.tools.nomatch"), hidden: true }));
+			filterTools();
+			toolsChanged();
+		}
+
+		/** Hide what the search does not match; a search opens the folded groups it finds something in. */
+		function filterTools(){
+			var q = val("toolsSearch").toLowerCase(), any = false, allFolded = true;
+			el("agent-tools").querySelectorAll(".agent-tool-group").forEach(function(group){
+				var shown = 0;
+				group.querySelectorAll(".agent-tool").forEach(function(row){
+					row.hidden = !!q && row.getAttribute("data-search").indexOf(q) < 0;
+					if(!row.hidden) shown++;
+				});
+				group.hidden = !shown;
+				any = any || shown > 0;
+				var open = !!q || !group.folded;
+				group.querySelector(".agent-tool-group-body").hidden = !open;
+				var toggle = group.querySelector(".agent-tool-group-toggle");
+				toggle.textContent = open ? "▾" : "▸";
+				toggle.setAttribute("aria-expanded", String(open));
+				toggle.disabled = !!q;
+				if(!group.folded) allFolded = false;
+			});
+			var none = el("agent-tools").querySelector(".agent-tools-nomatch");
+			if(none) none.hidden = any;
+			el("agent-tools-fold").textContent = L(allFolded ? "agents.tools.expandAll" : "agents.tools.collapseAll");
+		}
+
+		/** Fold every group, or open every group when all are folded already. */
+		function foldAll(){
+			var groups = Array.from(el("agent-tools").querySelectorAll(".agent-tool-group"));
+			var fold = groups.some(function(g){ return !g.folded; });
+			groups.forEach(function(g){ g.fold(fold); });
+			filterTools();
+		}
+
+		function toolsChanged(){
+			el("agent-tools").querySelectorAll(".agent-tool-group").forEach(function(g){ g.drawHead(); });
+			el("agent-tools-count").textContent = L("agents.tools.selected", [checkedTools().length, tools.length]);
+			drawConfirm();
+		}
+
+		function isDestructive(name){
+			return tools.some(function(t){ return t.name === name && t.destructive === true; });
+		}
+
+		/** The destructive tools ticked since the agent was saved: these need the person's confirmation. */
+		function unconfirmed(){
+			return checkedTools().filter(function(name){ return isDestructive(name) && confirmed.indexOf(name) < 0; });
+		}
+
+		function drawConfirm(){
+			var pending = unconfirmed(), box = el("agent-tools-confirm"), check = field("toolsConfirm");
+			var text = pending.length ? L("agents.tools.confirm", [pending.join(", ")]) : "";
+			// A different set of tools is a different thing to confirm.
+			if(el("agent-tools-confirm-text").textContent !== text) check.checked = false;
+			el("agent-tools-confirm-text").textContent = text;
+			box.hidden = !pending.length;
 		}
 
 		function loadTools(){
@@ -401,6 +544,13 @@
 		}
 
 		function save(){
+			if(unconfirmed().length && !field("toolsConfirm").checked){
+				var box = form.querySelector('[data-error-for="tools"]');
+				box.textContent = L("agents.tools.confirm.required");
+				box.hidden = false;
+				el("agent-tools-confirm").scrollIntoView({ block: "center" });
+				return Promise.resolve();
+			}
 			sent = outgoing();
 			var body = JSON.stringify(sent);
 			var call = flow ? FlowApi.put("/flows/" + FlowApi.seg(flowId), body) : FlowApi.post("/flows", body);
@@ -413,6 +563,8 @@
 				flow = view;
 				def = view.definition || def;
 				savedJson = JSON.stringify(outgoing());
+				confirmed = checkedTools().filter(isDestructive);
+				drawConfirm();
 				problems = [];
 				changed();
 				Flash.info(L("agents.saved", [view.version]));
@@ -545,6 +697,16 @@
 		on("agent-toggle", toggle);
 		on("agent-delete", remove);
 		field("triggerType").addEventListener("change", applyTrigger);
+		field("toolsSearch").addEventListener("input", filterTools);
+		// Enter in the search box would submit, and so save, the agent.
+		field("toolsSearch").addEventListener("keydown", function(e){ if(e.key === "Enter") e.preventDefault(); });
+		el("agent-tools-fold").addEventListener("click", foldAll);
+		form.querySelectorAll('input[name="toolsGroupBy"]').forEach(function(r){
+			r.addEventListener("change", function(){
+				try { localStorage.setItem("agents.tools.groupBy", r.value); } catch(e){}
+				renderTools(checkedTools());
+			});
+		});
 		field("every").addEventListener("change", function(){
 			if(field("every").value) setVal("cron", field("every").value);
 			applyTrigger();

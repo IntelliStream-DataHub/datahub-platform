@@ -174,9 +174,23 @@
 				<section class="settings-group">
 					<h3 class="settings-group-title" th:text="#{agents.section.tools}"></h3>
 					<p class="settings-group-intro" th:text="#{agents.tools.help}"></p>
+					<div class="agent-tools-bar" data-type="agent-tools-bar" hidden>
+						<input type="text" role="searchbox" name="toolsSearch" class="agent-tools-search" th:placeholder="#{agents.tools.search}" th:aria-label="#{agents.tools.search}" autocomplete="off">
+						<span class="agent-tools-groupby" role="radiogroup" th:aria-label="#{agents.tools.groupBy}">
+							<span th:text="#{agents.tools.groupBy}"></span>
+							<label><input type="radio" name="toolsGroupBy" value="area" checked> <span th:text="#{agents.tools.groupBy.area}"></span></label>
+							<label><input type="radio" name="toolsGroupBy" value="access"> <span th:text="#{agents.tools.groupBy.access}"></span></label>
+						</span>
+						<span class="agent-tools-count" data-type="agent-tools-count"></span>
+						<button type="button" class="agent-tools-fold" data-type="agent-tools-fold"></button>
+					</div>
 					<div class="agent-tools" data-type="agent-tools">
 						<p class="flows-hint" th:text="#{agents.tools.loading}"></p>
 					</div>
+					<label class="agent-tools-confirm" data-type="agent-tools-confirm" hidden>
+						<input type="checkbox" name="toolsConfirm">
+						<span data-type="agent-tools-confirm-text"></span>
+					</label>
 					<p class="field-error" data-error-for="tools" hidden></p>
 				</section>
 
