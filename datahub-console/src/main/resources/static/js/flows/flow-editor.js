@@ -26,6 +26,14 @@
 	// NUMBER or a single ${…} reference, as an input's pattern (compiled with the v flag, so the
 	// class characters are escaped).
 	var NUMBER_OR_REFERENCE = "-?(\\d+(\\.\\d*)?|\\.\\d+)([eE][\\-+]?\\d+)?|\\$\\{[^\\}]+\\}";
+	// The schedules the settings form offers before Custom, as six-field cron and message key.
+	var SCHEDULES = [
+		["0 */5 * * * *", "flows.schedule.5m"],
+		["0 */15 * * * *", "flows.schedule.15m"],
+		["0 0 * * * *", "flows.schedule.hourly"],
+		["0 0 0 * * *", "flows.schedule.daily"],
+		["0 0 0 * * MON", "flows.schedule.weekly"]
+	];
 
 	document.addEventListener("DOMContentLoaded", function(){
 		var page = document.querySelector('[data-type="flow-page"]');
@@ -317,21 +325,26 @@
 			render(){
 				super.render();
 				fillDataSets(this.formElement.elements.dataSet, def.dataSet);
-				var f = this.formElement.elements, scheduled = this.formElement.querySelector("[data-schedule-only]"),
+				var f = this.formElement.elements, scheduled = this.formElement.querySelectorAll("[data-schedule-only]"),
 					manual = this.formElement.querySelector("[data-manual-only]");
+				var custom = this.formElement.querySelector("[data-custom-cron]");
 				var show = () => {
 					var schedule = f.triggerType.value === "schedule";
-					scheduled.hidden = !schedule;
+					scheduled.forEach(e => e.hidden = !schedule);
 					manual.hidden = schedule;
 					f.window.required = !schedule;   // the Run button starts a run without a window of its own
+					custom.hidden = f.schedule.value !== "custom";
+					f.cron.required = schedule && !custom.hidden;
 				};
 				f.triggerType.addEventListener("change", show);
+				f.schedule.addEventListener("change", show);
 				show();
 				var fields = { name: "name", description: "description", dataSet: "dataSet" };
 				markProblems(this.formElement, p => {
 					var path = problemPath(p.field);
 					if(path.length === 1 && fields[path[0]]) return fields[path[0]];
 					if(path[0] !== "trigger" && path[0] !== "execution") return undefined;
+					if(path[1] === "cron" && f.schedule.value !== "custom") return "schedule";
 					return path[1] === "type" ? "triggerType" : path[1] || null;
 				});
 			}
@@ -340,6 +353,9 @@
 				var t = def.trigger || {};
 				var x = def.execution || {};
 				var v = s => escapeHtml(s == null ? "" : String(s));
+				var preset = SCHEDULES.some(([cron]) => cron === (t.cron || "0 0 * * * *"));
+				var schedules = SCHEDULES.map(([cron, key]) => `<option value="${cron}"
+					${preset && cron === (t.cron || "0 0 * * * *") ? "selected" : ""}>${L(key)}</option>`).join("");
 				return `
 					<label>${L("flows.column.name")}${help(L("flows.field.name.help"))}</label>
 					<input type="text" name="name" required value="${v(def.name)}"/>
@@ -358,19 +374,29 @@
 						<input type="text" name="window" value="${v(friendlyDuration(t.window))}" placeholder="1h"/>
 					</div>
 					<div data-schedule-only>
-						<label>${L("flows.field.cron")}${help(L("flows.field.cron.help"))}</label>
-						<input type="text" name="cron" value="${v(t.cron)}" placeholder="0 0 * * * *"/>
-						<label>${L("flows.field.timezone")}${help(L("flows.field.timezone.help"))}</label>
-						<input type="text" name="timezone" value="${v(t.timezone)}" placeholder="UTC"/>
-						<label>${L("flows.field.delay")}${help(L("flows.field.trigger.help"))}</label>
-						<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="0s"/>
+						<label>${L("flows.field.schedule")}${help(L("flows.field.schedule.help"))}</label>
+						<select name="schedule">
+							${schedules}
+							<option value="custom" ${preset ? "" : "selected"}>${L("flows.schedule.custom")}</option>
+						</select>
+						<div data-custom-cron>
+							<label>${L("flows.field.cron")}${help(L("flows.field.cron.help"))}</label>
+							<input type="text" name="cron" value="${v(t.cron)}" placeholder="0 0 * * * *"/>
+						</div>
 					</div>
 
-					<label>${L("flows.field.execution")}${help(L("flows.field.execution.help"))}</label>
-					<div class="flow-inline">
-						<input type="number" name="maxAttempts" min="1" max="10" value="${v(x.maxAttempts)}" placeholder="${L("flows.field.max.attempts")}"/>
-						<input type="text" name="timeout" value="${v(friendlyDuration(x.timeout))}" placeholder="15m"/>
-					</div>
+					<details class="flow-advanced" ${t.delay || x.maxAttempts || x.timeout ? "open" : ""}>
+						<summary>${L("flows.field.advanced")}</summary>
+						<div data-schedule-only>
+							<label>${L("flows.field.delay")}${help(L("flows.field.trigger.help"))}</label>
+							<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="0s"/>
+						</div>
+						<label>${L("flows.field.execution")}${help(L("flows.field.execution.help"))}</label>
+						<div class="flow-inline">
+							<input type="number" name="maxAttempts" min="1" max="10" value="${v(x.maxAttempts)}" placeholder="${L("flows.field.max.attempts")}"/>
+							<input type="text" name="timeout" value="${v(friendlyDuration(x.timeout))}" placeholder="15m"/>
+						</div>
+					</details>
 					<p class="field-hint">${L("flows.field.parameters.help")}</p>`;
 			}
 
@@ -380,10 +406,12 @@
 				def.name = val("name");
 				if(val("description")) def.description = val("description"); else delete def.description;
 				def.dataSet = val("dataSet");
-				// a schedule's window and maxConcurrentRuns are only set in the JSON view; keep what is there
+				// a schedule's window and timezone and maxConcurrentRuns are only set in the JSON view; keep what is there
 				var trigger = { type: f.triggerType.value };
 				if(trigger.type === "schedule"){
-					["cron", "timezone"].forEach(k => { if(val(k)) trigger[k] = val(k); });
+					var cron = f.schedule.value === "custom" ? val("cron") : f.schedule.value;
+					if(cron) trigger.cron = cron;
+					if(def.trigger && def.trigger.timezone) trigger.timezone = def.trigger.timezone;
 					if(val("delay")) trigger.delay = isoDuration(val("delay"));
 					if(def.trigger && def.trigger.window) trigger.window = def.trigger.window;
 				} else if(val("window")){

@@ -13,6 +13,17 @@
 	margin-bottom: 4px;
 }
 
+.flows-title {
+	display: flex;
+	align-items: center;
+	gap: var(--space-lg);
+	margin-bottom: 4px;
+}
+
+.flows-title h2 {
+	margin-bottom: 0;
+}
+
 .flows-header h2 a {
 	color: inherit;
 }
