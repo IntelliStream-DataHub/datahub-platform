@@ -22,3 +22,8 @@ vault:
 # CORS: browser origins allowed to call the API directly (e.g. the datahub-console).
 # Comma-separated. Defaults to http://localhost:8080 when unset (local console).
 origins: http://localhost:8080
+
+datahub:
+  outbound:
+    # A dev stack runs on private addresses: let tenants register tool servers there.
+    allow-private-networks: true

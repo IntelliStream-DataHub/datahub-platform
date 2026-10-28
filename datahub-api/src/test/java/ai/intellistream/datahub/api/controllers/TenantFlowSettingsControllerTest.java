@@ -6,6 +6,7 @@ import ai.intellistream.datahub.api.datasecurity.OrgGroupResolver;
 import ai.intellistream.datahub.api.datasecurity.SettingsSecurity;
 import ai.intellistream.datahub.api.services.TenantSettingsService;
 import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowMcpServerForm;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -51,6 +52,11 @@ class TenantFlowSettingsControllerTest {
                         .content("{\"clientId\":\"datahub-ingest\",\"clientSecret\":\"s\"}"))
                 .andExpect(status().isForbidden());
         mvc.perform(delete("/tenant/settings/flow/secrets/pw")).andExpect(status().isForbidden());
+        mvc.perform(put("/tenant/settings/flow/mcp-servers/crm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://crm.example/mcp\",\"headerValue\":\"Bearer k\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(delete("/tenant/settings/flow/mcp-servers/crm")).andExpect(status().isForbidden());
         verifyNoInteractions(service);
     }
 
@@ -75,5 +81,21 @@ class TenantFlowSettingsControllerTest {
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
         verify(service).putFlowClient("ingest", new TenantFlowClientForm("datahub-ingest", "s"));
+    }
+
+    @Test
+    void aWriteGrantRegistersAndRemovesAToolServerAndLearnsNothingBack() throws Exception {
+        MockMvc mvc = mvcGranting("/settings/flow/write");
+
+        mvc.perform(put("/tenant/settings/flow/mcp-servers/crm")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"url\":\"https://crm.example/mcp\",\"headerName\":\"X-Api-Key\",\"headerValue\":\"k\"}"))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        mvc.perform(delete("/tenant/settings/flow/mcp-servers/crm"))
+                .andExpect(status().isNoContent())
+                .andExpect(content().string(""));
+        verify(service).putFlowMcpServer("crm", new TenantFlowMcpServerForm("https://crm.example/mcp", "X-Api-Key", "k"));
+        verify(service).removeFlowMcpServer("crm");
     }
 }

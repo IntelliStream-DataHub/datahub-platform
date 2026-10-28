@@ -112,6 +112,13 @@ springdoc:
     version: OPENAPI_3_1
 
 datahub:
+  outbound:
+    # Whether a URL a tenant supplies — a tool server its agents call — may resolve to a private,
+    # loopback or link-local address. The services call these URLs from inside the platform's own
+    # networks, so off keeps a tenant from reaching the stores and the metadata endpoint through
+    # them. Set true on a dev stack or an intranet deployment where the tool servers sit beside
+    # the platform; plain http is accepted only then.
+    allow-private-networks: false
   acl:
     groups:
       # Caching for the caller's Keycloak organization groups (the dataset grants), read from the
