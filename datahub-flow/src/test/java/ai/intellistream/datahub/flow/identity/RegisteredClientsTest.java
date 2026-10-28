@@ -69,6 +69,18 @@ class RegisteredClientsTest {
     }
 
     @Test
+    void theRegisteredClientsAreListedByNameAlone() {
+        when(tenantConfig.current("foo")).thenReturn(Map.of(
+                "flow.client.reporting.client-id", "datahub-reporting",
+                "flow.client.reporting.client-secret", "reporting-secret",
+                "flow.client.ingest.client-id", "datahub-ingest",
+                "flow.client.ingest.client-secret", "ingest-secret",
+                "flow.secret.sftp-password", "hunter2"));
+
+        assertThat(clients.names(TENANT)).containsExactly("ingest", "reporting");
+    }
+
+    @Test
     void aCallerHoldingEveryGrantOfTheClientMayAssignIt() {
         client(false, List.of("/datasets/ds_demo/write"), true);
         caller(false, List.of("/datasets/ds_demo/write", "/flows/write"));

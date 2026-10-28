@@ -39,6 +39,11 @@ public class AgentsController {
         return page(model, "agents/agent");
     }
 
+    @GetMapping(params = "tab=runs")
+    public String runs(Model model) {
+        return page(model, "agents/runs");
+    }
+
     @GetMapping(params = "tab=attention")
     public String attention(Model model) {
         return page(model, "agents/attention");

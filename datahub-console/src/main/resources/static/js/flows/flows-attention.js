@@ -170,8 +170,9 @@
 
 		function dismiss(event, tr){
 			return whoAmI().then(function(who){
-				return FlowApi.api("/events/create", { items: [dismissedEvent(event, who)] });
-			}).then(function(){
+				return FlowApi.createEvents([dismissedEvent(event, who)]);
+			}).then(function(result){
+				if(result.skipped.length) return Flash.error(L("flows.attention.dismiss.gone"));
 				tr.remove();
 				tidy();
 				Flash.info(L("flows.attention.dismissed"));
@@ -326,7 +327,7 @@
 							queued += answer.requeued;
 						}).catch(function(err){
 							failed += batch.rows.length;
-							reasons.push(batch.flow + ": " + (err && err.message ? err.message : L("flows.error.run")));
+							reasons.push(batch.flow + ": " + FlowApi.reason(err, "flows.error.run"));
 						});
 					});
 				}, Promise.resolve()).then(function(){
@@ -350,24 +351,29 @@
 				var todo = listed.filter(function(l){ return l.row.isConnected; });
 				if(!ok || todo.length === 0 || !confirm(L("flows.attention.dismiss.all.confirm", [todo.length]))) return;
 				return whoAmI().then(function(who){
-					var done = 0, failed = 0, reasons = [];
+					var done = 0, failed = 0, gone = 0, reasons = [];
 					var chain = Promise.resolve();
 					for(var i = 0; i < todo.length; i += DISMISS_BATCH){
 						(function(batch){
 							chain = chain.then(function(){
-								return FlowApi.api("/events/create", { items: batch.map(function(l){ return dismissedEvent(l.event, who); }) })
-									.then(function(){
-										batch.forEach(function(l){ l.row.remove(); });
-										done += batch.length;
+								return FlowApi.createEvents(batch.map(function(l){ return dismissedEvent(l.event, who); }))
+									.then(function(result){
+										gone += result.skipped.length;
+										result.written.forEach(function(i){ batch[i].row.remove(); });
+										done += result.written.length;
 									}).catch(function(err){
 										failed += batch.length;
-										reasons.push(err && err.message ? err.message : L("flows.error.dismiss"));
+										reasons.push(FlowApi.reason(err, "flows.error.dismiss"));
 									});
 							});
 						})(todo.slice(i, i + DISMISS_BATCH));
 					}
 					return chain.then(function(){
 						tidy();
+						if(gone > 0){
+							failed += gone;
+							reasons.unshift(L("flows.attention.dismiss.gone.some", [gone]));
+						}
 						if(failed === 0) Flash.info(L("flows.attention.dismiss.all.done", [done]));
 						else Flash.error(L("flows.attention.dismiss.all.partial", [done, failed]), { details: reasons });
 					});

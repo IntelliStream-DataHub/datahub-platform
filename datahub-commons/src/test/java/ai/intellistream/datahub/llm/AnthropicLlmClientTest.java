@@ -190,6 +190,25 @@ class AnthropicLlmClientTest {
             // Stated rather than defaulted: on an older model omitting it means no thinking at all,
             // which would leave the effort picker with nothing to modulate.
             assertThat(request.get().path("thinking").path("type").asString()).isEqualTo("adaptive");
+            // Summarised, also stated: an agent's transcript shows it, and some models omit it unasked.
+            assertThat(request.get().path("thinking").path("display").asString()).isEqualTo("summarized");
+        });
+    }
+
+    @Test
+    void keepsTheThinkingApartFromTheBlocksSentBack() throws Exception {
+        String thought = """
+                {"id":"msg_5","type":"message","role":"assistant","model":"claude-opus-5",
+                 "content":[{"type":"thinking","thinking":"The valve alarm needs its pressure series.","signature":"sig"},
+                            {"type":"tool_use","id":"toolu_1","name":"dataset_list","input":{"limit":5}}],
+                 "stop_reason":"tool_use","stop_sequence":null,
+                 "usage":{"input_tokens":10,"output_tokens":5}}""";
+        withApi(thought, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(DATASET_LIST), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
+
+            assertThat(turn.thinking()).isEqualTo("The valve alarm needs its pressure series.");
+            assertThat(turn.blocks()).hasSize(1).allMatch(LlmBlock.ToolUse.class::isInstance);
+            assertThat(turn.text()).isEmpty();
         });
     }
 

@@ -30,6 +30,7 @@ class FlowsControllerTest {
         mvc.perform(get("/flows")).andExpect(view().name("flows/index"))
                 .andExpect(model().attribute("featureDisabled", false));
         mvc.perform(get("/flows").param("tab", "attention")).andExpect(view().name("flows/attention"));
+        mvc.perform(get("/flows").param("tab", "clients")).andExpect(view().name("flows/clients"));
         mvc.perform(get("/flows").param("new", "")).andExpect(view().name("flows/flow"))
                 .andExpect(model().attribute("flowExternalId", ""));
         mvc.perform(get("/flows/temp_hourly")).andExpect(view().name("flows/flow"))

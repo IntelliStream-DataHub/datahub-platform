@@ -64,7 +64,10 @@ public class AnthropicLlmClient implements LlmClient {
                 // claude-opus-5 omitting it thinks anyway, on 4.8/4.7 omitting it does not think at
                 // all — and effort is largely a control over thinking depth, so a tenant pointing
                 // at an older model would otherwise see the picker do nothing.
-                .thinking(ThinkingConfigAdaptive.builder().build())
+                // Summarised, also stated: some models default to omitting it, and an agent's
+                // transcript shows it as the reasoning between tool calls. It is billed the same.
+                .thinking(ThinkingConfigAdaptive.builder()
+                        .display(ThinkingConfigAdaptive.Display.SUMMARIZED).build())
                 // One breakpoint on the system block, one on the last tool (below). The tool list is
                 // the biggest static chunk (~19k tokens), and a breakpoint on the system block alone
                 // does NOT cache it — it was re-billed at full input price every turn. Caching both
@@ -101,7 +104,14 @@ public class AnthropicLlmClient implements LlmClient {
         }
 
         List<LlmBlock> blocks = new ArrayList<>();
+        // Kept apart from the blocks: they go back to the model, and thinking is not sent back.
+        StringBuilder thinking = new StringBuilder();
         for (ContentBlock block : response.content()) {
+            block.thinking().ifPresent(t -> {
+                if (!t.thinking().isBlank()) {
+                    thinking.append(thinking.isEmpty() ? "" : "\n").append(t.thinking());
+                }
+            });
             block.text().ifPresent(t -> blocks.add(new LlmBlock.Text(t.text())));
             block.toolUse().ifPresent(t -> blocks.add(
                     new LlmBlock.ToolUse(t.id(), t.name(), toArgumentMap(t._input()))));
@@ -115,7 +125,8 @@ public class AnthropicLlmClient implements LlmClient {
                             + "llm.max-output-tokens, or ask at a lower effort.",
                     settings.maxOutputTokensFor(effort), effort);
         }
-        return new LlmTurn(blocks, stopReason == LlmTurn.StopReason.TOOL_USE, stopReason, usage);
+        return new LlmTurn(blocks, stopReason == LlmTurn.StopReason.TOOL_USE, stopReason, usage,
+                thinking.toString());
     }
 
     @Override

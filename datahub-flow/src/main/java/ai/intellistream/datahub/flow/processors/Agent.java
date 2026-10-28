@@ -111,7 +111,8 @@ public final class Agent implements Processor {
             what people will read; write it for them.
             - Do not repeat a tool call that already failed with the same arguments. If a tool is \
             refused or keeps failing, say so in the summary and finish.
-            - Be brief in prose: the transcript is kept, not shown as a conversation.
+            - Before each tool call, say in one sentence what you are checking and why. People read \
+            the transcript to follow your work; keep everything else brief.
             """;
 
     private static final ProcessorDescriptor DESCRIPTOR = ProcessorDescriptor
@@ -438,6 +439,10 @@ public final class Agent implements Processor {
 
         @Override
         public void modelCalled(int iteration, LlmTurn turn, long millis) {
+            // The reasoning the provider showed, ahead of what the model said and called.
+            if (!turn.thinking().isBlank()) {
+                note("thinking", Map.of("text", turn.thinking()));
+            }
             String text = turn.text();
             if (!text.isBlank()) {
                 note("assistant", Map.of("text", text));

@@ -110,8 +110,14 @@ public class OpenAiCompatibleLlmClient implements LlmClient {
             String name = call.path("function").path("name").asString("");
             blocks.add(new LlmBlock.ToolUse(id, name, parseArguments(call)));
         }
+        // Servers that show a reasoning model's thinking put it beside the content: vLLM and
+        // DeepSeek as reasoning_content, Ollama and others as reasoning.
+        String reasoning = message.path("reasoning_content").asString("");
+        if (reasoning.isBlank()) {
+            reasoning = message.path("reasoning").asString("");
+        }
         return new LlmTurn(blocks, wantsTools, toStopReason(choice.path("finish_reason").asString("")),
-                toUsage(response.path("usage")));
+                toUsage(response.path("usage")), reasoning.strip());
     }
 
     @Override

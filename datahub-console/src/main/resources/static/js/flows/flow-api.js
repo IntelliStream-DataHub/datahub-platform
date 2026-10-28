@@ -72,6 +72,44 @@
 		return Flash.error(String(err));
 	}
 
+	/**
+	 * Writes events through datahub-api's POST /events/create, writing those whose dataset no
+	 * longer exists as events with no dataset.
+	 *
+	 * Deleting a dataset leaves its events behind, so an event written in reply to one (a dismissal)
+	 * can name a dataset that is gone, and the api refuses the whole request for it (400 with a
+	 * "dataSet" field per missing id). Reads already treat such events as having no dataset: only a
+	 * caller who may read every dataset sees them, as with dataset-less events. So the reply goes in
+	 * with no dataset, which takes write on every dataset; a caller without it gets those back as
+	 * `skipped`, and the rest are written regardless. Resolves with the indexes of `items` written
+	 * and skipped; any other refusal rejects as usual.
+	 */
+	function createEvents(items){
+		var all = items.map(function(_, i){ return i; });
+		function send(indexes, withoutDataSet){
+			return request("/events/create", { method: "POST", base: apiBase(), body: { items: indexes.map(function(i){
+				return withoutDataSet ? Object.assign({}, items[i], { dataSetId: null }) : items[i];
+			}) } });
+		}
+		return send(all).then(function(){ return { written: all, skipped: [] }; }, function(err){
+			var gone = !(err instanceof DataHubProblem) || err.status !== 400 ? [] :
+				err.fieldErrors().filter(function(f){ return f.field === "dataSet"; })
+					.map(function(f){ return String(f.message); });
+			var orphans = all.filter(function(i){ return gone.indexOf(String(items[i].dataSetId)) >= 0; });
+			if(orphans.length === 0) return Promise.reject(err);
+			var rest = all.filter(function(i){ return orphans.indexOf(i) < 0; });
+			return (rest.length ? send(rest) : Promise.resolve())
+				.then(function(){
+					return send(orphans, true).then(
+						function(){ return { written: all, skipped: [] }; },
+						function(refused){
+							if(refused instanceof DataHubProblem && refused.status === 403) return { written: rest, skipped: orphans };
+							return Promise.reject(refused);
+						});
+				});
+		});
+	}
+
 	/** "/flows/a%20b" — every path segment the user typed goes through here. */
 	function seg(value){ return encodeURIComponent(value); }
 
@@ -88,6 +126,7 @@
 		api: function(path, body){
 			return request(path, { method: body === undefined ? "GET" : "POST", body: body, base: apiBase() });
 		},
+		createEvents: createEvents,
 		reason: reason,
 		flashError: flashError,
 		seg: seg

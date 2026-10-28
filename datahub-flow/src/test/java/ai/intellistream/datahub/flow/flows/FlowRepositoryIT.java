@@ -217,12 +217,17 @@ class FlowRepositoryIT {
                 .contains("board_deployed", "board_elsewhere").doesNotContain("board_never_deployed");
         assertThat(repository.deployedFlow(deployed.id()).orElseThrow().maxConcurrentRuns()).isEqualTo(4);
         assertThat(repository.deployedFlow(deployed.id() + 10_000)).isEmpty();
-        assertThat(repository.deployedBoard(new DataSets(false, Set.of(700L)), null, 10))
+        assertThat(repository.deployedBoard(new DataSets(false, Set.of(700L)), null, null, 10))
                 .extracting(FlowRepository.BoardFlow::externalId).containsExactly("board_deployed");
-        assertThat(repository.deployedBoard(DataSets.ALL, "board_deployed", 10))
+        assertThat(repository.deployedBoard(DataSets.ALL, null, "board_deployed", 10))
                 .extracting(FlowRepository.BoardFlow::externalId).contains("board_elsewhere")
                 .doesNotContain("board_deployed");
-        assertThat(repository.deployedBoard(new DataSets(false, Set.of()), null, 10)).isEmpty();
+        assertThat(repository.deployedBoard(new DataSets(false, Set.of()), null, null, 10)).isEmpty();
+        // By kind: these are plain flows, so the agents' overview leaves them out.
+        assertThat(repository.deployedBoard(DataSets.ALL, "flow", null, 10))
+                .extracting(FlowRepository.BoardFlow::externalId).contains("board_deployed", "board_elsewhere");
+        assertThat(repository.deployedBoard(DataSets.ALL, "agent", null, 10))
+                .extracting(FlowRepository.BoardFlow::externalId).doesNotContain("board_deployed", "board_elsewhere");
     }
 
     private static StoredFlow create(String externalId, long dataSetId) {

@@ -535,6 +535,77 @@
 .transcript-row details.error > summary { color: var(--input-error-fg); }
 .transcript-row pre { margin: var(--space) 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
 .transcript-assistant { background: var(--surface-2, transparent); }
+/* What the model reasoned before it spoke or called a tool: quieter than what it said. */
+.transcript-thinking { color: var(--text-muted); font-style: italic; }
+/* A result's fold carries its one-line preview; long ones are cut by the script, wrapped here. */
+.transcript-row details > summary { overflow-wrap: anywhere; }
 .transcript-usage, .transcript-note { color: var(--text-muted); font-size: 12px; }
 .transcript-label { color: var(--text-muted); }
-.agent-summary { white-space: pre-wrap; }
+/* The summary is what the agent wants a person to read, often several sentences: it wraps and takes
+   the room the other columns leave. Restated at the listing's own specificity, whose cells are
+   nowrap, or it runs off as one line. The row's other cells sit at its top, beside its first line. */
+table.listing > tbody > tr > td.agent-summary {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	width: 100%;
+	line-height: 1.5;
+	padding-top: 8px;
+	padding-bottom: 8px;
+}
+table.listing > tbody > tr:has(> td.agent-summary) > td {
+	vertical-align: top;
+}
+
+/* Run as a client: a native <dialog> (top layer, above the right-form), built by run-as.js. */
+.run-as-dialog {
+	width: min(440px, calc(100vw - 32px));
+	padding: 20px 24px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--menu-bg);
+	color: var(--text);
+	box-shadow: var(--big-box-shadow);
+}
+
+.run-as-dialog::backdrop {
+	background: rgba(0, 12, 20, 0.62);
+}
+
+.run-as-dialog h3 {
+	margin: 0 0 14px;
+}
+
+.run-as-label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.run-as-label select {
+	width: 100%;
+	margin-bottom: 0;
+}
+
+/* The open list is a native popup; paint it the theme's surface, as the sub-nav selects do. */
+.run-as-label select option {
+	background: var(--menu-bg);
+	color: var(--text);
+}
+
+.run-as-help {
+	margin: 10px 0;
+	color: var(--text-muted);
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.run-as-manage {
+	font-size: 13px;
+}
+
+.run-as-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 18px;
+}

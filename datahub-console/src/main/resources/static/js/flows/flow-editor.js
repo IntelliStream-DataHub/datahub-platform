@@ -1009,11 +1009,10 @@
 		}
 
 		function runAs(){
-			var name = window.prompt(L("flows.run.as.prompt"), deployment && deployment.identity === "client" ? deployment.runAs : "");
-			if(!name) return;
-			return FlowApi.put("/flows/" + FlowApi.seg(flowId) + "/deployment",
-				{ runAs: name.trim(), version: flow.version, enabled: true })
-				.then(d => { deployment = d; drawHeader(); Flash.info(L("flows.run.as.done", [name.trim()])); })
+			return FlowRunAs.pick(deployment && deployment.identity === "client" ? deployment.runAs : null)
+				.then(name => name && FlowApi.put("/flows/" + FlowApi.seg(flowId) + "/deployment",
+					{ runAs: name, version: flow.version, enabled: true })
+					.then(d => { deployment = d; drawHeader(); Flash.info(L("flows.run.as.done", [name])); }))
 				.catch(err => refuse(err, "flows.error.deploy"));
 		}
 

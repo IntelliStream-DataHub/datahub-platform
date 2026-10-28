@@ -358,7 +358,12 @@ class RunControllerTest {
         when(runs.now()).thenReturn(Instant.parse("2026-10-16T12:00:00Z"));
 
         mvc.perform(get("/runs/overview")).andExpect(status().isOk()).andExpect(jsonPath("$.items").isEmpty());
-        verify(flows).deployedBoard(readable, null, 100);
+        verify(flows).deployedBoard(readable, null, null, 100);
+
+        // The Agents section's overview: agents only.
+        mvc.perform(get("/runs/overview?kind=agent")).andExpect(status().isOk());
+        verify(flows).deployedBoard(readable, "agent", null, 100);
+        mvc.perform(get("/runs/overview?kind=robot")).andExpect(status().isBadRequest());
 
         callerIs(new Caller("user-1", false, false, false, new DataSets(false, Set.of()),
                 new DataSets(false, Set.of())));
