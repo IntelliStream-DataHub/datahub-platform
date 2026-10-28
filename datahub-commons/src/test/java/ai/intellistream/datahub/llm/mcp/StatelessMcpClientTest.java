@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -166,6 +167,20 @@ class StatelessMcpClientTest {
         withServer(500, "boom", (client, recorded) ->
                 assertThatThrownBy(() -> client.listTools("tok-1"))
                         .satisfies(e -> assertThat(((McpException) e).retryAfter()).isNull()));
+    }
+
+    @Test
+    void theRunViewAsksForTheTokenOnEveryCall() throws Exception {
+        withServer(200, TOOLS_LIST_RESPONSE, (client, recorded) -> {
+            AtomicInteger issued = new AtomicInteger();
+            McpTools run = client.as(() -> "tok-" + issued.incrementAndGet());
+
+            run.listTools();
+            run.listTools();
+
+            assertThat(run.name()).isEqualTo("datahub-api");
+            assertThat(recorded).extracting(Recorded::authorization).containsExactly("Bearer tok-1", "Bearer tok-2");
+        });
     }
 
     // ---- harness -------------------------------------------------------------------------------
