@@ -49,6 +49,12 @@ public class AgentsController {
         return page(model, "agents/attention");
     }
 
+    /** The tool servers the organization's agents may use beyond DataHub's own: registered here, kept in datahub-api's tenant settings like the flow clients. */
+    @GetMapping(params = "tab=servers")
+    public String servers(Model model) {
+        return page(model, "agents/servers");
+    }
+
     /** One agent: its form, deployment, runs and what it asked a person to look at. */
     @GetMapping("/{externalId}")
     public String agent(@PathVariable String externalId, Model model) {
