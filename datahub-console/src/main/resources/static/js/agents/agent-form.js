@@ -596,10 +596,14 @@
 		}
 
 		function runAs(){
-			var name = window.prompt(L("flows.run.as.prompt"), deployment && deployment.identity === "client" ? deployment.runAs : "");
-			if(!name) return;
-			return FlowApi.put("/flows/" + FlowApi.seg(flowId) + "/deployment", { runAs: name.trim(), version: flow.version, enabled: true })
-				.then(function(d){ deployment = d; drawHeader(); Flash.info(L("flows.run.as.done", [name.trim()])); })
+			var name;
+			return FlowRunAs.pick(deployment && deployment.identity === "client" ? deployment.runAs : null)
+				.then(function(chosen){
+					name = chosen;
+					if(!name) return null;
+					return FlowApi.put("/flows/" + FlowApi.seg(flowId) + "/deployment", { runAs: name, version: flow.version, enabled: true })
+						.then(function(d){ deployment = d; drawHeader(); Flash.info(L("flows.run.as.done", [name])); });
+				})
 				.catch(function(err){ refuse(err, "flows.error.deploy"); });
 		}
 

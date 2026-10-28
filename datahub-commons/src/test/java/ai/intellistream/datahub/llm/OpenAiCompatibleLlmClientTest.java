@@ -119,6 +119,22 @@ class OpenAiCompatibleLlmClientTest {
     }
 
     @Test
+    void readsTheReasoningAServerShows() throws Exception {
+        String reasoned = """
+                {"choices":[{"index":0,"finish_reason":"stop","message":{
+                  "role":"assistant","content":"Nothing needs a person.",
+                  "reasoning_content":"The alarm cleared within a minute."}}]}""";
+        withServer(reasoned, (client, settings, request) -> {
+            LlmTurn turn = client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH);
+            assertThat(turn.thinking()).isEqualTo("The alarm cleared within a minute.");
+            assertThat(turn.text()).isEqualTo("Nothing needs a person.");
+        });
+        withServer(reply("hi"), (client, settings, request) -> assertThat(
+                client.send(settings, "system", List.of(), List.of(LlmMessage.user("hi")), LlmEffort.HIGH).thinking())
+                .isEmpty());
+    }
+
+    @Test
     void malformedArgumentsDoNotKillTheTurn() throws Exception {
         // Small local models produce this regularly; the tool then fails on its own terms and the
         // model gets a chance to retry, rather than the whole request blowing up.

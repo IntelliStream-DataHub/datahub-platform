@@ -7,6 +7,9 @@
  *
  * Refreshes every few seconds while anything is running or queued, and stops when nothing is, after
  * ten minutes, or while the browser tab is hidden; Refresh starts it again.
+ *
+ * The Agents section's Runs tab is the same page for its own kind: the page's data-kind
+ * (?kind=flow or agent) picks what is listed and data-section where the rows link to.
  */
 (function(){
 	"use strict";
@@ -36,6 +39,8 @@
 	document.addEventListener("DOMContentLoaded", function(){
 		var page = document.querySelector('[data-type="runs-page"]');
 		if(!page) return;
+		var kind = page.getAttribute("data-kind");
+		var section = page.getAttribute("data-section") || "flows";
 		var el = function(type){ return page.querySelector('[data-type="' + type + '"]'); };
 		var timer = null;
 		var until = 0;
@@ -88,11 +93,11 @@
 		function row(entry, now, withNext){
 			var tr = document.createElement("tr");
 			cell(tr, entry.name && entry.name !== entry.flow ? entry.name + " (" + entry.flow + ")" : entry.flow,
-				"/flows/" + FlowApi.seg(entry.flow));
+				"/" + section + "/" + FlowApi.seg(entry.flow));
 			cell(tr, stateText(entry), null, "runs-" + entry.health.toLowerCase());
 			cell(tr, runningText(entry));
 			cell(tr, queuedText(entry, now));
-			cell(tr, lastText(entry), entry.lastRun ? "/flows/" + FlowApi.seg(entry.flow) + "/runs/" + FlowApi.seg(entry.lastRun.id) : null);
+			cell(tr, lastText(entry), entry.lastRun ? "/" + section + "/" + FlowApi.seg(entry.flow) + "/runs/" + FlowApi.seg(entry.lastRun.id) : null);
 			if(withNext) cell(tr, entry.nextDueAt ? time(entry.nextDueAt) : L("flows.runs.next.manual"));
 			return tr;
 		}
@@ -101,7 +106,7 @@
 		function loadAll(){
 			var all = [];
 			function next(cursor, n){
-				return FlowApi.get("/runs/overview?limit=" + PAGE + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""))
+				return FlowApi.get("/runs/overview?limit=" + PAGE + (kind ? "&kind=" + encodeURIComponent(kind) : "") + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""))
 					.then(function(wrapper){
 						(wrapper.items || []).forEach(function(e){ all.push(e); });
 						return wrapper.nextCursor && n < MAX_PAGES ? next(wrapper.nextCursor, n + 1) : all;
@@ -121,7 +126,7 @@
 			var running = entries.reduce(function(n, e){ return n + e.running; }, 0);
 			var queued = entries.reduce(function(n, e){ return n + e.queued; }, 0);
 
-			el("runs-summary").textContent = L("flows.runs.summary", [entries.length, count("PROBLEM"),
+			el("runs-summary").textContent = L(section + ".runs.summary", [entries.length, count("PROBLEM"),
 				count("WARNING"), count("OK"), count("OFF"), running, queued]);
 
 			var attention = el("runs-attention");

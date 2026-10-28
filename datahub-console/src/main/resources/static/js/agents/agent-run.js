@@ -12,6 +12,7 @@
 	var ENDED = ["SUCCEEDED", "FAILED", "CANCELLED"];
 	var POLL_MS = 2000;
 	var RESULT_CHARS = 4000;
+	var PREVIEW_CHARS = 160;
 
 	function L(key, args){ return args ? $L(key, null, args) : $L(key); }
 
@@ -36,6 +37,29 @@
 			try { return JSON.stringify(value, null, 2); } catch(e){ return String(value); }
 		}
 
+		/**
+		 * One line of a tool result, shown on its fold so the run can be followed without opening
+		 * each: a list's count and first names, otherwise the text itself, cut short.
+		 */
+		function preview(text){
+			var line = text;
+			try {
+				var value = JSON.parse(text);
+				var items = Array.isArray(value) ? value : value && Array.isArray(value.items) ? value.items : null;
+				if(items){
+					var names = items.slice(0, 3).map(function(i){
+						return i && typeof i === "object" ? i.name || i.externalId || i.id || "" : String(i);
+					}).filter(Boolean);
+					line = L("agents.transcript.items", [items.length]) + (names.length ? ": " + names.join(", ")
+						+ (items.length > names.length ? ", …" : "") : "");
+				} else if(value && typeof value === "object"){
+					line = JSON.stringify(value);
+				}
+			} catch(e){ /* not JSON: the text as it is */ }
+			line = line.replace(/\s+/g, " ").trim();
+			return line.length > PREVIEW_CHARS ? line.slice(0, PREVIEW_CHARS) + "…" : line;
+		}
+
 		function outcome(args){
 			var badge = el("transcript-outcome");
 			var key = args && args.outcome === "attention" ? "agents.outcome.attention" : "agents.outcome.done";
@@ -50,6 +74,7 @@
 			switch(row.kind){
 				case "system": li.appendChild(details(L("agents.transcript.system"), p.text || "")); break;
 				case "user": li.appendChild(details(L("agents.transcript.user"), p.text || "")); break;
+				case "thinking": li.appendChild(Object.assign(document.createElement("p"), { className: "transcript-thinking", textContent: p.text || "" })); break;
 				case "assistant": li.appendChild(Object.assign(document.createElement("p"), { textContent: p.text || "" })); break;
 				case "tool_call": {
 					var head = document.createElement("div");
@@ -67,8 +92,10 @@
 				}
 				case "tool_result": {
 					var text = String(p.text || "");
+					var head = L(p.isError ? "agents.transcript.result.error" : "agents.transcript.result");
+					var shown = preview(text);
 					if(text.length > RESULT_CHARS) text = text.slice(0, RESULT_CHARS) + "…";
-					li.appendChild(details(L(p.isError ? "agents.transcript.result.error" : "agents.transcript.result"), text, p.isError ? "error" : ""));
+					li.appendChild(details(shown ? head + ": " + shown : head, text, p.isError ? "error" : ""));
 					break;
 				}
 				case "usage":

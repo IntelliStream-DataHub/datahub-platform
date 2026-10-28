@@ -382,7 +382,7 @@ public class FlowRepository {
     }
 
     /** The deployed flows in {@code readable} datasets, by external id after {@code afterExternalId}. */
-    public List<BoardFlow> deployedBoard(DataSets readable, String afterExternalId, int limit) {
+    public List<BoardFlow> deployedBoard(DataSets readable, String kind, String afterExternalId, int limit) {
         if (!readable.all() && readable.ids().isEmpty()) {
             return List.of();
         }
@@ -392,6 +392,10 @@ public class FlowRepository {
         if (!readable.all()) {
             sql.append(" AND data_set_id = ANY (?)");
             args.add(readable.ids().toArray(Long[]::new));
+        }
+        if (kind != null) {
+            sql.append(" AND kind = ?");
+            args.add(kind);
         }
         if (afterExternalId != null) {
             sql.append(" AND external_id > ?");

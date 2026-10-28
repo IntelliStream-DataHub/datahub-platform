@@ -137,6 +137,12 @@ public class RunService {
                 FlowProblems.notFound("Flow " + externalId + " has not been deployed."));
     }
 
+    /** The registered clients a deployment may name in {@code runAs}, for whoever may deploy. */
+    public List<String> clientNames() {
+        flowService.requireWrite();
+        return clients.names(TenantContext.getTenantId());
+    }
+
     /**
      * Changes a deployment: its version, whether it is on, or — with {@code runAs} — the registered
      * client its runs act as, which takes the superset check. Without {@code runAs} the runs keep
@@ -456,8 +462,11 @@ public class RunService {
      * One row per deployed flow the caller may read, with how it looks: what is running and queued,
      * its latest finished run, and whether anything is wrong. Paged by external id like the flows.
      */
-    public DataWrapper<RunView.BoardEntry> board(String cursor, Integer limit) {
+    public DataWrapper<RunView.BoardEntry> board(String kind, String cursor, Integer limit) {
         Caller caller = flowService.requireRead();
+        if (kind != null && !FlowValidator.KIND_FLOW.equals(kind) && !FlowValidator.KIND_AGENT.equals(kind)) {
+            throw FlowProblems.badRequest("kind is flow or agent.");
+        }
         int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
         if (pageSize > MAX_LIMIT) {
             throw FlowProblems.badRequest("limit is at most " + MAX_LIMIT + ".");
@@ -467,7 +476,7 @@ public class RunService {
             throw FlowProblems.badRequest("The cursor belongs to another listing.");
         }
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<FlowRepository.BoardFlow> page = flows.deployedBoard(readable, after == null ? null : after.value(),
+        List<FlowRepository.BoardFlow> page = flows.deployedBoard(readable, kind, after == null ? null : after.value(),
                 pageSize);
         Map<Long, RunStore.FlowState> states = page.isEmpty() ? Map.of()
                 : store.states(page.stream().map(FlowRepository.BoardFlow::id).toList());

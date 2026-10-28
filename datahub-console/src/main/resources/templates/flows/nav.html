@@ -8,4 +8,7 @@
 	<a th:href="@{/flows(tab='attention')}" th:classappend="${pageSelected} == 'attention' ? 'selected' : ''">
 		<span th:text="#{flows.nav.attention}"></span>
 	</a>
+	<a th:href="@{/flows(tab='clients')}" th:classappend="${pageSelected} == 'clients' ? 'selected' : ''">
+		<span th:text="#{flows.nav.clients}"></span>
+	</a>
 </nav>

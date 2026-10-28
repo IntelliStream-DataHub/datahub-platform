@@ -17,7 +17,7 @@
 	       GET {flow}/runs/overview, filled by flows/flows-overview.js. Flows with a problem or
 	       something to watch come first; the fine ones are folded away. Refreshes every few seconds
 	       while anything is running or queued. */-->
-	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="runs-page">
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="runs-page" data-kind="flow" data-section="flows">
 		<div class="flows-header">
 			<div>
 				<h2 th:text="#{flows.nav.runs}"></h2>

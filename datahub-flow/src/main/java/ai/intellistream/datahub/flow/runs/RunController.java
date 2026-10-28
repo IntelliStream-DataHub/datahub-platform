@@ -16,6 +16,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -35,6 +37,16 @@ public class RunController {
     @GetMapping("/flows/{externalId}/deployment")
     public DeploymentView deployment(@PathVariable String externalId) {
         return runs.deployment(externalId);
+    }
+
+    /**
+     * {@code {"clients": [...]}}: the names of the registered clients a deployment's {@code runAs}
+     * may name, sorted. Takes {@code /flows/write}; whether the caller may assign one is checked
+     * when they do.
+     */
+    @GetMapping("/clients")
+    public Map<String, List<String>> clients() {
+        return Map.of("clients", runs.clientNames());
     }
 
     /**
@@ -87,9 +99,10 @@ public class RunController {
      * reasons, in pages by external id.
      */
     @GetMapping("/runs/overview")
-    public DataWrapper<RunView.BoardEntry> overview(@RequestParam(required = false) String cursor,
+    public DataWrapper<RunView.BoardEntry> overview(@RequestParam(required = false) String kind,
+                                                    @RequestParam(required = false) String cursor,
                                                     @RequestParam(required = false) Integer limit) {
-        return runs.board(cursor, limit);
+        return runs.board(kind, cursor, limit);
     }
 
     @GetMapping("/runs/{id}")
