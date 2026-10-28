@@ -6,6 +6,7 @@ import ai.intellistream.datahub.api.services.TenantSettingsService;
 import ai.intellistream.datahub.models.tenant.SettingsPermission;
 import ai.intellistream.datahub.models.tenant.SettingsScopes;
 import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowMcpServerForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSecretForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmModelsQuery;
@@ -111,9 +112,11 @@ public class TenantSettingsController {
 
     @Operation(summary = "List your organization's flow credentials",
             description = """
-                    The named secrets your flows may refer to, and the registered clients a flow's
-                    runs may act as instead of the person who deployed it. Names and client ids
-                    only: a secret's value and a client's secret are never returned.
+                    The named secrets your flows may refer to, the registered clients a flow's
+                    runs may act as instead of the person who deployed it, and the tool servers
+                    your agents may call. Names, client ids, URLs and header names only: a
+                    secret's value, a client's secret and a tool server's credential are never
+                    returned.
                     """)
     @GetMapping("/flow")
     public ResponseEntity<TenantFlowSettings> getFlow() {
@@ -177,6 +180,40 @@ public class TenantSettingsController {
     public ResponseEntity<Void> removeFlowClient(@PathVariable String name) {
         settingsSecurity.assertCanWrite(SettingsScopes.FLOW);
         settingsService.removeFlowClient(name);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Register a tool server for agents",
+            description = """
+                    Registers an MCP server under `name`, replacing it if the name is taken: its
+                    Streamable HTTP endpoint (`url`, https) and the one header its credential travels
+                    in (`headerName`, `Authorization` when left out; `headerValue`, e.g. `Bearer …`).
+                    An agent names its tools as `<name>__<tool>`; a name is lowercase letters, digits
+                    and dashes, starting with a letter or digit, at most 24 characters.
+
+                    The credential is never returned. Leave `headerValue` empty to keep the stored one
+                    when changing the URL or the header; it is required for a new server. A URL that
+                    resolves to a private or local address is refused unless the deployment allows
+                    them, and so is plain http.
+                    """)
+    @PutMapping("/flow/mcp-servers/{name}")
+    public ResponseEntity<Void> putFlowMcpServer(@PathVariable String name,
+                                                 @RequestBody TenantFlowMcpServerForm form) {
+        settingsSecurity.assertCanWrite(SettingsScopes.FLOW);
+        settingsService.putFlowMcpServer(name, form);
+        return ResponseEntity.noContent().build();
+    }
+
+    @Operation(summary = "Remove a tool server",
+            description = """
+                    Removes the registration, credential included. Removing a server that is not
+                    registered is not an error. An agent whose tools still name the server fails its
+                    next run until it is edited.
+                    """)
+    @DeleteMapping("/flow/mcp-servers/{name}")
+    public ResponseEntity<Void> removeFlowMcpServer(@PathVariable String name) {
+        settingsSecurity.assertCanWrite(SettingsScopes.FLOW);
+        settingsService.removeFlowMcpServer(name);
         return ResponseEntity.noContent().build();
     }
 }

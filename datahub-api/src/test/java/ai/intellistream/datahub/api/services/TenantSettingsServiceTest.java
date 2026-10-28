@@ -3,6 +3,7 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
 import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowMcpServerForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSecretForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
@@ -63,7 +64,7 @@ class TenantSettingsServiceTest {
         tenantConfigService = mock(TenantConfigService.class);
         when(tenantConfigService.getConfig(anyString())).thenReturn(tenant);
         writer = mock(TenantConfigWriter.class);
-        service = new TenantSettingsService(tenantConfigService, writer, JsonMapper.builder().build());
+        service = new TenantSettingsService(tenantConfigService, writer, JsonMapper.builder().build(), false);
 
         TenantContext.setTenantId(ORG_ID);
     }
@@ -419,5 +420,68 @@ class TenantSettingsServiceTest {
         assertThatThrownBy(() -> service.removeFlowClient("../llm"))
                 .isInstanceOf(BadRequestException.class);
         verify(writer, never()).update(anyString(), any());
+    }
+
+    @Test
+    void aToolServerIsRegisteredWithItsCredentialAndListedWithoutIt() {
+        Map<String, String> stored = vaultHolding(Map.of("flow.token.7", "offline"));
+
+        service.putFlowMcpServer("crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp ", " ", "Bearer k-1"));
+
+        TenantFlowSettings settings = service.readFlow();
+        assertThat(settings.mcpServers())
+                .containsExactly(new TenantFlowSettings.McpServer("crm", "https://8.8.8.8/mcp", "Authorization"));
+        assertThat(settings.toString()).doesNotContain("k-1");
+        assertThat(stored).containsEntry("flow.mcp.crm.header-value", "Bearer k-1")
+                .containsEntry("flow.token.7", "offline");
+
+        // Re-pointed with the credential field left empty: the stored one is kept.
+        service.putFlowMcpServer("crm", new TenantFlowMcpServerForm("https://8.8.4.4/mcp", "X-Api-Key", ""));
+        assertThat(stored).containsEntry("flow.mcp.crm.url", "https://8.8.4.4/mcp")
+                .containsEntry("flow.mcp.crm.header-name", "X-Api-Key")
+                .containsEntry("flow.mcp.crm.header-value", "Bearer k-1");
+
+        service.removeFlowMcpServer("crm");
+        assertThat(service.readFlow().mcpServers()).isEmpty();
+        assertThat(stored).containsOnlyKeys("flow.token.7");
+    }
+
+    @Test
+    void aToolServerIsRefusedWithEverythingThatWouldNotWork() {
+        vaultHolding(Map.of());
+        record Case(String name, TenantFlowMcpServerForm form, String field) {
+        }
+        for (Case bad : java.util.List.of(
+                new Case("a".repeat(25), new TenantFlowMcpServerForm("https://8.8.8.8/mcp", null, "v"), "name"),
+                new Case("Crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp", null, "v"), "name"),
+                new Case("crm", new TenantFlowMcpServerForm(null, null, "v"), "url"),
+                new Case("crm", new TenantFlowMcpServerForm("ftp://8.8.8.8/", null, "v"), "url"),
+                new Case("crm", new TenantFlowMcpServerForm("https://u:p@8.8.8.8/mcp", null, "v"), "url"),
+                // The platform's own networks, and plain http, are off limits unless the deployment says so.
+                new Case("crm", new TenantFlowMcpServerForm("https://127.0.0.1/mcp", null, "v"), "url"),
+                new Case("crm", new TenantFlowMcpServerForm("http://8.8.8.8/mcp", null, "v"), "url"),
+                new Case("crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp", "Host", "v"), "headerName"),
+                new Case("crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp", "Mcp-Session-Id", "v"), "headerName"),
+                new Case("crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp", "bad header", "v"), "headerName"),
+                new Case("crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp", null, "two\nlines"), "headerValue"),
+                // No credential and none stored under the name.
+                new Case("crm", new TenantFlowMcpServerForm("https://8.8.8.8/mcp", null, " "), "headerValue"))) {
+            assertThatThrownBy(() -> service.putFlowMcpServer(bad.name(), bad.form()))
+                    .as(bad.toString())
+                    .isInstanceOfSatisfying(BadRequestException.class, failure ->
+                            assertThat(failure.getFields()).extracting(f -> f.field()).contains(bad.field()));
+        }
+        assertThatThrownBy(() -> service.removeFlowMcpServer("../llm")).isInstanceOf(BadRequestException.class);
+        verify(writer, never()).update(anyString(), any());
+    }
+
+    @Test
+    void privateAddressesAndPlainHttpAreAcceptedWhereTheDeploymentAllowsThem() {
+        service = new TenantSettingsService(tenantConfigService, writer, JsonMapper.builder().build(), true);
+        Map<String, String> stored = vaultHolding(Map.of());
+
+        service.putFlowMcpServer("local", new TenantFlowMcpServerForm("http://127.0.0.1:9/mcp", null, "k"));
+
+        assertThat(stored).containsEntry("flow.mcp.local.url", "http://127.0.0.1:9/mcp");
     }
 }

@@ -3,7 +3,9 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.helpers.utils.OutboundUrls;
 import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowMcpServerForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSecretForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
@@ -16,6 +18,7 @@ import ai.intellistream.datahub.tenant.TenantFlowSection;
 import ai.intellistream.datahub.tenant.TenantLlm;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -29,8 +32,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 
 /**
  * Reads and changes the calling tenant's own settings.
@@ -48,16 +54,25 @@ import java.util.function.UnaryOperator;
 @Service
 public class TenantSettingsService {
 
+    /** An RFC 9110 token: what a header name may consist of. */
+    private static final Pattern HEADER_NAME = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
+    /** Headers the MCP client sets itself, or the JDK refuses to let a caller set. */
+    private static final Set<String> CLIENTS_OWN_HEADERS = Set.of("host", "content-length", "transfer-encoding",
+            "connection", "content-type", "accept", "mcp-session-id", "mcp-protocol-version");
+
     private final TenantConfigService tenantConfigService;
     private final TenantConfigWriter configWriter;
     private final JsonMapper jsonMapper;
     private final HttpClient http;
+    private final boolean allowPrivateNetworks;
 
     public TenantSettingsService(TenantConfigService tenantConfigService,
-                                 TenantConfigWriter configWriter, JsonMapper jsonMapper) {
+                                 TenantConfigWriter configWriter, JsonMapper jsonMapper,
+                                 @Value("${datahub.outbound.allow-private-networks:false}") boolean allowPrivateNetworks) {
         this.tenantConfigService = tenantConfigService;
         this.configWriter = configWriter;
         this.jsonMapper = jsonMapper;
+        this.allowPrivateNetworks = allowPrivateNetworks;
         // The URL is the tenant's, so no redirects: one hop to where it says, never onwards.
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
@@ -170,6 +185,90 @@ public class TenantSettingsService {
     }
 
     /**
+     * Registers or replaces the tool server {@code name}. Its URL is checked for shape and for
+     * where it points, not for whether a server answers there: the Agents form lists what the
+     * server offers, or that it did not answer. A blank credential keeps the stored one, so a
+     * server can be re-pointed without retyping it, and is refused for a server not yet stored.
+     */
+    public void putFlowMcpServer(String name, TenantFlowMcpServerForm form) {
+        var errors = new FieldErrors();
+        if (name == null || !TenantFlowSection.MCP_NAME.matcher(name).matches()) {
+            errors.addFieldError("name", "Not a valid name: use lowercase letters, digits and dashes,"
+                    + " starting with a letter or digit, at most 24 characters.");
+        }
+        String url = form == null ? null : trimmed(form.url());
+        if (url == null) {
+            errors.addFieldError("url", "A URL is required.");
+        } else {
+            String refusal = toolServerUrlRefusal(url);
+            if (refusal != null) {
+                errors.addFieldError("url", refusal);
+            }
+        }
+        String headerName = form == null ? null : trimmed(form.headerName());
+        if (headerName == null) {
+            headerName = "Authorization";
+        }
+        if (!HEADER_NAME.matcher(headerName).matches()) {
+            errors.addFieldError("headerName", "Not a header name: letters, digits and the punctuation a"
+                    + " header name allows, no spaces.");
+        } else if (CLIENTS_OWN_HEADERS.contains(headerName.toLowerCase(Locale.ROOT))) {
+            errors.addFieldError("headerName", "That header is set by the platform's client; the credential"
+                    + " needs another, such as Authorization or X-Api-Key.");
+        }
+        // Not trimmed: the credential is whatever the server issued, and only blank means absent.
+        String headerValue = form == null || form.headerValue() == null || form.headerValue().isBlank()
+                ? null : form.headerValue();
+        if (headerValue != null && (headerValue.indexOf('\r') >= 0 || headerValue.indexOf('\n') >= 0)) {
+            errors.addFieldError("headerValue", "The value must be a single line.");
+        }
+        String orgName = currentTenant().getOrganizationName();
+        if (headerValue == null && errors.isEmpty()
+                && !TenantFlowSection.mcpServers(configWriter.current(orgName)).containsKey(name)) {
+            errors.addFieldError("headerValue", "A value is required for a new server; leaving it empty"
+                    + " keeps the stored one, and nothing is stored under this name.");
+        }
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The tool server is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.putMcpServer(name, url, headerName, headerValue));
+    }
+
+    /** Removes the tool server {@code name}, credential included. Removing one that is not there is not an error. */
+    public void removeFlowMcpServer(String name) {
+        if (name == null || !TenantFlowSection.MCP_NAME.matcher(name).matches()) {
+            var errors = new FieldErrors();
+            errors.addFieldError("name", "Not a valid name: use lowercase letters, digits and dashes,"
+                    + " starting with a letter or digit, at most 24 characters.");
+            throw new BadRequestException("The tool server name is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.removeMcpServer(name));
+    }
+
+    /**
+     * Why a tool server's URL may not be stored, or null. The platform's services will call it, so
+     * it may not point into their own networks unless the deployment says so; and a credential
+     * travels with every call, so plain http is accepted only on such a deployment, where the
+     * server sits beside the platform.
+     */
+    private String toolServerUrlRefusal(String url) {
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            return "Not an http(s) URL.";
+        }
+        String refusal = OutboundUrls.refuse(uri, allowPrivateNetworks);
+        if (refusal != null) {
+            return refusal;
+        }
+        if ("http".equalsIgnoreCase(uri.getScheme()) && !allowPrivateNetworks) {
+            return "Use https: the credential travels with every call, and plain http sends it in the clear.";
+        }
+        return null;
+    }
+
+    /**
      * Writes one flow change. Answers nothing: write does not imply read, so a caller who may only
      * write learns no names from it. No cache refresh either: the tenant cache holds no flow keys,
      * and the flow service reads them from Vault when a run starts.
@@ -177,15 +276,18 @@ public class TenantSettingsService {
     private void updateFlow(UnaryOperator<Map<String, String>> change) {
         String orgName = currentTenant().getOrganizationName();
         TenantFlowSettings written = flowSettings(configWriter.update(orgName, change));
-        log.info("Flow settings updated for tenant {} ({} secrets, {} clients)", orgName,
-                written.secrets().size(), written.clients().size());
+        log.info("Flow settings updated for tenant {} ({} secrets, {} clients, {} tool servers)", orgName,
+                written.secrets().size(), written.clients().size(), written.mcpServers().size());
     }
 
     private static TenantFlowSettings flowSettings(Map<String, String> secret) {
         List<TenantFlowSettings.Client> clients = new ArrayList<>();
         TenantFlowSection.clientIds(secret).forEach((name, clientId) ->
                 clients.add(new TenantFlowSettings.Client(name, clientId)));
-        return new TenantFlowSettings(List.copyOf(TenantFlowSection.secretNames(secret)), clients);
+        List<TenantFlowSettings.McpServer> servers = new ArrayList<>();
+        TenantFlowSection.mcpServers(secret).values().forEach(server ->
+                servers.add(new TenantFlowSettings.McpServer(server.name(), server.url(), server.headerName())));
+        return new TenantFlowSettings(List.copyOf(TenantFlowSection.secretNames(secret)), clients, servers);
     }
 
     private static void checkFlowName(String name, FieldErrors errors) {

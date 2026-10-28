@@ -19,6 +19,9 @@ import java.util.regex.Pattern;
  * flow.client.&lt;name&gt;.client-id           a registered client a flow's runs may act as
  * flow.client.&lt;name&gt;.client-secret
  * flow.token.&lt;deploymentId&gt;              a deployer's offline token, written by the flow service
+ * flow.mcp.&lt;name&gt;.url                    an MCP server agents may call: its Streamable HTTP endpoint,
+ * flow.mcp.&lt;name&gt;.header-name            the header its credential travels in,
+ * flow.mcp.&lt;name&gt;.header-value           and the credential
  * </pre>
  *
  * <p>Flat keys in the one secret rather than a secret per entry, so that every section of the
@@ -36,12 +39,21 @@ public final class TenantFlowSection {
 
     /** A secret's or a client's name: lowercase, digits and dashes, starting with a letter or digit. */
     public static final Pattern NAME = Pattern.compile("[a-z0-9][a-z0-9-]{0,62}");
+    /**
+     * A tool server's name: as {@link #NAME} but at most 24 characters, so that
+     * {@code <name>__<tool>} fits the 64 characters a model provider allows a tool name.
+     */
+    public static final Pattern MCP_NAME = Pattern.compile("[a-z0-9][a-z0-9-]{0,23}");
 
     private static final String SECRET = "flow.secret.";
     private static final String CLIENT = "flow.client.";
     private static final String CLIENT_ID = ".client-id";
     private static final String CLIENT_SECRET = ".client-secret";
     private static final String TOKEN = "flow.token.";
+    private static final String MCP = "flow.mcp.";
+    private static final String MCP_URL = ".url";
+    private static final String MCP_HEADER_NAME = ".header-name";
+    private static final String MCP_HEADER_VALUE = ".header-value";
 
     private TenantFlowSection() {
     }
@@ -177,9 +189,74 @@ public final class TenantFlowSection {
                 .toList();
     }
 
+    /** A registered tool server, credential included: for the flow service, never for anything a caller reads back. */
+    public record McpServer(String name, String url, String headerName, String headerValue) {
+    }
+
+    /**
+     * Registers the tool server {@code name}, replacing its URL and header name if it was registered
+     * already. A null {@code headerValue} keeps the stored credential, so a server can be re-pointed
+     * without retyping it; the caller has checked one is stored. Applied inside compare-and-set,
+     * so a credential rotated meanwhile is the one kept.
+     */
+    public static UnaryOperator<Map<String, String>> putMcpServer(String name, String url, String headerName,
+                                                                  String headerValue) {
+        String prefix = MCP + checkedMcp(name);
+        Objects.requireNonNull(url, "url");
+        Objects.requireNonNull(headerName, "headerName");
+        return existing -> {
+            Map<String, String> changed = new HashMap<>(existing);
+            changed.put(prefix + MCP_URL, url);
+            changed.put(prefix + MCP_HEADER_NAME, headerName);
+            if (headerValue != null) {
+                changed.put(prefix + MCP_HEADER_VALUE, headerValue);
+            }
+            return changed;
+        };
+    }
+
+    /** Removes the tool server {@code name}, credential included; nothing changes when there is none. */
+    public static UnaryOperator<Map<String, String>> removeMcpServer(String name) {
+        String prefix = MCP + checkedMcp(name);
+        return existing -> {
+            Map<String, String> changed = new HashMap<>(existing);
+            changed.remove(prefix + MCP_URL);
+            changed.remove(prefix + MCP_HEADER_NAME);
+            changed.remove(prefix + MCP_HEADER_VALUE);
+            return changed;
+        };
+    }
+
+    /**
+     * The registered tool servers by name, sorted, credentials included — for the flow service,
+     * which calls them, and for the settings API's mapping to what a caller may see, which drops
+     * the credential. An entry missing its URL or its credential is not a server and is left out.
+     */
+    public static TreeMap<String, McpServer> mcpServers(Map<String, String> secret) {
+        TreeMap<String, McpServer> servers = new TreeMap<>();
+        secret.forEach((key, url) -> {
+            if (key.startsWith(MCP) && key.endsWith(MCP_URL)) {
+                String name = key.substring(MCP.length(), key.length() - MCP_URL.length());
+                String headerValue = secret.get(MCP + name + MCP_HEADER_VALUE);
+                if (headerValue != null) {
+                    servers.put(name, new McpServer(name, url,
+                            secret.getOrDefault(MCP + name + MCP_HEADER_NAME, "Authorization"), headerValue));
+                }
+            }
+        });
+        return servers;
+    }
+
     private static String checked(String name) {
         if (name == null || !NAME.matcher(name).matches()) {
             throw new IllegalArgumentException("Not a valid name: " + name);
+        }
+        return name;
+    }
+
+    private static String checkedMcp(String name) {
+        if (name == null || !MCP_NAME.matcher(name).matches()) {
+            throw new IllegalArgumentException("Not a valid tool server name: " + name);
         }
         return name;
     }
