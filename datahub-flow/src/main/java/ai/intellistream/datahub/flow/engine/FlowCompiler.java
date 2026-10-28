@@ -32,11 +32,12 @@ public final class FlowCompiler {
     }
 
     /**
-     * @throws InvalidFlowException when the definition does not validate; secret references are not
-     *                              checked here, since a missing secret fails the run instead
+     * @throws InvalidFlowException when the definition does not validate; secret references and the
+     *                              tool servers an agent names are not checked here, since a missing
+     *                              one fails the run instead
      */
     public CompiledFlow compile(FlowDefinition definition) {
-        List<ValidationProblem> problems = validator.validate(definition, null);
+        List<ValidationProblem> problems = validator.validate(definition, null, null);
         if (!problems.isEmpty()) {
             throw new InvalidFlowException(problems);
         }

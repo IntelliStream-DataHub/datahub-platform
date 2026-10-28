@@ -129,7 +129,9 @@ final class McpRpc {
             throw new McpException("Interrupted calling " + name, e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause() != null ? e.getCause() : e;
-            throw new McpException("Could not call " + name + " at " + endpoint + ": " + cause.getMessage(), cause);
+            // A refused connection carries no message, only its class.
+            String why = cause.getMessage() != null ? cause.getMessage() : cause.getClass().getSimpleName();
+            throw new McpException("Could not call " + name + " at " + endpoint + ": " + why, cause);
         }
     }
 

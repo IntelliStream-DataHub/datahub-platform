@@ -49,6 +49,9 @@ public class AgentProperties {
     /** What one invocation may write to its transcript before it is cut with a {@code truncated} row. */
     private DataSize transcriptMaxBytes = DataSize.ofMegabytes(1);
 
+    /** The most one exchange with a tool server the tenant registered may take, reply included. */
+    private Duration externalToolTimeout = Duration.ofSeconds(30);
+
     /** What a tenant gets where it said nothing, in the shape {@link LlmSettings#of} takes. */
     public LlmSettings.Defaults defaults() {
         return new LlmSettings.Defaults(effort, turnTimeout, maxIterations, maxOutputTokens, null);
