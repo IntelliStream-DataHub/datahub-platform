@@ -107,7 +107,7 @@ class RunControllerTest {
     @BeforeEach
     void setUp() {
         List<Processor> catalog = new ArrayList<>(TestFlows.builtIns());
-        catalog.add(new Agent(null, List.of(), null, null, null, Clock.systemUTC()));
+        catalog.add(new Agent(null, List.of(), null, null, null, null, null, Clock.systemUTC()));
         FlowValidator validator = new FlowValidator(catalog, FlowValidator.Limits.DEFAULTS);
         TransactionTemplate transaction = new TransactionTemplate(mock(PlatformTransactionManager.class));
         TenantConfigService tenants = mock(TenantConfigService.class);

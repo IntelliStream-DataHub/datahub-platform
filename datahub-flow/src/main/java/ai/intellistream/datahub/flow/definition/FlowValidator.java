@@ -14,6 +14,7 @@ import ai.intellistream.datahub.flow.definition.FlowDefinition.Connection;
 import ai.intellistream.datahub.flow.definition.FlowDefinition.ProcessorSpec;
 import ai.intellistream.datahub.flow.definition.Template.Reference;
 import ai.intellistream.datahub.flow.definition.Template.Scope;
+import ai.intellistream.datahub.tenant.TenantFlowSection;
 import org.springframework.scheduling.support.CronExpression;
 import tools.jackson.databind.JsonNode;
 
@@ -78,11 +79,14 @@ public final class FlowValidator {
     /**
      * Everything wrong with {@code definition}; empty when it is valid.
      *
-     * @param knownSecrets the names of the tenant's flow secrets, or null to leave secret
-     *                     references unchecked
+     * @param knownSecrets    the names of the tenant's flow secrets, or null to leave secret
+     *                        references unchecked
+     * @param knownMcpServers the names of the tenant's registered tool servers, or null to leave
+     *                        an agent's {@code <server>__} tool patterns unchecked against them
      */
-    public List<ValidationProblem> validate(FlowDefinition definition, Set<String> knownSecrets) {
-        Check check = new Check(definition, knownSecrets);
+    public List<ValidationProblem> validate(FlowDefinition definition, Set<String> knownSecrets,
+                                            Set<String> knownMcpServers) {
+        Check check = new Check(definition, knownSecrets, knownMcpServers);
         check.all();
         return check.problems;
     }
@@ -177,13 +181,15 @@ public final class FlowValidator {
     private final class Check {
         private final FlowDefinition d;
         private final Set<String> knownSecrets;
+        private final Set<String> knownMcpServers;
         private final List<ValidationProblem> problems = new ArrayList<>();
         /** Processor id → its relationships, for those whose type is known. */
         private final Map<String, Map<String, Relationship>> relationshipsById = new HashMap<>();
 
-        Check(FlowDefinition d, Set<String> knownSecrets) {
+        Check(FlowDefinition d, Set<String> knownSecrets, Set<String> knownMcpServers) {
             this.d = d;
             this.knownSecrets = knownSecrets;
+            this.knownMcpServers = knownMcpServers;
         }
 
         void problem(String pointer, String message) {
@@ -265,6 +271,9 @@ public final class FlowValidator {
                     relationshipsById.put(spec.id(), relationships(descriptor));
                 }
                 properties(at, spec, processor, descriptor);
+                if (AGENT_PROCESSOR.equals(spec.type())) {
+                    toolServers(at, spec);
+                }
                 retry(at, spec);
             }
             if (KIND_AGENT.equals(d.kind()) && d.processors().stream()
@@ -328,6 +337,37 @@ public final class FlowValidator {
                 }
             } catch (RuntimeException e) {
                 problem(at + "/properties", "Could not be checked: " + e.getMessage());
+            }
+        }
+
+        /**
+         * An agent's tool patterns name the registered servers their tools come from: the part
+         * before a pattern's first {@code __} is a server's name, so it has that shape and, when
+         * the registry is known, is in it.
+         */
+        private void toolServers(String at, ProcessorSpec spec) {
+            JsonNode tools = spec.properties().get("tools");
+            if (tools == null || !tools.isArray()) {
+                return;
+            }
+            for (int i = 0; i < tools.size(); i++) {
+                if (!tools.get(i).isString()) {
+                    continue;
+                }
+                String pattern = tools.get(i).asString();
+                int split = pattern.indexOf("__");
+                if (split <= 0) {
+                    continue;
+                }
+                String server = pattern.substring(0, split);
+                String where = at + "/properties/tools/" + i;
+                if (!TenantFlowSection.MCP_NAME.matcher(server).matches()) {
+                    problem(where, "What comes before __ is a tool server's name: lowercase letters, digits "
+                            + "and dashes, no wildcards.");
+                } else if (knownMcpServers != null && !knownMcpServers.contains(server)) {
+                    problem(where, "No tool server is registered as \"" + server + "\" in the organization's "
+                            + "flow settings (Agents \u2192 Tool servers).");
+                }
             }
         }
 

@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.config;
 
+import ai.intellistream.datahub.flow.agents.ExternalMcp;
 import ai.intellistream.datahub.flow.processors.Agent;
 import ai.intellistream.datahub.flow.store.AgentTranscripts;
 import ai.intellistream.datahub.llm.LlmBackends;
 import ai.intellistream.datahub.llm.mcp.StatelessMcpClient;
 import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -21,8 +23,9 @@ import java.util.List;
 
 /**
  * Wires the agent processor: the model clients, built per tenant credential on first use as the
- * console's chat does ({@link LlmBackends}), and the platform's MCP servers, datahub-api always and
- * datahub-analysis when {@code datahub.analysis.url} names it.
+ * console's chat does ({@link LlmBackends}), the platform's MCP servers, datahub-api always and
+ * datahub-analysis when {@code datahub.analysis.url} names it, and the way to the tool servers a
+ * tenant registers for itself ({@link ExternalMcp}).
  *
  * <p>The sweep of unused model clients is scheduled here, as in the console; it is a map walk, so it
  * costs the service's one scheduler thread nothing worth measuring.
@@ -53,10 +56,23 @@ public class AgentConfig {
         return List.copyOf(servers);
     }
 
+    /**
+     * The tenants' own tool servers: a client that follows no redirect, since the URL is the
+     * tenant's and leads where it says, and the private-network rule the deployment set.
+     */
     @Bean
-    Agent agent(List<StatelessMcpClient> mcpServers, AgentTranscripts transcripts, AgentProperties properties,
-                TenantConfigService tenants) {
-        return new Agent(backends, mcpServers, transcripts, properties, tenants, Clock.systemUTC());
+    ExternalMcp externalMcp(JsonMapper json, AgentProperties properties,
+                            @Value("${datahub.outbound.allow-private-networks:false}") boolean allowPrivateNetworks) {
+        HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
+                .followRedirects(HttpClient.Redirect.NEVER).build();
+        return new ExternalMcp(http, json, properties.getExternalToolTimeout(), allowPrivateNetworks);
+    }
+
+    @Bean
+    Agent agent(List<StatelessMcpClient> mcpServers, ExternalMcp externalMcp, AgentTranscripts transcripts,
+                AgentProperties properties, TenantConfigService tenants, TenantConfigWriter tenantConfig) {
+        return new Agent(backends, mcpServers, externalMcp, transcripts, properties, tenants, tenantConfig,
+                Clock.systemUTC());
     }
 
     @Scheduled(fixedDelay = 600_000, initialDelay = 600_000)

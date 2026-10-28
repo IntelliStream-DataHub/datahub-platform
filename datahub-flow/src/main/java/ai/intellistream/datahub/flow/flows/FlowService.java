@@ -258,7 +258,9 @@ public class FlowService {
      * @throws InvalidFlowException listing everything wrong
      */
     private Prepared prepare(FlowDefinition definition, DatahubClient api, Caller caller) {
-        List<ValidationProblem> problems = new ArrayList<>(validator.validate(definition, secretNames()));
+        Map<String, String> flowSettings = flowSettings();
+        List<ValidationProblem> problems = new ArrayList<>(validator.validate(definition,
+                TenantFlowSection.secretNames(flowSettings), TenantFlowSection.mcpServers(flowSettings).keySet()));
         Processor sink = validator.processor(DeclaredSeries.SINK);
         DeclaredSeries.Result declared = DeclaredSeries.of(definition, definition.dataSet(),
                 sink == null ? null : sink.describe());
@@ -382,14 +384,18 @@ public class FlowService {
         return out;
     }
 
-    /** The names of the tenant's flow secrets, which references to secrets are checked against. */
-    private Set<String> secretNames() {
+    /**
+     * The tenant's flow settings as stored, which a definition's secret references and an agent's
+     * tool servers are checked against. Read, never cached: a server registered a moment ago is
+     * one a flow may name.
+     */
+    private Map<String, String> flowSettings() {
         Tenant tenant = tenants.getConfig(TenantContext.getTenantId());
         try {
-            return TenantFlowSection.secretNames(tenantConfig.current(tenant.getOrganizationName()));
+            return tenantConfig.current(tenant.getOrganizationName());
         } catch (IllegalStateException e) {
-            log.warn("Could not read the tenant's flow secrets from Vault: {}", e.getMessage());
-            throw FlowProblems.apiUnavailable("The flow's secrets could not be checked: the "
+            log.warn("Could not read the tenant's flow settings from Vault: {}", e.getMessage());
+            throw FlowProblems.apiUnavailable("The flow's secrets and tool servers could not be checked: the "
                     + "configuration store did not answer. Retry shortly.");
         }
     }

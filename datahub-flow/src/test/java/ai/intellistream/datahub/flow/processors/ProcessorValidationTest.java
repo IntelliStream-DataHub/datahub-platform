@@ -26,7 +26,7 @@ class ProcessorValidationTest {
                 }
                 """.formatted(type, properties, terminate);
         return new FlowValidator(Harness.builtIns(), FlowValidator.Limits.DEFAULTS)
-                .validate(FlowDefinitions.parse(json), null).stream()
+                .validate(FlowDefinitions.parse(json), null, null).stream()
                 .map(ValidationProblem::message).toList();
     }
 

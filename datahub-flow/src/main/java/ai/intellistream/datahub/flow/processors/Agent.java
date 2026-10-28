@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.processors;
 
+import ai.intellistream.datahub.flow.agents.ExternalMcp;
 import ai.intellistream.datahub.flow.api.ContentKind;
 import ai.intellistream.datahub.flow.api.EventsContent;
 import ai.intellistream.datahub.flow.api.EventsContent.EventRow;
@@ -27,12 +28,15 @@ import ai.intellistream.datahub.llm.LlmToolDef;
 import ai.intellistream.datahub.llm.LlmTurn;
 import ai.intellistream.datahub.llm.ToolLoop;
 import ai.intellistream.datahub.llm.mcp.McpException;
+import ai.intellistream.datahub.llm.mcp.McpTools;
 import ai.intellistream.datahub.llm.mcp.McpToolResult;
 import ai.intellistream.datahub.llm.mcp.StatelessMcpClient;
 import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
+import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import ai.intellistream.datahub.tenant.TenantContext;
+import ai.intellistream.datahub.tenant.TenantFlowSection;
 import ai.intellistream.datahub.tenant.TenantLlm;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.json.JsonMapper;
@@ -42,15 +46,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
  * {@code agent}: a model with tools, acting on the events connected into it. One invocation per run
  * takes every waiting item, hands the model their events and the agent's instructions, runs the
- * tool calls it asks for against the platform's MCP servers as the run's identity, and ends when the
- * model calls {@code finish}: every item goes to {@code done}, and an outcome of {@code attention}
+ * tool calls it asks for against the platform's MCP servers as the run's identity — and against the
+ * tool servers the organization registered, as their own credential — and ends when the model
+ * calls {@code finish}: every item goes to {@code done}, and an outcome of {@code attention}
  * also makes one event-shaped item for the {@code attention} relationship, which the agent's flow
  * writes as a lifecycle for a person to look at. With nothing connected into it the agent is a
  * source: it runs once per run on its instructions alone, with an item of its own to carry the
@@ -63,6 +70,9 @@ import java.util.regex.Pattern;
  * is refused if called, and a tool the server did not mark read-only counts as mutating: refused in
  * a preview, recorded as a write otherwise. Nothing here knows a tool by its name, except that {@code event_create} is stamped
  * with the agent as its source, so that {@code read-events} can leave the agent's own events out.
+ * A registered server's tools are named {@code <server>__<tool>}, and a pattern naming a server
+ * is what makes a run open a session with it: {@code crm__*} opens {@code crm}, {@code *} opens
+ * nothing beyond the platform's own, so a wildcard never reaches a server registered later.
  *
  * <p><b>The second attempt.</b> The engine gives a failed run a second attempt. If the first one
  * changed data through a mutating tool, the second does not run the model again: it would repeat
@@ -130,8 +140,10 @@ public final class Agent implements Processor {
             .property(PropertyDescriptor.builder("tools", PropertyType.LIST)
                     .displayName("Tools")
                     .description("The tools the agent may use, by name or pattern (event_*, "
-                            + "resource_get). A tool that deletes or overwrites data has to be named "
-                            + "exactly: no pattern matches it.")
+                            + "resource_get). A registered tool server's tools are <server>__<tool>, and "
+                            + "naming them (crm__*) is what connects the run to it; a bare wildcard covers "
+                            + "the platform's own tools only. A tool that deletes or overwrites data has to "
+                            + "be named exactly: no pattern matches it.")
                     .build())
             .property(PropertyDescriptor.builder("effort", PropertyType.ENUM)
                     .displayName("Effort")
@@ -167,18 +179,28 @@ public final class Agent implements Processor {
 
     private final LlmClients backends;
     private final List<StatelessMcpClient> servers;
+    private final ExternalMcp external;
     private final AgentTranscripts transcripts;
     private final AgentProperties properties;
     private final TenantConfigService tenants;
+    private final TenantConfigWriter tenantConfig;
     private final Clock clock;
 
-    public Agent(LlmClients backends, List<StatelessMcpClient> servers, AgentTranscripts transcripts,
-                 AgentProperties properties, TenantConfigService tenants, Clock clock) {
+    /**
+     * @param servers      the platform's own tool servers, called as the run's identity
+     * @param external     how the tool servers a tenant registered are reached
+     * @param tenantConfig where those registrations are read from, once per run that names one
+     */
+    public Agent(LlmClients backends, List<StatelessMcpClient> servers, ExternalMcp external,
+                 AgentTranscripts transcripts, AgentProperties properties, TenantConfigService tenants,
+                 TenantConfigWriter tenantConfig, Clock clock) {
         this.backends = backends;
         this.servers = List.copyOf(servers);
+        this.external = external;
         this.transcripts = transcripts;
         this.properties = properties;
         this.tenants = tenants;
+        this.tenantConfig = tenantConfig;
         this.clock = clock;
     }
 
@@ -244,7 +266,9 @@ public final class Agent implements Processor {
         private final String flow;
         /** Offered tools by name, with their hints; a name not here is refused. */
         private final Map<String, LlmToolDef> offered = new LinkedHashMap<>();
-        private final Map<String, StatelessMcpClient> routes = new LinkedHashMap<>();
+        private final Map<String, McpTools> routes = new LinkedHashMap<>();
+        /** The sessions opened with the organization's own tool servers, closed when the invocation is over. */
+        private final List<McpTools> externals = new ArrayList<>();
         private long transcriptBytes;
         private boolean transcriptCut;
         private String outcome;
@@ -264,6 +288,14 @@ public final class Agent implements Processor {
         }
 
         void run() {
+            try {
+                perform();
+            } finally {
+                externals.forEach(McpTools::close);
+            }
+        }
+
+        private void perform() {
             if (context.attempt() > 1 && changedData(transcripts.read(context.runId(), 1, -1))) {
                 note("Not retried: the first attempt changed data through a tool. Look at its transcript.");
                 fail("not retried: the first attempt changed data");
@@ -394,22 +426,23 @@ public final class Agent implements Processor {
             }
             note("tool_call", Map.of("id", call.id(), "name", call.name(), "args", args, "mutating", mutating));
             toolCalls++;
-            String token;
+            McpTools server = routes.get(call.name());
+            McpToolResult result;
             try {
-                token = context.accessToken();
+                // A platform server takes the run's token on the call itself; asked here once more so
+                // that a lost lease stops a call to an external server just the same.
+                context.accessToken();
+                result = callOnce(server, call.name(), args);
             } catch (IllegalStateException e) {
                 leaseLost = true;
                 return new LlmBlock.ToolResult(call.id(), "Not run: the run lost its lease.", true);
-            }
-            StatelessMcpClient server = routes.get(call.name());
-            McpToolResult result;
-            try {
-                result = callOnce(server, token, call.name(), args);
             } catch (McpException e) {
                 return new LlmBlock.ToolResult(call.id(), e.isUnauthorized()
                         ? "Not authorised: the run's identity may not call this." : "The tool call failed: " + e.getMessage(), true);
             }
-            String uri = "mcp://" + server.name() + "/" + call.name();
+            String prefix = server.name() + "__";
+            String uri = "mcp://" + server.name() + "/"
+                    + (call.name().startsWith(prefix) ? call.name().substring(prefix.length()) : call.name());
             if (mutating) {
                 session.send(lead, uri);
             } else {
@@ -419,9 +452,9 @@ public final class Agent implements Processor {
         }
 
         /** The call, tried once more after the wait a rate limit asked for, if that is short and the run goes on. */
-        private McpToolResult callOnce(StatelessMcpClient server, String token, String name, Map<String, Object> args) {
+        private McpToolResult callOnce(McpTools server, String name, Map<String, Object> args) {
             try {
-                return server.callTool(token, name, args);
+                return server.callTool(name, args);
             } catch (McpException e) {
                 Duration wait = e.retryAfter();
                 if (wait == null || wait.compareTo(MAX_RETRY_WAIT) > 0 || context.isCancelled()) {
@@ -434,7 +467,7 @@ public final class Agent implements Processor {
                     Thread.currentThread().interrupt();
                     throw e;
                 }
-                return server.callTool(token, name, args);
+                return server.callTool(name, args);
             }
         }
 
@@ -480,18 +513,26 @@ public final class Agent implements Processor {
         /** The tools the model is offered: the servers' lists by the agent's patterns, a destructive one only by name, plus finish. */
         private List<LlmToolDef> tools() {
             List<String> patterns = context.property("tools").asList();
-            List<Pattern> allowed = patterns == null ? List.of() : patterns.stream()
+            if (patterns == null) {
+                patterns = List.of();
+            }
+            List<Pattern> allowed = patterns.stream()
                     .map(p -> Pattern.compile(p.replace("*", ".*").replace("?", "."))).toList();
+            List<McpTools> all = new ArrayList<>();
             for (StatelessMcpClient server : servers) {
+                all.add(server.as(context::accessToken));
+            }
+            all.addAll(openExternal(patterns));
+            for (McpTools server : all) {
                 List<LlmToolDef> advertised;
                 try {
-                    advertised = server.listTools(context.accessToken());
+                    advertised = server.listTools();
                 } catch (McpException e) {
                     throw new ProcessException("Could not list the tools of " + server.name() + ": " + e.getMessage(), e);
                 }
                 for (LlmToolDef tool : advertised) {
                     boolean wanted = Boolean.TRUE.equals(tool.destructive())
-                            ? patterns != null && patterns.contains(tool.name())
+                            ? patterns.contains(tool.name())
                             : allowed.stream().anyMatch(p -> p.matcher(tool.name()).matches());
                     if (!wanted || routes.containsKey(tool.name())) {
                         continue;
@@ -504,6 +545,43 @@ public final class Agent implements Processor {
             tools.add(new LlmToolDef(FINISH, "End the run: say whether a person needs to look, and what "
                     + "you found and did.", FINISH_SCHEMA, true, false));
             return tools;
+        }
+
+        /**
+         * Sessions with the registered servers the patterns name: a pattern's part before its first
+         * {@code __} is a server's name. The registrations are read from Vault here, once, so the
+         * credential a run uses is the one stored when it started.
+         */
+        private List<McpTools> openExternal(List<String> patterns) {
+            Set<String> names = new LinkedHashSet<>();
+            for (String pattern : patterns) {
+                int split = pattern.indexOf("__");
+                if (split > 0) {
+                    names.add(pattern.substring(0, split));
+                }
+            }
+            if (names.isEmpty()) {
+                return List.of();
+            }
+            Map<String, TenantFlowSection.McpServer> registered;
+            try {
+                Tenant tenant = tenants.getConfig(TenantContext.getTenantId());
+                if (tenant == null) {
+                    throw new ProcessException("No tenant configuration for " + TenantContext.getTenantId());
+                }
+                registered = TenantFlowSection.mcpServers(tenantConfig.current(tenant.getOrganizationName()));
+            } catch (IllegalStateException e) {
+                throw new ProcessException("The organization's tool servers could not be read: " + e.getMessage(), e);
+            }
+            for (String name : names) {
+                TenantFlowSection.McpServer server = registered.get(name);
+                if (server == null) {
+                    throw new ProcessException("tools name the server \"" + name + "\", which is not registered "
+                            + "in the organization's flow settings");
+                }
+                externals.add(external.open(server));
+            }
+            return externals;
         }
 
         private String systemPrompt(String organizationInstructions) {

@@ -30,7 +30,7 @@ class FlowValidatorTest {
      */
     private static List<Processor> catalog() {
         List<Processor> catalog = new ArrayList<>(FakeProcessors.catalog());
-        catalog.add(new Agent(null, List.of(), null, null, null, Clock.systemUTC()));
+        catalog.add(new Agent(null, List.of(), null, null, null, null, null, Clock.systemUTC()));
         catalog.add(new EventsSource());
         catalog.add(new TriggerEventsSource());
         return catalog;
@@ -41,9 +41,13 @@ class FlowValidatorTest {
     }
 
     private List<ValidationProblem> problems(Consumer<ObjectNode> edit, Set<String> secrets) {
+        return problems(edit, secrets, null);
+    }
+
+    private List<ValidationProblem> problems(Consumer<ObjectNode> edit, Set<String> secrets, Set<String> servers) {
         ObjectNode tree = ExampleFlow.tree();
         edit.accept(tree);
-        return validator.validate(FlowDefinitions.parse(tree.toString()), secrets);
+        return validator.validate(FlowDefinitions.parse(tree.toString()), secrets, servers);
     }
 
     private static ObjectNode processor(ObjectNode tree, int index) {
@@ -313,6 +317,32 @@ class FlowValidatorTest {
                         tuple("#/processors/7/properties/password",
                                 "${secrets.missing}: the organization has no flow secret called "
                                         + "\"missing\"."));
+    }
+
+    @Test
+    void anAgentsToolPatternsNameRegisteredServersByWhatComesBeforeTheDoubleUnderscore() {
+        Consumer<ObjectNode> agent = tree -> {
+            ObjectNode step = ((ArrayNode) tree.get("processors")).addObject().put("id", "a").put("type", "agent");
+            step.putArray("terminate").add("attention");
+            step.putObject("properties").put("instructions", "i").putArray("tools")
+                    .add("event_*").add("crm__ticket_get").add("erp__*").add("c*m__x").add("Crm__x");
+        };
+
+        List<ValidationProblem> checked = problems(agent, null, Set.of("crm")).stream()
+                .filter(p -> p.pointer().startsWith("#/processors/5/properties/tools")).toList();
+        assertThat(checked).extracting(ValidationProblem::pointer).containsExactlyInAnyOrder(
+                "#/processors/5/properties/tools/2", "#/processors/5/properties/tools/3",
+                "#/processors/5/properties/tools/4");
+        assertThat(checked).filteredOn(p -> p.pointer().endsWith("/2")).singleElement()
+                .satisfies(p -> assertThat(p.message()).contains("No tool server is registered as \"erp\""));
+        assertThat(checked).filteredOn(p -> p.pointer().endsWith("/3")).singleElement()
+                .satisfies(p -> assertThat(p.message()).contains("no wildcards"));
+
+        // Without the registry (the compiler's call) only the shape is checked.
+        assertThat(problems(agent, null, null).stream()
+                .filter(p -> p.pointer().startsWith("#/processors/5/properties/tools")))
+                .extracting(ValidationProblem::pointer)
+                .containsExactlyInAnyOrder("#/processors/5/properties/tools/3", "#/processors/5/properties/tools/4");
     }
 
     @Test

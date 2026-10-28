@@ -6,3 +6,6 @@
 vault.address=http://localhost:8200
 vault.role-id=datahub-local-roleid
 vault.secret-id=datahub-local-secretid
+
+# A dev stack runs on private addresses: let agents reach tool servers registered there.
+datahub.outbound.allow-private-networks=true

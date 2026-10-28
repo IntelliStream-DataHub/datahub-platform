@@ -20,6 +20,9 @@ import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
+import ai.intellistream.datahub.tenant.TenantFlowSection;
+import ai.intellistream.datahub.tenant.TenantConfigWriter;
+import ai.intellistream.datahub.flow.agents.ExternalMcp;
 import ai.intellistream.datahub.tenant.TenantLlm;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +36,8 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.HashMap;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -65,6 +70,11 @@ class AgentTest {
     private final AgentProperties properties = new AgentProperties();
     private final TenantConfigService tenants = mock(TenantConfigService.class);
     private final Tenant tenant = new Tenant();
+    /** The organization's flow settings as Vault would hold them, read through the writer's uncached view. */
+    private final Map<String, String> flowSettings = new HashMap<>();
+    private final TenantConfigWriter tenantConfig = mock(TenantConfigWriter.class);
+    private final ExternalMcp external = new ExternalMcp(
+            HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(), JSON, Duration.ofSeconds(5), true);
 
     AgentTest() throws IOException {
         api.tool("event_get", true, false);
@@ -77,8 +87,16 @@ class AgentTest {
         model.setModel("qwen");
         model.setBaseUrl("http://127.0.0.1:1/v1");
         tenant.setLlm(model);
+        tenant.setOrganizationName("acme");
         when(tenants.getConfig("t")).thenReturn(tenant);
+        when(tenantConfig.current("acme")).thenAnswer(invocation -> Map.copyOf(flowSettings));
         TenantContext.setTenantId("t");
+    }
+
+    /** Registers a server as the Agents section's Tool servers tab would. */
+    private void register(FakeMcp server, String headerName, String headerValue) {
+        flowSettings.putAll(TenantFlowSection.putMcpServer(server.name, server.url(), headerName, headerValue)
+                .apply(flowSettings));
     }
 
     @AfterEach
@@ -99,7 +117,7 @@ class AgentTest {
     private Agent agent() {
         List<StatelessMcpClient> clients = servers.stream()
                 .map(s -> new StatelessMcpClient(s.name, s.url(), HttpClient.newHttpClient(), JSON)).toList();
-        return new Agent(settings -> llm, clients, transcripts, properties, tenants,
+        return new Agent(settings -> llm, clients, external, transcripts, properties, tenants, tenantConfig,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -247,7 +265,7 @@ class AgentTest {
         StubLlmClient cutOff = new StubLlmClient().then(new LlmTurn(List.of(new LlmBlock.Text("The pump")), false,
                 LlmTurn.StopReason.MAX_TOKENS, LlmTurn.Usage.NONE));
         Harness h2 = new Harness();
-        h2.extra.add(new Agent(settings -> cutOff, List.of(), transcripts, properties, tenants,
+        h2.extra.add(new Agent(settings -> cutOff, List.of(), external, transcripts, properties, tenants, tenantConfig,
                 Clock.fixed(NOW, ZoneOffset.UTC)));
         h2.events(Map.of(), EVENTS);
         h2.pipe("agent", "{ \"instructions\": \"i\" }", Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
@@ -276,7 +294,7 @@ class AgentTest {
         MemoryTranscripts clean = new MemoryTranscripts();
         clean.seed(1, "tool_call", Map.of("name", "event_get", "mutating", false));
         StubLlmClient again = new StubLlmClient().thenToolCalls(finish("done", "fine"));
-        h2.extra.add(new Agent(settings -> again, List.of(), clean, properties, tenants, Clock.fixed(NOW, ZoneOffset.UTC)));
+        h2.extra.add(new Agent(settings -> again, List.of(), external, clean, properties, tenants, tenantConfig, Clock.fixed(NOW, ZoneOffset.UTC)));
         h2.events(Map.of(), EVENTS);
         h2.pipe("agent", "{ \"instructions\": \"i\" }", Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
         assertThat(again.sent()).hasSize(1);
@@ -346,7 +364,7 @@ class AgentTest {
                 .thenToolCalls(finish("done", "y"));
         Harness h2 = new Harness();
         h2.extra.add(new Agent(settings -> again, List.of(new StatelessMcpClient("datahub-api", api.url(),
-                HttpClient.newHttpClient(), JSON)), transcripts, properties, tenants, Clock.fixed(NOW, ZoneOffset.UTC)));
+                HttpClient.newHttpClient(), JSON)), external, transcripts, properties, tenants, tenantConfig, Clock.fixed(NOW, ZoneOffset.UTC)));
         h2.events(Map.of(), EVENTS);
         h2.pipe("agent", DEFAULTS, Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
         LlmBlock.ToolResult failed = (LlmBlock.ToolResult) again.sent().get(1).messages().get(2).blocks().getFirst();
@@ -451,6 +469,106 @@ class AgentTest {
             assertThat(llm.sent()).isEmpty();
             assertThat(api.listCalls).isZero();
         }
+    }
+
+    @Test
+    void aRegisteredServersToolsArePrefixedCalledBareWithItsOwnCredentialAndItsSessionClosedAfter() throws IOException {
+        try (FakeMcp crm = new FakeMcp("crm", true)) {
+            crm.tool("ticket_get", true, false);
+            crm.tool("ticket_purge", false, true);
+            crm.tool("a_tool_whose_name_is_far_too_long_to_offer_a_model", true, false);
+            register(crm, "X-Api-Key", "k-1");
+            llm.thenToolCalls(call("c1", "event_get", Map.of()), call("c2", "crm__ticket_get", Map.of("id", 7)))
+                    .thenToolCalls(finish("done", "x"));
+
+            run("""
+                    { "instructions": "i", "tools": ["event_get", "crm__*"] }""");
+
+            assertThat(llm.firstSent().tools()).extracting(LlmToolDef::name)
+                    .as("prefixed, less the destructive and the over-long")
+                    .containsExactly("event_get", "crm__ticket_get", Agent.FINISH);
+            assertThat(crm.calls).singleElement().satisfies(c -> {
+                assertThat(c.name()).as("the bare name goes to the server").isEqualTo("ticket_get");
+                assertThat(c.args()).containsEntry("id", 7);
+                assertThat(c.headers()).as("the server's own credential, never the run's token")
+                        .containsEntry("x-api-key", "k-1").doesNotContainKey("authorization");
+            });
+            assertThat(api.calls).extracting(FakeMcp.Call::name).containsExactly("event_get");
+            assertThat(records(Action.RECEIVE)).extracting(FlowRecord::transitUri)
+                    .containsExactly("mcp://datahub-api/event_get", "mcp://crm/ticket_get");
+            assertThat(crm.sessions).isEqualTo(1);
+            assertThat(crm.deletes).as("the session is ended when the run is done").isEqualTo(1);
+        }
+    }
+
+    @Test
+    void aBarePatternReachesNoRegisteredServer() throws IOException {
+        try (FakeMcp crm = new FakeMcp("crm", true)) {
+            crm.tool("ticket_get", true, false);
+            register(crm, "Authorization", "Bearer k");
+            llm.thenToolCalls(finish("done", "x"));
+
+            run("""
+                    { "instructions": "i", "tools": ["*"] }""");
+
+            assertThat(llm.firstSent().tools()).extracting(LlmToolDef::name).noneMatch(n -> n.startsWith("crm__"));
+            assertThat(crm.sessions).isZero();
+        }
+    }
+
+    @Test
+    void aDestructiveRegisteredToolIsOfferedOnlyWhenNamedExactly() throws IOException {
+        try (FakeMcp crm = new FakeMcp("crm", true)) {
+            crm.tool("ticket_get", true, false);
+            crm.tool("ticket_purge", false, true);
+            register(crm, "Authorization", "Bearer k");
+            llm.thenToolCalls(call("c1", "crm__ticket_purge", Map.of("id", 7)))
+                    .thenToolCalls(finish("done", "Purged the stale ticket."));
+
+            run("""
+                    { "instructions": "i", "tools": ["crm__ticket_purge"] }""");
+
+            assertThat(llm.firstSent().tools()).extracting(LlmToolDef::name)
+                    .as("the destructive tool by its exact name, nothing by pattern")
+                    .containsExactly("crm__ticket_purge", Agent.FINISH);
+            assertThat(crm.calls).extracting(FakeMcp.Call::name).containsExactly("ticket_purge");
+        }
+    }
+
+    @Test
+    void aServerThatIsNotRegisteredFailsTheRunBeforeTheModelIsCalled() {
+        llm.thenToolCalls(finish("done", "x"));
+
+        RunResult result = failingRun("""
+                { "instructions": "i", "tools": ["crm__*"] }""");
+
+        assertThat(result.errorCode()).isEqualTo(RunResult.PROCESSOR_FAILED);
+        assertThat(result.error()).contains("\"crm\"").contains("not registered");
+        assertThat(llm.sent()).isEmpty();
+    }
+
+    @Test
+    void aRegisteredServerThatDoesNotAnswerFailsTheRun() throws IOException {
+        FakeMcp crm = new FakeMcp("crm", true);
+        register(crm, "Authorization", "Bearer k");
+        crm.close();
+        llm.thenToolCalls(finish("done", "x"));
+
+        RunResult result = failingRun("""
+                { "instructions": "i", "tools": ["crm__*"] }""");
+
+        assertThat(result.errorCode()).isEqualTo(RunResult.PROCESSOR_FAILED);
+        assertThat(result.error()).contains("Could not list the tools of crm").contains("ConnectException");
+        assertThat(llm.sent()).isEmpty();
+    }
+
+    /** As {@link #run}, for a run expected to fail: the harness does not insist on a clean one. */
+    private RunResult failingRun(String properties) {
+        h.extra.add(agent());
+        h.events(Map.of(), EVENTS);
+        return h.run("""
+                { "id": "p", "type": "agent", "properties": %s, "terminate": ["attention"] }""".formatted(properties),
+                "{ \"from\": \"in\", \"relationship\": \"success\", \"to\": \"p\" }", false, null, null);
     }
 
     private List<FlowRecord> records(Action action) {
