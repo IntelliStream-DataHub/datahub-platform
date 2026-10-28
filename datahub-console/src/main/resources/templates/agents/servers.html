@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{agents.nav.servers}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+	<link rel="stylesheet" th:href="@{/static/css/settings.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'agents')}">
+<main class="layout-body">
+	<nav th:replace="~{agents/nav :: navbar('servers')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{agents.not.enabled}">Agents need flows and a model configured for your organization.</p>
+	</div>
+
+	<div class="settings-empty" data-type="servers-denied" hidden>
+		<i class="fa-solid fa-lock settings-empty-icon"></i>
+		<p th:text="#{agents.servers.denied}"></p>
+	</div>
+
+	<!--/* The MCP servers an organization registers for its agents, beyond DataHub's own. Each is
+	       stored with one credential under datahub-api's /tenant/settings/flow/mcp-servers, behind
+	       the flow settings grants like the flow clients. Filled by agents/agent-servers.js. */-->
+	<div th:if="${!featureDisabled}" class="settings-page pad20" data-type="servers-page">
+		<div class="settings-header">
+			<h2 th:text="#{agents.nav.servers}"></h2>
+			<p class="settings-intro" th:text="#{agents.servers.intro}"></p>
+		</div>
+
+		<div class="settings-state" data-type="servers-loading" th:text="#{loading}"></div>
+
+		<div data-type="tool-servers" hidden>
+			<div class="settings-banner" data-type="servers-readonly" hidden>
+				<i class="fa-regular fa-eye"></i>
+				<span th:text="#{agents.servers.readonly}"></span>
+			</div>
+
+			<section class="settings-group" data-type="server-list-group" hidden>
+				<h3 class="settings-group-title" th:text="#{agents.servers.list.group}"></h3>
+				<p class="settings-group-intro" th:text="#{agents.servers.list.intro}"></p>
+				<p class="settings-group-intro" data-type="server-list-empty" hidden
+				   th:text="#{agents.servers.list.empty}"></p>
+				<ul class="settings-list" data-type="server-list"></ul>
+			</section>
+
+			<!--/* One form for a new server and for editing one: the name is fixed while editing, and
+			       the credential field stays empty, since the stored one is never returned and empty
+			       means "keep it". */-->
+			<form class="datahub-form-fields settings-form" data-type="mcp-server-form" hidden novalidate>
+				<section class="settings-group">
+					<h3 class="settings-group-title" data-type="mcp-server-form-title"
+					    th:text="#{agents.servers.form.group}"></h3>
+					<p class="settings-group-intro" th:text="#{agents.servers.form.intro}"></p>
+
+					<div class="settings-field">
+						<label for="name" th:text="#{agents.servers.name}"></label>
+						<input id="name" name="name" type="text" autocomplete="off" maxlength="24"
+						       th:attr="placeholder=#{agents.servers.name.placeholder}"/>
+						<p class="field-help" th:text="#{agents.servers.name.help}"></p>
+						<p class="field-error" data-error-for="name" hidden></p>
+					</div>
+
+					<div class="settings-field">
+						<label for="url" th:text="#{agents.servers.url}"></label>
+						<input id="url" name="url" type="text" autocomplete="off"
+						       th:attr="placeholder=#{agents.servers.url.placeholder}"/>
+						<p class="field-help" th:text="#{agents.servers.url.help}"></p>
+						<p class="field-error" data-error-for="url" hidden></p>
+					</div>
+
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="headerName" th:text="#{agents.servers.headername}"></label>
+							<input id="headerName" name="headerName" type="text" autocomplete="off"
+							       placeholder="Authorization"/>
+							<p class="field-help" th:text="#{agents.servers.headername.help}"></p>
+							<p class="field-error" data-error-for="headerName" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="headerValue" th:text="#{agents.servers.headervalue}"></label>
+							<input id="headerValue" name="headerValue" type="password" autocomplete="new-password"
+							       th:attr="placeholder=#{agents.servers.headervalue.placeholder}"/>
+							<p class="field-help" data-type="headervalue-help" th:text="#{agents.servers.headervalue.help}"></p>
+							<p class="field-error" data-error-for="headerValue" hidden></p>
+						</div>
+					</div>
+				</section>
+
+				<div class="settings-actions">
+					<button type="submit" class="dh-btn primary" data-type="save"
+					        th:text="#{agents.servers.register}"></button>
+					<button type="button" class="dh-btn secondary" data-type="cancel" hidden
+					        th:text="#{agents.servers.cancel}"></button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('agents')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>
