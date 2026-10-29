@@ -191,6 +191,29 @@ class ClickHouseEventPatternFilterIT {
                 idsOf(service.filter(matching(List.of("*_4711"), null))));
     }
 
+    /**
+     * The external-id type-ahead: distinct, ignoring case, in order, an underscore literal, and only in
+     * readable datasets. A lifecycle of two events is one external id.
+     */
+    @Test
+    void externalIdsAreSearchedDistinctIgnoringCaseWithinTheReadableDatasets() throws Exception {
+        insert(UUID.fromString("0193c1d2-0001-7000-8000-000000000101"), "lifecycle_77", "typeahead_src",
+                "typeahead_only", "x", "TYPEAHEAD_OPEN");
+        insert(UUID.fromString("0193c1d2-0001-7000-8000-000000000102"), "lifecycle_77", "typeahead_src",
+                "typeahead_only", "x", "TYPEAHEAD_CLOSED");
+
+        assertEquals(List.of("work_order_4711", "work_order_4712"),
+                service.listDistinctExternalIds("WORK_order", 10, null));
+        assertEquals(List.of("lifecycle_77"), service.listDistinctExternalIds("cycle", 10, null));
+        assertEquals(List.of("shift_report_1"), service.listDistinctExternalIds("t_rep", 10, null),
+                "an underscore in the query is itself, not any character");
+        assertEquals(List.of("work_order_4711"), service.listDistinctExternalIds("work_order", 1, null));
+        assertEquals(List.of("work_order_4711", "work_order_4712"),
+                service.listDistinctExternalIds("work_order", 10, List.of(12L)));
+        assertEquals(List.of(), service.listDistinctExternalIds("work_order", 10, List.of(99L)));
+        assertEquals(List.of(), service.listDistinctExternalIds("work_order", 10, List.of()));
+    }
+
     /** Without escaping, this pattern would also return shiftxreport_1. */
     @Test
     void underscoreIsLiteralInsideAPattern() {

@@ -1034,6 +1034,13 @@ public class EventService {
         return listDimension(EventDimensionRepository.Dimension.SOURCE, query, limit);
     }
 
+    /** Distinct external ids containing {@code query}, from the events themselves, narrowed to the readable datasets. */
+    public DataWrapper<String> searchExternalIds(String query, int limit) {
+        DataWrapper<String> data = new DataWrapper<>();
+        data.setItems(clickHouseEventService.listDistinctExternalIds(query, limit, readAclOrNull()));
+        return data;
+    }
+
     private DataWrapper<String> listDimension(EventDimensionRepository.Dimension dimension, String query, int limit) {
         DataWrapper<String> data = new DataWrapper<>();
         // Narrowed in SQL to the caller's readable datasets (null = read-all).
