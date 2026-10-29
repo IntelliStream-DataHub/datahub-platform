@@ -29,6 +29,7 @@ import ai.intellistream.datahub.llm.ToolLoop;
 import ai.intellistream.datahub.llm.mcp.McpException;
 import ai.intellistream.datahub.llm.mcp.McpToolResult;
 import ai.intellistream.datahub.llm.mcp.StatelessMcpClient;
+import ai.intellistream.datahub.models.validation.FieldLimits;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantContext;
@@ -157,7 +158,8 @@ public final class Agent implements Processor {
                     + "agent.summary say how. Ends here when unconnected.",
                     Relationship.Unconnected.TERMINATE))
             .relationship(Relationship.of(ATTENTION, "One event-shaped item when the agent asked for "
-                    + "a person: connect it to write-events, or terminate it."))
+                    + "a person: connect it to write-events, with ${agent.summary} as its description, or "
+                    + "terminate it."))
             .relationship(new Relationship(FAILURE, "The events of a run that could not finish; "
                     + "failure.reason says why. Left unconnected, it fails the run.",
                     Relationship.Unconnected.FAIL_RUN))
@@ -329,7 +331,11 @@ public final class Agent implements Processor {
                 return;
             }
             String agentOutcome = finished ? outcome : DONE;
+            // At most what an event's description holds, which is where people read it.
             String agentSummary = finished ? summary : result.lastText();
+            if (agentSummary.length() > FieldLimits.DESCRIPTION_MAX) {
+                agentSummary = agentSummary.substring(0, FieldLimits.DESCRIPTION_MAX - 1) + "…";
+            }
             Map<String, String> attributes = new LinkedHashMap<>();
             attributes.put("agent.outcome", agentOutcome);
             attributes.put("agent.summary", agentSummary);
@@ -346,7 +352,7 @@ public final class Agent implements Processor {
                 Instant now = clock.instant();
                 child = session.write(child, EventsContent.of(List.of(new EventRow(
                         SOURCE_PREFIX + flow + ":" + context.runId(), now, "open",
-                        Map.of("summary", agentSummary, "runId", context.runId().toString(), "flow", flow)))));
+                        Map.of("runId", context.runId().toString(), "flow", flow)))));
                 session.transfer(child, ATTENTION);
             }
             for (Item item : done) {

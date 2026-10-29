@@ -201,7 +201,8 @@ class AgentTest {
             assertThat(row.externalId()).startsWith("agent:t:");
             assertThat(row.eventTime()).isEqualTo(NOW);
             assertThat(row.status()).isEqualTo("open");
-            assertThat(row.metadata()).containsEntry("summary", "Pump 21 needs a look.").containsEntry("flow", "t");
+            assertThat(row.metadata()).as("the summary is the description's, too long for a metadata value")
+                    .doesNotContainKey("summary").containsEntry("flow", "t");
         });
         assertThat(attention.attribute("agent.summary")).as("the child inherits its parent's attributes")
                 .isEqualTo("Pump 21 needs a look.");
@@ -433,8 +434,8 @@ class AgentTest {
                 .contains("2026-10-01T");
         assertThat(h.at(Agent.DONE)).singleElement()
                 .satisfies(done -> assertThat(done.attribute("agent.outcome")).isEqualTo("attention"));
-        assertThat(h.at(Agent.ATTENTION)).singleElement().satisfies(a -> assertThat(a.rows().getFirst().metadata())
-                .containsEntry("summary", "Pump 21 has been down since the morning."));
+        assertThat(h.at(Agent.ATTENTION)).singleElement().satisfies(a -> assertThat(a.attribute("agent.summary"))
+                .isEqualTo("Pump 21 has been down since the morning."));
         assertThat(records(Action.RECEIVE)).extracting(FlowRecord::transitUri).containsExactly("mcp://datahub-api/event_get");
     }
 
