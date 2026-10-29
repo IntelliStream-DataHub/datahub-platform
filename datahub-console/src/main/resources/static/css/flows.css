@@ -471,8 +471,24 @@
 	align-items: center;
 	gap: 4px;
 	padding: 4px;
-	border: 1px solid var(--border);
-	border-radius: 6px;
+	margin-bottom: 14px;
+	/* The look of the form's own fields (all.css), the box standing in for the field. */
+	background: rgba(0, 0, 0, 0.22);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 7px;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.event-picker:focus-within {
+	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
+}
+html[data-theme="light"] .event-picker {
+	background: #ffffff;
+	border-color: var(--border);
+}
+html[data-theme="light"] .event-picker:focus-within {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px rgba(0, 89, 132, 0.15);
 }
 .event-picker-chips {
 	display: contents;
@@ -483,9 +499,12 @@
 	align-items: center;
 	gap: 2px;
 	padding: 1px 2px 1px 8px;
-	border: 1px solid var(--border);
+	background: rgba(255, 255, 255, 0.08);
 	border-radius: 999px;
 	overflow-wrap: anywhere;
+}
+html[data-theme="light"] .event-picker-chips li {
+	background: rgba(0, 0, 0, 0.06);
 }
 .event-picker-remove {
 	border: 0;
@@ -495,10 +514,16 @@
 	font-size: 1rem;
 	line-height: 1;
 }
-.event-picker .event-picker-input {
+/* Outranks the form's field rule for text inputs: the box is the field, the input only where to type. */
+.datahub-form-fields .event-picker input.event-picker-input,
+html[data-theme="light"] .datahub-form-fields .event-picker input.event-picker-input {
 	flex: 1 1 10rem;
 	min-width: 8rem;
+	margin: 0;
+	padding: 5px 8px;
+	background: transparent;
 	border: 0;
+	box-shadow: none;
 }
 .settings-group-subtitle {
 	margin: var(--space-lg) 0 var(--space-sm);
