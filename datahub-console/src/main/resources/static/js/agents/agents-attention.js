@@ -47,11 +47,11 @@
 			return Object.assign(document.createElement("button"), { type: "button", className: "dh-btn small " + cls, textContent: L(textKey) });
 		}
 
-		/** The dismissed event that closes an entry's lifecycle, from the entry itself. */
+		/** The dismissed event that closes an entry's lifecycle, from the entry itself, summary included. */
 		function dismissedEvent(event, who){
 			var metadata = Object.assign({}, event.metadata || {}, { dismissedBy: who, dismissedAt: new Date().toISOString() });
 			return { externalId: event.externalId, type: event.type, subType: event.subType, status: "dismissed",
-				eventTime: Date.now(), dataSetId: event.dataSetId, metadata: metadata };
+				eventTime: Date.now(), dataSetId: event.dataSetId, description: event.description, metadata: metadata };
 		}
 
 		function tidy(){

@@ -380,7 +380,8 @@ class BrowserPayloadContractTest {
                 new Payload("POST /events/create (dismiss an agent's attention)", """
                         {"items":[{"externalId":"agent:pump_watch:0190a5d2-0000-7000-8000-000000000001","type":"agent",
                         "subType":"attention","status":"dismissed","eventTime":1755000000000,
-                        "dataSetId":"9223372036854775806","metadata":{"dismissedBy":"ada"}}]}""",
+                        "dataSetId":"9223372036854775806","description":"Pump 21 has failed twice.",
+                        "metadata":{"dismissedBy":"ada"}}]}""",
                         new TypeReference<DataWrapper<EventModel>>() {},
                         "static/js/agents/agents-attention.js"),
 
