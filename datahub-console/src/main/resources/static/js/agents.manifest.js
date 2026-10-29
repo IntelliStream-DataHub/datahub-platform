@@ -6,6 +6,7 @@
 // attention list. Each script returns at once when its own markup is absent.
 //
 //= require flows/flow-api.js
+//= require flows/event-picker.js
 //= require flows/run-as.js
 //= require flows/flow-runs.js
 //= require flows/flows-list.js

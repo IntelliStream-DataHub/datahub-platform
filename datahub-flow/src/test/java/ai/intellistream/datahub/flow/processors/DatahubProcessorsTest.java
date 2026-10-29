@@ -331,6 +331,31 @@ class DatahubProcessorsTest {
     }
 
     @Test
+    void theTriggeringEventsAreWhatTheTriggerListensForRecordedInTheRunsWindowAndMayBeNarrowed() {
+        // Happened before the window, recorded in it: this run's. Recorded after it: the next run's.
+        api.storeEvent("pump-7/late", "alarm", T0 - 5 * MINUTE, T0 + MINUTE, "cleared");
+        api.storeEvent("pump-7/early", "alarm", T0 + MINUTE, T0 + 61 * MINUTE, "active");
+
+        RunResult result = h.flow("""
+                { "id": "src", "type": "trigger-events", "properties": { "advancedFilter": "status = 'cleared'" } },
+                { "id": "out", "type": "test.collect" }""",
+                "{ \"from\": \"src\", \"relationship\": \"success\", \"to\": \"out\" }", """
+                { "type": "events", "match": { "externalId": ["pump-7/*"], "type": ["alarm"],
+                  "metadata": ["site=north"], "excludeSource": ["agent:*"] } }""", false, 7L, api.client());
+
+        assertThat(result.error()).isNull();
+        assertThat(h.at("out").getFirst().rows()).extracting(EventRow::externalId).containsExactly("pump-7/late");
+        JsonNode sent = api.filterRequests.getFirst();
+        JsonNode filter = sent.get("filter");
+        assertThat(filter.get("externalId").get(0).stringValue()).isEqualTo("pump-7/*");
+        assertThat(filter.get("type").get(0).stringValue()).isEqualTo("alarm");
+        assertThat(filter.get("metadata").get("site").stringValue()).isEqualTo("north");
+        assertThat(filter.hasNonNull("createdTime")).as("by when the events were recorded").isTrue();
+        assertThat(sent.get("advancedFilter").stringValue()).as("narrowed, and an OR cannot undo the exclusion")
+                .isEqualTo("(status = 'cleared') AND (source IS NULL OR source NOT LIKE 'agent:%')");
+    }
+
+    @Test
     void manyEventsAreSplitIntoSeveralItems() {
         for (int i = 0; i < 5; i++) {
             api.storeEvent("e" + i, "alarm", T0 + i * MINUTE, "active");

@@ -45,6 +45,7 @@
 	color: var(--flash-warning-bg);
 }
 
+
 .flows-actions {
 	margin-top: var(--space-lg);
 }
@@ -461,6 +462,48 @@
 }
 .flow-series input {
 	width: 100%;
+}
+
+/* Event values picked as chips over a search (event-picker.js); its textarea stays, hidden. */
+.event-picker {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	padding: 4px;
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+.event-picker-chips {
+	display: contents;
+	list-style: none;
+}
+.event-picker-chips li {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 1px 2px 1px 8px;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	overflow-wrap: anywhere;
+}
+.event-picker-remove {
+	border: 0;
+	background: none;
+	color: inherit;
+	cursor: pointer;
+	font-size: 1rem;
+	line-height: 1;
+}
+.event-picker .event-picker-input {
+	flex: 1 1 10rem;
+	min-width: 8rem;
+	border: 0;
+}
+.settings-group-subtitle {
+	margin: var(--space-lg) 0 var(--space-sm);
+	font-size: 13px;
+	font-weight: 600;
 }
 
 /* Connect: From… Outcome… → To…, readable before anything is chosen. */

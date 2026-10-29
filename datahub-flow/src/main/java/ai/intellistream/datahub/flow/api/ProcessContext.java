@@ -48,6 +48,12 @@ public interface ProcessContext extends PropertyValues {
      */
     DatahubClient datahub();
 
+    /**
+     * For a flow whose trigger is {@code events}, the events that trigger listens for: what a step that
+     * reads the triggering events asks DataHub for. Empty for any other trigger.
+     */
+    Optional<EventMatch> triggerMatch();
+
     /** A preview: sinks report what they would write instead of writing it. */
     boolean isPreview();
 

@@ -10,6 +10,7 @@ import ai.intellistream.datahub.flow.api.ProcessorDescriptor;
 import ai.intellistream.datahub.flow.api.PropertyDescriptor;
 import ai.intellistream.datahub.flow.api.PropertyType;
 import ai.intellistream.datahub.flow.api.Relationship;
+import ai.intellistream.datahub.flow.api.EventMatch;
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.definition.FlowValidator;
 import ai.intellistream.datahub.flow.engine.FlowCompiler;
@@ -1398,6 +1399,39 @@ class RunCoordinatorIT {
         }
     }
 
+    @Test
+    void anEventsFlowIsNotRunForBeingDeployedAndEachWakeRunsItForTheTimeSinceTheRunBefore() {
+        long flow = deployedFlow("woken", wait(0, "woken"), 1, 1);
+        Duration brief = Duration.ofMillis(200);
+        jdbc.update("UPDATE flow SET trigger = ?::jsonb, next_tick = NULL, next_due_at = NULL, deployed_at = now() "
+                        + "WHERE id = ?",
+                new Schedule(Schedule.EVENTS, null, null, null, brief, brief,
+                        new EventMatch(null, null, null, null, null, null, null)).toJson(JSON), flow);
+        // The run store keeps a window to the millisecond.
+        Instant deployed = jdbc.queryForObject("SELECT deployed_at FROM flow WHERE id = ?", Timestamp.class, flow)
+                .toInstant().truncatedTo(java.time.temporal.ChronoUnit.MILLIS);
+        RunCoordinator a = coordinator("a", 0);
+        a.syncFlow(flow);
+
+        assertThat(nextTickOf(flow)).as("a signal flow does not run for being deployed").isNull();
+        sleep(500);
+        assertThat(a.tick(TENANT)).isZero();
+
+        assertThat(runs.wake(flow, runs.now())).isTrue();
+        Instant first = nextTickOf(flow);
+        await(() -> a.tick(TENANT) == 1);
+        assertThat(nextTickOf(flow)).as("idle until the next event").isNull();
+
+        assertThat(runs.wake(flow, runs.now())).isTrue();
+        Instant second = nextTickOf(flow);
+        await(() -> a.tick(TENANT) == 1);
+
+        assertThat(windowsByCreation()).containsExactly(new TimeWindow(deployed, first), new TimeWindow(first, second));
+        a.checkpoint(TENANT);
+        assertThat(jdbc.queryForObject("SELECT last_tick FROM flow WHERE id = ?", Timestamp.class, flow)
+                .toInstant()).as("saved, though no tick is waiting").isEqualTo(second);
+    }
+
     // ---------------------------------------------------------------- fixtures
 
     /** Gives a deployed flow a schedule in Postgres, as a deployment does, and tells the run store of it. */
@@ -1608,6 +1642,20 @@ class RunCoordinatorIT {
             return byCreation != 0 ? byCreation : Long.compare(Long.parseLong(x[1]), Long.parseLong(y[1]));
         });
         return rows.stream().map(r -> Instant.ofEpochMilli(Long.parseLong(r[1]))).toList();
+    }
+
+    /** The windows of the runs in the run store, in the order they were made. */
+    private List<TimeWindow> windowsByCreation() {
+        List<TimeWindow> windows = new ArrayList<>();
+        for (Instant end : windowEndsByCreation()) {
+            for (String key : SharedKvrocks.keys("flow:run:*")) {
+                if (String.valueOf(end.toEpochMilli()).equals(SharedKvrocks.raw().hget(key, "window_end_ms"))) {
+                    windows.add(new TimeWindow(Instant.ofEpochMilli(Long.parseLong(
+                            SharedKvrocks.raw().hget(key, "window_start_ms"))), end));
+                }
+            }
+        }
+        return windows;
     }
 
     /** How many runs the run store holds in this state. */

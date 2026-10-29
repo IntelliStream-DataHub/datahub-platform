@@ -5,6 +5,8 @@ import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.fake.ExampleFlow;
 import ai.intellistream.datahub.flow.fake.FakeProcessors;
 import ai.intellistream.datahub.flow.processors.Agent;
+import ai.intellistream.datahub.flow.processors.EventsSource;
+import ai.intellistream.datahub.flow.processors.TriggerEventsSource;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
@@ -22,10 +24,15 @@ class FlowValidatorTest {
 
     private final FlowValidator validator = new FlowValidator(catalog(), FlowValidator.Limits.DEFAULTS);
 
-    /** The fakes plus the real agent processor, whose rules are the definition's, not its collaborators'. */
+    /**
+     * The fakes plus the real agent processor, whose rules are the definition's, not its collaborators',
+     * and the events sources.
+     */
     private static List<Processor> catalog() {
         List<Processor> catalog = new ArrayList<>(FakeProcessors.catalog());
         catalog.add(new Agent(null, List.of(), null, null, null, Clock.systemUTC()));
+        catalog.add(new EventsSource());
+        catalog.add(new TriggerEventsSource());
         return catalog;
     }
 
@@ -333,6 +340,41 @@ class FlowValidatorTest {
         });
         assertThat(problems).extracting(ValidationProblem::pointer).containsExactlyInAnyOrder(
                 "#/trigger/cron", "#/trigger/timezone", "#/parameters/limit");
+    }
+
+    @Test
+    void anEventsTriggerHasAFilterOfItsOwnAndNeedsNoStepToRead() {
+        Consumer<ObjectNode> events = tree -> {
+            ObjectNode trigger = tree.putObject("trigger").put("type", "events").put("delay", "PT15S").put("debounce", "PT5S");
+            ObjectNode match = trigger.putObject("match");
+            match.putArray("externalId").add("pump-7/*");
+            match.putArray("excludeSource").add("agent:*");
+        };
+        assertThat(problems(events)).as("the event as a signal alone").isEmpty();
+
+        assertThat(problems(events.andThen(tree -> {
+            ObjectNode trigger = (ObjectNode) tree.get("trigger");
+            trigger.put("cron", "0 * * * * *").put("debounce", "PT0S");
+            ((ObjectNode) trigger.get("match")).putArray("metadata").add("=north");
+            ((ArrayNode) trigger.get("match").get("excludeSource")).add("it's");
+        }))).extracting(ValidationProblem::pointer).containsExactlyInAnyOrder("#/trigger", "#/trigger/debounce",
+                "#/trigger/match/metadata", "#/trigger/match/excludeSource");
+
+        assertThat(problems(tree -> ((ObjectNode) tree.get("trigger")).put("debounce", "PT5S")))
+                .extracting(ValidationProblem::pointer).containsExactly("#/trigger/debounce");
+    }
+
+    @Test
+    void theTriggeringEventsStepNeedsAnEventsTrigger() {
+        Consumer<ObjectNode> reads = tree -> {
+            ObjectNode step = ((ArrayNode) tree.get("processors")).addObject().put("id", "evts").put("type", "trigger-events");
+            step.putArray("terminate").add("success");
+        };
+        assertThat(problems(reads.andThen(tree -> tree.putObject("trigger").put("type", "events")))).isEmpty();
+        assertThat(problems(reads)).singleElement().satisfies(p -> {
+            assertThat(p.pointer()).isEqualTo("#/processors/5/type");
+            assertThat(p.message()).contains("trigger must be events");
+        });
     }
 
     @Test

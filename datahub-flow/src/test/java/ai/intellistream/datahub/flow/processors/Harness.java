@@ -47,8 +47,8 @@ final class Harness implements AutoCloseable {
     static final long MINUTE = 60_000;
 
     static List<Processor> builtIns() {
-        return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new EventsSink(),
-                new Clamp(), new Threshold());
+        return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new TriggerEventsSource(),
+                new EventsSink(), new Clamp(), new Threshold());
     }
 
     final RunExecutor executor = new RunExecutor(
@@ -99,13 +99,19 @@ final class Harness implements AutoCloseable {
     /** Runs exactly {@code processors} wired by {@code connections}, as the flow's whole definition. */
     RunResult flow(String processors, String connections, boolean preview, Long dataSetId,
                    DatahubClient datahub) {
+        return flow(processors, connections, null, preview, dataSetId, datahub);
+    }
+
+    /** As {@link #flow(String, String, boolean, Long, DatahubClient)}, with a trigger (JSON) when not null. */
+    RunResult flow(String processors, String connections, String trigger, boolean preview, Long dataSetId,
+                   DatahubClient datahub) {
         String json = """
                 {
                   "schemaVersion": 1, "externalId": "t", "dataSet": "ds", "name": "Test",
                   "processors": [ %s ],
-                  "connections": [ %s ]
+                  "connections": [ %s ]%s
                 }
-                """.formatted(processors, connections);
+                """.formatted(processors, connections, trigger == null ? "" : ", \"trigger\": " + trigger);
         List<Processor> catalog = new ArrayList<>(builtIns());
         catalog.addAll(extra);
         catalog.add(given);

@@ -26,6 +26,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -852,9 +853,143 @@ class RunStoreIT {
         assertThat(store.lockSchedule(1, "b", Duration.ofSeconds(30))).isTrue();
     }
 
+    // ---------------------------------------------------------------- schedules events set
+
+    @Test
+    void anEventGivesAnIdleScheduleATickDebounceFromNowAndOneItCoversChangesNothing() {
+        Instant deployed = store.now().minusSeconds(60);
+        store.syncSchedule(eventsSpec(1, deployed, null, null));
+        assertThat(store.schedule(1).orElseThrow().nextTick()).as("idle until an event").isNull();
+        assertThat(store.dueSchedules(10)).isEmpty();
+
+        Instant recorded = store.now().minusSeconds(1);
+        assertThat(store.wake(1, recorded)).isTrue();
+        Instant tick = store.schedule(1).orElseThrow().nextTick();
+        assertThat(tick).isBetween(store.now().plusSeconds(9), store.now().plusSeconds(10));
+        assertThat(SharedKvrocks.raw().zscore("flow:sched", "1")).as("due at the tick plus the delay")
+                .isEqualTo((double) tick.plusSeconds(5).toEpochMilli());
+
+        assertThat(store.wake(1, recorded.plusMillis(500))).as("the waiting tick covers it").isFalse();
+        assertThat(store.wake(1, deployed.minusSeconds(1))).as("before the deployment").isFalse();
+        assertThat(store.schedule(1).orElseThrow().nextTick()).isEqualTo(tick);
+    }
+
+    @Test
+    void anEventAfterTheWaitingTickBringsAnotherOnceThatOneIsMadeIntoARun() {
+        Instant deployed = store.now().minusSeconds(60);
+        store.syncSchedule(eventsSpec(1, deployed, null, null));
+        store.wake(1, store.now());
+        Instant tick = store.schedule(1).orElseThrow().nextTick();
+
+        assertThat(store.wake(1, tick.plusMillis(1))).as("noted, for after this tick").isTrue();
+        assertThat(store.schedule(1).orElseThrow().nextTick()).isEqualTo(tick);
+
+        assertThat(store.advanceEvents(1, tick)).isTrue();
+        RunStore.ScheduleRecord after = store.schedule(1).orElseThrow();
+        assertThat(after.lastTick()).isEqualTo(tick);
+        assertThat(after.nextTick()).as("past the noted event, debounced").isAfter(tick.plusMillis(1));
+        assertThat(store.advanceEvents(1, tick)).as("not from a tick it has left").isFalse();
+
+        assertThat(store.advanceEvents(1, after.nextTick())).isTrue();
+        assertThat(store.schedule(1).orElseThrow().nextTick()).as("nothing noted: idle again").isNull();
+        assertThat(store.wake(1, tick.minusMillis(1))).as("covered by a run made").isFalse();
+    }
+
+    @Test
+    void aNewDeploymentForgetsWhatTheOneBeforeSawAndALostScheduleStartsWhereThePostgresCheckpointWas() {
+        Instant deployed = store.now().minusSeconds(60);
+        store.syncSchedule(eventsSpec(1, deployed, null, null));
+        store.wake(1, store.now());
+        Instant tick = store.schedule(1).orElseThrow().nextTick();
+        store.wake(1, tick.plusSeconds(1));
+
+        Instant first = store.now().plusSeconds(10);
+        Instant checkpointed = deployed.plusSeconds(30);
+        store.syncSchedule(eventsSpec(1, deployed.plusSeconds(1), first, checkpointed));
+        RunStore.ScheduleRecord fresh = store.schedule(1).orElseThrow();
+        assertThat(fresh.nextTick()).isEqualTo(first);
+        assertThat(fresh.lastTick()).isEqualTo(checkpointed);
+        assertThat(SharedKvrocks.raw().hget("flow:sched:1", "seen_ms")).as("no event of the one before").isNull();
+
+        assertThat(store.advanceEvents(1, first)).isTrue();
+        assertThat(store.schedule(1).orElseThrow().nextTick()).isNull();
+    }
+
+    @Test
+    void anEventJustAfterTheWaitingTickIsNeverLeftWithoutATickWhicheverOfWakeAndMoveGoesFirst() throws Exception {
+        store.syncSchedule(eventsSpec(1, store.now().minusSeconds(1), null, null));
+        for (int round = 0; round < 100; round++) {
+            // After the last run's window: the ticks here are moved past before they are due.
+            Instant last = store.schedule(1).orElseThrow().lastTick();
+            assertThat(store.wake(1, last == null ? store.now() : last.plusMillis(1))).isTrue();
+            Instant tick = store.schedule(1).orElseThrow().nextTick();
+            Instant after = tick.plusMillis(1);
+            CountDownLatch go = new CountDownLatch(1);
+            AtomicInteger moved = new AtomicInteger();
+            Thread wake = Thread.ofVirtual().start(() -> inTenant(() -> {
+                await(go);
+                store.wake(1, after);
+            }));
+            Thread move = Thread.ofVirtual().start(() -> inTenant(() -> {
+                await(go);
+                if (store.advanceEvents(1, tick)) {
+                    moved.incrementAndGet();
+                }
+            }));
+            go.countDown();
+            wake.join();
+            move.join();
+
+            assertThat(moved.get()).isEqualTo(1);
+            RunStore.ScheduleRecord now = store.schedule(1).orElseThrow();
+            assertThat(now.lastTick()).isEqualTo(tick);
+            assertThat(now.nextTick()).as("round %d: a tick for the event after the one moved past", round)
+                    .isNotNull().isAfter(after);
+            assertThat(store.advanceEvents(1, now.nextTick())).isTrue();
+            assertThat(store.schedule(1).orElseThrow().nextTick()).isNull();
+        }
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            latch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private static void inTenant(Runnable work) {
+        TenantContext.setTenantId("t");
+        try {
+            work.run();
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    @Test
+    void aCronScheduleIsNotWokenByEvents() {
+        store.syncSchedule(spec(1, BASE, BASE, Duration.ZERO));
+
+        assertThat(store.wake(1, store.now())).isFalse();
+        assertThat(store.wake(2, store.now())).as("no schedule at all").isFalse();
+        assertThat(store.schedule(1).orElseThrow().nextTick()).isEqualTo(BASE);
+    }
+
     private static RunStore.ScheduleSpec spec(long flow, Instant deployedAt, Instant firstTick, Duration delay) {
         return new RunStore.ScheduleSpec(flow, "flow-" + flow, 7, 1, 2, Duration.ofMinutes(15), "user-1",
-                "{\"type\":\"schedule\",\"cron\":\"* * * * * *\"}", delay, deployedAt, firstTick);
+                "{\"type\":\"schedule\",\"cron\":\"* * * * * *\"}", delay, deployedAt, firstTick, null, null);
+    }
+
+    private static RunStore.ScheduleSpec eventsSpec(long flow, Instant deployedAt, Instant firstTick, Instant lastTick) {
+        return eventsSpec(flow, deployedAt, firstTick, lastTick, Duration.ofSeconds(10));
+    }
+
+    private static RunStore.ScheduleSpec eventsSpec(long flow, Instant deployedAt, Instant firstTick, Instant lastTick,
+                                                    Duration debounce) {
+        return new RunStore.ScheduleSpec(flow, "flow-" + flow, 7, 1, 2, Duration.ofMinutes(15), "user-1",
+                "{\"type\":\"events\",\"delay\":\"PT5S\"}", Duration.ofSeconds(5), deployedAt,
+                firstTick, lastTick, debounce);
     }
 
     // ---------------------------------------------------------------- fixtures
