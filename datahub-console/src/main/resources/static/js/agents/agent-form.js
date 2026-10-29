@@ -27,7 +27,7 @@
 
 	var ENDED = ["SUCCEEDED", "FAILED", "CANCELLED"];
 	var CRON_DEFAULT = "0 */15 * * * *";
-	var ATTENTION_TYPE = "agent", ATTENTION_SUBTYPE = "attention";
+	var ATTENTION_TYPE = "agent", ATTENTION_SUBTYPE = "attention", SUMMARY = "${agent.summary}";
 
 	document.addEventListener("DOMContentLoaded", function(){
 		var page = document.querySelector('[data-type="agent-page"]');
@@ -109,7 +109,7 @@
 				processors: [
 					triggerEvents(),
 					{ id: "agent", type: "agent", properties: { instructions: "", tools: [] }, terminate: ["done"] },
-					{ id: "attention", type: "write-events", properties: { type: ATTENTION_TYPE, subType: ATTENTION_SUBTYPE, source: "agent:" + flowId } }
+					{ id: "attention", type: "write-events", properties: { type: ATTENTION_TYPE, subType: ATTENTION_SUBTYPE, source: "agent:" + flowId, description: SUMMARY } }
 				],
 				connections: [
 					{ from: "events", relationship: "success", to: "agent" },
@@ -197,7 +197,11 @@
 				});
 				if(val("turnTimeout")) ap.turnTimeout = isoDuration(val("turnTimeout")); else delete ap.turnTimeout;
 			}
-			if(attention && attention.properties) attention.properties.source = "agent:" + flowId;
+			if(attention && attention.properties){
+				attention.properties.source = "agent:" + flowId;
+				// The summary is the event's description: a metadata value holds only 1,024 characters.
+				if(!attention.properties.description) attention.properties.description = SUMMARY;
+			}
 			if(mode === "manual"){
 				// A manual run is given a window, though an agent on its own reads nothing in it.
 				out.trigger = { type: "manual", window: "PT1H" };

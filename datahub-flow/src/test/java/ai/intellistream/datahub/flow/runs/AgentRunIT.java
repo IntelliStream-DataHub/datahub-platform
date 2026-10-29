@@ -272,7 +272,8 @@ class AgentRunIT {
             assertThat(event.path("status").asString()).isEqualTo("open");
             assertThat(event.path("source").asString()).isEqualTo("agent:" + FLOW);
             assertThat(event.path("dataSetId").asString()).isEqualTo("7");
-            assertThat(event.path("metadata").path("summary").asString()).startsWith("Pump 21 has failed twice");
+            assertThat(event.path("description").asString()).startsWith("Pump 21 has failed twice");
+            assertThat(event.path("metadata").has("summary")).isFalse();
             assertThat(event.path("metadata").path("runId").asString()).isEqualTo(run.toString());
             assertThat(event.path("metadata").path("flow").asString()).isEqualTo(FLOW);
         });
@@ -563,7 +564,8 @@ class AgentRunIT {
                       "properties": { "instructions": "For each event, look up the related resource and raise attention with a summary.",
                                       "tools": ["event_get", "resource_get", "event_create"] } },
                     { "id": "attention", "type": "write-events",
-                      "properties": { "type": "agent", "subType": "attention", "source": "agent:%s" } }
+                      "properties": { "type": "agent", "subType": "attention", "source": "agent:%s",
+                                      "description": "${agent.summary}" } }
                   ],
                   "connections": [
                     { "from": "events", "relationship": "success", "to": "agent" },
