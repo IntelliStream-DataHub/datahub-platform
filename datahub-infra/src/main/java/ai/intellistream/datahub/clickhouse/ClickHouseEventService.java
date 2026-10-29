@@ -16,6 +16,7 @@ import ai.intellistream.datahub.models.DataSort;
 import ai.intellistream.datahub.models.EventModel;
 import ai.intellistream.datahub.models.IdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
+import ai.intellistream.datahub.helpers.text.WildcardPatterns;
 import ai.intellistream.datahub.models.datafilters.FilterPatterns;
 import ai.intellistream.datahub.models.paging.MalformedCursorException;
 import ai.intellistream.datahub.models.paging.PageCursor;
@@ -1283,6 +1284,36 @@ public class ClickHouseEventService extends ClickHouseService {
      * a filter means field for field what it means on {@code POST /events/filter} — it is ANDed with
      * the text match and the dataset ACL alike. A null filter narrows nothing.
      */
+    /**
+     * The distinct external ids containing {@code query}, ignoring case, in alphabetical order: a
+     * type-ahead over the lifecycles a caller may read. External ids have far too many values for a
+     * dimension table like the types and sources have, so this asks the events table, which the
+     * {@code external_id} n-gram index serves.
+     */
+    public List<String> listDistinctExternalIds(String query, int limit, Collection<Long> allowedDataSetIds) {
+        Map<String, Object> params = new HashMap<>();
+        List<String> conditions = new ArrayList<>();
+        // A substring, as a pattern the way the event filter writes one: * and % any run, _ itself.
+        params.put("q", ClickHouseHelper.escapeStringParam(WildcardPatterns.toSqlLike("*" + query + "*")));
+        conditions.add("external_id ILIKE {q:String}");
+        String aclCondition = datasetAclCondition(allowedDataSetIds, "data_set_id", params);
+        if (aclCondition != null) {
+            conditions.add(aclCondition);
+        }
+        String sql = "SELECT DISTINCT external_id FROM events WHERE " + String.join(" AND ", conditions)
+                + " ORDER BY external_id LIMIT " + Math.max(1, limit);
+        try {
+            List<String> out = new ArrayList<>();
+            for (GenericRecord row : getReadOnlyClickhouseClient().queryAll(sql, params)) {
+                out.add(row.getString("external_id"));
+            }
+            return out;
+        } catch (Exception e) {
+            log.error("Failed to list external ids in ClickHouse", e);
+            throw new RuntimeException("Failed to list external ids in ClickHouse", e);
+        }
+    }
+
     public List<EventModel> search(String query, int limit, Collection<Long> allowedDataSetIds,
                                    EventFilter filter) {
         List<EventModel> results = new ArrayList<>();
