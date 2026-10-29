@@ -14,8 +14,11 @@
  *
  *   manual     a manual trigger, the agent on its own
  *   schedule   a schedule, the agent on its own: every tick is a run of the model
- *   events     a schedule with read-events into the agent (the filter, bounded by when events were
- *              recorded, never events agents wrote): a tick with no matching events never runs it
+ *   events     an events trigger with its own filter (never events agents wrote): datahub-flow runs
+ *              it a little after events the filter asks for are recorded, and a trigger-events step
+ *              hands the agent those events, read as the agent, optionally only some datasets or
+ *              what an expression matches. An older agent whose events check was a schedule with
+ *              read-events opens in this mode and is saved this way.
  *
  * Reading it back finds the steps by type, so a definition edited in Flows keeps whatever else it has.
  */
@@ -50,7 +53,16 @@
 		function val(name){ var f = field(name); return f ? f.value.trim() : ""; }
 		function setVal(name, value){ var f = field(name); if(f) f.value = value === null || value === undefined ? "" : String(value); }
 		function lines(name){ return val(name) ? val(name).split(/\r?\n/).map(function(s){ return s.trim(); }).filter(Boolean) : []; }
-		function setLines(name, list){ setVal(name, Array.isArray(list) ? list.join("\n") : ""); }
+		function setLines(name, list){ setVal(name, Array.isArray(list) ? list.join("\n") : ""); EventPicker.redraw(field(name)); }
+
+		// The trigger's filter fields pick from what DataHub's events have, or take what is typed.
+		[["eventExternalIds", "externalId"], ["eventTypes", "type"], ["eventSubTypes", "subType"],
+			["eventStatuses", "status"], ["eventSources", "source"]].forEach(function(p){
+			if(field(p[0])) EventPicker.attach(field(p[0]), p[1]);
+		});
+		/** The trigger's filter: the fields it has, and the form field each is edited in. */
+		var MATCH_FIELDS = [["externalId", "eventExternalIds"], ["type", "eventTypes"], ["subType", "eventSubTypes"],
+			["status", "eventStatuses"], ["source", "eventSources"], ["metadata", "eventMetadata"]];
 
 		/** A new agent's external id, from its name: Pump watch → pump_watch. */
 		function externalIdOf(name){
@@ -89,12 +101,13 @@
 
 		function step(type){ return (def.processors || []).find(function(p){ return p.type === type; }); }
 
-		function readEvents(){ return { id: "events", type: "read-events", properties: { timeField: "createdTime", excludeSource: ["agent:*"] } }; }
+		/** The step that hands the agent the events that woke it: the trigger's filter, so it has no filter of its own. */
+		function triggerEvents(){ return { id: "events", type: "trigger-events", properties: {} }; }
 
 		function emptyDefinition(){
 			return { schemaVersion: 1, kind: "agent", externalId: flowId, name: "", dataSet: "",
 				processors: [
-					readEvents(),
+					triggerEvents(),
 					{ id: "agent", type: "agent", properties: { instructions: "", tools: [] }, terminate: ["done"] },
 					{ id: "attention", type: "write-events", properties: { type: ATTENTION_TYPE, subType: ATTENTION_SUBTYPE, source: "agent:" + flowId } }
 				],
@@ -102,7 +115,7 @@
 					{ from: "events", relationship: "success", to: "agent" },
 					{ from: "agent", relationship: "attention", to: "attention" }
 				],
-				trigger: { type: "schedule", cron: CRON_DEFAULT, timezone: localZone(), delay: "PT1M" },
+				trigger: { type: "events", window: "PT1H", match: { excludeSource: ["agent:*"] } },
 				execution: { maxAttempts: 2, timeout: "PT20M" } };
 		}
 
@@ -113,24 +126,26 @@
 		/** The schedule's time zone: one set in the definition stays, else the browser's. Not on the form. */
 		function zone(){ return (def && def.trigger && def.trigger.timezone) || localZone(); }
 
-		/** The form from the definition. */
+		/**
+		 * The form from the definition. An agent saved before events triggers had their own filter checked
+		 * for events on a schedule with read-events: its filter is read from that step, and saved as the
+		 * trigger's.
+		 */
 		function fill(){
-			var events = (step("read-events") || {}).properties || {};
+			var legacy = (step("read-events") || {}).properties;
 			var agent = (step("agent") || {}).properties || {};
 			var t = def.trigger || {};
+			var match = t.type === "events" ? t.match || {} : legacy || {};
+			var narrow = (step("trigger-events") || {}).properties || legacy || {};
 			setVal("name", def.name);
 			setVal("description", def.description);
 			setVal("instructions", agent.instructions);
-			field("triggerType").value = t.type === "manual" ? "manual" : step("read-events") ? "events" : "schedule";
+			field("triggerType").value = t.type === "manual" ? "manual" : t.type === "events" || legacy ? "events" : "schedule";
 			setVal("cron", t.cron || CRON_DEFAULT);
 			field("every").value = isPreset(val("cron")) ? val("cron") : "";
-			setLines("eventTypes", events.type);
-			setLines("eventSubTypes", events.subType);
-			setLines("eventStatuses", events.status);
-			setLines("eventSources", events.source);
-			setLines("eventDataSets", events.dataSet);
-			setLines("eventMetadata", events.metadata);
-			setVal("eventAdvancedFilter", events.advancedFilter);
+			MATCH_FIELDS.forEach(function(k){ setLines(k[1], match[k[0]]); });
+			setLines("eventDataSets", narrow.dataSet);
+			setVal("eventAdvancedFilter", narrow.advancedFilter);
 			setVal("effort", agent.effort);
 			setVal("maxIterations", agent.maxIterations);
 			setVal("maxOutputTokens", agent.maxOutputTokens);
@@ -152,28 +167,25 @@
 			out.connections = out.connections || [];
 			var find = function(type){ return out.processors.find(function(p){ return p.type === type; }); };
 			var agent = find("agent"), attention = find("write-events");
-			// Only an events agent reads events; for the others the step and its connections go.
-			var unread = out.processors.filter(function(p){ return p.type === "read-events"; }).map(function(p){ return p.id; });
-			if(mode !== "events" && unread.length){
-				out.processors = out.processors.filter(function(p){ return unread.indexOf(p.id) < 0; });
-				out.connections = out.connections.filter(function(c){ return unread.indexOf(c.from) < 0 && unread.indexOf(c.to) < 0; });
+			// The events go to the agent through a trigger-events step: only an events agent has one, and
+			// the read-events step of an agent from before events triggers had their own filter goes.
+			var drop = out.processors.filter(function(p){ return p.type === "read-events" || mode !== "events" && p.type === "trigger-events"; })
+				.map(function(p){ return p.id; });
+			if(drop.length){
+				out.processors = out.processors.filter(function(p){ return drop.indexOf(p.id) < 0; });
+				out.connections = out.connections.filter(function(c){ return drop.indexOf(c.from) < 0 && drop.indexOf(c.to) < 0; });
 			}
-			var events = mode === "events" ? find("read-events") : null;
+			var events = mode === "events" ? find("trigger-events") : null;
 			if(mode === "events" && !events){
-				events = readEvents();
+				events = triggerEvents();
 				out.processors.unshift(events);
 				if(agent) out.connections.unshift({ from: events.id, relationship: "success", to: agent.id });
 			}
 			if(events){
+				// What the trigger listens for can be read more narrowly: datasets, and an expression.
 				var ep = events.properties = events.properties || {};
-				[["type", "eventTypes"], ["subType", "eventSubTypes"], ["status", "eventStatuses"], ["source", "eventSources"],
-					["dataSet", "eventDataSets"], ["metadata", "eventMetadata"]].forEach(function(k){
-					var list = lines(k[1]);
-					if(list.length) ep[k[0]] = list; else delete ep[k[0]];
-				});
+				if(lines("eventDataSets").length) ep.dataSet = lines("eventDataSets"); else delete ep.dataSet;
 				if(val("eventAdvancedFilter")) ep.advancedFilter = val("eventAdvancedFilter"); else delete ep.advancedFilter;
-				ep.timeField = "createdTime";
-				ep.excludeSource = ["agent:*"];
 			}
 			if(agent){
 				var ap = agent.properties = agent.properties || {};
@@ -189,10 +201,16 @@
 			if(mode === "manual"){
 				// A manual run is given a window, though an agent on its own reads nothing in it.
 				out.trigger = { type: "manual", window: "PT1H" };
+			} else if(mode === "events"){
+				// The window is a manual run's; a debounce or delay set in Flows stays.
+				var was = def.trigger && def.trigger.type === "events" ? def.trigger : {};
+				var match = { excludeSource: ["agent:*"] };
+				MATCH_FIELDS.forEach(function(k){ if(lines(k[1]).length) match[k[0]] = lines(k[1]); });
+				out.trigger = { type: "events", window: "PT1H", match: match };
+				if(was.debounce) out.trigger.debounce = was.debounce;
+				if(was.delay) out.trigger.delay = was.delay;
 			} else {
 				out.trigger = { type: "schedule", cron: val("cron") || CRON_DEFAULT, timezone: zone() };
-				// An events check waits a minute past the tick, so events still on their way have arrived.
-				if(mode === "events") out.trigger.delay = "PT1M";
 			}
 			return out;
 		}
@@ -204,9 +222,8 @@
 			form.querySelectorAll("[data-when-trigger]").forEach(function(block){
 				block.hidden = block.getAttribute("data-when-trigger").split(" ").indexOf(mode) < 0;
 			});
-			el("agent-every-label").textContent = L(mode === "events" ? "agents.field.every.events" : "agents.field.every");
 			// The cron box only for a custom schedule; a preset is its own cron.
-			el("agent-cron-field").hidden = mode === "manual" || !!field("every").value;
+			el("agent-cron-field").hidden = mode !== "schedule" || !!field("every").value;
 			el("agent-zone").textContent = L("agents.field.every.zone", [zone()]);
 		}
 
@@ -479,13 +496,16 @@
 			var top = { name: "name", description: "description", dataSet: "dataSet" };
 			if(path.length === 1 && top[path[0]]) return top[path[0]];
 			// A bad time zone came from the JSON, so it goes in the list rather than on a field.
-			if(path[0] === "trigger") return path[1] === "timezone" ? null : "cron";
+			if(path[0] === "trigger" && path[1] === "match"){
+				var m = MATCH_FIELDS.find(function(k){ return k[0] === path[2]; });
+				return m ? m[1] : null;
+			}
+			if(path[0] === "trigger") return path[1] === "timezone" || field("triggerType").value !== "schedule" ? null : "cron";
 			// The pointers are into what was sent, which can have a step more or less than what was loaded.
 			var processors = (sent || def).processors || [];
 			if(path[0] === "processors" && path[2] === "properties" && processors[Number(path[1])]){
 				var type = processors[Number(path[1])].type;
-				if(type === "read-events") return { type: "eventTypes", subType: "eventSubTypes", status: "eventStatuses", source: "eventSources",
-					dataSet: "eventDataSets", metadata: "eventMetadata", advancedFilter: "eventAdvancedFilter" }[path[3]] || null;
+				if(type === "trigger-events") return { dataSet: "eventDataSets", advancedFilter: "eventAdvancedFilter" }[path[3]] || null;
 				if(type === "agent") return ["instructions", "tools", "effort", "maxIterations", "maxOutputTokens", "turnTimeout"].indexOf(path[3]) >= 0 ? path[3] : null;
 			}
 			return null;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
+import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.engine.RunResult;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.engine.RunResult.LogLine;
@@ -350,7 +351,7 @@ public class RunCoordinator {
     }
 
     /** The tenants the loops work for: flagged for flows, with the flow tables in place. */
-    private List<String> flowTenants() {
+    List<String> flowTenants() {
         List<String> out = new ArrayList<>();
         Map<String, Tenant> registry = tenants.cachedTenants;
         if (registry == null || stopping) {
@@ -444,6 +445,9 @@ public class RunCoordinator {
                     return made;
                 }
                 Schedule schedule = Schedule.fromJson(json, record.trigger());
+                if (schedule.evented()) {
+                    return made + tickEvents(record);
+                }
                 Schedule.Due due = schedule.due(record.nextTick(), store.now(), settings.catchUp());
                 List<NewRun> runs = new ArrayList<>();
                 for (Instant tick : due.ticks()) {
@@ -461,6 +465,24 @@ public class RunCoordinator {
         } finally {
             store.unlockSchedule(flowId, owner);
         }
+    }
+
+    /**
+     * Makes the run of an events schedule's tick, which covers the time since the tick before it, or since
+     * the deployment; then the schedule moves on, to a tick of its own if events came meanwhile. As with a
+     * cron tick, the run comes first, so a crash between the two makes the same run again.
+     */
+    private int tickEvents(ScheduleRecord record) {
+        Instant tick = record.nextTick();
+        Instant from = record.lastTick() != null ? record.lastTick() : record.deployedAt();
+        int made = 0;
+        if (from.isBefore(tick)) {
+            made = store.enqueue(new NewRun(scheduledRunId(record.flowId(), tick), record.flowId(), record.externalId(),
+                    record.dataSetId(), record.version(), record.maxAttempts(), record.timeout(),
+                    new TimeWindow(from, tick), null, Schedule.EVENTS, null, record.runAs(), null)) ? 1 : 0;
+        }
+        store.advanceEvents(record.flowId(), tick);
+        return made;
     }
 
     /** The id of the run for a flow's schedule tick: the same however many times the tick is found. */
@@ -508,15 +530,25 @@ public class RunCoordinator {
         }
     }
 
+    /**
+     * Tells the run store of one flow. An events schedule starts with no tick: an event the flow may read
+     * gives it one ({@link EventWakes}), which also asks, for each new or lost schedule, whether one was
+     * recorded since the deployment, or since the last run Postgres knows of. A flow that takes the event
+     * as a signal alone must not run because it was deployed.
+     */
     private void tell(DeployedFlow f) {
         store.syncFlow(new FlowLimits(f.id(), f.externalId(), f.dataSetId(), f.enabled(), true, f.maxConcurrentRuns()));
-        Schedule schedule = f.enabled() && f.identityOk() && f.nextTick() != null && f.trigger() != null
+        Schedule schedule = f.enabled() && f.identityOk() && f.trigger() != null
                 ? Schedule.fromJson(json, f.trigger()) : null;
-        if (schedule == null || !schedule.scheduled()) {
+        if (schedule != null && schedule.evented()) {
+            store.syncSchedule(new ScheduleSpec(f.id(), f.externalId(), f.dataSetId(), f.version(), f.maxAttempts(),
+                    f.timeout(), f.runAs(), f.trigger(), schedule.delay(), f.deployedAt(), null, f.lastTick(),
+                    schedule.debounce()));
+        } else if (schedule == null || !schedule.scheduled() || f.nextTick() == null) {
             store.unschedule(f.id());
         } else {
             store.syncSchedule(new ScheduleSpec(f.id(), f.externalId(), f.dataSetId(), f.version(), f.maxAttempts(),
-                    f.timeout(), f.runAs(), f.trigger(), schedule.delay(), f.deployedAt(), f.nextTick()));
+                    f.timeout(), f.runAs(), f.trigger(), schedule.delay(), f.deployedAt(), f.nextTick(), null, null));
         }
     }
 
@@ -535,7 +567,9 @@ public class RunCoordinator {
         Map<Long, Long> done = saved.computeIfAbsent(tenantId, id -> new ConcurrentHashMap<>());
         List<ScheduleCheckpoint> changed = new ArrayList<>();
         for (ScheduleRecord r : store.schedules(store.scheduledFlows())) {
-            long position = r.nextTick() == null ? -1 : r.nextTick().toEpochMilli();
+            // An events schedule waits with no tick between its runs, so its last tick moves on its own.
+            long position = r.nextTick() == null ? -1 - (r.lastTick() == null ? 0 : r.lastTick().toEpochMilli())
+                    : r.nextTick().toEpochMilli();
             Long before = done.get(r.flowId());
             if (before == null || before != position) {
                 changed.add(new ScheduleCheckpoint(r.flowId(), r.deployedAt(), r.nextTick(),
@@ -544,7 +578,8 @@ public class RunCoordinator {
         }
         if (!changed.isEmpty()) {
             flows.checkpointSchedules(changed);
-            changed.forEach(c -> done.put(c.flowId(), c.nextTick() == null ? -1 : c.nextTick().toEpochMilli()));
+            changed.forEach(c -> done.put(c.flowId(), c.nextTick() == null
+                    ? -1 - (c.lastTick() == null ? 0 : c.lastTick().toEpochMilli()) : c.nextTick().toEpochMilli()));
         }
         checkpointed.put(tenantId, now);
     }

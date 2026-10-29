@@ -326,12 +326,15 @@
 				super.render();
 				fillDataSets(this.formElement.elements.dataSet, def.dataSet);
 				var f = this.formElement.elements, scheduled = this.formElement.querySelectorAll("[data-schedule-only]"),
-					manual = this.formElement.querySelector("[data-manual-only]");
-				var custom = this.formElement.querySelector("[data-custom-cron]");
+					manual = this.formElement.querySelector("[data-manual-only]"), delay = this.formElement.querySelector("[data-delay]");
+				var custom = this.formElement.querySelector("[data-custom-cron]"),
+					events = this.formElement.querySelector("[data-events-only]");
 				var show = () => {
 					var schedule = f.triggerType.value === "schedule";
+					events.hidden = f.triggerType.value !== "events";
 					scheduled.forEach(e => e.hidden = !schedule);
 					manual.hidden = schedule;
+					delay.hidden = f.triggerType.value === "manual";
 					f.window.required = !schedule;   // the Run button starts a run without a window of its own
 					custom.hidden = f.schedule.value !== "custom";
 					f.cron.required = schedule && !custom.hidden;
@@ -339,6 +342,17 @@
 				f.triggerType.addEventListener("change", show);
 				f.schedule.addEventListener("change", show);
 				show();
+				events.querySelectorAll("textarea[data-picker]").forEach(a => EventPicker.attach(a, a.getAttribute("data-picker")));
+				// The event is a signal; taking it into the flow is a step of its own, added here and
+				// connected like any other. What was set in this form is kept first.
+				var add = events.querySelector("[data-add-trigger-events]");
+				if(add) add.addEventListener("click", () => {
+					this.submit();
+					def.processors = def.processors || [];
+					def.processors.push({ id: newId(TRIGGER_EVENTS), type: TRIGGER_EVENTS, properties: {} });
+					changed();
+					Flash.info(L("flows.events.added.now"));
+				});
 				var fields = { name: "name", description: "description", dataSet: "dataSet" };
 				markProblems(this.formElement, p => {
 					var path = problemPath(p.field);
@@ -366,9 +380,18 @@
 
 					<label>${L("flows.field.trigger")}${help(L("flows.field.trigger.type.help"))}</label>
 					<select name="triggerType">
-						<option value="manual" ${t.type !== "schedule" ? "selected" : ""}>${L("flows.trigger.manual")}</option>
+						<option value="manual" ${t.type !== "schedule" && t.type !== "events" ? "selected" : ""}>${L("flows.trigger.manual")}</option>
 						<option value="schedule" ${t.type === "schedule" ? "selected" : ""}>${L("flows.trigger.schedule")}</option>
+						<option value="events" ${t.type === "events" ? "selected" : ""}>${L("flows.trigger.events")}</option>
 					</select>
+					<div data-events-only>
+						<label>${L("flows.events.match")}${help(L("flows.events.match.help"))}</label>
+						${MATCH_FIELDS.map(m => matchField(t.match, m)).join("")}
+						${(def.processors || []).some(p => p.type === TRIGGER_EVENTS)
+							? `<p class="flows-hint">${L("flows.events.added")}</p>`
+							: `<button type="button" class="dh-btn secondary small" data-add-trigger-events>${L("flows.events.add")}</button>
+								<p class="field-hint">${L("flows.events.add.help")}</p>`}
+					</div>
 					<div data-manual-only>
 						<label>${L("flows.field.window")}${help(L("flows.field.window.help"))}</label>
 						<input type="text" name="window" value="${v(friendlyDuration(t.window))}" placeholder="1h"/>
@@ -387,7 +410,7 @@
 
 					<details class="flow-advanced" ${t.delay || x.maxAttempts || x.timeout ? "open" : ""}>
 						<summary>${L("flows.field.advanced")}</summary>
-						<div data-schedule-only>
+						<div data-delay>
 							<label>${L("flows.field.delay")}${help(L("flows.field.trigger.help"))}</label>
 							<input type="text" name="delay" value="${v(friendlyDuration(t.delay))}" placeholder="0s"/>
 						</div>
@@ -414,8 +437,19 @@
 					if(def.trigger && def.trigger.timezone) trigger.timezone = def.trigger.timezone;
 					if(val("delay")) trigger.delay = isoDuration(val("delay"));
 					if(def.trigger && def.trigger.window) trigger.window = def.trigger.window;
-				} else if(val("window")){
-					trigger.window = isoDuration(val("window"));
+				} else {
+					if(val("window")) trigger.window = isoDuration(val("window"));
+					if(trigger.type === "events"){
+						var match = {};
+						MATCH_FIELDS.forEach(m => {
+							var list = val("match_" + m[0]).split("\n").map(x => x.trim()).filter(Boolean);
+							if(list.length) match[m[0]] = list;
+						});
+						if(Object.keys(match).length) trigger.match = match;
+						// a debounce is only set in the JSON view
+						if(val("delay")) trigger.delay = isoDuration(val("delay"));
+						if(def.trigger && def.trigger.type === "events" && def.trigger.debounce) trigger.debounce = def.trigger.debounce;
+					}
 				}
 				def.trigger = trigger;
 				var execution = {};
@@ -429,6 +463,30 @@
 		};
 
 		// ---- the definition ------------------------------------------------------------------------
+
+		var TRIGGER_EVENTS = "trigger-events";
+
+		/**
+		 * The events trigger's filter, as the settings form edits it: the field, its label, its
+		 * placeholder, and whether its values are picked from what DataHub's events have (event-picker.js).
+		 * External ids first: a lifecycle is what a trigger most often listens for.
+		 */
+		var MATCH_FIELDS = [
+			["externalId", "agents.field.event.externalids", "agents.field.event.externalids.placeholder", true],
+			["type", "agents.field.event.types", "flows.picker.placeholder", true],
+			["subType", "agents.field.event.subtypes", "flows.picker.placeholder", true],
+			["status", "agents.field.event.statuses", "flows.picker.placeholder", true],
+			["source", "agents.field.event.sources", "flows.picker.placeholder", true],
+			["metadata", "agents.field.event.metadata", "agents.field.event.metadata.placeholder", false],
+			["excludeSource", "flows.events.exclude", "flows.events.exclude.placeholder", false]];
+
+		function matchField(match, m){
+			var values = match && Array.isArray(match[m[0]]) ? match[m[0]].join("\n") : "";
+			var picker = m[3] ? `data-picker="${m[0]}" data-picker-placeholder="${escapeHtml(L(m[2]))}"`
+				: `placeholder="${escapeHtml(L(m[2]))}"`;
+			return `<label>${L(m[1])}</label>
+				<textarea name="match_${m[0]}" rows="2" class="w100" ${picker}>${escapeHtml(values)}</textarea>`;
+		}
 
 		function text(value){
 			if(value === null || value === undefined) return "";

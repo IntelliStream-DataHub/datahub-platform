@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
+import ai.intellistream.datahub.flow.api.EventMatch;
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.definition.FlowDefinitions;
 import ai.intellistream.datahub.flow.fake.ExampleFlow;
+import ai.intellistream.datahub.models.EventModel;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -134,5 +137,60 @@ class ScheduleTest {
         ((tools.jackson.databind.node.ObjectNode) noDefault.get("parameters").get("window")).remove("default");
         assertThatThrownBy(() -> Schedule.of(FlowDefinitions.parse(noDefault.toString())))
                 .hasMessageContaining("no default");
+    }
+
+    private static final String EVENTS_FLOW = """
+            {
+              "schemaVersion": 1, "externalId": "watch", "dataSet": "ds",
+              "processors": [ { "id": "notify", "type": "test.events.sink", "properties": { "type": "seen" } } ],
+              "trigger": { "type": "events", "window": "PT1H", "match": {
+                "externalId": ["pump-7/*", "Valve-3"], "type": ["alarm"], "metadata": ["site=north", "shift"],
+                "excludeSource": ["agent:*"] } }
+            }
+            """;
+
+    @Test
+    void anEventsTriggerHasItsOwnFilterWhateverItsStepsReadAndSurvivesStorage() {
+        Schedule s = Schedule.of(FlowDefinitions.parse(EVENTS_FLOW));
+
+        assertThat(s.evented()).isTrue();
+        assertThat(s.debounce()).isEqualTo(Schedule.DEFAULT_DEBOUNCE);
+        assertThat(s.delay()).isEqualTo(Schedule.DEFAULT_EVENTS_DELAY);
+        assertThat(s.match().externalId()).containsExactly("pump-7/*", "Valve-3");
+        assertThat(Schedule.fromJson(JSON, s.toJson(JSON))).isEqualTo(s);
+        assertThat(s.defaultWindow(Instant.parse("2026-10-12T11:00:00Z"))).as("a manual run's").isEqualTo(
+                new TimeWindow(Instant.parse("2026-10-12T10:00:00Z"), Instant.parse("2026-10-12T11:00:00Z")));
+
+        Schedule noFilter = Schedule.of(FlowDefinitions.parse("""
+                { "schemaVersion": 1, "externalId": "any", "dataSet": "ds", "trigger": { "type": "events" } }
+                """));
+        assertThat(noFilter.match().matches(event("anything", "x", "plc", Map.of()))).as("no filter: every event").isTrue();
+    }
+
+    @Test
+    void anEventMatchesAsTheApisFilterWouldAnswer() {
+        EventMatch m = Schedule.of(FlowDefinitions.parse(EVENTS_FLOW)).match();
+        Map<String, String> north = Map.of("site", "north", "shift", "b");
+
+        assertThat(m.matches(event("alarm", "pump-7/overpressure", "plc", north))).isTrue();
+        assertThat(m.matches(event("ALARM", "PUMP-7/x", "plc", north)))
+                .as("types and wildcards ignore case, as the api's ILIKE does").isTrue();
+        assertThat(m.matches(event("alarm", "Valve-3", "plc", north))).isTrue();
+        assertThat(m.matches(event("alarm", "valve-3", "plc", north)))
+                .as("an exact external id is compared as written, as the api's hash lookup does").isFalse();
+        assertThat(m.matches(event("info", "pump-7/x", "plc", north))).isFalse();
+        assertThat(m.matches(event("alarm", "pump-9/x", "plc", north))).isFalse();
+        assertThat(m.matches(event("alarm", "pump-7/x", "plc", Map.of("site", "south", "shift", "b")))).isFalse();
+        assertThat(m.matches(event("alarm", "pump-7/x", "plc", Map.of("site", "north")))).isFalse();
+        assertThat(m.matches(event("alarm", "pump-7/x", "agent:watch", north))).as("what an agent wrote").isFalse();
+    }
+
+    private static EventModel event(String type, String externalId, String source, Map<String, String> metadata) {
+        EventModel e = new EventModel();
+        e.setType(type);
+        e.setExternalId(externalId);
+        e.setSource(source);
+        e.setMetadata(metadata);
+        return e;
     }
 }

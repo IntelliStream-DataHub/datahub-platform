@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.flow.processors;
 
 import ai.intellistream.datahub.api.responses.DataWrapper;
+import ai.intellistream.datahub.flow.api.EventMatch;
 import ai.intellistream.datahub.flow.api.EventsContent;
 import ai.intellistream.datahub.flow.api.EventsContent.EventRow;
 import ai.intellistream.datahub.flow.api.Item;
@@ -34,7 +35,7 @@ import java.util.regex.Pattern;
 /**
  * {@code read-events}: reads the events whose event time is in the run's window, one {@code events} item
  * of at most {@code maxEventsPerItem} rows at a time, oldest first. Optionally only some types,
- * subtypes or statuses. A row carries the event's external id, time, status and metadata, which is
+ * subtypes, statuses or external ids. A row carries the event's external id, time, status and metadata, which is
  * what {@code write-events} writes.
  *
  * <p>The api's time filter includes both ends, so events exactly at the window's end are dropped
@@ -73,6 +74,11 @@ public class EventsSource implements Processor {
             .property(PropertyDescriptor.builder("status", PropertyType.LIST)
                     .displayName("Statuses")
                     .description("Statuses to read; every status when unset.")
+                    .advanced().build())
+            .property(PropertyDescriptor.builder("externalId", PropertyType.LIST)
+                    .displayName("External ids")
+                    .description("Events to read by external id, each one lifecycle such as one "
+                            + "alarm; * matches anything, so pump-7/* is a family. Every event when unset.")
                     .advanced().build())
             .property(PropertyDescriptor.builder("source", PropertyType.LIST)
                     .displayName("Sources")
@@ -153,30 +159,34 @@ public class EventsSource implements Processor {
 
     @Override
     public void onTrigger(ProcessContext context, ProcessSession session) {
+        EventMatch wanted = new EventMatch(context.property("externalId").asList(), context.property("type").asList(),
+                context.property("subType").asList(), context.property("status").asList(),
+                context.property("source").asList(), context.property("metadata").asList(),
+                context.property("excludeSource").asList());
+        read(context, session, wanted, context.property("dataSet").asList(), context.property("advancedFilter").asString(),
+                CREATED_TIME.equals(context.property("timeField").asString()),
+                context.property("maxEventsPerItem").asDouble().intValue());
+    }
+
+    /**
+     * Reads the events {@code wanted} and the rest ask for in the run's window, oldest first, and sends
+     * them on {@code success} in items of at most {@code maxRows}.
+     *
+     * @param dataSets  dataset external ids, each with those beneath it; null or empty for any
+     * @param own       an advanced filter expression, ANDed in parentheses
+     * @param byCreated whether the window bounds when an event was recorded rather than when it happened
+     */
+    static void read(ProcessContext context, ProcessSession session, EventMatch wanted, List<String> dataSets,
+                     String own, boolean byCreated, int maxRows) {
+        EventFilter filter = wanted.filter();
+        List<String> exclude = wanted.excludeSource();
         TimeWindow runWindow = context.window()
                 .orElseThrow(() -> new ProcessException("The run has no window to read"));
         Instant from = runWindow.start();
         Instant to = runWindow.end();
-        int maxRows = context.property("maxEventsPerItem").asDouble().intValue();
-        boolean byCreated = CREATED_TIME.equals(context.property("timeField").asString());
-
-        EventFilter filter = new EventFilter();
-        filter.setType(context.property("type").asList());
-        filter.setSubType(context.property("subType").asList());
-        filter.setStatus(context.property("status").asList());
-        filter.setSource(context.property("source").asList());
-        List<String> dataSets = context.property("dataSet").asList();
         // Null is no restriction; an empty list would match no events at all.
         filter.setDataSetId(dataSets == null || dataSets.isEmpty() ? null
                 : dataSets.stream().map(EventsSource::byExternalId).toList());
-        List<String> metadata = context.property("metadata").asList();
-        if (metadata != null) {
-            for (String entry : metadata) {
-                int eq = entry.indexOf('=');
-                filter.getMetadata().put(eq < 0 ? entry.trim() : entry.substring(0, eq).trim(),
-                        eq < 0 ? null : entry.substring(eq + 1).trim());
-            }
-        }
         TimeFilter window = new TimeFilter();
         window.setMin(from.atZone(ZoneOffset.UTC));
         window.setMax(to.atZone(ZoneOffset.UTC));
@@ -185,19 +195,13 @@ public class EventsSource implements Processor {
         } else {
             filter.setEventTime(window);
         }
-        // The exclusion goes as an expression the api parses and binds; * is SQL's %, and the
-        // patterns were checked at save time (no quote can be in one). An event with no source is
-        // kept: the guard is for a store that keeps that as null.
-        // The user's own expression goes in parentheses, so an OR in it cannot undo an exclusion.
-        List<String> exclude = context.property("excludeSource").asList();
+        // The exclusion goes as an expression the api parses and binds. The user's own expression goes
+        // in parentheses, so an OR in it cannot undo an exclusion.
         List<String> clauses = new ArrayList<>();
-        String own = context.property("advancedFilter").asString();
         if (own != null && !own.isBlank()) {
             clauses.add("(" + own.strip() + ")");
         }
-        if (exclude != null) {
-            exclude.forEach(p -> clauses.add("(source IS NULL OR source NOT LIKE '" + p.replace("*", "%") + "')"));
-        }
+        clauses.addAll(EventMatch.exclusions(exclude));
         String advanced = clauses.isEmpty() ? null : String.join(" AND ", clauses);
 
         List<EventRow> rows = new ArrayList<>();

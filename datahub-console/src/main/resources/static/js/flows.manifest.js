@@ -7,6 +7,7 @@
 // cytoscape with dagre as raw scripts, the way the resources graph does.
 //
 //= require flows/flow-api.js
+//= require flows/event-picker.js
 //= require flows/run-as.js
 //= require flows/flow-runs.js
 //= require flows/flows-list.js

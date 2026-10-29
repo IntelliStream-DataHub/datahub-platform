@@ -88,8 +88,8 @@
 								<option value="events" th:text="#{agents.trigger.events}"></option>
 							</select>
 						</div>
-						<div class="settings-field" data-when-trigger="schedule events">
-							<label for="agent-every" data-type="agent-every-label" th:text="#{agents.field.every}"></label>
+						<div class="settings-field" data-when-trigger="schedule">
+							<label for="agent-every" th:text="#{agents.field.every}"></label>
 							<select id="agent-every" name="every">
 								<option value="0 */5 * * * *" th:text="#{agents.every.5m}"></option>
 								<option value="0 */15 * * * *" th:text="#{agents.every.15m}"></option>
@@ -102,7 +102,7 @@
 							</select>
 							<p class="field-help" data-type="agent-zone"></p>
 						</div>
-						<div class="settings-field" data-when-trigger="schedule events" data-type="agent-cron-field">
+						<div class="settings-field" data-when-trigger="schedule" data-type="agent-cron-field">
 							<label for="agent-cron" th:text="#{agents.field.cron}"></label>
 							<input id="agent-cron" name="cron" type="text" placeholder="0 */15 * * * *"/>
 							<p class="field-help" th:text="#{agents.field.cron.help}"></p>
@@ -116,39 +116,48 @@
 
 				<section class="settings-group" data-when-trigger="events">
 					<h3 class="settings-group-title" th:text="#{agents.section.events}"></h3>
+					<div class="settings-field">
+						<label for="agent-event-external-ids" th:text="#{agents.field.event.externalids}"></label>
+						<textarea id="agent-event-external-ids" name="eventExternalIds" rows="3" th:attr="data-picker-placeholder=#{agents.field.event.externalids.placeholder}"></textarea>
+						<p class="field-error" data-error-for="eventExternalIds" hidden></p>
+					</div>
 					<div class="settings-row">
 						<div class="settings-field">
 							<label for="agent-event-types" th:text="#{agents.field.event.types}"></label>
-							<textarea id="agent-event-types" name="eventTypes" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<textarea id="agent-event-types" name="eventTypes" rows="3" th:attr="data-picker-placeholder=#{flows.picker.placeholder}"></textarea>
 							<p class="field-error" data-error-for="eventTypes" hidden></p>
 						</div>
 						<div class="settings-field">
 							<label for="agent-event-subtypes" th:text="#{agents.field.event.subtypes}"></label>
-							<textarea id="agent-event-subtypes" name="eventSubTypes" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<textarea id="agent-event-subtypes" name="eventSubTypes" rows="3" th:attr="data-picker-placeholder=#{flows.picker.placeholder}"></textarea>
 							<p class="field-error" data-error-for="eventSubTypes" hidden></p>
-						</div>
-						<div class="settings-field">
-							<label for="agent-event-statuses" th:text="#{agents.field.event.statuses}"></label>
-							<textarea id="agent-event-statuses" name="eventStatuses" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
-							<p class="field-error" data-error-for="eventStatuses" hidden></p>
 						</div>
 					</div>
 					<div class="settings-row">
 						<div class="settings-field">
+							<label for="agent-event-statuses" th:text="#{agents.field.event.statuses}"></label>
+							<textarea id="agent-event-statuses" name="eventStatuses" rows="3" th:attr="data-picker-placeholder=#{flows.picker.placeholder}"></textarea>
+							<p class="field-error" data-error-for="eventStatuses" hidden></p>
+						</div>
+						<div class="settings-field">
 							<label for="agent-event-sources" th:text="#{agents.field.event.sources}"></label>
-							<textarea id="agent-event-sources" name="eventSources" rows="3" th:placeholder="#{flows.field.list.placeholder}"></textarea>
+							<textarea id="agent-event-sources" name="eventSources" rows="3" th:attr="data-picker-placeholder=#{flows.picker.placeholder}"></textarea>
 							<p class="field-error" data-error-for="eventSources" hidden></p>
 						</div>
-						<div class="settings-field">
-							<label for="agent-event-datasets" th:text="#{agents.field.event.datasets}"></label>
-							<textarea id="agent-event-datasets" name="eventDataSets" rows="3" th:placeholder="#{agents.field.event.datasets.placeholder}"></textarea>
-							<p class="field-error" data-error-for="eventDataSets" hidden></p>
-						</div>
-						<div class="settings-field">
-							<label for="agent-event-metadata" th:text="#{agents.field.event.metadata}"></label>
-							<textarea id="agent-event-metadata" name="eventMetadata" rows="3" th:placeholder="#{agents.field.event.metadata.placeholder}"></textarea>
-							<p class="field-error" data-error-for="eventMetadata" hidden></p>
-						</div>
+					</div>
+					<div class="settings-field">
+						<label for="agent-event-metadata" th:text="#{agents.field.event.metadata}"></label>
+						<textarea id="agent-event-metadata" name="eventMetadata" rows="3" th:placeholder="#{agents.field.event.metadata.placeholder}"></textarea>
+						<p class="field-error" data-error-for="eventMetadata" hidden></p>
+					</div>
+					<p class="field-help" th:text="#{agents.events.help}"></p>
+					<p class="field-help" th:text="#{agents.events.fixed}"></p>
+
+					<h4 class="settings-group-subtitle" th:text="#{agents.section.events.read}"></h4>
+					<div class="settings-field">
+						<label for="agent-event-datasets" th:text="#{agents.field.event.datasets}"></label>
+						<textarea id="agent-event-datasets" name="eventDataSets" rows="3" th:placeholder="#{agents.field.event.datasets.placeholder}"></textarea>
+						<p class="field-error" data-error-for="eventDataSets" hidden></p>
 					</div>
 					<div class="settings-field">
 						<label for="agent-event-advanced" th:text="#{events.advanced.filter}"></label>
@@ -156,8 +165,7 @@
 								  th:placeholder="#{events.advanced.filter.placeholder}"></textarea>
 						<p class="field-error" data-error-for="eventAdvancedFilter" hidden></p>
 					</div>
-					<p class="field-help" th:text="#{agents.events.help}"></p>
-					<p class="field-help" th:text="#{agents.events.fixed}"></p>
+					<p class="field-help" th:text="#{agents.events.read.help}"></p>
 				</section>
 
 				<section class="settings-group">

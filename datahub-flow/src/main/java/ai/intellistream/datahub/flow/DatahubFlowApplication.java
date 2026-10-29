@@ -8,6 +8,7 @@ import ai.intellistream.datahub.config.PulsarConfig;
 import ai.intellistream.datahub.config.PulsarVaultSecrets;
 import ai.intellistream.datahub.config.VaultConfigurationLoader;
 import ai.intellistream.datahub.flow.config.FlowVaultSecrets;
+import ai.intellistream.datahub.pulsar.TopicNames;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import ai.intellistream.datahub.tenant.TenantLlmStore;
@@ -25,7 +26,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  * ({@code TenantConfigService}, and {@code TenantLlmStore} which it is built with) and the
  * {@code VaultProperties} bean, imported one by one, with {@code TenantConfigWriter} for reading the
  * tenant's flow settings (the names of its secrets), and from infra the Pulsar client and admin
- * ({@code PulsarConfig}) and the per-tenant ClickHouse clients the run records are stored and read
+ * ({@code PulsarConfig}) with the topic names ({@code TopicNames}, for the events topic that wakes
+ * event-triggered flows), and the per-tenant ClickHouse clients the run records are stored and read
  * with ({@code ClickHouseClientPool}); infra's configuration package is not scanned, so its JPA,
  * Neo4j and Valkey wiring stays off. Scheduling is enabled for the registry's five-minute refresh,
  * which is also what announces a tenant added while the service runs.
@@ -33,7 +35,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @EnableScheduling
 @Import({BaseConfig.class, TenantConfigService.class, TenantLlmStore.class, TenantConfigWriter.class,
-		PulsarConfig.class, ClickHouseClientPool.class})
+		PulsarConfig.class, TopicNames.class, ClickHouseClientPool.class})
 public class DatahubFlowApplication {
 
 	public static void main(String[] args) {

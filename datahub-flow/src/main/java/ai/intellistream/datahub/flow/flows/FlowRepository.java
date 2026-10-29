@@ -300,15 +300,16 @@ public class FlowRepository {
      *
      * @param trigger    the deployed trigger as JSON
      * @param nextTick   the schedule's next tick as last checkpointed here, null when it has none
+     * @param lastTick   the latest tick made into a run as last checkpointed here, null if none yet
      * @param deployedAt when it was deployed: a different one means the schedule starts over
      */
     public record DeployedFlow(long id, String externalId, long dataSetId, boolean enabled, int maxConcurrentRuns,
-                               int version, String trigger, Instant nextTick, Instant deployedAt, int maxAttempts,
-                               Duration timeout, String runAs, boolean identityOk) {
+                               int version, String trigger, Instant nextTick, Instant lastTick, Instant deployedAt,
+                               int maxAttempts, Duration timeout, String runAs, boolean identityOk) {
     }
 
     private static final String DEPLOYED = "SELECT id, external_id, data_set_id, enabled, max_concurrent_runs, "
-            + "deployed_version, trigger::text AS trigger, next_tick, deployed_at, max_attempts, "
+            + "deployed_version, trigger::text AS trigger, next_tick, last_tick, deployed_at, max_attempts, "
             + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
             + "coalesce(identity_subject, identity_client_name) AS run_as, identity_state FROM flow "
             + "WHERE deployed_version IS NOT NULL";
@@ -316,7 +317,7 @@ public class FlowRepository {
     private static DeployedFlow deployed(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
                 rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs"), rs.getInt("deployed_version"),
-                rs.getString("trigger"), instant(rs.getTimestamp("next_tick")),
+                rs.getString("trigger"), instant(rs.getTimestamp("next_tick")), instant(rs.getTimestamp("last_tick")),
                 instant(rs.getTimestamp("deployed_at")), rs.getInt("max_attempts"),
                 Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("run_as"),
                 "ok".equals(rs.getString("identity_state")));
