@@ -75,8 +75,7 @@ public class SecurityConfig {
         http
                 .securityMatcher("/flows/deployment/callback")
                 .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
-                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .csrf(AbstractHttpConfigurer::disable);
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         return http.build();
     }
 
@@ -94,6 +93,9 @@ public class SecurityConfig {
                 .addFilterAfter(new FlowTenantFilter(tenantConfigService, schemaCheck, jsonMapper),
                         AuthorizationFilter.class)
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                // Bearer tokens only, no cookies: a cross-site request carries no credentials to
+                // forge with. Left on, CSRF would answer a tokenless write 403 instead of 401 and
+                // open a session to hold its token.
                 .csrf(AbstractHttpConfigurer::disable);
         return http.build();
     }

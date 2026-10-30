@@ -248,4 +248,29 @@ class DeployAuthorizationTest {
                 .isEqualTo(new DeployAuthorization.Outcome.Page(true,
                         "Flow temp_hourly is deployed. You can close this page."));
     }
+
+    @Test
+    void aFailedSaveKeepsItsCauseOffThePage() {
+        DeployAuthorization standalone = new DeployAuthorization(flowService, flows, runService, keycloak,
+                offlineTokens, clients, decoder, JSON, "http://localhost:8084", "", api.url(), clock);
+        when(runService.plan(eq(FLOW), any())).thenThrow(new IllegalStateException("db-7.internal:5432 refused"));
+
+        DeployAuthorization.Outcome outcome = standalone.callback("the-code", state("user-1", NOW.plusSeconds(60)), null);
+
+        assertThat(outcome).isInstanceOfSatisfying(DeployAuthorization.Outcome.Page.class, page -> {
+            assertThat(page.deployed()).isFalse();
+            assertThat(page.message()).doesNotContain("db-7");
+        });
+    }
+
+    @Test
+    void aVersionThatCannotBeDeployedSaysWhy() {
+        DeployAuthorization standalone = new DeployAuthorization(flowService, flows, runService, keycloak,
+                offlineTokens, clients, decoder, JSON, "http://localhost:8084", "", api.url(), clock);
+        when(runService.plan(eq(FLOW), any())).thenThrow(FlowProblems.notFound("Flow temp_hourly has no version 3."));
+
+        assertThat(standalone.callback("the-code", state("user-1", NOW.plusSeconds(60)), null))
+                .isEqualTo(new DeployAuthorization.Outcome.Page(false,
+                        "The flow could not be deployed: Flow temp_hourly has no version 3."));
+    }
 }

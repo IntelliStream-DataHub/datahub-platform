@@ -3,6 +3,7 @@ package ai.intellistream.datahub.flow.identity;
 
 import ai.intellistream.datahub.flow.access.Caller;
 import ai.intellistream.datahub.flow.definition.FlowValidator;
+import ai.intellistream.datahub.flow.definition.InvalidFlowException;
 import ai.intellistream.datahub.flow.flows.FlowRepository;
 import ai.intellistream.datahub.flow.flows.FlowRepository.Identity;
 import ai.intellistream.datahub.flow.flows.FlowRepository.StoredFlow;
@@ -35,6 +36,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Deploying a flow as an OAuth authorization: the person deploying is sent to Keycloak, consents to
@@ -191,9 +193,18 @@ public class DeployAuthorization {
             DeploymentPlan plan = runService.plan(flow, state.version());
             offlineTokens.store(state.tenantId(), flow.id(), tokens.refreshToken());
             runService.apply(plan, state.enabled(), Identity.deployer(state.initiator()), state.initiator());
+        } catch (FlowProblems.ProblemException e) {
+            // Written for whoever is deploying: the version is gone, or no longer schedules.
+            return failed(flow, "deploy-failed", "The flow could not be deployed: " + e.problem().getDetail());
+        } catch (InvalidFlowException e) {
+            return failed(flow, "deploy-failed", "The flow no longer compiles: " + e.problems().stream()
+                    .map(p -> p.pointer() + ": " + p.message()).collect(Collectors.joining("; ")));
         } catch (RuntimeException e) {
+            // Anything else is the service's own failure, and its message may name hosts, tables or
+            // keys: the log has it, the page (which no token guards) does not.
             log.error("Deploying flow {} failed after Keycloak authorised it", flow.externalId(), e);
-            return failed(flow, "deploy-failed", "The deployment could not be saved: " + e.getMessage());
+            return failed(flow, "deploy-failed", "The deployment could not be saved. Try again, or ask "
+                    + "an administrator to look in the flow service's log.");
         }
         log.info("Flow {} deployed at version {} as its deployer", flow.externalId(), state.version());
         return consoleUrl.isEmpty()
