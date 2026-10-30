@@ -41,6 +41,8 @@ let GRAPH_COLORS = graphPalette();
 // otherwise, which left anything larger cut off at its nearest 5,000. It streams the network now, and
 // the view draws a large one group by group (graph-view.js, big mode), so the whole network is fetched.
 const NETWORK_LIMIT = -1;
+// Numbers each render of the view menu, so its label ids stay unique when a page holds two graphs.
+let viewMenuSeq = 0;
 
 class GraphNetwork {
 
@@ -83,7 +85,18 @@ class GraphNetwork {
             if (this.activeTooltip && !this.activeTooltip.contains(event.target)) {
                 this.removeTooltip();
             }
+            // The View menu closes the same way, unless the press is on the menu or its button.
+            if (this.viewMenu && !this.viewMenu.hidden && !this.viewMenu.contains(event.target) && !this.viewBtn.contains(event.target)) {
+                this.closeViewMenu();
+            }
         };
+        // Esc closes the View menu, and stops drawing a relation.
+        this.onKeyDown = (event) => {
+            if (event.key !== 'Escape') return;
+            if (this.viewMenu && !this.viewMenu.hidden) this.closeViewMenu();
+            else if (this.addEdgeModeEnabled) this.setDrawMode(false);
+        };
+        document.addEventListener('keydown', this.onKeyDown);
         document.addEventListener('pointerdown', this.onDocumentPointerDown, true);
 
         this.cy.on('grab', 'node', (e) => {
@@ -117,8 +130,8 @@ class GraphNetwork {
         this.cy.on('select', 'node.dot', (evt) => this.view.select(evt.target.id()));
         this.cy.on('unselect', 'node.dot', () => this.view.clearSel());
 
-        this.createAddRelationsBtn();
-        this.createRearrangeBtn();
+        this.setupEdgeHandles();
+        this.createViewMenu();
         this.filter = new GraphFilter(this);
     }
 
@@ -134,8 +147,10 @@ class GraphNetwork {
         this.hideNodeTooltip();
         this.themeObserver.disconnect();
         document.removeEventListener('pointerdown', this.onDocumentPointerDown, true);
+        document.removeEventListener('keydown', this.onKeyDown);
+        if (this.stopIconsInMenu) this.stopIconsInMenu();
         if (this.eh) this.eh.destroy();
-        [this.addRelBtn, this.rearrangeBtn].forEach(btn => btn && btn.remove());
+        [this.viewBtn, this.viewMenu, this.drawHint].forEach(el => el && el.remove());
         this.view.destroy();
         if (this.container.__graphNetwork === this) delete this.container.__graphNetwork;
     }
@@ -917,24 +932,120 @@ class GraphNetwork {
         this.view.redraw();
     }
 
-    // Forget this graph's saved arrangement and lay it out afresh. The only layout control: the
-    // arrangement is otherwise kept, so the picture stays the same from one load to the next.
-    createRearrangeBtn() {
-        this.rearrangeBtn = Object.assign(document.createElement('button'), {
+    // ---- the View menu -------------------------------------------------------------------------------
+    // One button at the top right opens a menu of ways to show the graph, each a row of choices like the
+    // network lab's, and the two things you do to the drawing itself: lay it out afresh, and draw a
+    // relation by dragging. The choices are kept in this browser.
+    createViewMenu() {
+        this.viewBtn = Object.assign(document.createElement('button'), {
             type: 'button',
-            className: 'dh-btn secondary network-btns rearrange-btn',
-            title: $L('graph.rearrange'),
-            innerHTML: '<i class="fa fa-fw fa-circle-nodes"></i>'
+            className: 'dh-btn secondary network-btns view-btn',
+            title: $L('graph.view'),
+            innerHTML: '<i class="fa fa-fw fa-sliders"></i>'
         });
-        this.rearrangeBtn.addEventListener('click', () => {
-            this.removeTooltip();
-            this.view.rearrange();
-        });
-        this.container.appendChild(this.rearrangeBtn);
+        this.viewBtn.setAttribute('aria-haspopup', 'true');
+        this.viewBtn.setAttribute('aria-expanded', 'false');
+        this.viewBtn.addEventListener('click', () => this.viewMenu.hidden ? this.openViewMenu() : this.closeViewMenu());
+        this.viewMenu = Object.assign(document.createElement('div'), { className: 'dh-graph-view-menu', hidden: true });
+        this.viewMenu.addEventListener('pointerdown', e => e.stopPropagation());
+        this.container.append(this.viewBtn, this.viewMenu);
+        // A choice made elsewhere (the icon style in another tab's graph) shows here too.
+        this.stopIconsInMenu = GraphIcons.subscribe(() => { if (!this.viewMenu.hidden) this.renderViewMenu(); });
     }
 
-    createAddRelationsBtn() {
-        // Initialize edge handles
+    // The rows of the menu: what each shows, its choices, and how it reads and sets the current one.
+    // A row marked small applies only to graphs drawn whole, not to a big graph drawn group by group. A row
+    // marked look does not apply to the classic view, which draws as the console did before.
+    viewChoices() {
+        const option = (key, label, choices, small, look) => ({ key, label, small, look, choices,
+            get: () => this.view.options()[key], set: v => this.view.setOptions({ [key]: v }) });
+        return [
+            option('layout', 'graph.view.layout', [['network', 'graph.view.layout.network'], ['diagram', 'graph.view.layout.diagram'], ['classic', 'graph.view.layout.classic']], true),
+            option('nodes', 'graph.view.nodes', [['dots', 'graph.view.nodes.dots'], ['pills', 'graph.view.nodes.pills']], true, true),
+            option('size', 'graph.view.size', [['importance', 'graph.view.size.importance'], ['same', 'graph.view.size.same']], true, true),
+            option('lines', 'graph.view.lines', [['curved', 'graph.view.lines.curved'], ['straight', 'graph.view.lines.straight']], true, true),
+            option('arrows', 'graph.view.arrows', [['on', 'graph.view.arrows.on'], ['off', 'graph.view.arrows.off']], true, true),
+            { key: 'icons', label: 'graph.icons', look: true, get: () => GraphIcons.style(), set: v => GraphIcons.setStyle(v),
+              choices: [['symbols', 'graph.icons.symbols'], ['simple', 'graph.icons.simple'], ['none', 'graph.icons.none']] },
+            option('flows', 'graph.view.flows', [['on', 'graph.view.flows.on'], ['off', 'graph.view.flows.off']]),
+        ];
+    }
+
+    openViewMenu() {
+        this.removeTooltip();
+        this.renderViewMenu();
+        this.viewMenu.hidden = false;
+        this.viewBtn.setAttribute('aria-expanded', 'true');
+        const first = this.viewMenu.querySelector('button[aria-pressed="true"]:not(:disabled)');
+        if (first) first.focus();
+    }
+
+    closeViewMenu() {
+        this.viewMenu.hidden = true;
+        this.viewBtn.setAttribute('aria-expanded', 'false');
+    }
+
+    renderViewMenu() {
+        const big = this.view.isBig(), menu = this.viewMenu, uid = 'gv' + (++viewMenuSeq);
+        menu.replaceChildren();
+        let gated = false;
+        const classic = !big && this.view.options().layout === 'classic';
+        this.viewChoices().forEach(row => {
+            const off = (!!row.small && big) || (!!row.look && classic);
+            gated = gated || (off && big);
+            const group = Object.assign(document.createElement('div'), { className: 'gv-row' });
+            const label = Object.assign(document.createElement('span'), { className: 'gv-label', id: uid + '-' + row.key, textContent: $L(row.label) });
+            const seg = Object.assign(document.createElement('div'), { className: 'gv-seg' });
+            seg.setAttribute('role', 'group');
+            seg.setAttribute('aria-labelledby', label.id);
+            const now = row.get();
+            row.choices.forEach(([value, text]) => {
+                const b = Object.assign(document.createElement('button'), { type: 'button', textContent: $L(text), disabled: off });
+                b.setAttribute('aria-pressed', String(value === now && !off));   // a greyed row shows no choice as made
+                b.addEventListener('click', () => { if (row.get() !== value) { row.set(value); this.renderViewMenu(); } });
+                seg.append(b);
+            });
+            group.append(label, seg);
+            menu.append(group);
+        });
+        if (gated) menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.big', null, [this.view.bigAbove.toLocaleString()]) }));
+        else if (this.view.options().layout !== 'network' && this.view.tooLargeForDiagram()) {
+            menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.diagram.big', null, [this.view.diagramMax.toLocaleString()]) }));
+        } else if (classic) menu.append(Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.classic.note') }));
+        const actions = Object.assign(document.createElement('div'), { className: 'gv-actions' });
+        const action = (icon, text, title, fn) => {
+            const b = Object.assign(document.createElement('button'), { type: 'button', className: 'gv-action', title: title || '' });
+            b.innerHTML = `<i class="fa fa-fw ${icon}"></i><span></span>`;
+            b.querySelector('span').textContent = text;
+            b.addEventListener('click', fn);
+            actions.append(b);
+        };
+        action('fa-circle-nodes', $L('graph.view.rearrange'), $L('graph.rearrange'), () => { this.closeViewMenu(); this.removeTooltip(); this.view.rearrange(); });
+        action('fa-diagram-project', this.addEdgeModeEnabled ? $L('graph.view.draw.stop') : $L('graph.view.draw'), $L('create.relation.between.2.nodes'),
+            () => { this.closeViewMenu(); this.setDrawMode(!this.addEdgeModeEnabled); });
+        menu.append(actions, Object.assign(document.createElement('p'), { className: 'gv-note', textContent: $L('graph.view.saved') }));
+    }
+
+    // Drawing a relation: drag from one resource to another, then pick the relation type. While it is on,
+    // the View button is lit and a note on the graph says how to stop.
+    setDrawMode(on) {
+        this.addEdgeModeEnabled = on;
+        this.container.style.cursor = on ? 'grab' : 'default';
+        this.viewBtn.classList.toggle('active', on);
+        if (on) { this.removeTooltip(); this.eh.enableDrawMode(); } else this.eh.disableDrawMode();
+        if (on && !this.drawHint) {
+            this.drawHint = Object.assign(document.createElement('div'), { className: 'dh-graph-mode' });
+            this.drawHint.innerHTML = '<span></span><button type="button" class="gv-action"><i class="fa fa-fw fa-xmark"></i><span></span></button>';
+            this.drawHint.querySelector(':scope > span').textContent = $L('graph.view.draw.hint');
+            this.drawHint.querySelector('button span').textContent = $L('graph.view.draw.stop');
+            this.drawHint.querySelector('button').addEventListener('click', () => this.setDrawMode(false));
+            this.container.append(this.drawHint);
+        }
+        if (this.drawHint) this.drawHint.hidden = !on;
+    }
+
+    setupEdgeHandles() {
+        this.addEdgeModeEnabled = false;
         this.eh = this.cy.edgehandles({
             snap: false, // snap to nearest node
             snapThreshold: 5,
@@ -977,34 +1088,8 @@ class GraphNetwork {
             picker.cancelButton.addEventListener('pointerdown', e => {
                 addedEdge.remove();
             });
-            this.container.style.cursor = 'default';
-            this.addRelBtn.classList.remove("active");
-            this.addEdgeModeEnabled = false;
-            this.eh.disableDrawMode();
+            this.setDrawMode(false);
         });
-
-
-        this.addRelBtn = Object.assign(document.createElement('button'), {
-            className: "dh-btn secondary network-btns add-rel-btn",
-            title: $L('create.relation.between.2.nodes'),
-            innerHTML: `<i class="fa fa-fw fa-diagram-project"></i>`
-        });
-        this.addEdgeModeEnabled = false;
-        this.addRelBtn.addEventListener('click', e => {
-            if(this.addEdgeModeEnabled){
-                this.container.style.cursor = 'default';
-                this.addRelBtn.classList.remove("active");
-                this.addEdgeModeEnabled = false;
-                this.eh.disableDrawMode();
-            } else {
-                this.addEdgeModeEnabled = true;
-                this.container.style.cursor = 'grab';
-                this.removeTooltip();
-                this.addRelBtn.classList.add("active");
-                this.eh.enableDrawMode();
-            }
-        });
-        this.container.appendChild(this.addRelBtn);
     }
 }
 /*
@@ -1063,17 +1148,9 @@ class GraphFilter {
                 <main class="datahub-form-fields">
                     <label>${$L('filter.by.name')}</label>
                     <input type="text" class="gf-name" placeholder="${$L('filter.by.name')}"/>
-                    <div class="gf-group" data-group="icons">
-                        <h3 class="gf-group-title">${$L('graph.icons')}</h3>
-                        <select class="gf-icon-style" aria-label="${$L('graph.icons')}">
-                            <option value="symbols">${$L('graph.icons.symbols')}</option>
-                            <option value="simple">${$L('graph.icons.simple')}</option>
-                            <option value="none">${$L('graph.icons.none')}</option>
-                        </select>
-                        <p class="gf-hint">${$L('graph.icons.hint')}</p>
-                    </div>
                     <div class="gf-group" data-group="labels">
                         <h3 class="gf-group-title">${$L('labels')}</h3>
+                        <p class="gf-hint gf-labels-hint">${$L('graph.icons.hint')}</p>
                         <ul class="data-list slim gf-list"></ul>
                     </div>
                     <div class="gf-group" data-group="relTypes">
@@ -1106,9 +1183,6 @@ class GraphFilter {
             this.state.name = e.target.value;
             this.apply();
         });
-        const style = this.panel.querySelector('.gf-icon-style');
-        style.value = GraphIcons.style();
-        style.addEventListener('change', () => { GraphIcons.setStyle(style.value); this.paintIconButtons(); });
         // A label's icon button shows its image once that has loaded, and a warning if it could not be.
         this.stopIcons = GraphIcons.subscribe(() => this.paintIconButtons());
         this.panel.querySelector('[data-type="gf-close"]').addEventListener('click', () => this.closePanel());
