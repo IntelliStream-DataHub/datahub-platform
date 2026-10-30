@@ -5,6 +5,7 @@ import ai.intellistream.datahub.flow.agents.ExternalMcp;
 import ai.intellistream.datahub.flow.processors.Agent;
 import ai.intellistream.datahub.flow.store.AgentTranscripts;
 import ai.intellistream.datahub.llm.LlmBackends;
+import ai.intellistream.datahub.llm.mcp.ClientCredentialsTokens;
 import ai.intellistream.datahub.llm.mcp.StatelessMcpClient;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
@@ -58,14 +59,17 @@ public class AgentConfig {
 
     /**
      * The tenants' own tool servers: a client that follows no redirect, since the URL is the
-     * tenant's and leads where it says, and the private-network rule the deployment set.
+     * tenant's and leads where it says, and the private-network rule the deployment set, for the
+     * servers and their token endpoints alike.
      */
     @Bean
     ExternalMcp externalMcp(JsonMapper json, AgentProperties properties,
                             @Value("${datahub.outbound.allow-private-networks:false}") boolean allowPrivateNetworks) {
         HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
                 .followRedirects(HttpClient.Redirect.NEVER).build();
-        return new ExternalMcp(http, json, properties.getExternalToolTimeout(), allowPrivateNetworks);
+        Duration timeout = properties.getExternalToolTimeout();
+        return new ExternalMcp(http, json, timeout, allowPrivateNetworks,
+                new ClientCredentialsTokens(http, json, timeout, allowPrivateNetworks, Clock.systemUTC()));
     }
 
     @Bean

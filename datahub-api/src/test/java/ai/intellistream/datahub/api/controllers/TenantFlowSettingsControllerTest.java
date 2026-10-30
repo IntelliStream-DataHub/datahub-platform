@@ -95,7 +95,7 @@ class TenantFlowSettingsControllerTest {
         mvc.perform(delete("/tenant/settings/flow/mcp-servers/crm"))
                 .andExpect(status().isNoContent())
                 .andExpect(content().string(""));
-        verify(service).putFlowMcpServer("crm", new TenantFlowMcpServerForm("https://crm.example/mcp", "X-Api-Key", "k"));
+        verify(service).putFlowMcpServer("crm", new TenantFlowMcpServerForm("https://crm.example/mcp", null, "X-Api-Key", "k", null, null, null, null, null));
         verify(service).removeFlowMcpServer("crm");
     }
 }

@@ -45,8 +45,8 @@
 			</section>
 
 			<!--/* One form for a new server and for editing one: the name is fixed while editing, and
-			       the credential field stays empty, since the stored one is never returned and empty
-			       means "keep it". */-->
+			       the credential fields (header value, client secret) stay empty, since the stored one
+			       is never returned and empty means "keep it". */-->
 			<form class="datahub-form-fields settings-form" data-type="mcp-server-form" hidden novalidate>
 				<section class="settings-group">
 					<h3 class="settings-group-title" data-type="mcp-server-form-title"
@@ -69,7 +69,17 @@
 						<p class="field-error" data-error-for="url" hidden></p>
 					</div>
 
-					<div class="settings-row">
+					<div class="settings-field">
+						<label for="auth" th:text="#{agents.servers.auth}"></label>
+						<select id="auth" name="auth">
+							<option value="header" th:text="#{agents.servers.auth.header}"></option>
+							<option value="client-credentials" th:text="#{agents.servers.auth.clientcredentials}"></option>
+						</select>
+						<p class="field-error" data-error-for="auth" hidden></p>
+					</div>
+
+					<!--/* Shown when auth is "header": one fixed header on every call. */-->
+					<div class="settings-row" data-auth="header">
 						<div class="settings-field">
 							<label for="headerName" th:text="#{agents.servers.headername}"></label>
 							<input id="headerName" name="headerName" type="text" autocomplete="off"
@@ -83,6 +93,45 @@
 							       th:attr="placeholder=#{agents.servers.headervalue.placeholder}"/>
 							<p class="field-help" data-type="headervalue-help" th:text="#{agents.servers.headervalue.help}"></p>
 							<p class="field-error" data-error-for="headerValue" hidden></p>
+						</div>
+					</div>
+
+					<!--/* Shown when auth is "client-credentials": the flow service takes a token at the
+					       token URL as this client and sends it as a Bearer token. */-->
+					<div data-auth="client-credentials" hidden>
+						<div class="settings-field">
+							<label for="tokenUrl" th:text="#{agents.servers.tokenurl}"></label>
+							<input id="tokenUrl" name="tokenUrl" type="text" autocomplete="off"
+							       th:attr="placeholder=#{agents.servers.tokenurl.placeholder}"/>
+							<p class="field-help" th:text="#{agents.servers.tokenurl.help}"></p>
+							<p class="field-error" data-error-for="tokenUrl" hidden></p>
+						</div>
+						<div class="settings-row">
+							<div class="settings-field">
+								<label for="clientId" th:text="#{agents.servers.clientid}"></label>
+								<input id="clientId" name="clientId" type="text" autocomplete="off"/>
+								<p class="field-error" data-error-for="clientId" hidden></p>
+							</div>
+							<div class="settings-field">
+								<label for="clientSecret" th:text="#{agents.servers.clientsecret}"></label>
+								<input id="clientSecret" name="clientSecret" type="password" autocomplete="new-password"/>
+								<p class="field-help" data-type="clientsecret-help" th:text="#{agents.servers.clientsecret.help}"></p>
+								<p class="field-error" data-error-for="clientSecret" hidden></p>
+							</div>
+						</div>
+						<div class="settings-row">
+							<div class="settings-field">
+								<label for="scope" th:text="#{agents.servers.scope}"></label>
+								<input id="scope" name="scope" type="text" autocomplete="off"/>
+								<p class="field-help" th:text="#{agents.servers.scope.help}"></p>
+								<p class="field-error" data-error-for="scope" hidden></p>
+							</div>
+							<div class="settings-field">
+								<label for="resource" th:text="#{agents.servers.resource}"></label>
+								<input id="resource" name="resource" type="text" autocomplete="off"/>
+								<p class="field-help" th:text="#{agents.servers.resource.help}"></p>
+								<p class="field-error" data-error-for="resource" hidden></p>
+							</div>
 						</div>
 					</div>
 				</section>

@@ -129,6 +129,52 @@ class StreamableMcpClientTest {
     }
 
     @Test
+    void aRefusedCredentialIsRenewedOnceAndTheMessageSentAgain() {
+        server.refuse = "Bearer old";
+        List<String> renewed = new ArrayList<>();
+        StreamableMcpClient.Credential rotating = new StreamableMcpClient.Credential() {
+            private String value = "Bearer old";
+
+            @Override
+            public String headerName() {
+                return "Authorization";
+            }
+
+            @Override
+            public String headerValue() {
+                return value;
+            }
+
+            @Override
+            public boolean renew(String refused) {
+                renewed.add(refused);
+                value = "Bearer new";
+                return true;
+            }
+        };
+
+        List<LlmToolDef> tools = client(rotating, true).listTools();
+
+        assertThat(tools).hasSize(2);
+        assertThat(renewed).containsExactly("Bearer old");
+        assertThat(server.recorded).extracting(Recorded::method)
+                .containsExactly("initialize", "initialize", "notifications/initialized", "tools/list");
+        for (Recorded later : server.recorded.subList(1, 4)) {
+            assertThat(later.headers.get("authorization")).containsExactly("Bearer new");
+        }
+    }
+
+    @Test
+    void aFixedHeaderIsNotRenewedSoA401IsSentOnce() {
+        server.refuse = "Bearer bad";
+
+        assertThatThrownBy(() -> client("Authorization", "Bearer bad", Duration.ofSeconds(5), true).listTools())
+                .isInstanceOf(McpException.class)
+                .hasMessageContaining("refused the credential");
+        assertThat(server.recorded).extracting(Recorded::method).containsExactly("initialize");
+    }
+
+    @Test
     void aReplyOverTheCapIsAFailureNotAHeapProblem() {
         server.padBytes = McpRpc.MAX_BODY + 10;
 
@@ -185,7 +231,13 @@ class StreamableMcpClientTest {
 
     private StreamableMcpClient client(String headerName, String headerValue, Duration timeout, boolean allowPrivate) {
         HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
-        return new StreamableMcpClient("crm", server.url(), headerName, headerValue, http, JSON, timeout, allowPrivate);
+        return new StreamableMcpClient("crm", server.url(), StreamableMcpClient.Credential.header(headerName, headerValue),
+                http, JSON, timeout, allowPrivate);
+    }
+
+    private StreamableMcpClient client(StreamableMcpClient.Credential credential, boolean allowPrivate) {
+        HttpClient http = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+        return new StreamableMcpClient("crm", server.url(), credential, http, JSON, Duration.ofSeconds(5), allowPrivate);
     }
 
     // ---- the server -----------------------------------------------------------------------------
@@ -201,6 +253,8 @@ class StreamableMcpClientTest {
         boolean issueSession = true;
         int pageSize;
         int answer = 200;
+        /** An Authorization value answered with 401, as a server does an expired token. */
+        String refuse;
         int deleteStatus = 204;
         int deletes;
         long padBytes;
@@ -241,8 +295,10 @@ class StreamableMcpClientTest {
             JsonNode request = JSON.readTree(body);
             String method = request.path("method").asString();
             recorded.add(new Recorded(method, headers, body));
-            if (answer != 200) {
-                exchange.sendResponseHeaders(answer, -1);
+            int status = refuse != null && refuse.equals(exchange.getRequestHeaders().getFirst("Authorization"))
+                    ? 401 : answer;
+            if (status != 200) {
+                exchange.sendResponseHeaders(status, -1);
                 exchange.close();
                 return;
             }

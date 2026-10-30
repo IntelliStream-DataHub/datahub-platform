@@ -185,10 +185,11 @@ public class TenantSettingsService {
     }
 
     /**
-     * Registers or replaces the tool server {@code name}. Its URL is checked for shape and for
-     * where it points, not for whether a server answers there: the Agents form lists what the
-     * server offers, or that it did not answer. A blank credential keeps the stored one, so a
-     * server can be re-pointed without retyping it, and is refused for a server not yet stored.
+     * Registers or replaces the tool server {@code name}. Its URLs are checked for shape and for
+     * where they point, not for whether anything answers there: the Agents form lists what the
+     * server offers, or why it did not. A blank credential keeps the stored one, so a server can be
+     * re-pointed without retyping it, and is refused when nothing of that kind is stored, or when
+     * the client id it belonged to changed.
      */
     public void putFlowMcpServer(String name, TenantFlowMcpServerForm form) {
         var errors = new FieldErrors();
@@ -196,7 +197,10 @@ public class TenantSettingsService {
             errors.addFieldError("name", "Not a valid name: use lowercase letters, digits and dashes,"
                     + " starting with a letter or digit, at most 24 characters.");
         }
-        String url = form == null ? null : trimmed(form.url());
+        if (form == null) {
+            form = new TenantFlowMcpServerForm(null, null, null, null, null, null, null, null, null);
+        }
+        String url = trimmed(form.url());
         if (url == null) {
             errors.addFieldError("url", "A URL is required.");
         } else {
@@ -205,7 +209,35 @@ public class TenantSettingsService {
                 errors.addFieldError("url", refusal);
             }
         }
-        String headerName = form == null ? null : trimmed(form.headerName());
+        String auth = trimmed(form.auth());
+        if (auth == null) {
+            auth = TenantFlowMcpServerForm.AUTH_HEADER;
+        }
+        TenantFlowSection.McpAuth credential = switch (auth) {
+            case TenantFlowMcpServerForm.AUTH_HEADER -> headerAuth(form, errors);
+            case TenantFlowMcpServerForm.AUTH_CLIENT_CREDENTIALS -> clientCredentialsAuth(form, errors);
+            default -> {
+                errors.addFieldError("auth", "Use " + TenantFlowMcpServerForm.AUTH_HEADER + " or "
+                        + TenantFlowMcpServerForm.AUTH_CLIENT_CREDENTIALS + ".");
+                yield null;
+            }
+        };
+        if (errors.isEmpty()) {
+            String missing = missingCredential(name, credential);
+            if (missing != null) {
+                errors.addFieldError(credential instanceof TenantFlowSection.McpHeader ? "headerValue" : "clientSecret",
+                        missing);
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The tool server is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.putMcpServer(name, url, credential));
+    }
+
+    /** One fixed header; a null value keeps the stored one. */
+    private static TenantFlowSection.McpHeader headerAuth(TenantFlowMcpServerForm form, FieldErrors errors) {
+        String headerName = trimmed(form.headerName());
         if (headerName == null) {
             headerName = "Authorization";
         }
@@ -217,21 +249,77 @@ public class TenantSettingsService {
                     + " needs another, such as Authorization or X-Api-Key.");
         }
         // Not trimmed: the credential is whatever the server issued, and only blank means absent.
-        String headerValue = form == null || form.headerValue() == null || form.headerValue().isBlank()
-                ? null : form.headerValue();
-        if (headerValue != null && (headerValue.indexOf('\r') >= 0 || headerValue.indexOf('\n') >= 0)) {
-            errors.addFieldError("headerValue", "The value must be a single line.");
+        String headerValue = form.headerValue() == null || form.headerValue().isBlank() ? null : form.headerValue();
+        checkSingleLine("headerValue", headerValue, errors);
+        return new TenantFlowSection.McpHeader(headerName, headerValue);
+    }
+
+    /** A client-credentials grant; a null secret keeps the stored one. */
+    private TenantFlowSection.McpClientCredentials clientCredentialsAuth(TenantFlowMcpServerForm form,
+                                                                        FieldErrors errors) {
+        String tokenUrl = trimmed(form.tokenUrl());
+        if (tokenUrl == null) {
+            errors.addFieldError("tokenUrl", "A token URL is required.");
+        } else {
+            String refusal = toolServerUrlRefusal(tokenUrl);
+            if (refusal != null) {
+                errors.addFieldError("tokenUrl", refusal);
+            }
         }
-        String orgName = currentTenant().getOrganizationName();
-        if (headerValue == null && errors.isEmpty()
-                && !TenantFlowSection.mcpServers(configWriter.current(orgName)).containsKey(name)) {
-            errors.addFieldError("headerValue", "A value is required for a new server; leaving it empty"
-                    + " keeps the stored one, and nothing is stored under this name.");
+        String clientId = trimmed(form.clientId());
+        if (clientId == null) {
+            errors.addFieldError("clientId", "A client id is required.");
         }
-        if (!errors.isEmpty()) {
-            throw new BadRequestException("The tool server is invalid.", errors);
+        checkSingleLine("clientId", clientId, errors);
+        // Not trimmed, as a header value is not.
+        String clientSecret = form.clientSecret() == null || form.clientSecret().isBlank() ? null : form.clientSecret();
+        checkSingleLine("clientSecret", clientSecret, errors);
+        String scope = trimmed(form.scope());
+        checkSingleLine("scope", scope, errors);
+        String resource = trimmed(form.resource());
+        if (resource != null) {
+            try {
+                if (!URI.create(resource).isAbsolute()) {
+                    errors.addFieldError("resource", "The resource is an absolute URI, often the server's own URL.");
+                }
+            } catch (IllegalArgumentException e) {
+                errors.addFieldError("resource", "The resource is an absolute URI, often the server's own URL.");
+            }
         }
-        updateFlow(TenantFlowSection.putMcpServer(name, url, headerName, headerValue));
+        return new TenantFlowSection.McpClientCredentials(tokenUrl, clientId, clientSecret, scope, resource);
+    }
+
+    /**
+     * Why a credential left blank cannot be kept, or null: there is none of that kind stored under
+     * {@code name}, or the stored client secret belongs to another client id.
+     */
+    private String missingCredential(String name, TenantFlowSection.McpAuth credential) {
+        boolean blank = switch (credential) {
+            case TenantFlowSection.McpHeader header -> header.value() == null;
+            case TenantFlowSection.McpClientCredentials grant -> grant.clientSecret() == null;
+        };
+        if (!blank) {
+            return null;
+        }
+        TenantFlowSection.McpServer stored = TenantFlowSection.mcpServers(
+                configWriter.current(currentTenant().getOrganizationName())).get(name);
+        return switch (credential) {
+            case TenantFlowSection.McpHeader ignored ->
+                    stored != null && stored.auth() instanceof TenantFlowSection.McpHeader ? null
+                            : "A value is required: leaving it empty keeps the stored one, and no header"
+                            + " credential is stored under this name.";
+            case TenantFlowSection.McpClientCredentials grant ->
+                    stored != null && stored.auth() instanceof TenantFlowSection.McpClientCredentials held
+                            && held.clientId().equals(grant.clientId()) ? null
+                            : "A client secret is required: leaving it empty keeps the stored one, and none"
+                            + " is stored for this client id under this name.";
+        };
+    }
+
+    private static void checkSingleLine(String field, String value, FieldErrors errors) {
+        if (value != null && (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0)) {
+            errors.addFieldError(field, "The value must be a single line.");
+        }
     }
 
     /** Removes the tool server {@code name}, credential included. Removing one that is not there is not an error. */
@@ -285,8 +373,13 @@ public class TenantSettingsService {
         TenantFlowSection.clientIds(secret).forEach((name, clientId) ->
                 clients.add(new TenantFlowSettings.Client(name, clientId)));
         List<TenantFlowSettings.McpServer> servers = new ArrayList<>();
-        TenantFlowSection.mcpServers(secret).values().forEach(server ->
-                servers.add(new TenantFlowSettings.McpServer(server.name(), server.url(), server.headerName())));
+        TenantFlowSection.mcpServers(secret).values().forEach(server -> servers.add(switch (server.auth()) {
+            case TenantFlowSection.McpHeader header -> new TenantFlowSettings.McpServer(server.name(), server.url(),
+                    TenantFlowMcpServerForm.AUTH_HEADER, header.name(), null, null, null, null);
+            case TenantFlowSection.McpClientCredentials grant -> new TenantFlowSettings.McpServer(server.name(),
+                    server.url(), TenantFlowMcpServerForm.AUTH_CLIENT_CREDENTIALS, null, grant.tokenUrl(),
+                    grant.clientId(), grant.scope(), grant.resource());
+        }));
         return new TenantFlowSettings(List.copyOf(TenantFlowSection.secretNames(secret)), clients, servers);
     }
 

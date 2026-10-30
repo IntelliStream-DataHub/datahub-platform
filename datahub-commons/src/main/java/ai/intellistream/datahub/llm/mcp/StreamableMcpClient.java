@@ -19,7 +19,8 @@ import java.util.regex.Pattern;
 
 /**
  * An external MCP server over the spec's Streamable HTTP transport, as a tenant registered it: the
- * endpoint it gave, called with the one header it gave.
+ * endpoint it gave, called with the credential it gave ({@link Credential}): one fixed header, or a
+ * token renewed when the server refuses it.
  *
  * <p>One instance is one session with one credential: it does the {@code initialize} handshake
  * on first use, keeps the {@code Mcp-Session-Id} the server may issue and the protocol version
@@ -48,9 +49,41 @@ public final class StreamableMcpClient implements McpTools {
     private static final Pattern TOOL_NAME = Pattern.compile("[A-Za-z0-9_-]{1,38}");
     private static final int MAX_PAGES = 20;
 
+    /**
+     * What every call carries: one header, whose value may change from call to call. When the
+     * server answers 401, {@link #renew} is asked whether another value is to be had, and the call
+     * is sent once more if it is.
+     */
+    public interface Credential {
+
+        String headerName();
+
+        /** The value to send now; it may have to be fetched, and fails as an {@link McpException}. */
+        String headerValue();
+
+        /** The server refused {@code refused}: true when a fresh value is to be had and worth one more try. */
+        default boolean renew(String refused) {
+            return false;
+        }
+
+        /** One header that never changes, as the server issued it. */
+        static Credential header(String name, String value) {
+            return new Credential() {
+                @Override
+                public String headerName() {
+                    return name;
+                }
+
+                @Override
+                public String headerValue() {
+                    return value;
+                }
+            };
+        }
+    }
+
     private final String name;
-    private final String headerName;
-    private final String headerValue;
+    private final Credential credential;
     private final boolean allowPrivateNetworks;
     private final McpRpc rpc;
     private boolean initialized;
@@ -60,15 +93,13 @@ public final class StreamableMcpClient implements McpTools {
     /**
      * @param name        the registered name, and the prefix of every tool
      * @param url         the endpoint as registered; nothing is appended
-     * @param headerName  the header the credential travels in, {@code Authorization} as a rule
-     * @param headerValue the credential, e.g. {@code Bearer …}
-     * @param timeout     the most one exchange may take, reply included
+     * @param credential what every call carries
+     * @param timeout    the most one exchange may take, reply included
      */
-    public StreamableMcpClient(String name, String url, String headerName, String headerValue,
+    public StreamableMcpClient(String name, String url, Credential credential,
                                HttpClient http, JsonMapper json, Duration timeout, boolean allowPrivateNetworks) {
         this.name = name;
-        this.headerName = headerName;
-        this.headerValue = headerValue;
+        this.credential = credential;
         this.allowPrivateNetworks = allowPrivateNetworks;
         this.rpc = new McpRpc(name, URI.create(url), http, json, timeout);
     }
@@ -120,7 +151,7 @@ public final class StreamableMcpClient implements McpTools {
             return;
         }
         try {
-            rpc.delete(headers());
+            rpc.delete(headers(credential.headerValue()));
         } catch (RuntimeException e) {
             log.debug("{}: could not end the session: {}", name, e.getMessage());
         } finally {
@@ -148,14 +179,14 @@ public final class StreamableMcpClient implements McpTools {
         sessionId = null;
         protocolVersion = null;
         long id = rpc.nextId();
-        McpRpc.Reply reply = rpc.post(headers(), McpRpc.request(id, "initialize", Map.of(
+        McpRpc.Reply reply = post(McpRpc.request(id, "initialize", Map.of(
                 "protocolVersion", PROTOCOL_VERSION,
                 "capabilities", Map.of(),
                 "clientInfo", Map.of("name", "intellistream-flow", "version", "1"))));
         JsonNode result = rpc.result(reply, id);
         protocolVersion = result.path("protocolVersion").asString(PROTOCOL_VERSION);
         sessionId = reply.headers().firstValue("Mcp-Session-Id").orElse(null);
-        McpRpc.Reply acknowledged = rpc.post(headers(), McpRpc.notification("notifications/initialized"));
+        McpRpc.Reply acknowledged = post(McpRpc.notification("notifications/initialized"));
         if (acknowledged.status() < 200 || acknowledged.status() > 299) {
             throw rpc.failure(acknowledged);
         }
@@ -164,20 +195,31 @@ public final class StreamableMcpClient implements McpTools {
 
     private JsonNode call(String method, Object params) {
         long id = rpc.nextId();
-        McpRpc.Reply reply = rpc.post(headers(), McpRpc.request(id, method, params));
+        McpRpc.Reply reply = post(McpRpc.request(id, method, params));
         if (reply.status() == 404 && sessionId != null) {
             // The server no longer knows the session: start another and ask once more.
             log.info("{}: the session was gone; starting a new one", name);
             initialize();
             id = rpc.nextId();
-            reply = rpc.post(headers(), McpRpc.request(id, method, params));
+            reply = post(McpRpc.request(id, method, params));
         }
         return rpc.result(reply, id);
     }
 
-    private Map<String, String> headers() {
+    /** One message with the credential; a 401 renews it, when it can be, and sends the message once more. */
+    private McpRpc.Reply post(Object message) {
+        String sent = credential.headerValue();
+        McpRpc.Reply reply = rpc.post(headers(sent), message);
+        if (reply.status() == 401 && credential.renew(sent)) {
+            log.info("{}: the credential was refused; trying a renewed one", name);
+            reply = rpc.post(headers(credential.headerValue()), message);
+        }
+        return reply;
+    }
+
+    private Map<String, String> headers(String credentialValue) {
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put(headerName, headerValue);
+        headers.put(credential.headerName(), credentialValue);
         if (protocolVersion != null) {
             headers.put("MCP-Protocol-Version", protocolVersion);
         }

@@ -4,12 +4,14 @@ package ai.intellistream.datahub.flow.agents;
 import ai.intellistream.datahub.flow.fake.FakeMcp;
 import ai.intellistream.datahub.flow.flows.FlowService;
 import ai.intellistream.datahub.flow.web.FlowProblems;
+import ai.intellistream.datahub.llm.mcp.ClientCredentialsTokens;
 import ai.intellistream.datahub.llm.mcp.StatelessMcpClient;
 import ai.intellistream.datahub.tenant.Tenant;
 import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import ai.intellistream.datahub.tenant.TenantContext;
 import ai.intellistream.datahub.tenant.TenantFlowSection;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -59,8 +61,9 @@ class AgentToolsControllerTest {
         HttpClient http = HttpClient.newHttpClient();
         List<StatelessMcpClient> servers = List.of(new StatelessMcpClient("datahub-api", api.url(), http, json),
                 new StatelessMcpClient("datahub-analysis", analysis.url(), http, json));
-        ExternalMcp external = new ExternalMcp(HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NEVER).build(), json, Duration.ofSeconds(5), true);
+        HttpClient externalHttp = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+        ExternalMcp external = new ExternalMcp(externalHttp, json, Duration.ofSeconds(5), true,
+                new ClientCredentialsTokens(externalHttp, json, Duration.ofSeconds(5), true, Clock.systemUTC()));
         Tenant tenant = new Tenant();
         tenant.setOrganizationName("acme");
         when(tenants.getConfig("t")).thenReturn(tenant);
@@ -118,7 +121,8 @@ class AgentToolsControllerTest {
     void aRegisteredServersToolsAreListedPrefixedAndMarkedAndItsSessionClosed() throws Exception {
         try (FakeMcp crm = new FakeMcp("crm", true)) {
             crm.tool("ticket_get", true, false);
-            flowSettings.putAll(TenantFlowSection.putMcpServer("crm", crm.url(), "X-Api-Key", "k").apply(flowSettings));
+            flowSettings.putAll(TenantFlowSection.putMcpServer("crm", crm.url(),
+                    new TenantFlowSection.McpHeader("X-Api-Key", "k")).apply(flowSettings));
 
             mvc.perform(get("/agents/tools")).andExpect(status().isOk())
                     .andExpect(jsonPath("$.tools.length()").value(5))
@@ -135,7 +139,8 @@ class AgentToolsControllerTest {
     @Test
     void aRegisteredServerThatDoesNotAnswerIsReportedBesideTheRest() throws Exception {
         FakeMcp crm = new FakeMcp("crm", true);
-        flowSettings.putAll(TenantFlowSection.putMcpServer("crm", crm.url(), "Authorization", "Bearer k").apply(flowSettings));
+        flowSettings.putAll(TenantFlowSection.putMcpServer("crm", crm.url(),
+                new TenantFlowSection.McpHeader("Authorization", "Bearer k")).apply(flowSettings));
         crm.close();
 
         mvc.perform(get("/agents/tools")).andExpect(status().isOk())

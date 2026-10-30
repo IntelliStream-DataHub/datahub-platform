@@ -15,6 +15,7 @@ import ai.intellistream.datahub.llm.LlmBlock.ToolUse;
 import ai.intellistream.datahub.llm.LlmToolDef;
 import ai.intellistream.datahub.llm.LlmTurn;
 import ai.intellistream.datahub.llm.StubLlmClient;
+import ai.intellistream.datahub.llm.mcp.ClientCredentialsTokens;
 import ai.intellistream.datahub.llm.mcp.StatelessMcpClient;
 import ai.intellistream.datahub.tenant.LlmProvider;
 import ai.intellistream.datahub.tenant.Tenant;
@@ -29,7 +30,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.util.unit.DataSize;
 import tools.jackson.databind.json.JsonMapper;
 
+import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.net.http.HttpClient;
 import java.time.Clock;
 import java.time.Instant;
@@ -73,8 +77,9 @@ class AgentTest {
     /** The organization's flow settings as Vault would hold them, read through the writer's uncached view. */
     private final Map<String, String> flowSettings = new HashMap<>();
     private final TenantConfigWriter tenantConfig = mock(TenantConfigWriter.class);
-    private final ExternalMcp external = new ExternalMcp(
-            HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build(), JSON, Duration.ofSeconds(5), true);
+    private final HttpClient externalHttp = HttpClient.newBuilder().followRedirects(HttpClient.Redirect.NEVER).build();
+    private final ExternalMcp external = new ExternalMcp(externalHttp, JSON, Duration.ofSeconds(5), true,
+            new ClientCredentialsTokens(externalHttp, JSON, Duration.ofSeconds(5), true, Clock.systemUTC()));
 
     AgentTest() throws IOException {
         api.tool("event_get", true, false);
@@ -95,8 +100,8 @@ class AgentTest {
 
     /** Registers a server as the Agents section's Tool servers tab would. */
     private void register(FakeMcp server, String headerName, String headerValue) {
-        flowSettings.putAll(TenantFlowSection.putMcpServer(server.name, server.url(), headerName, headerValue)
-                .apply(flowSettings));
+        flowSettings.putAll(TenantFlowSection.putMcpServer(server.name, server.url(),
+                new TenantFlowSection.McpHeader(headerName, headerValue)).apply(flowSettings));
     }
 
     @AfterEach
@@ -498,6 +503,38 @@ class AgentTest {
                     .containsExactly("mcp://datahub-api/event_get", "mcp://crm/ticket_get");
             assertThat(crm.sessions).isEqualTo(1);
             assertThat(crm.deletes).as("the session is ended when the run is done").isEqualTo(1);
+        }
+    }
+
+    @Test
+    void aServerRegisteredWithAClientCredentialsGrantIsCalledWithATokenFromItsEndpoint() throws IOException {
+        List<String> asked = new ArrayList<>();
+        HttpServer idp = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        idp.createContext("/token", exchange -> {
+            asked.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            byte[] out = "{\"access_token\":\"tok-1\",\"token_type\":\"Bearer\",\"expires_in\":300}"
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, out.length);
+            exchange.getResponseBody().write(out);
+            exchange.close();
+        });
+        idp.start();
+        try (FakeMcp crm = new FakeMcp("crm", true)) {
+            crm.tool("ticket_get", true, false);
+            flowSettings.putAll(TenantFlowSection.putMcpServer("crm", crm.url(), new TenantFlowSection.McpClientCredentials(
+                    "http://127.0.0.1:" + idp.getAddress().getPort() + "/token", "agent", "s", "tickets", null))
+                    .apply(flowSettings));
+            llm.thenToolCalls(call("c1", "crm__ticket_get", Map.of("id", 7))).thenToolCalls(finish("done", "x"));
+
+            run("""
+                    { "instructions": "i", "tools": ["crm__*"] }""");
+
+            assertThat(crm.calls).singleElement().satisfies(c -> assertThat(c.bearer()).isEqualTo("Bearer tok-1"));
+            assertThat(asked).as("one token for the whole session").containsExactly(
+                    "grant_type=client_credentials&scope=tickets");
+        } finally {
+            idp.stop(0);
         }
     }
 

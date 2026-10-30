@@ -6,9 +6,14 @@
  * and PUT/DELETE /tenant/settings/flow/mcp-servers/{name}, gated by the flow settings grants, like the
  * flow clients). Two things are not obvious:
  *
- *  - The credential is write-only. The API never returns it, so the field starts empty, and leaving
- *    it empty while editing omits headerValue from the payload, which the API reads as "keep the
- *    stored one". A new server needs one.
+ *  - A server authenticates with one fixed header, or with an OAuth 2.0 client-credentials grant
+ *    whose token the flow service takes and renews. The select shows the fields of one; only
+ *    those are sent, and saving one kind drops what was stored for the other.
+ *
+ *  - The credential (header value, client secret) is write-only. The API never returns it, so the
+ *    field starts empty, and leaving it empty while editing omits it from the payload, which the
+ *    API reads as "keep the stored one". A new server needs one, and so does a switch of kind or a
+ *    new client id.
  *
  *  - Nothing is tried on save. The agent form's picker shows what each server answers, or that it
  *    did not; an agent whose tools name a removed server fails its next run.
@@ -29,6 +34,7 @@
 	var form = root.querySelector('[data-type="mcp-server-form"]');
 	var formTitle = form.querySelector('[data-type="mcp-server-form-title"]');
 	var valueHelp = form.querySelector('[data-type="headervalue-help"]');
+	var secretHelp = form.querySelector('[data-type="clientsecret-help"]');
 	var saveButton = form.querySelector('[data-type="save"]');
 	var cancelButton = form.querySelector('[data-type="cancel"]');
 
@@ -45,6 +51,14 @@
 
 	function field(name){ return form.querySelector('[name="' + name + '"]'); }
 	function trimmed(name){ var value = field(name).value.trim(); return value === "" ? null : value; }
+
+	/** Shows the fields of the kind of authentication picked, hides the other's. */
+	function showAuth(){
+		var auth = field("auth").value;
+		form.querySelectorAll("[data-auth]").forEach(function(group){
+			group.hidden = group.getAttribute("data-auth") !== auth;
+		});
+	}
 
 	function showDenied(){
 		page.hidden = true;
@@ -82,8 +96,10 @@
 		field("name").readOnly = false;
 		formTitle.textContent = L("agents.servers.form.group");
 		valueHelp.textContent = L("agents.servers.headervalue.help");
+		secretHelp.textContent = L("agents.servers.clientsecret.help");
 		saveButton.textContent = L("agents.servers.register");
 		cancelButton.hidden = true;
+		showAuth();
 	}
 
 	/** Editing keeps the name; the credential field stays empty, which keeps the stored credential. */
@@ -93,9 +109,17 @@
 		field("name").value = server.name;
 		field("name").readOnly = true;
 		field("url").value = server.url;
-		field("headerName").value = server.headerName;
+		field("auth").value = server.auth || "header";
+		field("headerName").value = server.headerName || "";
+		field("tokenUrl").value = server.tokenUrl || "";
+		field("clientId").value = server.clientId || "";
+		field("scope").value = server.scope || "";
+		field("resource").value = server.resource || "";
+		showAuth();
 		formTitle.textContent = L("agents.servers.form.edit", [server.name]);
-		valueHelp.textContent = L("agents.servers.headervalue.stored");
+		// The stored credential is of one kind; the other kind's field is a new one either way.
+		if(server.auth === "client-credentials") secretHelp.textContent = L("agents.servers.clientsecret.stored");
+		else valueHelp.textContent = L("agents.servers.headervalue.stored");
 		saveButton.textContent = L("agents.servers.save");
 		cancelButton.hidden = false;
 		form.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -138,7 +162,9 @@
 			url.textContent = server.url;
 			var header = document.createElement("span");
 			header.className = "settings-list-sub";
-			header.textContent = L("agents.servers.list.header", [server.headerName]);
+			header.textContent = server.auth === "client-credentials"
+				? L("agents.servers.list.clientcredentials", [server.clientId, server.tokenUrl])
+				: L("agents.servers.list.header", [server.headerName]);
 			text.append(name, url, header);
 			item.appendChild(text);
 
@@ -171,9 +197,19 @@
 			error.hidden = false;
 			return;
 		}
-		var body = { url: trimmed("url"), headerName: trimmed("headerName") };
-		// Not trimmed: a credential is what the server issued. Blank means keep the stored one.
-		if(field("headerValue").value.trim() !== "") body.headerValue = field("headerValue").value;
+		var auth = field("auth").value;
+		var body = { url: trimmed("url"), auth: auth };
+		// Credentials are not trimmed: they are what the server issued. Blank means keep the stored one.
+		if(auth === "client-credentials"){
+			body.tokenUrl = trimmed("tokenUrl");
+			body.clientId = trimmed("clientId");
+			body.scope = trimmed("scope");
+			body.resource = trimmed("resource");
+			if(field("clientSecret").value.trim() !== "") body.clientSecret = field("clientSecret").value;
+		} else {
+			body.headerName = trimmed("headerName");
+			if(field("headerValue").value.trim() !== "") body.headerValue = field("headerValue").value;
+		}
 		saveButton.disabled = true;
 		api("PUT", "/flow/mcp-servers/" + FlowApi.seg(name), body)
 			.then(function(){
@@ -186,6 +222,7 @@
 	});
 
 	cancelButton.addEventListener("click", resetForm);
+	field("auth").addEventListener("change", showAuth);
 
 	api("GET", "/permissions").then(function(permissions){
 		var flow = (permissions && permissions.flow) || { read: false, write: false };

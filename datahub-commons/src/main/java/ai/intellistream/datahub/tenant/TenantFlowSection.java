@@ -20,8 +20,15 @@ import java.util.regex.Pattern;
  * flow.client.&lt;name&gt;.client-secret
  * flow.token.&lt;deploymentId&gt;              a deployer's offline token, written by the flow service
  * flow.mcp.&lt;name&gt;.url                    an MCP server agents may call: its Streamable HTTP endpoint,
+ *                                       and either one fixed header
  * flow.mcp.&lt;name&gt;.header-name            the header its credential travels in,
- * flow.mcp.&lt;name&gt;.header-value           and the credential
+ * flow.mcp.&lt;name&gt;.header-value           and the credential;
+ *                                       or an OAuth 2.0 client-credentials grant
+ * flow.mcp.&lt;name&gt;.token-url              the token endpoint,
+ * flow.mcp.&lt;name&gt;.client-id              the client,
+ * flow.mcp.&lt;name&gt;.client-secret
+ * flow.mcp.&lt;name&gt;.scope                  and, when the endpoint wants them, the scope
+ * flow.mcp.&lt;name&gt;.resource               and the resource (RFC 8707) to ask for
  * </pre>
  *
  * <p>Flat keys in the one secret rather than a secret per entry, so that every section of the
@@ -54,6 +61,13 @@ public final class TenantFlowSection {
     private static final String MCP_URL = ".url";
     private static final String MCP_HEADER_NAME = ".header-name";
     private static final String MCP_HEADER_VALUE = ".header-value";
+    private static final String MCP_TOKEN_URL = ".token-url";
+    private static final String MCP_CLIENT_ID = ".client-id";
+    private static final String MCP_CLIENT_SECRET = ".client-secret";
+    private static final String MCP_SCOPE = ".scope";
+    private static final String MCP_RESOURCE = ".resource";
+    private static final List<String> MCP_KEYS = List.of(MCP_URL, MCP_HEADER_NAME, MCP_HEADER_VALUE,
+            MCP_TOKEN_URL, MCP_CLIENT_ID, MCP_CLIENT_SECRET, MCP_SCOPE, MCP_RESOURCE);
 
     private TenantFlowSection() {
     }
@@ -190,26 +204,64 @@ public final class TenantFlowSection {
     }
 
     /** A registered tool server, credential included: for the flow service, never for anything a caller reads back. */
-    public record McpServer(String name, String url, String headerName, String headerValue) {
+    public record McpServer(String name, String url, McpAuth auth) {
+    }
+
+    /** How a tool server's calls are authenticated. */
+    public sealed interface McpAuth permits McpHeader, McpClientCredentials {
+    }
+
+    /** One fixed header on every call. */
+    public record McpHeader(String name, String value) implements McpAuth {
+        @Override
+        public String toString() {
+            return "McpHeader[name=" + name + "]";
+        }
     }
 
     /**
-     * Registers the tool server {@code name}, replacing its URL and header name if it was registered
-     * already. A null {@code headerValue} keeps the stored credential, so a server can be re-pointed
-     * without retyping it; the caller has checked one is stored. Applied inside compare-and-set,
-     * so a credential rotated meanwhile is the one kept.
+     * An OAuth 2.0 client-credentials grant: the flow service takes a token at {@code tokenUrl} and
+     * sends it as {@code Authorization: Bearer}. {@code scope} and {@code resource} are null when
+     * the token endpoint is not to be sent them.
      */
-    public static UnaryOperator<Map<String, String>> putMcpServer(String name, String url, String headerName,
-                                                                  String headerValue) {
+    public record McpClientCredentials(String tokenUrl, String clientId, String clientSecret, String scope,
+                                       String resource) implements McpAuth {
+        @Override
+        public String toString() {
+            return "McpClientCredentials[tokenUrl=" + tokenUrl + ", clientId=" + clientId + "]";
+        }
+    }
+
+    /**
+     * Registers the tool server {@code name}, replacing what it had: the other kind of
+     * authentication's keys go, so a server is never left with both. A null header value or client
+     * secret keeps the stored one, so a server can be re-pointed without retyping it; the caller
+     * has checked one of that kind is stored. Applied inside compare-and-set, so a credential
+     * rotated meanwhile is the one kept.
+     */
+    public static UnaryOperator<Map<String, String>> putMcpServer(String name, String url, McpAuth auth) {
         String prefix = MCP + checkedMcp(name);
         Objects.requireNonNull(url, "url");
-        Objects.requireNonNull(headerName, "headerName");
+        Objects.requireNonNull(auth, "auth");
         return existing -> {
             Map<String, String> changed = new HashMap<>(existing);
+            String keptValue = existing.get(prefix + MCP_HEADER_VALUE);
+            String keptSecret = existing.get(prefix + MCP_CLIENT_SECRET);
+            MCP_KEYS.forEach(key -> changed.remove(prefix + key));
             changed.put(prefix + MCP_URL, url);
-            changed.put(prefix + MCP_HEADER_NAME, headerName);
-            if (headerValue != null) {
-                changed.put(prefix + MCP_HEADER_VALUE, headerValue);
+            switch (auth) {
+                case McpHeader header -> {
+                    changed.put(prefix + MCP_HEADER_NAME, Objects.requireNonNull(header.name(), "header name"));
+                    putIfNotNull(changed, prefix + MCP_HEADER_VALUE, header.value() != null ? header.value() : keptValue);
+                }
+                case McpClientCredentials grant -> {
+                    changed.put(prefix + MCP_TOKEN_URL, Objects.requireNonNull(grant.tokenUrl(), "tokenUrl"));
+                    changed.put(prefix + MCP_CLIENT_ID, Objects.requireNonNull(grant.clientId(), "clientId"));
+                    putIfNotNull(changed, prefix + MCP_CLIENT_SECRET,
+                            grant.clientSecret() != null ? grant.clientSecret() : keptSecret);
+                    putIfNotNull(changed, prefix + MCP_SCOPE, grant.scope());
+                    putIfNotNull(changed, prefix + MCP_RESOURCE, grant.resource());
+                }
             }
             return changed;
         };
@@ -220,9 +272,7 @@ public final class TenantFlowSection {
         String prefix = MCP + checkedMcp(name);
         return existing -> {
             Map<String, String> changed = new HashMap<>(existing);
-            changed.remove(prefix + MCP_URL);
-            changed.remove(prefix + MCP_HEADER_NAME);
-            changed.remove(prefix + MCP_HEADER_VALUE);
+            MCP_KEYS.forEach(key -> changed.remove(prefix + key));
             return changed;
         };
     }
@@ -237,14 +287,32 @@ public final class TenantFlowSection {
         secret.forEach((key, url) -> {
             if (key.startsWith(MCP) && key.endsWith(MCP_URL)) {
                 String name = key.substring(MCP.length(), key.length() - MCP_URL.length());
-                String headerValue = secret.get(MCP + name + MCP_HEADER_VALUE);
-                if (headerValue != null) {
-                    servers.put(name, new McpServer(name, url,
-                            secret.getOrDefault(MCP + name + MCP_HEADER_NAME, "Authorization"), headerValue));
+                String prefix = MCP + name;
+                McpAuth auth = null;
+                String tokenUrl = secret.get(prefix + MCP_TOKEN_URL);
+                if (tokenUrl != null) {
+                    String clientId = secret.get(prefix + MCP_CLIENT_ID);
+                    String clientSecret = secret.get(prefix + MCP_CLIENT_SECRET);
+                    if (clientId != null && clientSecret != null) {
+                        auth = new McpClientCredentials(tokenUrl, clientId, clientSecret,
+                                secret.get(prefix + MCP_SCOPE), secret.get(prefix + MCP_RESOURCE));
+                    }
+                } else if (secret.get(prefix + MCP_HEADER_VALUE) != null) {
+                    auth = new McpHeader(secret.getOrDefault(prefix + MCP_HEADER_NAME, "Authorization"),
+                            secret.get(prefix + MCP_HEADER_VALUE));
+                }
+                if (auth != null) {
+                    servers.put(name, new McpServer(name, url, auth));
                 }
             }
         });
         return servers;
+    }
+
+    private static void putIfNotNull(Map<String, String> map, String key, String value) {
+        if (value != null) {
+            map.put(key, value);
+        }
     }
 
     private static String checked(String name) {

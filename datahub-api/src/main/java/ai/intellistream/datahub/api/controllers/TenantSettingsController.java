@@ -186,15 +186,24 @@ public class TenantSettingsController {
     @Operation(summary = "Register a tool server for agents",
             description = """
                     Registers an MCP server under `name`, replacing it if the name is taken: its
-                    Streamable HTTP endpoint (`url`, https) and the one header its credential travels
-                    in (`headerName`, `Authorization` when left out; `headerValue`, e.g. `Bearer …`).
+                    Streamable HTTP endpoint (`url`, https) and how its calls are authenticated
+                    (`auth`):
+
+                    - `header` (the default): one fixed header, `headerName` (`Authorization` when
+                      left out) with `headerValue`, e.g. `Bearer …`.
+                    - `client-credentials`: an OAuth 2.0 client-credentials grant. The flow service
+                      takes an access token at `tokenUrl` as `clientId`/`clientSecret` (HTTP Basic),
+                      asking for `scope` and `resource` (RFC 8707) when given, keeps it until shortly
+                      before it expires, and sends it as `Authorization: Bearer`.
+
                     An agent names its tools as `<name>__<tool>`; a name is lowercase letters, digits
                     and dashes, starting with a letter or digit, at most 24 characters.
 
-                    The credential is never returned. Leave `headerValue` empty to keep the stored one
-                    when changing the URL or the header; it is required for a new server. A URL that
-                    resolves to a private or local address is refused unless the deployment allows
-                    them, and so is plain http.
+                    The credential is never returned. Leave `headerValue` or `clientSecret` empty to
+                    keep the stored one; it is required for a new server, when switching `auth`, and
+                    when `clientId` changes. A URL that resolves to a private or local address is
+                    refused unless the deployment allows them, and so is plain http; that holds for
+                    `tokenUrl` too.
                     """)
     @PutMapping("/flow/mcp-servers/{name}")
     public ResponseEntity<Void> putFlowMcpServer(@PathVariable String name,
