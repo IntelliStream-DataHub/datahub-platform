@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.nav.attention}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('attention')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* Flow runs that failed after their last attempt and that nobody has re-run successfully or
+	       dismissed. Each is a run-failed event lifecycle in datahub-api whose latest event is open:
+	       POST {api}/events/latest, filled by flows/flows-attention.js. Re-running goes to
+	       datahub-flow, and its success closes the lifecycle; dismissing writes the dismissed event
+	       to datahub-api as the person dismissing. */-->
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="attention-page">
+		<div class="flows-header">
+			<div>
+				<h2 th:text="#{flows.nav.attention}"></h2>
+				<p class="flows-intro" th:text="#{flows.attention.intro}"></p>
+			</div>
+			<div class="flows-header-actions">
+				<button type="button" class="dh-btn secondary" data-type="attention-dismiss-all" hidden
+						th:text="#{flows.attention.dismiss.all}"></button>
+				<button type="button" class="dh-btn primary" data-type="attention-rerun-all" hidden
+						th:text="#{flows.attention.rerun.all}"></button>
+			</div>
+		</div>
+
+		<p class="flows-hint" data-type="attention-progress" hidden></p>
+
+		<table class="listing slim w100" data-type="attention-table">
+			<thead>
+				<tr>
+					<th th:text="#{flows.column.window}"></th>
+					<th th:text="#{flows.column.failed.at}"></th>
+					<th th:text="#{flows.column.error}"></th>
+					<th th:text="#{flows.column.attempt}"></th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="attention-empty" hidden th:text="#{flows.attention.empty}"></p>
+		<div class="flows-actions">
+			<button type="button" class="dh-btn secondary" data-type="attention-more" hidden
+					th:text="#{flows.load.more}"></button>
+		</div>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

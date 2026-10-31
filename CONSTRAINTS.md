@@ -12,7 +12,12 @@ up somewhere other than the file you are editing.
 
 2. **Postgres is the primary database.** It holds the authoritative state. If something is
    valid in Postgres it should be valid in the other stores, which are derived from it rather
-   than sources of truth in their own right.
+   than sources of truth in their own right. The one exception is the state of flow runs, which
+   lives in the tenant's KVRocks while a run is queued, running or just finished, and in
+   ClickHouse afterwards, and so is how far each schedule has got (the next tick), which the ticker
+   moves on with every run it makes. Postgres keeps the flows, versions and deployments, the schedule
+   each was deployed with, and a checkpoint of how far it had got, from which a lost KVRocks starts
+   again; nothing else is derived from run state ([RUN_STORE.md](RUN_STORE.md)).
 
 3. **Validate before it goes async.** Anything published to a consumer should already be known
    good. A consumer that receives an invalid message has no useful way to reject it: the

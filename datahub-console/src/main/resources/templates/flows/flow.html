@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.flow.title}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('list')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* A flow: its processing tree, the JSON it is saved as, its versions and its runs. Everything
+	       is loaded and saved by flows/flow-editor.js against datahub-flow; an id the service does
+	       not know opens as a new flow. */-->
+	<div th:if="${!featureDisabled}" class="flows-page flow-page pad20" data-type="flow-page"
+		 th:attr="data-flow-id=${flowExternalId}">
+
+		<div class="flows-header">
+			<div>
+				<h2 data-type="flow-title" th:text="${flowExternalId}"></h2>
+				<p class="flows-intro" data-type="flow-state" th:text="#{loading}"></p>
+			</div>
+			<div class="flow-actions">
+				<button type="button" class="dh-btn primary small" data-type="flow-save" th:text="#{datahub.save}"></button>
+				<button type="button" class="dh-btn secondary small" data-type="flow-preview" th:text="#{flows.preview}"></button>
+				<button type="button" class="dh-btn secondary small" data-type="flow-run" th:text="#{flows.run.now}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="flow-deploy" th:text="#{flows.deploy}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="flow-run-as" th:text="#{flows.run.as}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="flow-toggle" hidden></button>
+				<button type="button" class="dh-btn danger small" data-type="flow-delete" th:text="#{delete}" hidden></button>
+			</div>
+		</div>
+
+		<!--/* Only for a flow that does not exist yet: what a save needs besides the tree. */-->
+		<form class="datahub-form-fields flow-new" data-type="flow-new" hidden>
+			<div>
+				<label for="flow-new-name" th:text="#{flows.column.name}"></label>
+				<input id="flow-new-name" name="name" type="text" required/>
+				<p class="field-hint" data-type="flow-new-id"></p>
+			</div>
+			<div>
+				<label for="flow-new-dataset" th:text="#{flows.field.dataset}"></label>
+				<select id="flow-new-dataset" name="dataSet" required></select>
+			</div>
+		</form>
+
+		<div class="flows-banner" data-type="flow-readonly" hidden>
+			<i class="fa-regular fa-eye"></i>
+			<span th:text="#{flows.readonly}"></span>
+		</div>
+
+		<ul class="flow-problems" data-type="flow-problems" hidden></ul>
+
+		<div class="flow-tabs" role="tablist">
+			<button type="button" class="selected" data-tab="tree" th:text="#{flows.tab.tree}"></button>
+			<button type="button" data-tab="json" th:text="#{flows.tab.json}"></button>
+			<button type="button" data-tab="versions" th:text="#{flows.tab.versions}"></button>
+			<button type="button" data-tab="runs" th:text="#{flows.tab.runs}"></button>
+		</div>
+
+		<section class="flow-pane" data-pane="tree">
+			<div class="flow-toolbar datahub-form-fields">
+				<div class="flow-add">
+					<button type="button" class="dh-btn secondary small" data-type="flow-add" th:text="#{flows.add.processor}"></button>
+					<div class="flow-add-panel" data-type="flow-add-panel" hidden>
+						<input type="text" data-type="flow-add-search" th:placeholder="#{flows.add.search}"/>
+						<div class="flow-add-list" data-type="flow-add-list"></div>
+					</div>
+				</div>
+				<span class="flow-toolbar-gap"></span>
+				<select data-type="flow-connect-from"></select>
+				<select data-type="flow-connect-rel"></select>
+				<span>→</span>
+				<select data-type="flow-connect-to"></select>
+				<button type="button" class="dh-btn secondary small" data-type="flow-connect" th:text="#{flows.connect}"></button>
+				<span class="flow-toolbar-gap"></span>
+				<button type="button" class="dh-btn secondary small" data-type="flow-settings" th:text="#{flows.settings}"></button>
+				<button type="button" class="dh-btn secondary small" data-type="flow-remove" th:text="#{flows.remove.selected}" disabled></button>
+			</div>
+			<div class="flow-canvas" data-type="flow-canvas"></div>
+			<p class="flows-hint" th:text="#{flows.tree.hint}"></p>
+		</section>
+
+		<section class="flow-pane datahub-form-fields" data-pane="json" hidden>
+			<textarea class="flow-json w100" data-type="flow-json" spellcheck="false"></textarea>
+			<div class="flows-actions">
+				<button type="button" class="dh-btn secondary small" data-type="flow-json-apply" th:text="#{flows.json.apply}"></button>
+			</div>
+		</section>
+
+		<section class="flow-pane" data-pane="versions" hidden>
+			<table class="listing slim w100" data-type="flow-versions">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.version}"></th>
+						<th th:text="#{flows.column.saved.by}"></th>
+						<th th:text="#{flows.column.saved.at}"></th>
+						<th></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</section>
+
+		<section class="flow-pane" data-pane="runs" hidden>
+			<label class="flows-check">
+				<input type="checkbox" data-type="flow-runs-previews"/>
+				<span th:text="#{flows.runs.show.previews}"></span>
+			</label>
+			<table class="listing slim pointer w100" data-type="flow-runs">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.status}"></th>
+						<th th:text="#{flows.column.window}"></th>
+						<th th:text="#{flows.column.trigger}"></th>
+						<th th:text="#{flows.column.attempt}"></th>
+						<th th:text="#{flows.column.created}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+			<p class="flows-empty" data-type="flow-runs-empty" hidden th:text="#{flows.runs.empty}"></p>
+			<div class="flows-actions">
+				<button type="button" class="dh-btn secondary" data-type="flow-runs-more" hidden
+						th:text="#{flows.load.more}"></button>
+			</div>
+		</section>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<script type="text/javascript" src="/static/js/graph-network/cytoscape.min.js" defer></script>
+		<script type="text/javascript" src="/static/js/graph-network/dagre.min.js" defer></script>
+		<script type="text/javascript" src="/static/js/graph-network/cytoscape-dagre.js" defer></script>
+		<th:block th:replace="~{fragments/assets :: js('rightForm')}"></th:block>
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

@@ -1,0 +1,98 @@
+plugins {
+	id 'ai.intellistream.datahub.java-common-conventions'
+	id 'org.springframework.boot'
+	id 'io.spring.dependency-management'
+}
+
+group = 'ai.intellistream.datahub.flow'
+
+configurations {
+	compileOnly {
+		extendsFrom annotationProcessor
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// TenantConfigService (the tenant registry and its feature flags) from commons; from infra the
+	// multi-tenant routing datasource and the OrganizationValidator the api resolves tenants with.
+	// Infra brings JPA, Neo4j, Valkey and ClickHouse clients too; none are scanned or configured
+	// here (see DatahubFlowApplication and application.properties).
+	implementation project(':datahub-commons')
+	implementation project(':datahub-infra')
+	// Runs call datahub-api as their identity, through the SDK.
+	implementation project(':datahub-java-sdk')
+
+	implementation 'org.springframework.boot:spring-boot-starter-web'
+	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
+	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+	implementation 'org.springframework.boot:spring-boot-starter-security'
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-resource-server'
+	// JdbcTemplate and a plain DataSourceTransactionManager over the routing datasource. No JPA:
+	// the flow tables are small and their statements are hand-written (SKIP LOCKED claims).
+	implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+	runtimeOnly 'org.postgresql:postgresql'
+
+	// The Pulsar admin provisions each tenant's records topic; the client will carry the records.
+	implementation("org.apache.pulsar:pulsar-client-admin:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client-admin-api:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+	implementation("org.apache.pulsar:pulsar-client-api:${pulsarVersion}") {
+		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
+	}
+
+	// The run records go into each tenant's ClickHouse (flow_run_event) and are read back from it.
+	// infra pools the clients, but keeps the client library to itself.
+	implementation 'com.clickhouse:client-v2:0.10.0'
+
+	// The run store: each tenant's KVRocks, spoken to over the Redis protocol with scripts.
+	implementation 'io.lettuce:lettuce-core:7.8.0.RELEASE'
+
+	// XXH3 for the content hash in a run's records, the platform's hash function (IdGenerator).
+	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
+
+	// Fetches the JWT issuer-uri from Vault at startup, from the shared "datahub-platform" secret.
+	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+
+	compileOnly 'org.projectlombok:lombok'
+	annotationProcessor 'org.projectlombok:lombok'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+	testImplementation 'org.testcontainers:pulsar:1.21.4'
+	testImplementation 'org.testcontainers:clickhouse:1.21.4'
+	// SharedPostgres: one migrated Postgres container, a database per test class (FlowRepositoryIT).
+	testImplementation testFixtures(project(':datahub-infra'))
+}
+
+tasks.named('test') {
+	// The @Tag("integration") tests need a container runtime and run under integrationTest.
+	useJUnitPlatform { excludeTags 'integration' }
+	// FlowServiceTest boots the service, whose run memory budget may take at most half the heap
+	// and must hold one run's default 512 MB.
+	maxHeapSize = '1g'
+}
+
+//   ./gradlew :datahub-flow:integrationTest
+tasks.register('integrationTest', Test) {
+	description = 'Runs @Tag("integration") tests (require Podman/Docker).'
+	group = 'verification'
+	useJUnitPlatform { includeTags 'integration' }
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter tasks.named('test')
+	systemProperty 'datahub.pulsar.image.version', project.findProperty('pulsarBrokerVersion') ?: '5.0.0'
+}
+

@@ -2,6 +2,8 @@
 package ai.intellistream.datahub.sdk;
 
 import ai.intellistream.datahub.api.binary.DatapointFrame;
+import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
+import ai.intellistream.datahub.api.binary.FrameFormatException;
 import ai.intellistream.datahub.api.binary.DatapointValueType;
 import ai.intellistream.datahub.api.binary.FrameLimits;
 import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
@@ -10,6 +12,7 @@ import ai.intellistream.datahub.api.responses.DatapointsCollection;
 import ai.intellistream.datahub.sdk.client.DatahubClient;
 import ai.intellistream.datahub.sdk.client.DatahubConfig;
 import ai.intellistream.datahub.sdk.client.BinaryIngestBuffer;
+import ai.intellistream.datahub.sdk.http.DatahubApiException;
 import ai.intellistream.datahub.sdk.ingest.BinaryIngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.sdk.timeseries.Datapoint;
@@ -37,6 +40,7 @@ import java.util.function.Function;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -394,5 +398,52 @@ class TimeseriesBinaryIngestTest {
         }
         assertNotNull(received.get(0).parsed().get(0).valueAsString(0));
         assertEquals(2, binaryCalls.get());
+    }
+
+    // --- Frames the caller built -----------------------------------------------------------------
+
+    private static byte[] floatFrame(long id, String externalId, int rows) {
+        DatapointFrameWriter writer = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(id, externalId);
+        for (int i = 0; i < rows; i++) {
+            writer.addFloat(id, 1_700_000_000_000L + i * 1000L, i * 0.5);
+        }
+        return writer.build(new ZstdPayloadCodec());
+    }
+
+    @Test
+    void prebuiltFramesGoAsOneRequestWithoutResolvingSeries() {
+        client.timeseries().ingestFrameBytes(List.of(floatFrame(11, "a", 3), floatFrame(12, "b", 2)));
+
+        assertEquals(1, binaryCalls.get());
+        assertEquals(0, byIdsCalls.get(), "the frames already name their series");
+        assertEquals(FrameLimits.MEDIA_TYPE, lastContentType);
+        assertEquals(2, received.get(0).frames());
+        assertEquals(5, received.get(0).rows());
+        assertEquals(DatapointValueType.FLOAT, received.get(0).parsed().get(0).valueType());
+    }
+
+    @Test
+    void aRefusedFrameRequestThrowsWithTheProblemAndIsNotRetried() {
+        scriptedStatuses.add(404);
+        scriptedBody = UNKNOWN_TIMESERIES;
+
+        DatahubApiException e = assertThrows(DatahubApiException.class,
+                () -> client.timeseries().ingestFrameBytes(List.of(floatFrame(3, "gone", 1))));
+
+        assertEquals(404, e.statusCode());
+        assertTrue(e.problem().is("unknown-timeseries"), String.valueOf(e.problem().slug()));
+        assertEquals(1, binaryCalls.get());
+    }
+
+    @Test
+    void framesOverTheRequestLimitFailWithoutARequest() {
+        List<byte[]> frames = new ArrayList<>();
+        for (int i = 0; i <= FrameLimits.MAX_FRAMES_PER_REQUEST; i++) {
+            frames.add(floatFrame(i + 1, "s" + i, 1));
+        }
+
+        assertThrows(FrameFormatException.class, () -> client.timeseries().ingestFrameBytes(frames));
+        assertThrows(FrameFormatException.class, () -> client.timeseries().ingestFrameBytes(List.of()));
+        assertEquals(0, binaryCalls.get());
     }
 }

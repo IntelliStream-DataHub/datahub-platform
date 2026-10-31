@@ -1,0 +1,8 @@
+# Copy this file to application-dev.properties (which is git-ignored), fill in the Vault values and
+# run the service with the `dev` profile: ./gradlew :datahub-flow:bootRun
+#
+# The AppRole needs read on the "datahub-platform" secret (the JWT issuer) and on tenant-resources
+# (the tenant registry). The values below match the local compose stack's vault-seed.
+vault.address=http://localhost:8200
+vault.role-id=datahub-local-roleid
+vault.secret-id=datahub-local-secretid

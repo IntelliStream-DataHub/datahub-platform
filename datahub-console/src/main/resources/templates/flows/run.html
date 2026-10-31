@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.run.title}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('list')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* One run: what it covered and ran with, how it ended, and what happened to every item in
+	       it. Filled by flows/flow-runs.js from datahub-flow; while the run is going it follows the
+	       live view, GET /runs/{id}/events. */-->
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="run-page"
+		 th:attr="data-flow-id=${flowExternalId},data-run-id=${runId}">
+
+		<div class="flows-header">
+			<div>
+				<h2>
+					<a th:href="@{/flows/{id}(id=${flowExternalId})}" th:text="${flowExternalId}"></a>
+					<span th:text="#{flows.run.title}"></span>
+				</h2>
+				<p class="flows-intro">
+					<span class="run-status" data-type="run-status" th:text="#{loading}"></span>
+					<span class="flows-live" data-type="run-live" hidden></span>
+				</p>
+			</div>
+			<div class="flow-actions">
+				<button type="button" class="dh-btn secondary small" data-type="run-cancel" th:text="#{cancel}" hidden></button>
+				<button type="button" class="dh-btn secondary small" data-type="run-rerun" th:text="#{flows.rerun}" hidden></button>
+			</div>
+		</div>
+
+		<dl class="run-facts" data-type="run-facts"></dl>
+
+		<details class="run-log" data-type="run-log" hidden>
+			<summary th:text="#{flows.run.log}"></summary>
+			<pre></pre>
+		</details>
+
+		<section class="run-records">
+			<div class="run-records-head datahub-form-fields">
+				<h3 th:text="#{flows.run.records}"></h3>
+				<select data-type="run-records-processor">
+					<option value="" th:text="#{flows.run.records.all}"></option>
+				</select>
+				<!--/* Shown while one item is followed: click a record to follow its item. */-->
+				<div class="run-records-following" data-type="run-records-following" hidden>
+					<span></span>
+					<button type="button" class="dh-btn secondary small" th:text="#{flows.run.records.show.all}"></button>
+				</div>
+			</div>
+			<table class="listing slim w100" data-type="run-records">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.time}"></th>
+						<th th:text="#{flows.column.attempt}"></th>
+						<th th:text="#{flows.column.processor}"></th>
+						<th th:text="#{flows.column.action}"></th>
+						<th th:text="#{flows.column.relationship}"></th>
+						<th th:text="#{flows.column.item}"></th>
+						<th th:text="#{flows.column.content}"></th>
+						<th th:text="#{flows.column.transit}"></th>
+						<th th:text="#{flows.column.changed}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+			<p class="flows-empty" data-type="run-records-empty" hidden th:text="#{flows.run.records.empty}"></p>
+			<div class="flows-actions">
+				<button type="button" class="dh-btn secondary" data-type="run-records-more" hidden
+						th:text="#{flows.load.more}"></button>
+			</div>
+		</section>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

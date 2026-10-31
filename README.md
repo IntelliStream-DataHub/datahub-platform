@@ -312,6 +312,12 @@ The console's Analyze tab and its "related series" panel call this service **dir
 
 It also converts AVEVA RVM models to glTF for the console's 3D viewer (`GET /models/gltf`), by running the static `rvm-converter` binary from [tools/rvm-converter](tools/rvm-converter). Install that binary on every analysis host (`rvm.converter.binary`, default `/opt/datahub/bin/rvm-converter`); without it every other endpoint works and a conversion answers 422.
 
+### datahub-flow
+
+intellistream-flow, which runs flows: small pipelines of processors that read DataHub data, transform it and write it back. Flows, versions, deployments and schedules are in each tenant's own Postgres (created by datahub-api's per-tenant migrations). Runs are kept in the tenant's own KVRocks while they are queued, running or just finished, and in ClickHouse (table `flow_run`, created from `datahub-api/src/main/resources/db/clickhouse.sql`, which the operator applies like the other ClickHouse tables) once they are over. Every instance coordinates through those, so add instances to scale. A tenant needs a KVRocks host and port in its Vault configuration: without one its runs cannot be made, and if its KVRocks is lost, its queued and running runs are lost with it. The console's Flows section calls it directly from the browser, on port 8084.
+
+Runs hold their data on the heap, so size it with `-Xmx`. The runs on one instance share a budget of half the heap (`datahub.flow.runs.memory-budget` can set a smaller one), split evenly over the run slots (`datahub.flow.runs.max-running`, 8 by default): with a 16 GB heap every run may hold 1 GB. A flow never says how much memory it needs. The service refuses to start if a run's share would be under 64 MB, so give eight slots at least 1 GB of heap.
+
 ### datahub-cleanup
 
 Run **one instance**: two janitors deleting concurrently is wasteful and racy.
@@ -320,7 +326,7 @@ It is also the only persistent retrier of the per-tenant Flyway migration: `data
 
 ### Metrics
 
-Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085. For the api, console and analysis that is a second port next to the application port, so a load balancer never reaches it. It ships switched off, because the scrape carries no token: turn it on per service with `management.endpoints.web.exposure.include=prometheus`, open the port to the Prometheus host only, and prefer mutual TLS (`management.server.ssl.*` with `client-auth: need`) over trusting that rule. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
+Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: api 9081, console 9080, analysis 9082, stateless consumer 9083, cleanup 9085, flow 9086. For the api, console, analysis and flow that is a second port next to the application port, so a load balancer never reaches it. It ships switched off, because the scrape carries no token: turn it on per service with `management.endpoints.web.exposure.include=prometheus`, open the port to the Prometheus host only, and prefer mutual TLS (`management.server.ssl.*` with `client-auth: need`) over trusting that rule. JVM memory and GC, threads, CPU, Tomcat connections and request latency per endpoint come out of the box; the health endpoint is not exposed.
 
 ### Flyway
 

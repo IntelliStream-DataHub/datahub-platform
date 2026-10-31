@@ -77,6 +77,16 @@ class TenantFlowSectionTest {
     }
 
     @Test
+    void aRunReadsASecretsValueByItsName() {
+        Map<String, String> secret = TenantFlowSection.putSecret("api-token", "t0k3n").apply(existing());
+
+        assertThat(TenantFlowSection.secretValue(secret, "api-token")).isEqualTo("t0k3n");
+        assertThat(TenantFlowSection.secretValue(secret, "missing")).isNull();
+        // A client's credential is not a secret a flow can name.
+        assertThat(TenantFlowSection.secretValue(secret, "ingest.client-secret")).isNull();
+    }
+
+    @Test
     void aNameCannotReachIntoAnotherKey() {
         for (String name : new String[]{"", "Upper", "a.b", "../llm", "-leading", "a".repeat(64), null}) {
             assertThatThrownBy(() -> TenantFlowSection.putSecret(name, "v"))
@@ -84,5 +94,39 @@ class TenantFlowSectionTest {
         }
         assertThat(TenantFlowSection.putSecret("a".repeat(63), "v").apply(Map.of()))
                 .containsKey("flow.secret." + "a".repeat(63));
+    }
+
+    @Test
+    void aFlowsTokenIsStoredReadAndRemovedWithoutTouchingTheRest() {
+        Map<String, String> stored = Map.of("llm.api-key", "k", "flow.client.ingest.client-id", "c",
+                "flow.client.ingest.client-secret", "s", "flow.token.7", "old");
+
+        Map<String, String> replaced = TenantFlowSection.putToken(7, "new").apply(stored);
+        assertThat(TenantFlowSection.token(replaced, 7)).isEqualTo("new");
+        assertThat(replaced).containsEntry("llm.api-key", "k")
+                .containsEntry("flow.client.ingest.client-id", "c");
+
+        Map<String, String> removed = TenantFlowSection.removeToken(7).apply(replaced);
+        assertThat(TenantFlowSection.token(removed, 7)).isNull();
+        assertThat(removed).hasSize(3);
+    }
+
+    @Test
+    void everyFlowsTokenIsListedAndNothingElse() {
+        Map<String, String> stored = Map.of("llm.api-key", "k", "flow.secret.a", "v",
+                "flow.token.7", "seven", "flow.token.9", "nine");
+
+        assertThat(TenantFlowSection.tokens(stored)).containsExactlyInAnyOrder("seven", "nine");
+    }
+
+    @Test
+    void aRegisteredClientsCredentialsAreReadAsAPair() {
+        Map<String, String> stored = Map.of("flow.client.ingest.client-id", "c",
+                "flow.client.ingest.client-secret", "s", "flow.client.half.client-id", "h");
+
+        assertThat(TenantFlowSection.clientCredentials(stored, "ingest"))
+                .isEqualTo(new TenantFlowSection.ClientCredentials("c", "s"));
+        assertThat(TenantFlowSection.clientCredentials(stored, "half")).isNull();
+        assertThat(TenantFlowSection.clientCredentials(stored, "absent")).isNull();
     }
 }

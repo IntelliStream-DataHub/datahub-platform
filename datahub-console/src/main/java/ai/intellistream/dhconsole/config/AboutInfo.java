@@ -32,13 +32,16 @@ public class AboutInfo {
     private final ObjectProvider<BuildProperties> buildProperties;
     private final String apiUrl;
     private final String analysisUrl;
+    private final String flowUrl;
 
     public AboutInfo(ObjectProvider<BuildProperties> buildProperties,
                      @Value("${datahub.url:http://localhost:8081}") String apiUrl,
-                     @Value("${datahub.analysis.url:http://localhost:8082}") String analysisUrl) {
+                     @Value("${datahub.analysis.url:http://localhost:8082}") String analysisUrl,
+                     @Value("${datahub.flow.url:http://localhost:8084}") String flowUrl) {
         this.buildProperties = buildProperties;
         this.apiUrl = apiUrl;
         this.analysisUrl = analysisUrl;
+        this.flowUrl = flowUrl;
     }
 
     public String getVersion() {
@@ -66,5 +69,9 @@ public class AboutInfo {
 
     public String getAnalysisUrl() {
         return analysisUrl;
+    }
+
+    public String getFlowUrl() {
+        return flowUrl;
     }
 }

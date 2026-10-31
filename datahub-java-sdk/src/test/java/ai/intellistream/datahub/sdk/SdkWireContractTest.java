@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 package ai.intellistream.datahub.sdk;
 
+import ai.intellistream.datahub.api.binary.DatapointFrameWriter;
+import ai.intellistream.datahub.api.binary.DatapointValueType;
+import ai.intellistream.datahub.api.binary.ZstdPayloadCodec;
 import ai.intellistream.datahub.api.responses.DataRetriever;
 import ai.intellistream.datahub.api.responses.DataWrapper;
 import ai.intellistream.datahub.api.responses.DatapointsCollection;
@@ -35,6 +38,7 @@ import ai.intellistream.datahub.models.datafilters.ResourceFilter;
 import ai.intellistream.datahub.models.datafilters.TimeseriesFilter;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.models.files.FileUpdate;
 import ai.intellistream.datahub.models.forms.DataSetForm;
 import ai.intellistream.datahub.models.forms.RetrieveFilter;
@@ -205,6 +209,13 @@ class SdkWireContractTest {
         return List.of(IdCollection.createFromExternalId("x"));
     }
 
+    /** One float frame of one point, as {@code DatapointFrameWriter} builds it for {@code ingestFrames}. */
+    private static byte[] frame() {
+        DatapointFrameWriter writer = DatapointFrameWriter.forType(DatapointValueType.FLOAT).series(11, "engine.temp");
+        writer.addFloat(11, 1_700_000_000_000L, 1.5);
+        return writer.build(new ZstdPayloadCodec());
+    }
+
     private static Asset asset() {
         Asset a = new Asset();
         a.setExternalId("pump_1");
@@ -337,6 +348,8 @@ class SdkWireContractTest {
             new Contract("timeseries.deleteDatapoints", "POST", "/timeseries/data/delete",
                     retriever(DeleteDatapoint.class),
                     c -> c.timeseries().deleteDatapoints("x", Instant.EPOCH, Instant.EPOCH)),
+            new Contract("timeseries.ingestFrameBytes", "POST", "/timeseries/data/binary", null,
+                    c -> c.timeseries().ingestFrameBytes(List.of(frame()))),
 
             // --- datasets ----------------------------------------------------------------
             new Contract("datasets.getById", "GET", "/datasets/1", null,
@@ -369,6 +382,9 @@ class SdkWireContractTest {
             new Contract("events.filter", "POST", "/events/filter",
                     TF.constructType(EventRetreiver.class),
                     c -> c.events().filter(new EventFilter())),
+            new Contract("events.latest", "POST", "/events/latest",
+                    TF.constructType(LatestEventsQuery.class),
+                    c -> c.events().latest(new LatestEventsQuery())),
             new Contract("events.search", "POST", "/events/search", searchBody(EventFilter.class),
                     c -> c.events().search(new SearchBody<>())),
             new Contract("events.create", "POST", "/events/create", wrapper(EventModel.class),

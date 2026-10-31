@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.nav.runs}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('runs')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<!--/* How the flows are doing, one row per deployed flow the user may read:
+	       GET {flow}/runs/overview, filled by flows/flows-overview.js. Flows with a problem or
+	       something to watch come first; the fine ones are folded away. Refreshes every few seconds
+	       while anything is running or queued. */-->
+	<div th:if="${!featureDisabled}" class="flows-page pad20" data-type="runs-page">
+		<div class="flows-header">
+			<div>
+				<h2 th:text="#{flows.nav.runs}"></h2>
+				<p class="flows-intro" th:text="#{flows.runs.intro}"></p>
+			</div>
+			<button type="button" class="dh-btn secondary" data-type="runs-refresh" th:text="#{flows.runs.refresh}"></button>
+		</div>
+
+		<p class="flows-hint" data-type="runs-summary"></p>
+
+		<h3 th:text="#{flows.runs.attention}"></h3>
+		<table class="listing slim w100" data-type="runs-attention" hidden>
+			<thead>
+				<tr>
+					<th th:text="#{flows.column.flow}"></th>
+					<th th:text="#{flows.runs.column.state}"></th>
+					<th th:text="#{flows.runs.column.running}"></th>
+					<th th:text="#{flows.runs.column.queued}"></th>
+					<th th:text="#{flows.runs.column.last}"></th>
+				</tr>
+			</thead>
+			<tbody></tbody>
+		</table>
+		<p class="flows-empty" data-type="runs-attention-empty" hidden th:text="#{flows.runs.attention.empty}"></p>
+
+		<details class="runs-fine" data-type="runs-fine" hidden>
+			<summary data-type="runs-fine-title"></summary>
+			<table class="listing slim w100" data-type="runs-fine-table">
+				<thead>
+					<tr>
+						<th th:text="#{flows.column.flow}"></th>
+						<th th:text="#{flows.runs.column.state}"></th>
+						<th th:text="#{flows.runs.column.running}"></th>
+						<th th:text="#{flows.runs.column.queued}"></th>
+						<th th:text="#{flows.runs.column.last}"></th>
+						<th th:text="#{flows.runs.column.next}"></th>
+					</tr>
+				</thead>
+				<tbody></tbody>
+			</table>
+		</details>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

@@ -54,13 +54,31 @@ dependencies {
 		exclude group: 'org.apache.logging.log4j', module: 'log4j-slf4j-impl'
 	}
 
+	// The flow records' retention sets the TTL of each tenant's flow_run_event table directly.
+	implementation 'com.clickhouse:client-v2:0.10.0'
+
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 	runtimeOnly 'org.postgresql:postgresql'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.testcontainers:junit-jupiter:1.21.4'
+	testImplementation 'org.testcontainers:clickhouse:1.21.4'
+	// SharedPostgres: one migrated Postgres container, a database per test class (FlowRetentionTaskIT).
+	testImplementation testFixtures(project(':datahub-infra'))
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	// The @Tag("integration") tests need a container runtime and run under integrationTest.
+	useJUnitPlatform { excludeTags 'integration' }
+}
+
+//   ./gradlew :datahub-cleanup:integrationTest
+tasks.register('integrationTest', Test) {
+	description = 'Runs @Tag("integration") tests (require Podman/Docker).'
+	group = 'verification'
+	useJUnitPlatform { includeTags 'integration' }
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter tasks.named('test')
 }
