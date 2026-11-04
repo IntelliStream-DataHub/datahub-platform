@@ -37,6 +37,11 @@ bin/pulsar-admin namespaces set-retention ${TENANT}/subscriptions -s 11G -t 3d
 # loudly); there is no shared fallback, so every subscription-using tenant needs a pulsar block.
 bin/pulsar-admin tenants create <customer-tenant>   # at customer onboarding, if not already present
 
+# Flow records: datahub-flow creates <customer-tenant>/flow, the non-partitioned topic
+# persistent://<customer-tenant>/flow/records and its subscription intellistream-flow-records for
+# every tenant with the flow feature on, with a producer_exception backlog quota (size and age)
+# and a retention above it (RecordsTopicProvisioner, datahub.flow.records.*). Nothing to run here.
+
 bin/pulsar-admin namespaces create ${TENANT}/http
 bin/pulsar-admin namespaces grant-permission ${TENANT}/http --actions produce,consume --role istream
 bin/pulsar-admin namespaces set-backlog-quota ${TENANT}/http --type destination_storage -l 10G -p consumer_backlog_eviction

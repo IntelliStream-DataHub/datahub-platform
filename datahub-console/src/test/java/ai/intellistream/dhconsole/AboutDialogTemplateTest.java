@@ -59,7 +59,8 @@ class AboutDialogTemplateTest {
         // Bean name, not class name: the template reaches it as ${@aboutInfo...}.
         context.registerBean("aboutInfo", AboutInfo.class,
                 () -> new AboutInfo(context.getBeanProvider(BuildProperties.class),
-                        "https://api.example.test", "https://analysis.example.test"));
+                        "https://api.example.test", "https://analysis.example.test",
+                        "https://flow.example.test"));
 
         context.refresh();
         return context;
@@ -111,7 +112,8 @@ class AboutDialogTemplateTest {
             // The deployment facts a support conversation is read off.
             assertThat(html).contains("Ada Lovelace")
                     .contains("Analytical Engines")
-                    .contains("https://analysis.example.test");
+                    .contains("https://analysis.example.test")
+                    .contains("https://flow.example.test");
 
             // Every message key resolved; Thymeleaf renders ??key_locale?? for a missing one.
             assertThat(html).doesNotContain("??");

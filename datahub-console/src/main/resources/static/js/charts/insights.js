@@ -39,6 +39,9 @@ class InsightsChart {
 		// applied, and with the restored window after a double-click reset. Lets a page keep
 		// state that depends on the visible window (e.g. an analysis) in step with the chart.
 		this.onZoom = obj.onZoom || null;
+		// Optional onPick(picks): called on a click in the plot (not a brush drag) with, for each
+		// series, its externalId and the timestamp of its datapoint nearest the click.
+		this.onPick = obj.onPick || null;
 		this.dataSets = [];
 
 		// TODO: figure out why is this hack needed
@@ -1145,6 +1148,21 @@ class InsightsChart {
 					}
 				});
 
+			})
+			// d3-brush lets a click through only when the pointer did not move, so a zoom drag is
+			// never a pick.
+			.on("click", (event) => {
+				const pointer = d3.pointer(event, this.svg.nodes()[0]);
+				// Only the plot itself: not the axes, nor the readout below it.
+				if(!this.onPick || pointer[0] < 0 || pointer[0] > this.width || pointer[1] < 0 || pointer[1] > this.height) return;
+				const x0 = this.x.invert(pointer[0]);
+				this.onPick(this.dataSets.map(dataSet => {
+					const idx = d3.bisector(data => data.timestamp).left(dataSet.data, x0, 1);
+					const d0 = dataSet.data[idx - 1];
+					const d1 = dataSet.data[idx];
+					const d = !d1 ? d0 : !d0 ? d1 : x0 - d0.timestamp > d1.timestamp - x0 ? d1 : d0;
+					return { externalId: dataSet.timeserieId, color: dataSet.color, timestamp: d ? d.timestamp : x0 };
+				}));
 			});
 	}
 

@@ -52,6 +52,12 @@
 			<i class="fa fa-fw fa-play"></i>
 			<span class="ts-live-label" th:text="#{insights.live.start}"></span>
 		</button>
+		<!-- Opens the data lineage panel (flows/data-lineage.js). Only a tenant with flows has any. -->
+		<button type="button" class="dh-btn secondary small ts-lineage-toggle" data-type="lineage-toggle"
+				th:if="${pageSelected} == 'insights' and ${@flowAccess.available()}" th:title="#{insights.lineage.help}">
+			<i class="fa fa-fw fa-code-branch"></i>
+			<span class="ts-lineage-label" th:text="#{insights.lineage.show}"></span>
+		</button>
 		<div class="graph-filter-slot" data-type="graph-filter-slot"></div>
 	</div>
 </nav>

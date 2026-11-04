@@ -393,7 +393,7 @@ public class DatapointListenWebSocketHandler extends TextWebSocketHandler implem
 
     /**
      * Extract the tenant id from the JWT's {@code organization} claim — same shape as
-     * {@code SecurityConfig.OrganizationValidator}.
+     * {@code OrganizationValidator}.
      */
     private static String extractTenantId(Jwt jwt) {
         Map<String, Object> orgs = jwt.getClaimAsMap("organization");

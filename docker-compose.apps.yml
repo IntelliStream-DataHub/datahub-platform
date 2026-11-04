@@ -133,7 +133,11 @@ services:
       args:
         MODULE: datahub-console
     depends_on: ["postgres", "valkey", "keycloak"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      # The Flows section's pages call datahub-flow from the host's browser, so this is the
+      # published address, not the compose network's.
+      DATAHUB_FLOW_URL: http://localhost:8084
     restart: unless-stopped
     ports: ["8080:8080", "9080:9080"]
 
@@ -176,6 +180,29 @@ services:
     restart: unless-stopped
     # Published because the request comes from the host's browser, not from inside the network.
     ports: ["8082:8082", "9082:9082"]
+
+  # intellistream-flow (port 8084): runs flows. Its tables are in each tenant's Postgres (schema
+  # `flow`, created by datahub-api's per-tenant migrations), so it waits for the api.
+  datahub-flow:
+    image: datahub-flow:local
+    build:
+      context: .
+      dockerfile: deploy/app/Dockerfile
+      args:
+        MODULE: datahub-flow
+    depends_on: ["postgres", "clickhouse", "pulsar", "keycloak", "datahub-api"]
+    environment:
+      <<: *app-env
+      # A bigger heap than the others: runs hold their data on it. The run memory budget is half
+      # the heap and must hold one run's default 512 MB cap, or the service refuses to start.
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1536m -XX:MaxDirectMemorySize=128m"
+      # The console's Flows section calls this service from the browser.
+      CORS_ALLOWED_ORIGINS: http://localhost:8080
+      # Asked what a caller may do, and called as the caller.
+      DATAHUB_API_URL: http://datahub-api:8081
+      WAIT_FOR_API_URL: http://datahub-api:8081/
+    restart: unless-stopped
+    ports: ["8084:8084", "9086:9086"]
 
   # Scheduled housekeeping: stale upload temp files, orphaned Pulsar subscriptions, and the
   # per-tenant Flyway self-heal sweep. It is the ONLY persistent retrier of that migration —

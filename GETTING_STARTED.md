@@ -140,7 +140,10 @@ docker compose exec -T clickhouse \
 
 # Each tenant DB should hold events + one datapoints_* table per value type:
 # datapoints_bigint, datapoints_float, datapoints_float32, datapoints_numeric,
-# datapoints_decimal32, datapoints_mixed, datapoints_text.
+# datapoints_decimal32, datapoints_mixed, datapoints_text; and flow_run_event, the record of
+# what flow runs did. The init script runs once per data volume, so an existing volume lacks
+# flow_run_event: copy its CREATE statement from clickhouse.sql and run it per tenant database
+# (clickhouse-client --database foo), or recreate the volume.
 docker compose exec -T clickhouse \
   clickhouse-client -u foobar --password changeme -q "SHOW TABLES FROM foo"
 ```
@@ -322,7 +325,8 @@ automatic, no manual Vault step:
   there is nothing to export and no role-id/secret-id to copy.
 - **pulsar-init** creates the `datahub-internal` / `datahub-public` tenants and their
   namespaces, plus the per-customer `foo` / `bar` tenants the subscription provisioner
-  expects (the standalone broker starts empty; see `scripts/pulsar-init.sh`).
+  expects (the standalone broker starts empty; see `scripts/pulsar-init.sh`). datahub-flow
+  then creates `<tenant>/flow` with its `records` topic for each tenant that has flows on.
 - Each app waits (via its image entrypoint) for the seed, Postgres, and the Pulsar
   namespaces before starting, so ordering is correct without relying on
   `depends_on`. Each image compiles the boot jars in a JDK build stage, so no host JDK or

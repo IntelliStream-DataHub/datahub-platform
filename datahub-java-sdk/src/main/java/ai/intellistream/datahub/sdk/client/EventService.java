@@ -8,6 +8,7 @@ import ai.intellistream.datahub.models.UUIDAndExternalIdCollection;
 import ai.intellistream.datahub.models.UpdateEventForm;
 import ai.intellistream.datahub.models.events.EventFilter;
 import ai.intellistream.datahub.models.events.EventRetreiver;
+import ai.intellistream.datahub.models.events.LatestEventsQuery;
 import ai.intellistream.datahub.sdk.ingest.IngestOptions;
 import ai.intellistream.datahub.sdk.ingest.IngestResult;
 import ai.intellistream.datahub.sdk.util.UuidV7;
@@ -97,6 +98,20 @@ public final class EventService {
         EventRetreiver request = new EventRetreiver();
         request.setFilter(criteria);
         return filter(request);
+    }
+
+    /**
+     * POST /events/latest — the latest event of each lifecycle (the events sharing an
+     * {@code externalId}) among those {@code query.filter} matches and the caller may read, kept
+     * when that latest event's status is one of {@code query.status}. Newest first.
+     *
+     * <p>This answers "which lifecycles are still open", which {@link #filter(EventRetreiver)}
+     * cannot: a status there matches every event that ever had it. So {@code query.filter} must not
+     * carry a status (the api answers 400); the top-level {@code status} is tested against each
+     * lifecycle's latest event. Page with {@code cursor} and the response's {@code nextCursor}.
+     */
+    public DataWrapper<EventModel> latest(LatestEventsQuery query) {
+        return http.post("/events/latest", query, eventWrapper);
     }
 
     /**

@@ -7,11 +7,12 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.Supplier;
 
 /**
- * Connection configuration: a base URL plus authentication — either a static bearer
- * {@code token} or OAuth2 client-credentials ({@code clientId}, {@code clientSecret},
- * {@code tokenUri}, optionally {@code scope} and {@code audience}).
+ * Connection configuration: a base URL plus authentication — a static bearer {@code token}, a
+ * {@code tokenSupplier} the caller keeps current, or OAuth2 client-credentials ({@code clientId},
+ * {@code clientSecret}, {@code tokenUri}, optionally {@code scope} and {@code audience}).
  *
  * <p>{@code scope} and {@code audience} are omitted from the token request unless set.
  *
@@ -62,6 +63,8 @@ public final class DatahubConfig {
     private final String assertionScope;
     private final String assertionAudience;
     private final String projectName;
+    private final Supplier<String> tokenSupplier;
+    private final Duration requestTimeout;
     private final Duration bufferRetention;
     private final Long bufferMaxBytes;
     private final Path bufferDirectory;
@@ -72,9 +75,16 @@ public final class DatahubConfig {
         }
         boolean hasToken = b.token != null && !b.token.isBlank();
         boolean hasClientCreds = notBlank(b.clientId) && notBlank(b.clientSecret) && notBlank(b.tokenUri);
-        if (!hasToken && !hasClientCreds) {
+        if (b.tokenSupplier != null && (hasToken || hasClientCreds)) {
             throw new DatahubConfigException(
-                    "authentication required: provide a static TOKEN, or CLIENT_ID + CLIENT_SECRET + TOKEN_URI");
+                    "tokenSupplier replaces the other credentials: set it alone, without TOKEN or CLIENT_ID + CLIENT_SECRET + TOKEN_URI");
+        }
+        if (!hasToken && !hasClientCreds && b.tokenSupplier == null) {
+            throw new DatahubConfigException(
+                    "authentication required: provide a static TOKEN, CLIENT_ID + CLIENT_SECRET + TOKEN_URI, or a tokenSupplier");
+        }
+        if (b.requestTimeout != null && (b.requestTimeout.isZero() || b.requestTimeout.isNegative())) {
+            throw new DatahubConfigException("requestTimeout must be positive when set");
         }
         boolean anyAssertionField = notBlank(b.assertion) || notBlank(b.assertionTokenUri)
                 || notBlank(b.assertionClientId) || notBlank(b.assertionClientSecret)
@@ -112,6 +122,8 @@ public final class DatahubConfig {
         this.assertionScope = b.assertionScope;
         this.assertionAudience = b.assertionAudience;
         this.projectName = b.projectName;
+        this.tokenSupplier = b.tokenSupplier;
+        this.requestTimeout = b.requestTimeout;
         // Buffering is off unless the caller opts in (enableBuffering() or setting either dimension).
         // When on, each unset dimension falls back to its default (72h / 5 GiB), so "I want retention"
         // gives a sensible bounded buffer without spelling out both numbers.
@@ -147,6 +159,12 @@ public final class DatahubConfig {
     public String assertionClientSecret()  { return assertionClientSecret; }
     public String assertionScope()         { return assertionScope; }
     public String assertionAudience()      { return assertionAudience; }
+
+    /** The caller's bearer-token source, called for every request; {@code null} unless configured. */
+    public Supplier<String> tokenSupplier() { return tokenSupplier; }
+
+    /** How long each request may take, from sending it to the response's headers; {@code null} for no limit. */
+    public Duration requestTimeout() { return requestTimeout; }
 
     /** Time-based ingest-buffer retention window, or {@code null} for no time bound. */
     public Duration bufferRetention() { return bufferRetention; }
@@ -339,6 +357,8 @@ public final class DatahubConfig {
         private String assertionScope;
         private String assertionAudience;
         private String projectName;
+        private Supplier<String> tokenSupplier;
+        private Duration requestTimeout;
         private Duration bufferRetention;
         private Long bufferMaxBytes;
         private Path bufferDirectory;
@@ -421,6 +441,33 @@ public final class DatahubConfig {
 
         public Builder projectName(String projectName) {
             this.projectName = projectName;
+            return this;
+        }
+
+        /**
+         * Take the bearer token from {@code tokenSupplier}, called for every request, instead of
+         * from a static {@link #token(String)} or a grant the SDK runs itself. For a caller that
+         * holds a credential the SDK has no grant for — a service acting for a user, say, which
+         * keeps the user's access token current by refreshing it itself — and would otherwise have
+         * to build a new client every time the token changes. The supplier must be thread-safe and
+         * cheap, since every request calls it; cache inside it. Whatever it throws reaches the
+         * caller of the request unchanged. Cannot be combined with {@code token} or
+         * {@code clientCredentials}.
+         */
+        public Builder tokenSupplier(Supplier<String> tokenSupplier) {
+            this.tokenSupplier = tokenSupplier;
+            return this;
+        }
+
+        /**
+         * Give up on a request that has not answered within {@code requestTimeout}: applied to
+         * every API and token request as {@link java.net.http.HttpRequest.Builder#timeout}, which
+         * bounds the wait for the response's headers. A request that times out fails with a
+         * {@code DatahubApiException} of status 0, as any request that never got an answer does.
+         * Unset (the default) waits as long as the connection stays open.
+         */
+        public Builder requestTimeout(Duration requestTimeout) {
+            this.requestTimeout = requestTimeout;
             return this;
         }
 

@@ -707,6 +707,7 @@ nav.sub-nav .ts-time-field input[data-picker="time"]{
    they sit cleanly on the redesigned sub-nav. The live toggle turns recording-red while streaming;
    the filter button takes a soft accent tint while its panel is open. */
 nav.sub-nav .ts-live-toggle,
+nav.sub-nav .ts-lineage-toggle,
 nav.sub-nav .graph-filter-btn{
 	display: inline-flex;
 	align-items: center;
@@ -718,22 +719,27 @@ nav.sub-nav .graph-filter-btn{
 	font-weight: 600;
 }
 nav.sub-nav .ts-live-toggle:not(:disabled):hover,
+nav.sub-nav .ts-lineage-toggle:not(:disabled):hover,
 nav.sub-nav .graph-filter-btn:not(:disabled):hover{
 	background: rgba(108, 177, 255, 0.14);
 	color: var(--accent);
 }
 html[data-theme="light"] nav.sub-nav .ts-live-toggle:not(:disabled):hover,
+html[data-theme="light"] nav.sub-nav .ts-lineage-toggle:not(:disabled):hover,
 html[data-theme="light"] nav.sub-nav .graph-filter-btn:not(:disabled):hover{ background: rgba(0, 89, 132, 0.10); }
 /* Filter button while its panel is open, or while any filter is active: a stronger accent
    tint (pressed/engaged look). */
+nav.sub-nav .ts-lineage-toggle.active,
 nav.sub-nav .graph-filter-btn.active,
 nav.sub-nav .graph-filter-btn.has-filter{
 	background: rgba(108, 177, 255, 0.18);
 	color: var(--accent);
 }
+html[data-theme="light"] nav.sub-nav .ts-lineage-toggle.active,
 html[data-theme="light"] nav.sub-nav .graph-filter-btn.active,
 html[data-theme="light"] nav.sub-nav .graph-filter-btn.has-filter{ background: rgba(0, 89, 132, 0.12); }
-nav.sub-nav .ts-live-toggle i{ font-size: 0.8rem; }
+nav.sub-nav .ts-live-toggle i,
+nav.sub-nav .ts-lineage-toggle i{ font-size: 0.8rem; }
 /* Streaming: a recording-red accent with a soft pulse so it reads as "live". */
 nav.sub-nav .ts-live-toggle.active{
 	background: #e5484d;

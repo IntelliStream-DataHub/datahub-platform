@@ -67,7 +67,8 @@ vault kv put "$MOUNT/datahub-platform" \
   pulsar.client-id=local pulsar.client-secret=local \
   pulsar.admin-client-id=local pulsar.admin-client-secret=local \
   pulsar.internal-tenant=datahub-internal \
-  keycloak.issuer="$KEYCLOAK/realms/datahub"
+  keycloak.issuer="$KEYCLOAK/realms/datahub" \
+  flow.client-id=intellistream-flow flow.client-secret=changeme-flow
 
 echo "==> Writing console secret (datahub-console)"
 # Read ONLY by the console loader: the OAuth2 login client (oauth.*) plus the

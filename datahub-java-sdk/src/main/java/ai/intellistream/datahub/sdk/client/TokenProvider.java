@@ -16,7 +16,8 @@ import java.util.Base64;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
- * Supplies a bearer token for API calls. A static token (from config) is returned as-is.
+ * Supplies a bearer token for API calls. A static token (from config) is returned as-is, and a
+ * caller's token supplier is asked every time.
  * Otherwise a token is fetched with either the OAuth2 client-credentials grant or, when an
  * assertion source is configured, the RFC 7523 {@code jwt-bearer} grant. Either way the result is
  * cached until shortly before it expires; refresh is single-flight — concurrent callers trigger at
@@ -45,6 +46,13 @@ final class TokenProvider {
     public String getToken() {
         if (config.hasStaticToken()) {
             return config.token();
+        }
+        if (config.tokenSupplier() != null) {
+            String supplied = config.tokenSupplier().get();
+            if (supplied == null || supplied.isBlank()) {
+                throw new DatahubApiException(0, "the configured token supplier returned no token", null);
+            }
+            return supplied;
         }
         String token = cachedToken;
         if (token != null && expiresAt != null && Instant.now().isBefore(expiresAt)) {
@@ -133,7 +141,11 @@ final class TokenProvider {
     private TokenResponse post(String tokenUri, String clientId, String clientSecret, String body, String failure) {
         String basic = Base64.getEncoder().encodeToString(
                 (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
-        HttpRequest request = HttpRequest.newBuilder(URI.create(tokenUri))
+        HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(tokenUri));
+        if (config.requestTimeout() != null) {
+            builder.timeout(config.requestTimeout());
+        }
+        HttpRequest request = builder
                 .header("Authorization", "Basic " + basic)
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("Accept", "application/json")

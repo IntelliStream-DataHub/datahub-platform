@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.tenant;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
@@ -40,6 +41,7 @@ public final class TenantFlowSection {
     private static final String CLIENT = "flow.client.";
     private static final String CLIENT_ID = ".client-id";
     private static final String CLIENT_SECRET = ".client-secret";
+    private static final String TOKEN = "flow.token.";
 
     private TenantFlowSection() {
     }
@@ -104,6 +106,14 @@ public final class TenantFlowSection {
         return names;
     }
 
+    /**
+     * The value of the secret {@code name}, or null when there is none. For the flow service, which
+     * hands it to the run that refers to it; never for anything a caller reads back.
+     */
+    public static String secretValue(Map<String, String> secret, String name) {
+        return secret.get(SECRET + name);
+    }
+
     /** Each registered client's name and client id, sorted by name. Never the client secret. */
     public static TreeMap<String, String> clientIds(Map<String, String> secret) {
         TreeMap<String, String> clients = new TreeMap<>();
@@ -113,6 +123,58 @@ public final class TenantFlowSection {
             }
         });
         return clients;
+    }
+
+    /** A registered client's credentials. */
+    public record ClientCredentials(String clientId, String clientSecret) {
+    }
+
+    /**
+     * The credentials of the client registered as {@code name}, or null when there is none. For the
+     * flow service, which takes tokens with them; never for anything a caller reads back.
+     */
+    public static ClientCredentials clientCredentials(Map<String, String> secret, String name) {
+        String id = secret.get(CLIENT + name + CLIENT_ID);
+        String clientSecret = secret.get(CLIENT + name + CLIENT_SECRET);
+        return id == null || clientSecret == null ? null : new ClientCredentials(id, clientSecret);
+    }
+
+    /**
+     * Stores the offline token a flow's runs act with, as {@code flow.token.<flowId>}, replacing the
+     * one it had. Written by the flow service when someone deploys the flow; the settings API never
+     * lists or changes it.
+     */
+    public static UnaryOperator<Map<String, String>> putToken(long flowId, String token) {
+        String key = TOKEN + flowId;
+        Objects.requireNonNull(token, "token");
+        return existing -> {
+            Map<String, String> changed = new HashMap<>(existing);
+            changed.put(key, token);
+            return changed;
+        };
+    }
+
+    /** Removes a flow's offline token; nothing changes when there is none. */
+    public static UnaryOperator<Map<String, String>> removeToken(long flowId) {
+        String key = TOKEN + flowId;
+        return existing -> {
+            Map<String, String> changed = new HashMap<>(existing);
+            changed.remove(key);
+            return changed;
+        };
+    }
+
+    /** The offline token stored for a flow, or null when there is none. */
+    public static String token(Map<String, String> secret, long flowId) {
+        return secret.get(TOKEN + flowId);
+    }
+
+    /** Every flow's offline token in the secret. */
+    public static List<String> tokens(Map<String, String> secret) {
+        return secret.entrySet().stream()
+                .filter(e -> e.getKey().startsWith(TOKEN))
+                .map(Map.Entry::getValue)
+                .toList();
     }
 
     private static String checked(String name) {

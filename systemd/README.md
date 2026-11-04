@@ -12,24 +12,24 @@ systemd/
   datahub@<name>.service.d/placement.conf   per-instance NUMA node, memory ceiling, extra mounts
   env/common.env                       profile, Vault AppRole, Pulsar, shared env
   env/<name>.env                       JAVA_OPTS per service
-  config/<name>/application.yml        Spring Boot / Tomcat tuning (api, console, analysis)
+  config/<name>/application.yml        Spring Boot / Tomcat tuning (api, console, analysis, flow)
   sysctl.d/90-datahub-app.conf         kernel settings for the app hosts
 ```
 
 Instance names are the short module names: `api`, `console`, `stateless-consumer`,
-`analysis`, `cleanup`. `systemctl status datahub@api` and so on.
+`analysis`, `cleanup`, `flow`. `systemctl status datahub@api` and so on.
 
 ## Host layout
 
 Two services per host, one per socket. With two hosts this gives the two api and two
-console instances the load balancer expects; the consumers, analysis and cleanup go on
+console instances the load balancer expects; the consumers, analysis, flow and cleanup go on
 a third host (or on the same two if the hardware is shared).
 
 | Host | NUMA node 0 | NUMA node 1 |
 |---|---|---|
 | app-1 | `datahub@api` (20 GB heap) | `datahub@console` (16 GB) |
 | app-2 | `datahub@api` (20 GB) | `datahub@console` (16 GB) |
-| app-3 | `datahub@stateless-consumer` (20 GB) | — |
+| app-3 | `datahub@stateless-consumer` (20 GB) | `datahub@flow` (8 GB heap + 8 GB direct) |
 | app-4 | `datahub@analysis` (16 GB) | `datahub@cleanup` (4 GB) |
 
 The node for each instance is set in its `placement.conf` (`NUMAMask=0` or `1`), so a
@@ -121,8 +121,8 @@ addresses on the app hosts; a server's source address must stay put.
 ## Metrics
 
 Every service can serve Prometheus metrics at `/actuator/prometheus` on a port of its own: JVM
-memory and GC, threads, CPU, Tomcat connections and request latency per endpoint. The api, console
-and analysis serve it on a second port next to the application port, so the load balancer never
+memory and GC, threads, CPU, Tomcat connections and request latency per endpoint. The api, console,
+analysis and flow serve it on a second port next to the application port, so the load balancer never
 reaches it; the consumers and cleanup listen on nothing else.
 
 **It ships switched off.** The scrape carries no token, so whatever reaches the port reads your
@@ -143,6 +143,7 @@ in `/etc/datahub/<name>/application.yml`.
 | `datahub@api` | 8081 | 9081 |
 | `datahub@console` | 8080 | 9080 |
 | `datahub@analysis` | 8082 | 9082 |
+| `datahub@flow` | 8084 | 9086 |
 | `datahub@stateless-consumer` | none | 9083 |
 | `datahub@cleanup` | none | 9085 |
 

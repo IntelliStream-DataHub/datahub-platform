@@ -101,6 +101,12 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
+    // OrganizationValidator (tenant resolution from a token) is shared by the services that are
+    // OAuth2 resource servers. compileOnly: they bring the security classes themselves, and the
+    // services that are not resource servers are not given them.
+    compileOnly 'org.springframework.security:spring-security-oauth2-jose'
+    testImplementation 'org.springframework.security:spring-security-oauth2-jose'
+
     // Gradle 9 requires the JUnit Platform launcher on the test runtime classpath.
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 

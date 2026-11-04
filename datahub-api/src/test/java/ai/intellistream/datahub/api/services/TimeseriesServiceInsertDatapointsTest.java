@@ -265,8 +265,8 @@ class TimeseriesServiceInsertDatapointsTest {
     void textIsAccepted() throws Exception {
         // The value-type switch had no TEXT arm, so a text series answered every JSON insert with
         // "Unsupported value type: TEXT" and a 500, while the quota counter, the per-collection
-        // text cap and the whole binary path all handled it. Found by the end-to-end test in
-        // datahub-e2e, which sends the same points down both paths and compares them.
+        // text cap and the whole binary path all handled it. Found by an end-to-end test that sent
+        // the same points down both paths and compared them.
         known("text-1", 1L, "TEXT");
 
         timeseriesService.insertDatapoints(request(

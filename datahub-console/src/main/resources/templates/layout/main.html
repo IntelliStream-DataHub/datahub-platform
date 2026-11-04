@@ -25,6 +25,9 @@
          dialog converts AVEVA RVM models to glTF through the same service; blank hides the Convert
          button. -->
     <meta name="datahub-analysis-url" th:content="${@environment.getProperty('datahub.analysis.url') ?: 'http://localhost:8082'}"/>
+    <!-- datahub-flow base URL (intellistream-flow): the Flows section reads and edits flows, starts
+         runs and follows them on this service directly, with the same Bearer token. -->
+    <meta name="datahub-flow-url" th:content="${@environment.getProperty('datahub.flow.url') ?: 'http://localhost:8084'}"/>
 </th:block>
 
 <body th:fragment="htmlbody (content, pageSelected)" th:classappend="${pageSelected == null ? 'page-home' : ''}">
@@ -60,6 +63,13 @@
         </a>
         <a th:href="@{/cdc}" th:classappend="${pageSelected} == 'streams' ? 'selected' : ''">
             <span th:text="#{streams}"></span>
+        </a>
+        <!-- Only for a tenant with the flow flag. The count is the open run-failed lifecycles,
+             filled in by flows/attention-badge.js from datahub-api. -->
+        <a th:if="${@flowAccess.available()}" th:href="@{/flows}"
+           th:classappend="${pageSelected} == 'flows' ? 'selected' : ''">
+            <span th:text="#{flows}"></span>
+            <span class="nav-count" data-type="flows-attention-count" hidden></span>
         </a>
     </nav>
 
@@ -220,6 +230,10 @@
                 <div>
                     <dt th:text="#{about.fact.analysis}">Analysis service</dt>
                     <dd th:text="${@aboutInfo.analysisUrl}"></dd>
+                </div>
+                <div>
+                    <dt th:text="#{about.fact.flow}">Flow service</dt>
+                    <dd th:text="${@aboutInfo.flowUrl}"></dd>
                 </div>
             </dl>
         </section>
