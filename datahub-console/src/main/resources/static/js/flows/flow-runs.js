@@ -75,7 +75,7 @@
 
 	/** Where a run's page is: in Flows, or in Agents when the page says data-section="agents". */
 	function runPath(section, flowId, run){
-		return "/" + (section || "flows") + "/" + FlowApi.seg(run.flow || flowId) + "/runs/" + FlowApi.seg(run.id);
+		return "/" + section + "/" + FlowApi.seg(run.flow || flowId) + "/runs/" + FlowApi.seg(run.id);
 	}
 
 	// ---- the list on a flow's page -------------------------------------------------------------
@@ -90,7 +90,7 @@
 			var tbody = page.querySelector('[data-type="flow-runs"] tbody');
 			var empty = page.querySelector('[data-type="flow-runs-empty"]');
 			var more = page.querySelector('[data-type="flow-runs-more"]');
-			var section = page.getAttribute("data-section");
+			var section = page.getAttribute("data-section") === "agents" ? "agents" : "flows";
 			var key = flowId + "|" + previews.checked;
 			if(listed === key) return;
 			listed = key;
@@ -133,7 +133,7 @@
 		if(!page) return;
 		var flowId = page.getAttribute("data-flow-id");
 		var runId = page.getAttribute("data-run-id");
-		var section = page.getAttribute("data-section");
+		var section = page.getAttribute("data-section") === "agents" ? "agents" : "flows";
 		var el = function(type){ return page.querySelector('[data-type="' + type + '"]'); };
 		var tbody = el("run-records").querySelector("tbody");
 		var filter = el("run-records-processor");

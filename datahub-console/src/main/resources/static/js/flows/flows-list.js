@@ -16,7 +16,7 @@
 		var empty = page.querySelector('[data-type="flows-empty"]');
 		var more = page.querySelector('[data-type="flows-load-more"]');
 		var kind = page.getAttribute("data-kind");
-		var section = page.getAttribute("data-section") || "flows";
+		var section = page.getAttribute("data-section") === "agents" ? "agents" : "flows";
 		var cursor = null;
 
 		function deploymentText(flow){
