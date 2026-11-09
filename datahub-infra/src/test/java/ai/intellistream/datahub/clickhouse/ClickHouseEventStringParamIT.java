@@ -39,6 +39,10 @@ import static org.mockito.Mockito.when;
  * level of backslashes: a type filter ending in {@code \} failed the query, {@code a\\b} matched a
  * stored {@code a\b}, and an update to {@code C:\temp} stored a TAB. Every path that binds one is
  * exercised here — pattern lists, metadata, the advanced filter, search and update.
+ *
+ * <p>Since client-v2 0.11.0 the client escapes these itself (clickhouse-java #2781), so the platform
+ * must not escape them again: a value escaped twice arrives with literal backslashes and matches
+ * nothing. This class is what catches either side doing it alone or both doing it.
  */
 @Tag("integration")
 class ClickHouseEventStringParamIT {
