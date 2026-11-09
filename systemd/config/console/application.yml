@@ -45,3 +45,10 @@ spring:
   # threads:
   #   virtual:
   #     enabled: true
+
+datahub:
+  # datahub-flow (intellistream-flow), which the Flows section's pages call from the browser with
+  # the user's own token: it must list the console's origin in its cors.allowed-origins, and its
+  # datahub.flow.console-url points back here for the deploy round-trip.
+  flow:
+    url: https://flow.example.com

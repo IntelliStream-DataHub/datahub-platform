@@ -1,0 +1,45 @@
+# /etc/datahub/flow/application.yml
+#
+# Deployment tuning for datahub-flow (intellistream-flow). The console's Flows section calls it
+# straight from the browser and it validates the caller's JWT, so it needs the same header
+# ceiling as the api. Runs hold their data on the heap; see /etc/datahub/flow.env.
+
+server:
+  shutdown: graceful
+  forward-headers-strategy: native
+  max-http-request-header-size: 16KB
+
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
+
+  tomcat:
+    accept-count: 256
+    connection-timeout: 20s
+    keep-alive-timeout: 75s
+    max-keep-alive-requests: -1
+    # Only if it is fronted by the load balancer too; list the LB addresses, as for the api.
+    remoteip:
+      remote-ip-header: X-Forwarded-For
+      protocol-header: X-Forwarded-Proto
+      internal-proxies: 10.0.0.10/32, 10.0.0.11/32, fd00:10::10/128, fd00:10::11/128
+
+spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 60s
+
+datahub:
+  # datahub-api, asked on every request what the caller may do (GET /me/*) and called as the caller.
+  # Point it at the api's load balancer, or a local api instance.
+  api:
+    url: http://localhost:8081
+  flow:
+    # Deploying a flow round-trips the browser through Keycloak to <public-url>/flows/deployment/callback,
+    # which must be a redirect URI of the intellistream-flow client; then on to the console.
+    public-url: https://flow.example.com
+    console-url: https://console.example.com
+    runs:
+      # What the runs on this instance may hold at once, each under its own cap. Unset, half the
+      # heap (8 GB with flow.env's 16 GB); at most half, or the service refuses to start.
+      #memory-budget: 8GB

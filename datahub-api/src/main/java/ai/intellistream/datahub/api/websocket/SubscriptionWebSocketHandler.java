@@ -474,7 +474,7 @@ public class SubscriptionWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * Extract the tenant id from the JWT's {@code organization} claim.
-     * See {@code SecurityConfig.OrganizationValidator} for claim shape.
+     * See {@code OrganizationValidator} for claim shape.
      */
     private static String extractTenantId(Principal principal) {
         if (!(principal instanceof JwtAuthenticationToken jwtAuth)) return null;

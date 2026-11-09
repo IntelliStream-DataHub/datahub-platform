@@ -50,7 +50,7 @@ public final class DatahubClient {
         // NodeModelSubtypes makes NodeModel-typed reads dispatch on the type-label.
         this.mapper = JsonMapper.builder().addModule(new NodeModelSubtypes()).build();
         this.tokenProvider = new TokenProvider(config, http, mapper);
-        this.api = new ApiHttp(config.baseUrl(), http, mapper, tokenProvider);
+        this.api = new ApiHttp(config.baseUrl(), http, mapper, tokenProvider, config.requestTimeout());
 
         this.resources = new ResourceService(api);
         this.edges = new EdgeService(api);

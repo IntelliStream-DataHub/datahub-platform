@@ -19,6 +19,9 @@ Thin, synchronous Java client for the DataHub Platform REST API, published as
   The binary read, `retrieveBinary(...)`, goes to `POST /timeseries/data/list/binary` with the
   JSON retrieve body and returns api-model's `DatapointFrame`s as they are; a response without
   the end marker is an error, never a shorter answer.
+  `ingestFrameBytes(...)` posts frames the caller built (`DatapointFrameWriter`) as one request,
+  with the request-level caps checked client-side and no resolution or retry: it is for a caller
+  that holds its points in columns, such as the flow service, and throws on refusal.
 - **Branch on the problem `type`, never on a substring of the body.** The api answers every
   failure with one RFC 9457 shape whose `type` URI is the contract; `detail` and `title` are prose
   for a human and may be reworded. `Problem.of(status, body)` never throws and never returns null,
@@ -60,7 +63,8 @@ value types a caller names.
 - `client/` — the entry point and everything behind it:
   - public: `DatahubClient` (one accessor per service); `DatahubConfig` (builder; `fromEnv()`
     on `BASE_URL` + `TOKEN` or `CLIENT_ID`/`CLIENT_SECRET`/`TOKEN_URI`, optionally
-    `SCOPE`/`AUDIENCE` and the `ASSERTION*` keys that select the `jwt-bearer` grant; Vault
+    `SCOPE`/`AUDIENCE` and the `ASSERTION*` keys that select the `jwt-bearer` grant; in code
+    only, a `tokenSupplier` for a credential the caller keeps current and a `requestTimeout`; Vault
     variants via `VaultSecretLoader`, a JDK-HttpClient KV v2 read supporting token and AppRole
     auth); one `*Service` per API area (resources, assets, functions, timeseries, datasets,
     events, labels, policies, governance, tenant, units, files, subscriptions); and the handles
@@ -68,8 +72,9 @@ value types a caller names.
     are the typed views of the `ASSET`/`FUNCTION` corners of the same graph `resources` serves
     polymorphically; `labels` reads and writes through `LabelForm`, which is
     `@Schema(name = "Label")` and is the label wire shape on both sides.
-  - package-private: `ApiHttp` (request helpers; every non-2xx becomes a
-    `DatahubApiException`); `TokenProvider` (static token pass-through, or a cached single-flight
+  - package-private: `ApiHttp` (request helpers; every request carries the token and the
+    configured `requestTimeout`, every non-2xx becomes a `DatahubApiException`); `TokenProvider`
+    (static token pass-through, the caller's `tokenSupplier` asked per request, or a cached single-flight
     exchange refreshed ~30 s before expiry, either client-credentials or the RFC 7523
     `jwt-bearer` grant when an assertion source is configured; the assertion is re-requested per
     exchange, never cached, because providers commonly reject a replayed one); the ingest
@@ -96,7 +101,7 @@ value types a caller names.
   `units().byIds` and `events().byIds` shipped unusable).
 - **A `204` endpoint is typed `void`.** `ApiHttp` returns null for a 204, so a declared wrapper is
   a null a caller dereferences. `NoContentResponseTest` stubs the real 204 and asserts the return
-  type for all nine.
+  type for all ten.
 - `SubscriptionListenIT` is end-to-end (ingest → Pulsar fan-out → subscription delivery) and
   needs a running backend; it is gated behind `RUN_LISTEN_TESTS=1` and configured through
   `BASE_URL`/`TOKEN` like `fromEnv()`.
@@ -107,6 +112,12 @@ value types a caller names.
   `AnalysisApiClientFactory` builds a per-request `DatahubClient` with the caller's forwarded
   JWT as a static token (the SDK bakes the token into the client, hence per-request wrappers).
   Changes to `DatahubConfig`, `TokenProvider`, or service signatures ripple there.
+- `datahub-flow` is the caller `tokenSupplier`, `requestTimeout` and `ingestFrameBytes` were added
+  for: a run acts as the user who deployed the flow, through an access token the service keeps
+  current by refreshing the user's Keycloak offline token itself, with every call bounded so a run
+  that has lost its lease stops in time, and its points written from columns. It also calls
+  `events().latest(...)`, to find whether a window's `run-failed` lifecycle is still open before
+  resolving it.
 - Released versions are on Maven Central from 1.0.0; out-of-tree consumers of an unreleased
   build install it with `publishToMavenLocal`. The remote `publish` repository exists only when
   `-PmavenPublishUrl` names one; `centralBundle` (root project) stages to a local directory

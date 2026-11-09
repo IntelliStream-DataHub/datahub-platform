@@ -26,6 +26,8 @@ dependencies {
 	implementation project(':datahub-infra')
 	implementation project(':datahub-commons')
 	testImplementation project(':datahub-infra')
+	// The ingest benchmark (src/test/java/.../benchmark) drives a live platform through the SDK.
+	testImplementation project(':datahub-java-sdk')
 
 	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1'
 	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
@@ -100,7 +102,7 @@ dependencyManagement {
 tasks.named('test') {
 	// Keep the default `test` task runnable without a container runtime: the @Tag("integration")
 	// Pulsar/WebSocket tests run only under the dedicated `integrationTest` task below.
-	useJUnitPlatform { excludeTags 'integration' }
+	useJUnitPlatform { excludeTags 'integration', 'performance' }
 	// Activate the `test` profile so `application-test.yml` (vault creds, test datasource
 	// pool sizing) layers on top of the base config. Without this Spring won't resolve
 	// `${vault.address}` because none of the profile-specific application-*.yml files
@@ -144,3 +146,23 @@ tasks.register('integrationTest', Test) {
 	environment 'TESTCONTAINERS_RYUK_DISABLED', 'true'
 }
 
+// The ingest benchmark against a RUNNING platform (api, consumer, Pulsar, ClickHouse, Keycloak),
+// driven through the Java SDK; see BENCHMARK.md. Without a configured stack it skips. The platform
+// is the input and Gradle cannot see it, so it is never up to date.
+//
+//   ./gradlew :datahub-api:benchmark
+//
+tasks.register('benchmark', Test) {
+	description = 'JSON vs binary datapoint ingest benchmark. Long-running; needs a live platform.'
+	group = 'verification'
+	useJUnitPlatform { includeTags 'performance' }
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	environment System.getenv()
+	// The client builds and compresses whole batches in memory; give it room and a predictable
+	// heap so the reported client memory means something.
+	maxHeapSize = '8g'
+	jvmArgs '-XX:+UseG1GC'
+	testLogging { showStandardStreams = true }
+	outputs.upToDateWhen { false }
+}
