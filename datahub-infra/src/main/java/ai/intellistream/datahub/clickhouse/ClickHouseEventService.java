@@ -1294,7 +1294,7 @@ public class ClickHouseEventService extends ClickHouseService {
         Map<String, Object> params = new HashMap<>();
         List<String> conditions = new ArrayList<>();
         // A substring, as a pattern the way the event filter writes one: * and % any run, _ itself.
-        params.put("q", ClickHouseHelper.escapeStringParam(WildcardPatterns.toSqlLike("*" + query + "*")));
+        params.put("q", WildcardPatterns.toSqlLike("*" + query + "*"));
         conditions.add("external_id ILIKE {q:String}");
         String aclCondition = datasetAclCondition(allowedDataSetIds, "data_set_id", params);
         if (aclCondition != null) {
