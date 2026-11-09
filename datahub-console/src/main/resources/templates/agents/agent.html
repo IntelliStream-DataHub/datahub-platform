@@ -48,7 +48,7 @@
 		<div class="flow-tabs" role="tablist">
 			<button type="button" class="selected" data-tab="agent" th:text="#{agents.tab.agent}"></button>
 			<button type="button" data-tab="runs" th:text="#{agents.tab.runs}"></button>
-			<button type="button" data-tab="attention" th:text="#{agents.tab.attention}"></button>
+			<button type="button" data-tab="flagged" th:text="#{agents.tab.flagged}"></button>
 			<button type="button" data-tab="versions" th:text="#{agents.tab.versions}"></button>
 		</div>
 
@@ -265,14 +265,14 @@
 			</div>
 		</section>
 
-		<section class="flow-pane" data-pane="attention" hidden>
-			<!--/* This agent's open attention entries: agents/agents-attention.js, scoped by data-flow. */-->
-			<div data-type="agents-attention-page" th:attr="data-flow=${flowExternalId}">
+		<section class="flow-pane" data-pane="flagged" hidden>
+			<!--/* This agent's open flagged entries: agents/agents-flagged.js, scoped by data-flow. */-->
+			<div data-type="agents-flagged-page" th:attr="data-flow=${flowExternalId}">
 				<div class="flows-actions">
-					<button type="button" class="dh-btn secondary small" data-type="attention-dismiss-all" hidden
-							th:text="#{agents.attention.dismiss.all}"></button>
+					<button type="button" class="dh-btn secondary small" data-type="flagged-dismiss-all" hidden
+							th:text="#{agents.flagged.dismiss.all}"></button>
 				</div>
-				<div th:replace="~{agents/attention :: table}"></div>
+				<div th:replace="~{agents/flagged :: table}"></div>
 			</div>
 		</section>
 

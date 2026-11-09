@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 /**
  * Serves the Agents section: shells only, as {@link FlowsController} does. An agent is a flow of
  * kind {@code agent}, so every page reads and writes it against datahub-flow from the browser, and
- * the attention list against datahub-api's events. The deploy round-trip lands on
+ * the flagged list against datahub-api's events. The deploy round-trip lands on
  * {@code /agents/<externalId>} (datahub-flow's {@code datahub.flow.console-url}), so that path is
  * fixed; the other views hang off {@code /agents} by query parameter for the same reason as in Flows.
  *
@@ -44,12 +44,12 @@ public class AgentsController {
         return page(model, "agents/runs");
     }
 
-    @GetMapping(params = "tab=attention")
-    public String attention(Model model) {
-        return page(model, "agents/attention");
+    @GetMapping(params = "tab=flagged")
+    public String flagged(Model model) {
+        return page(model, "agents/flagged");
     }
 
-    /** One agent: its form, deployment, runs and what it asked a person to look at. */
+    /** One agent: its form, deployment, runs and what it flagged. */
     @GetMapping("/{externalId}")
     public String agent(@PathVariable String externalId, Model model) {
         model.addAttribute("flowExternalId", externalId);

@@ -150,7 +150,7 @@ class RunControllerTest {
               "processors": [
                 { "id": "src", "type": "read-events", "properties": { "type": ["error"] } },
                 { "id": "ai", "type": "agent", "properties": { "instructions": "Look at each event." },
-                  "terminate": ["attention"] }
+                  "terminate": ["flagged"] }
               ],
               "connections": [ { "from": "src", "relationship": "success", "to": "ai" } ],
               "trigger": { "type": "manual" }

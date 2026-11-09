@@ -1,6 +1,6 @@
 /*
  * The counts on the Flows and Agents entries: flow runs that failed after their last attempt and
- * that nobody has re-run or dismissed, and what agents asked a person to look at. Each is an event
+ * that nobody has re-run or dismissed, and what agents flagged for a person. Each is an event
  * lifecycle in datahub-api whose latest event is still open, so a count is POST /events/latest,
  * the same query the section's list is made from.
  *
@@ -20,9 +20,9 @@
 		return query;
 	};
 
-	/** The body the Agents count and the Needs-attention lists send; of one agent with `flow`. */
-	window.agentAttentionQuery = function(cursor, limit, flow){
-		var query = { filter: { type: ["agent"], subType: ["attention"] }, status: ["open"],
+	/** The body the Agents count and the Flagged lists send; of one agent with `flow`. */
+	window.agentFlaggedQuery = function(cursor, limit, flow){
+		var query = { filter: { type: ["agent"], subType: ["flagged"] }, status: ["open"],
 			limit: limit || PAGE };
 		if(flow) query.filter.metadata = { flow: flow };
 		if(cursor) query.cursor = cursor;
@@ -46,6 +46,6 @@
 	document.addEventListener("DOMContentLoaded", function(){
 		if(!window.Api) return;
 		count(document.querySelector('[data-type="flows-attention-count"]'), window.flowAttentionQuery(null, PAGE));
-		count(document.querySelector('[data-type="agents-attention-count"]'), window.agentAttentionQuery(null, PAGE));
+		count(document.querySelector('[data-type="agents-flagged-count"]'), window.agentFlaggedQuery(null, PAGE));
 	});
 })();

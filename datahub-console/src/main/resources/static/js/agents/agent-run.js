@@ -62,9 +62,9 @@
 
 		function outcome(args){
 			var badge = el("transcript-outcome");
-			var key = args && args.outcome === "attention" ? "agents.outcome.attention" : "agents.outcome.done";
+			var key = args && args.outcome === "flagged" ? "agents.outcome.flagged" : "agents.outcome.done";
 			badge.textContent = L(key);
-			badge.className = "agent-outcome " + (args && args.outcome === "attention" ? "attention" : "done");
+			badge.className = "agent-outcome " + (args && args.outcome === "flagged" ? "flagged" : "done");
 			badge.hidden = false;
 		}
 

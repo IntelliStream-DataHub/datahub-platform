@@ -103,11 +103,11 @@ class AgentTest {
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
-    /** {@code in → p (agent) → done | attention | failure}, with every outcome collected. */
+    /** {@code in → p (agent) → done | flagged | failure}, with every outcome collected. */
     private RunResult run(String properties) {
         h.extra.add(agent());
         h.events(Map.of(), EVENTS);
-        return h.pipe("agent", properties, Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
+        return h.pipe("agent", properties, Agent.DONE, Agent.FLAGGED, Agent.FAILURE);
     }
 
     private static final String DEFAULTS = """
@@ -138,7 +138,7 @@ class AgentTest {
         assertThat(done.attribute("agent.iterations")).isEqualTo("2");
         assertThat(done.attribute("agent.toolCalls")).isEqualTo("1");
         assertThat(done.rows()).isEqualTo(EVENTS);
-        assertThat(h.at(Agent.ATTENTION)).isEmpty();
+        assertThat(h.at(Agent.FLAGGED)).isEmpty();
         assertThat(records(Action.RECEIVE)).extracting(FlowRecord::transitUri).containsExactly("mcp://datahub-api/event_get");
         assertThat(transcripts.all()).extracting(Row::kind).containsExactly(
                 "system", "user", "usage", "tool_call", "tool_result", "usage", "tool_call", "tool_result");
@@ -178,15 +178,15 @@ class AgentTest {
         h.extra.add(agent());
         h.events(Map.of(), EVENTS);
         llm.thenToolCalls(call("c1", "event_get", Map.of()), call("c2", "thing_do", Map.of("x", 1)))
-                .thenToolCalls(finish("attention", "Pump 21 needs a look."));
+                .thenToolCalls(finish("flagged", "Pump 21 needs a look."));
 
         RunResult result = h.run("""
                 { "id": "p", "type": "agent", "properties": { "instructions": "i", "tools": ["*"] } },
-                { "id": "done", "type": "test.collect" }, { "id": "attention", "type": "test.collect" }""",
+                { "id": "done", "type": "test.collect" }, { "id": "flagged", "type": "test.collect" }""",
                 """
                 { "from": "in", "relationship": "success", "to": "p" },
                 { "from": "p", "relationship": "done", "to": "done" },
-                { "from": "p", "relationship": "attention", "to": "attention" }""", true, null, null);
+                { "from": "p", "relationship": "flagged", "to": "flagged" }""", true, null, null);
 
         assertThat(result.error()).isNull();
         assertThat(llm.firstSent().systemPrompt()).contains("dry run");
@@ -195,16 +195,16 @@ class AgentTest {
         assertThat(refused.isError()).isTrue();
         assertThat(refused.content()).contains("preview: not executed");
         assertThat(h.at(Agent.DONE)).singleElement().satisfies(d ->
-                assertThat(d.attribute("agent.outcome")).isEqualTo("attention"));
-        Captured attention = h.at(Agent.ATTENTION).getFirst();
-        assertThat(attention.rows()).singleElement().satisfies(row -> {
+                assertThat(d.attribute("agent.outcome")).isEqualTo("flagged"));
+        Captured flagged = h.at(Agent.FLAGGED).getFirst();
+        assertThat(flagged.rows()).singleElement().satisfies(row -> {
             assertThat(row.externalId()).startsWith("agent:t:");
             assertThat(row.eventTime()).isEqualTo(NOW);
             assertThat(row.status()).isEqualTo("open");
             assertThat(row.metadata()).as("the summary is the description's, too long for a metadata value")
                     .doesNotContainKey("summary").containsEntry("flow", "t");
         });
-        assertThat(attention.attribute("agent.summary")).as("the child inherits its parent's attributes")
+        assertThat(flagged.attribute("agent.summary")).as("the child inherits its parent's attributes")
                 .isEqualTo("Pump 21 needs a look.");
         assertThat(records(Action.SEND)).as("nothing was written").isEmpty();
     }
@@ -250,7 +250,7 @@ class AgentTest {
         h2.extra.add(new Agent(settings -> cutOff, List.of(), transcripts, properties, tenants,
                 Clock.fixed(NOW, ZoneOffset.UTC)));
         h2.events(Map.of(), EVENTS);
-        h2.pipe("agent", "{ \"instructions\": \"i\" }", Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
+        h2.pipe("agent", "{ \"instructions\": \"i\" }", Agent.DONE, Agent.FLAGGED, Agent.FAILURE);
         assertThat(h2.at(Agent.FAILURE)).singleElement().satisfies(f ->
                 assertThat(f.attribute("failure.reason")).isEqualTo("output cut off at the output ceiling"));
         h2.close();
@@ -278,7 +278,7 @@ class AgentTest {
         StubLlmClient again = new StubLlmClient().thenToolCalls(finish("done", "fine"));
         h2.extra.add(new Agent(settings -> again, List.of(), clean, properties, tenants, Clock.fixed(NOW, ZoneOffset.UTC)));
         h2.events(Map.of(), EVENTS);
-        h2.pipe("agent", "{ \"instructions\": \"i\" }", Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
+        h2.pipe("agent", "{ \"instructions\": \"i\" }", Agent.DONE, Agent.FLAGGED, Agent.FAILURE);
         assertThat(again.sent()).hasSize(1);
         assertThat(h2.at(Agent.DONE)).hasSize(1);
         h2.close();
@@ -292,7 +292,7 @@ class AgentTest {
         llm.thenToolCalls(call("c1", "event_get", Map.of())).thenToolCalls(finish("done", "x"));
 
         RunResult result = h.run("""
-                { "id": "p", "type": "agent", "properties": %s, "terminate": ["attention"] },
+                { "id": "p", "type": "agent", "properties": %s, "terminate": ["flagged"] },
                 { "id": "failed", "type": "test.collect" }""".formatted(DEFAULTS),
                 """
                 { "from": "in", "relationship": "success", "to": "p" },
@@ -319,7 +319,7 @@ class AgentTest {
         llm.thenToolCalls(call("c1", "event_get", Map.of())).thenToolCalls(finish("done", "x"));
 
         RunResult result = h.run("""
-                { "id": "p", "type": "agent", "properties": %s, "terminate": ["attention"] }""".formatted(DEFAULTS),
+                { "id": "p", "type": "agent", "properties": %s, "terminate": ["flagged"] }""".formatted(DEFAULTS),
                 "{ \"from\": \"in\", \"relationship\": \"success\", \"to\": \"p\" }", false, null, null);
 
         assertThat(result.errorCode()).isEqualTo(RunResult.PROCESSOR_FAILED);
@@ -348,7 +348,7 @@ class AgentTest {
         h2.extra.add(new Agent(settings -> again, List.of(new StatelessMcpClient("datahub-api", api.url(),
                 HttpClient.newHttpClient(), JSON)), transcripts, properties, tenants, Clock.fixed(NOW, ZoneOffset.UTC)));
         h2.events(Map.of(), EVENTS);
-        h2.pipe("agent", DEFAULTS, Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
+        h2.pipe("agent", DEFAULTS, Agent.DONE, Agent.FLAGGED, Agent.FAILURE);
         LlmBlock.ToolResult failed = (LlmBlock.ToolResult) again.sent().get(1).messages().get(2).blocks().getFirst();
         assertThat(failed.isError()).isTrue();
         assertThat(failed.content()).contains("rate limiting");
@@ -376,14 +376,14 @@ class AgentTest {
         h.events(Map.of("a", "1"), EVENTS.subList(0, 1));
         h.events(Map.of("a", "2"), EVENTS.subList(1, 2));
         h.events(Map.of("a", "3"), EVENTS);
-        llm.thenToolCalls(finish("attention", "Three batches, one look."));
+        llm.thenToolCalls(finish("flagged", "Three batches, one look."));
 
-        h.pipe("agent", DEFAULTS, Agent.DONE, Agent.ATTENTION, Agent.FAILURE);
+        h.pipe("agent", DEFAULTS, Agent.DONE, Agent.FLAGGED, Agent.FAILURE);
 
         assertThat(llm.sent()).hasSize(1);
         assertThat(llm.firstSent().messages().getFirst().text()).startsWith("4 event(s)");
         assertThat(h.at(Agent.DONE)).hasSize(3);
-        assertThat(h.at(Agent.ATTENTION)).as("one attention item however many batches").hasSize(1);
+        assertThat(h.at(Agent.FLAGGED)).as("one flagged item however many batches").hasSize(1);
     }
 
     @Test
@@ -418,23 +418,23 @@ class AgentTest {
     @Test
     void withNothingConnectedTheAgentRunsOnItsInstructionsAlone() {
         llm.thenToolCalls(call("c1", "event_get", Map.of("externalIds", List.of("pump_21:alarm"))))
-                .thenToolCalls(finish("attention", "Pump 21 has been down since the morning."));
+                .thenToolCalls(finish("flagged", "Pump 21 has been down since the morning."));
         h.extra.add(agent());
 
         RunResult result = h.flow("""
                 { "id": "p", "type": "agent", "properties": %s },
                 { "id": "done", "type": "test.collect" },
-                { "id": "attention", "type": "test.collect" }""".formatted(DEFAULTS), """
+                { "id": "flagged", "type": "test.collect" }""".formatted(DEFAULTS), """
                 { "from": "p", "relationship": "done", "to": "done" },
-                { "from": "p", "relationship": "attention", "to": "attention" }""", false, null, null);
+                { "from": "p", "relationship": "flagged", "to": "flagged" }""", false, null, null);
 
         assertThat(result.error()).isNull();
         assertThat(llm.firstSent().systemPrompt()).doesNotContain("The events are from the window");
         assertThat(llm.firstSent().messages().getFirst().text()).startsWith("No events are attached")
                 .contains("2026-10-01T");
         assertThat(h.at(Agent.DONE)).singleElement()
-                .satisfies(done -> assertThat(done.attribute("agent.outcome")).isEqualTo("attention"));
-        assertThat(h.at(Agent.ATTENTION)).singleElement().satisfies(a -> assertThat(a.attribute("agent.summary"))
+                .satisfies(done -> assertThat(done.attribute("agent.outcome")).isEqualTo("flagged"));
+        assertThat(h.at(Agent.FLAGGED)).singleElement().satisfies(a -> assertThat(a.attribute("agent.summary"))
                 .isEqualTo("Pump 21 has been down since the morning."));
         assertThat(records(Action.RECEIVE)).extracting(FlowRecord::transitUri).containsExactly("mcp://datahub-api/event_get");
     }
@@ -445,7 +445,7 @@ class AgentTest {
             h.extra.add(agent());
             RunResult result = h.flow("""
                     { "id": "src", "type": "read-events", "properties": { "type": ["error"] } },
-                    { "id": "ai", "type": "agent", "properties": %s, "terminate": ["attention"] }""".formatted(DEFAULTS),
+                    { "id": "ai", "type": "agent", "properties": %s, "terminate": ["flagged"] }""".formatted(DEFAULTS),
                     "{ \"from\": \"src\", \"relationship\": \"success\", \"to\": \"ai\" }", false, 7L, datahub.client());
             assertThat(result.status()).isEqualTo(RunResult.Status.SUCCEEDED);
             assertThat(llm.sent()).isEmpty();

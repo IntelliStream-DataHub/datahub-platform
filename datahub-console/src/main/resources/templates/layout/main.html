@@ -71,12 +71,12 @@
             <span th:text="#{flows}"></span>
             <span class="nav-count" data-type="flows-attention-count" hidden></span>
         </a>
-        <!-- Only for a tenant with flows and a usable model. The count is the open agent/attention
+        <!-- Only for a tenant with flows and a usable model. The count is the open agent/flagged
              lifecycles, filled in by flows/attention-badge.js from datahub-api. -->
         <a th:if="${@flowAccess.agentsAvailable()}" th:href="@{/agents}"
            th:classappend="${pageSelected} == 'agents' ? 'selected' : ''">
             <span th:text="#{agents}"></span>
-            <span class="nav-count" data-type="agents-attention-count" hidden></span>
+            <span class="nav-count" data-type="agents-flagged-count" hidden></span>
         </a>
     </nav>
 

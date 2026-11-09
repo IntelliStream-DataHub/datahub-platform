@@ -54,14 +54,14 @@ class AgentsTemplateTest {
                         new String[]{"agent-form", "agent-save", "agent-preview", "agent-run", "agent-deploy",
                                 "agent-run-as", "agent-toggle", "agent-open-flow", "agent-delete", "agent-readonly",
                                 "agent-problems", "agent-new-id", "agent-tools", "agent-zone", "flow-runs",
-                                "flow-runs-previews", "flow-runs-more", "flow-versions", "agents-attention-page",
-                                "attention-table", "attention-dismiss-all"}),
+                                "flow-runs-previews", "flow-runs-more", "flow-versions", "agents-flagged-page",
+                                "flagged-table", "flagged-dismiss-all"}),
                 Arguments.of("agents/run", "[data-type='run-page']",
                         new String[]{"run-status", "run-facts", "run-records", "run-records-following", "run-cancel",
                                 "run-rerun", "agent-transcript", "transcript-rows", "transcript-empty",
                                 "transcript-outcome", "transcript-usage"}),
-                Arguments.of("agents/attention", "[data-type='agents-attention-page']",
-                        new String[]{"attention-table", "attention-more", "attention-dismiss-all"}),
+                Arguments.of("agents/flagged", "[data-type='agents-flagged-page']",
+                        new String[]{"flagged-table", "flagged-more", "flagged-dismiss-all"}),
                 Arguments.of("agents/nav", ".sub-nav", new String[]{}));
     }
 
