@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.definition;
 
+import ai.intellistream.datahub.flow.api.EventMatch;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.JsonNode;
 
@@ -15,6 +16,8 @@ import java.util.Map;
  * JSON until the flow is compiled, since what they mean depends on the processor's declaration.
  *
  * @param schemaVersion the definition format's version; only {@code 1} exists
+ * @param kind          {@code flow} (null means the same) or {@code agent}: a flow whose steps
+ *                      include an {@code agent} processor, listed and shown apart from the rest
  * @param externalId    the flow's stable id within the tenant
  * @param dataSet       external id of the dataset the flow belongs to, which decides who sees it
  * @param parameters    values a run is given, by name, in the order written
@@ -23,8 +26,8 @@ import java.util.Map;
  * @param trigger       when runs start; null means manual only
  * @param execution     limits; null means the defaults
  */
-public record FlowDefinition(Integer schemaVersion, String externalId, String dataSet, String name,
-                             String description, Map<String, Parameter> parameters,
+public record FlowDefinition(Integer schemaVersion, String kind, String externalId, String dataSet,
+                             String name, String description, Map<String, Parameter> parameters,
                              List<ProcessorSpec> processors, List<Connection> connections,
                              Trigger trigger, Execution execution) {
 
@@ -77,15 +80,22 @@ public record FlowDefinition(Integer schemaVersion, String externalId, String da
     }
 
     /**
-     * @param type     {@code manual} or {@code schedule}
+     * @param type     {@code manual}, {@code schedule}, or {@code events}: a run a little after events
+     *                 that {@code match} asks for have been recorded
      * @param cron     for a schedule: Spring's six-field cron expression
      * @param timezone for a schedule: the zone the cron expression is read in
      * @param window   ISO-8601 duration, or a {@code ${parameters.<name>}} reference to one: the tick
      *                 at T covers {@code [T - window, T)}. Optional for a schedule, whose tick at T
-     *                 then covers the time since the tick before it
+     *                 then covers the time since the tick before it. For a manual or events trigger,
+     *                 the window of a run started without one
      * @param delay    ISO-8601 duration after the tick before the run starts, so late data arrives
+     * @param debounce for events: ISO-8601 duration from the first matching event to the tick, so a
+     *                 burst of events is one run; default 10 seconds
+     * @param match    for events: the events that wake the flow; unset, every event does. Whether a
+     *                 run reads them is the flow's own business: a {@code trigger-events} step does
      */
-    public record Trigger(String type, String cron, String timezone, String window, String delay) {
+    public record Trigger(String type, String cron, String timezone, String window, String delay,
+                          String debounce, EventMatch match) {
     }
 
     /**

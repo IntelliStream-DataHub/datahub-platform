@@ -794,6 +794,31 @@ public class EventController {
         return listResponse(() -> eventService.listSources(q, clampLimit(limit)));
     }
 
+    @Tag(name = "Events")
+    @Operation(
+            summary = "Search event external ids",
+            description = """
+                    Return distinct `externalId` values containing `q` (case-insensitive substring),
+                    sorted alphabetically and restricted to your readable datasets — built for
+                    type-ahead, such as picking the lifecycles an event-triggered flow listens for.
+                    Events sharing an external id are one lifecycle, so each appears once. `limit`
+                    caps the result (default 50, at most 1000). Unlike the other `/search/*`
+                    endpoints this reads the events themselves, so keep `q` specific and `limit` small.
+                    """
+    )
+    @ApiResponse(responseCode = "200", description = "Distinct external ids matching the query.",
+            content = @Content(
+                    mediaType = MediaType.APPLICATION_JSON_VALUE,
+                    schema = @Schema(implementation = StringValuesDataWrapper.class)
+            ))
+    @ApiResponse(responseCode = "400", description = "Missing required `q` query parameter.")
+    @RequestMapping(value = "/search/external-id", method = RequestMethod.GET, produces = { "application/json", "application/xml" })
+    public ResponseEntity<?> searchExternalIds(
+            @Parameter(description = "Case-insensitive substring to match against the external ids.", example = "pump-7") @RequestParam("q") String q,
+            @Parameter(description = "Maximum number of distinct external ids to return. Capped at 1000.", example = "50") @RequestParam(value = "limit", required = false, defaultValue = "50") int limit){
+        return listResponse(() -> eventService.searchExternalIds(q, Math.max(1, Math.min(limit, 1000))));
+    }
+
     private ResponseEntity<?> listResponse(java.util.function.Supplier<DataWrapper<String>> supplier){
         return new ResponseEntity<>(supplier.get(), HttpStatus.OK);
     }

@@ -11,6 +11,7 @@ import java.util.List;
 /**
  * A flow as the REST API shows it.
  *
+ * @param kind            {@code flow} or {@code agent}
  * @param version         the current (latest saved) version
  * @param deployedVersion the version that is deployed, or null
  * @param definition      the current version's definition; left out of lists
@@ -19,15 +20,15 @@ import java.util.List;
  * @param createdSeries   the series this save created for sinks with {@code create}; only on a save
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
-public record FlowView(String externalId, String name, String dataSet, String dataSetId, int version,
-                       Integer deployedVersion, boolean enabled, String disabledReason,
+public record FlowView(String externalId, String name, String dataSet, String dataSetId, String kind,
+                       int version, Integer deployedVersion, boolean enabled, String disabledReason,
                        String createdBy, Instant createdAt, String updatedBy, Instant updatedAt,
                        JsonNode definition, List<String> createdSeries) {
 
     static FlowView of(StoredFlow flow, JsonNode definition, List<String> createdSeries) {
         return new FlowView(flow.externalId(), flow.name(), flow.dataSetExternalId(),
                 // Ids go out as strings, like every node id on the wire: they are beyond 2^53.
-                String.valueOf(flow.dataSetId()), flow.currentVersion(), flow.deployedVersion(),
+                String.valueOf(flow.dataSetId()), flow.kind(), flow.currentVersion(), flow.deployedVersion(),
                 flow.enabled(), flow.disabledReason(), flow.createdBy(), flow.createdAt(),
                 flow.updatedBy(), flow.updatedAt(), definition, createdSeries);
     }

@@ -45,6 +45,7 @@
 	color: var(--flash-warning-bg);
 }
 
+
 .flows-actions {
 	margin-top: var(--space-lg);
 }
@@ -463,6 +464,73 @@
 	width: 100%;
 }
 
+/* Event values picked as chips over a search (event-picker.js); its textarea stays, hidden. */
+.event-picker {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 4px;
+	padding: 4px;
+	margin-bottom: 14px;
+	/* The look of the form's own fields (all.css), the box standing in for the field. */
+	background: rgba(0, 0, 0, 0.22);
+	border: 1px solid rgba(255, 255, 255, 0.14);
+	border-radius: 7px;
+	transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.event-picker:focus-within {
+	border-color: var(--accent);
+	box-shadow: var(--focus-ring);
+}
+html[data-theme="light"] .event-picker {
+	background: #ffffff;
+	border-color: var(--border);
+}
+html[data-theme="light"] .event-picker:focus-within {
+	border-color: var(--accent);
+	box-shadow: 0 0 0 3px rgba(0, 89, 132, 0.15);
+}
+.event-picker-chips {
+	display: contents;
+	list-style: none;
+}
+.event-picker-chips li {
+	display: inline-flex;
+	align-items: center;
+	gap: 2px;
+	padding: 1px 2px 1px 8px;
+	background: rgba(255, 255, 255, 0.08);
+	border-radius: 999px;
+	overflow-wrap: anywhere;
+}
+html[data-theme="light"] .event-picker-chips li {
+	background: rgba(0, 0, 0, 0.06);
+}
+.event-picker-remove {
+	border: 0;
+	background: none;
+	color: inherit;
+	cursor: pointer;
+	font-size: 1rem;
+	line-height: 1;
+}
+/* Outranks the form's field rule for text inputs: the box is the field, the input only where to type. */
+.datahub-form-fields .event-picker input.event-picker-input,
+html[data-theme="light"] .datahub-form-fields .event-picker input.event-picker-input {
+	flex: 1 1 10rem;
+	min-width: 8rem;
+	margin: 0;
+	padding: 5px 8px;
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+}
+.settings-group-subtitle {
+	margin: var(--space-lg) 0 var(--space-sm);
+	font-size: 13px;
+	font-weight: 600;
+}
+
 /* Connect: From… Outcome… → To…, readable before anything is chosen. */
 .flow-toolbar select[data-type^="flow-connect"] {
 	min-width: 9rem;
@@ -489,3 +557,123 @@
 .runs-warning { color: var(--flash-warning-bg); }
 .runs-fine { margin-top: var(--space-xl); }
 .runs-fine > summary { cursor: pointer; margin-bottom: var(--space-sm); }
+
+/* ---- Agents ------------------------------------------------------------------------------- */
+
+/* The form reuses the settings page's groups and fields (settings.css); these are the agent's own. */
+.agent-form .settings-group-intro { margin-bottom: var(--space-lg); }
+/* A row's grid outranks the browser's own [hidden] rule, so the parts of the form the run mode
+   hides would otherwise stay on screen. */
+.agent-form [data-when-trigger][hidden] { display: none; }
+.agent-tools-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space) var(--space-lg); margin-bottom: var(--space); font-size: 13px; }
+.agent-tools-search { flex: 1 1 220px; min-width: 0; margin-bottom: 0; }
+.agent-tools-fold { background: none; border: 0; padding: 0; color: var(--text-muted); text-decoration: underline; cursor: pointer; font: inherit; }
+.agent-tools-bar[hidden] { display: none; }
+.agent-tools-groupby { display: inline-flex; flex-wrap: wrap; gap: var(--space-lg); align-items: center; color: var(--text-muted); }
+.agent-tools-groupby label { color: var(--text); cursor: pointer; }
+.agent-tools-count { color: var(--text-muted); }
+.agent-tools { max-height: 420px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+.agent-tools > .flows-hint { margin: var(--space); }
+.agent-tool-group + .agent-tool-group { border-top: 1px solid var(--border); }
+.agent-tool-group-head { position: sticky; top: 0; z-index: 1; display: flex; gap: var(--space); align-items: center; padding: 6px var(--space); background: var(--body-bg); border-bottom: 1px solid var(--border); }
+.agent-tool-group-head label { display: inline-flex; gap: var(--space); align-items: center; cursor: pointer; }
+.agent-tool-group-toggle { width: 20px; background: none; border: 0; padding: 0; color: var(--text-muted); cursor: pointer; font-size: 14px; line-height: 1; }
+.agent-tool-group-toggle:disabled { cursor: default; opacity: .5; }
+.agent-tool[hidden], .agent-tool-group[hidden], .agent-tool-group-body[hidden] { display: none; }
+.agent-tool-group-count { margin-left: auto; font-size: 12px; color: var(--text-muted); }
+.agent-tool { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--space); align-items: start; padding: 6px var(--space) 6px calc(var(--space) * 2); cursor: pointer; }
+.agent-tool:hover { background: rgba(127, 127, 127, .08); }
+.agent-tool input { margin-top: 3px; }
+.agent-tool-line { display: flex; flex-wrap: wrap; gap: 4px var(--space); align-items: center; }
+.agent-tool-line strong { font-weight: 500; font-family: monospace; font-size: 13px; }
+.agent-tool-desc { grid-column: 2; font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+.agent-tool-badge { display: inline-block; margin-left: 0; padding: 0 6px; border-radius: 10px; font-size: 11px; font-style: normal; background: var(--border); color: var(--text-muted); width: fit-content; }
+.agent-tool-badge.danger { background: var(--input-error-bg); color: var(--input-error-fg); }
+.agent-tool-badge.warn { background: var(--flash-warn-bg, #f6e5b6); color: var(--flash-warn-fg, #5a4300); }
+.transcript-row .agent-tool-badge { margin-left: var(--space); vertical-align: middle; }
+
+.agent-transcript { margin: var(--space-xl) 0; }
+.agent-outcome { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: var(--border); }
+.agent-outcome.attention { background: var(--flash-warn-bg, #f6e5b6); color: var(--flash-warn-fg, #5a4300); }
+.transcript { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 6px; }
+.transcript-row { padding: var(--space) var(--space-lg); border-bottom: 1px solid var(--border); font-size: 13px; }
+.transcript-row:last-child { border-bottom: 0; }
+.transcript-row p { margin: 0; white-space: pre-wrap; }
+.transcript-row details > summary { cursor: pointer; color: var(--text-muted); }
+.transcript-row details.error > summary { color: var(--input-error-fg); }
+.transcript-row pre { margin: var(--space) 0 0; max-height: 320px; overflow: auto; white-space: pre-wrap; font-size: 12px; }
+.transcript-assistant { background: var(--surface-2, transparent); }
+/* What the model reasoned before it spoke or called a tool: quieter than what it said. */
+.transcript-thinking { color: var(--text-muted); font-style: italic; }
+/* A result's fold carries its one-line preview; long ones are cut by the script, wrapped here. */
+.transcript-row details > summary { overflow-wrap: anywhere; }
+.transcript-usage, .transcript-note { color: var(--text-muted); font-size: 12px; }
+.transcript-label { color: var(--text-muted); }
+/* The summary is what the agent wants a person to read, often several sentences: it wraps and takes
+   the room the other columns leave. Restated at the listing's own specificity, whose cells are
+   nowrap, or it runs off as one line. The row's other cells sit at its top, beside its first line. */
+table.listing > tbody > tr > td.agent-summary {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	width: 100%;
+	line-height: 1.5;
+	padding-top: 8px;
+	padding-bottom: 8px;
+}
+table.listing > tbody > tr:has(> td.agent-summary) > td {
+	vertical-align: top;
+}
+
+/* Run as a client: a native <dialog> (top layer, above the right-form), built by run-as.js. */
+.run-as-dialog {
+	width: min(440px, calc(100vw - 32px));
+	padding: 20px 24px;
+	border: 1px solid var(--border);
+	border-radius: 10px;
+	background: var(--menu-bg);
+	color: var(--text);
+	box-shadow: var(--big-box-shadow);
+}
+
+.run-as-dialog::backdrop {
+	background: rgba(0, 12, 20, 0.62);
+}
+
+.run-as-dialog h3 {
+	margin: 0 0 14px;
+}
+
+.run-as-label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+.run-as-label select {
+	width: 100%;
+	margin-bottom: 0;
+}
+
+/* The open list is a native popup; paint it the theme's surface, as the sub-nav selects do. */
+.run-as-label select option {
+	background: var(--menu-bg);
+	color: var(--text);
+}
+
+.run-as-help {
+	margin: 10px 0;
+	color: var(--text-muted);
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.run-as-manage {
+	font-size: 13px;
+}
+
+.run-as-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 18px;
+}

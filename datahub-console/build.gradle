@@ -59,6 +59,8 @@ dependencies {
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	annotationProcessor 'org.projectlombok:lombok'
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	// StubLlmClient and LlmSettingsFixture, for the chat tests.
+	testImplementation testFixtures(project(':datahub-commons'))
 }
 
 tasks.named('test') {

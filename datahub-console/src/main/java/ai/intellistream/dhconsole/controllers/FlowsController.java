@@ -53,6 +53,12 @@ public class FlowsController {
         return page(model, "flows/attention");
     }
 
+    /** The registered clients a flow's runs may act as. The clients themselves are made in Keycloak. */
+    @GetMapping(params = "tab=clients")
+    public String clients(Model model) {
+        return page(model, "flows/clients");
+    }
+
     /** One flow: its processing tree, deployment and runs. An unknown id opens a new flow. */
     @GetMapping("/{externalId}")
     public String flow(@PathVariable String externalId, Model model) {

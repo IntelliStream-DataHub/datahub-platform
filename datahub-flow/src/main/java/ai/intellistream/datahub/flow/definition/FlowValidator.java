@@ -2,6 +2,7 @@
 package ai.intellistream.datahub.flow.definition;
 
 import ai.intellistream.datahub.flow.api.DynamicPropertyDescriptor;
+import ai.intellistream.datahub.flow.api.EventMatch;
 import ai.intellistream.datahub.flow.api.Processor;
 import ai.intellistream.datahub.flow.api.ProcessorDescriptor;
 import ai.intellistream.datahub.flow.api.PropertyDescriptor;
@@ -47,6 +48,14 @@ public final class FlowValidator {
         public static final Limits DEFAULTS = new Limits(Duration.ofHours(1));
     }
 
+    public static final String KIND_FLOW = "flow";
+    public static final String KIND_AGENT = "agent";
+    /** The processor that makes a flow an agent, by its catalog name. */
+    public static final String AGENT_PROCESSOR = "agent";
+    static final String EVENTS_TRIGGER = "events";
+    public static final String TRIGGER_EVENTS = "trigger-events";
+    /** What an excluded source may hold: a source name's characters and the wildcard. */
+    private static final Pattern SOURCE_PATTERN = Pattern.compile("[A-Za-z0-9_.:*-]+");
     static final Pattern EXTERNAL_ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9_.:-]{0,254}");
     static final Pattern PROCESSOR_ID = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{0,63}");
     static final Pattern NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_]{0,63}");
@@ -194,6 +203,9 @@ public final class FlowValidator {
             if (d.schemaVersion() == null || d.schemaVersion() != 1) {
                 problem("#/schemaVersion", "Must be 1, the only definition format there is.");
             }
+            if (d.kind() != null && !KIND_FLOW.equals(d.kind()) && !KIND_AGENT.equals(d.kind())) {
+                problem("#/kind", "Must be flow or agent.");
+            }
             if (d.externalId() == null || !EXTERNAL_ID.matcher(d.externalId()).matches()) {
                 problem("#/externalId", "Required: letters, digits and _ . : -, starting with a "
                         + "letter or digit, at most 255 characters.");
@@ -254,6 +266,10 @@ public final class FlowValidator {
                 }
                 properties(at, spec, processor, descriptor);
                 retry(at, spec);
+            }
+            if (KIND_AGENT.equals(d.kind()) && d.processors().stream()
+                    .noneMatch(spec -> AGENT_PROCESSOR.equals(spec.type()))) {
+                problem("#/processors", "An agent has an agent step: a processor of type \"agent\".");
             }
         }
 
@@ -444,6 +460,11 @@ public final class FlowValidator {
             if (spec.retry() == null) {
                 return;
             }
+            if (AGENT_PROCESSOR.equals(spec.type())) {
+                problem(at + "/retry", "An agent step is not retried inside an attempt: a retry "
+                        + "repeats what it did. The run's second attempt decides for itself.");
+                return;
+            }
             Integer attempts = spec.retry().maxAttempts();
             if (attempts != null && (attempts < 1 || attempts > MAX_RETRY_ATTEMPTS)) {
                 problem(at + "/retry/maxAttempts", "Must be between 1 and " + MAX_RETRY_ATTEMPTS + ".");
@@ -573,14 +594,30 @@ public final class FlowValidator {
 
         private void trigger() {
             FlowDefinition.Trigger trigger = d.trigger();
+            if (trigger == null || !EVENTS_TRIGGER.equals(trigger.type())) {
+                // What a trigger-events step reads is the events trigger's filter; without one it has none.
+                for (int i = 0; i < d.processors().size(); i++) {
+                    if (TRIGGER_EVENTS.equals(d.processors().get(i).type())) {
+                        problem("#/processors/" + i + "/type", "Reads the events that triggered the run, so the "
+                                + "flow's trigger must be events.");
+                    }
+                }
+            }
             if (trigger == null) {
                 return;
             }
-            if (!"manual".equals(trigger.type()) && !"schedule".equals(trigger.type())) {
-                problem("#/trigger/type", "Must be manual or schedule.");
+            if (!"manual".equals(trigger.type()) && !"schedule".equals(trigger.type())
+                    && !EVENTS_TRIGGER.equals(trigger.type())) {
+                problem("#/trigger/type", "Must be manual, schedule or events.");
                 return;
             }
             boolean schedule = "schedule".equals(trigger.type());
+            boolean events = EVENTS_TRIGGER.equals(trigger.type());
+            if (events) {
+                eventsTrigger(trigger);
+            } else if (trigger.debounce() != null) {
+                problem("#/trigger/debounce", "Only applies to an events trigger.");
+            }
             if (schedule) {
                 if (trigger.cron() == null || !CronExpression.isValidExpression(trigger.cron())) {
                     problem("#/trigger/cron", "Required for a schedule: a six-field cron "
@@ -599,7 +636,9 @@ public final class FlowValidator {
                                 + "defaults: nobody supplies them when a tick starts a run.");
                     }
                 }
-            } else if (trigger.cron() != null || trigger.timezone() != null || trigger.delay() != null) {
+            } else if (events && (trigger.cron() != null || trigger.timezone() != null)) {
+                problem("#/trigger", "cron and timezone only apply to a schedule.");
+            } else if (!events && (trigger.cron() != null || trigger.timezone() != null || trigger.delay() != null)) {
                 problem("#/trigger", "cron, timezone and delay only apply to a schedule.");
             }
             if (trigger.window() != null) {
@@ -609,6 +648,39 @@ public final class FlowValidator {
                 Duration delay = duration("#/trigger/delay", trigger.delay());
                 if (delay != null && delay.isNegative()) {
                     problem("#/trigger/delay", "Must not be negative.");
+                }
+            }
+        }
+
+        /**
+         * An events trigger: its filter must be one the listener can apply, and nobody is there to give its
+         * parameters values. Whether a run reads the events is the flow's choice.
+         */
+        private void eventsTrigger(FlowDefinition.Trigger trigger) {
+            if (trigger.debounce() != null) {
+                Duration debounce = duration("#/trigger/debounce", trigger.debounce());
+                if (debounce != null && (debounce.isZero() || debounce.isNegative())) {
+                    problem("#/trigger/debounce", "Must be positive.");
+                }
+            }
+            EventMatch match = trigger.match();
+            if (match != null) {
+                for (String entry : match.metadata() == null ? List.<String>of() : match.metadata()) {
+                    if (entry == null || entry.isBlank() || entry.strip().startsWith("=")) {
+                        problem("#/trigger/match/metadata", "\"" + entry + "\" is not key=value or a key.");
+                    }
+                }
+                for (String pattern : match.excludeSource() == null ? List.<String>of() : match.excludeSource()) {
+                    if (pattern == null || !SOURCE_PATTERN.matcher(pattern).matches()) {
+                        problem("#/trigger/match/excludeSource", "\"" + pattern + "\" is not a source pattern: "
+                                + "letters, digits, _ . : - and the wildcard *.");
+                    }
+                }
+            }
+            for (Map.Entry<String, FlowDefinition.Parameter> p : d.parameters().entrySet()) {
+                if (p.getValue().defaultValue() == null) {
+                    problem("#/parameters/" + p.getKey(), "An event-triggered flow's parameters need "
+                            + "defaults: nobody supplies them when events start a run.");
                 }
             }
         }

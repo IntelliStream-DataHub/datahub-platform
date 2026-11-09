@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+	<title th:text="#{flows.nav.clients}"></title>
+	<meta th:replace="~{layout/main :: htmlmeta}" />
+	<link rel="stylesheet" th:href="@{/static/css/flows.css}" />
+	<link rel="stylesheet" th:href="@{/static/css/settings.css}" />
+</head>
+<body th:replace="~{layout/main :: htmlbody(~{::main}, 'flows')}">
+<main class="layout-body">
+	<nav th:replace="~{flows/nav :: navbar('clients')}"></nav>
+
+	<div th:if="${featureDisabled}" class="pad20">
+		<p th:text="#{feature.not.enabled}">This feature is not enabled for your organization.</p>
+	</div>
+
+	<div class="settings-empty" data-type="clients-denied" hidden>
+		<i class="fa-solid fa-lock settings-empty-icon"></i>
+		<p th:text="#{flows.clients.denied}"></p>
+	</div>
+
+	<!--/* The clients a flow's runs may act as instead of the person who deployed it. The client is
+	       created in Keycloak beforehand; this page only tells DataHub its credentials, under
+	       datahub-api's /tenant/settings/flow/clients. Filled by flows/flow-clients.js. */-->
+	<div th:if="${!featureDisabled}" class="settings-page pad20" data-type="clients-page">
+		<div class="settings-header">
+			<h2 th:text="#{flows.nav.clients}"></h2>
+			<p class="settings-intro" th:text="#{flows.clients.intro}"></p>
+		</div>
+
+		<div class="settings-state" data-type="clients-loading" th:text="#{loading}"></div>
+
+		<div data-type="flow-clients" hidden>
+			<div class="settings-banner" data-type="clients-readonly" hidden>
+				<i class="fa-regular fa-eye"></i>
+				<span th:text="#{flows.clients.readonly}"></span>
+			</div>
+
+			<details class="settings-guide" data-type="setup-guide">
+				<summary>
+					<i class="fa-regular fa-circle-question"></i>
+					<span th:text="#{flows.clients.guide.title}"></span>
+					<i class="fa-solid fa-chevron-up settings-guide-chevron"></i>
+				</summary>
+				<ol>
+					<li><strong th:text="#{flows.clients.guide.step1.title}"></strong>
+						<span th:text="#{flows.clients.guide.step1.text}"></span></li>
+					<li><strong th:text="#{flows.clients.guide.step2.title}"></strong>
+						<span th:text="#{flows.clients.guide.step2.text}"></span></li>
+					<li><strong th:text="#{flows.clients.guide.step3.title}"></strong>
+						<span th:text="#{flows.clients.guide.step3.text}"></span></li>
+					<li><strong th:text="#{flows.clients.guide.step4.title}"></strong>
+						<span th:text="#{flows.clients.guide.step4.text}"></span></li>
+				</ol>
+			</details>
+
+			<section class="settings-group" data-type="client-list-group" hidden>
+				<h3 class="settings-group-title" th:text="#{flows.clients.list.group}"></h3>
+				<p class="settings-group-intro" data-type="client-list-empty" hidden
+				   th:text="#{flows.clients.list.empty}"></p>
+				<ul class="settings-list" data-type="client-list"></ul>
+			</section>
+
+			<form class="datahub-form-fields settings-form" data-type="client-form" hidden novalidate>
+				<section class="settings-group">
+					<h3 class="settings-group-title" data-type="client-form-title"
+					    th:text="#{flows.clients.form.group}"></h3>
+					<p class="settings-group-intro" th:text="#{flows.clients.form.intro}"></p>
+
+					<div class="settings-field">
+						<label for="name" th:text="#{flows.clients.name}"></label>
+						<input id="name" name="name" type="text" autocomplete="off" maxlength="63"
+						       th:attr="placeholder=#{flows.clients.name.placeholder}"/>
+						<p class="field-help" th:text="#{flows.clients.name.help}"></p>
+						<p class="field-error" data-error-for="name" hidden></p>
+					</div>
+
+					<div class="settings-row">
+						<div class="settings-field">
+							<label for="clientId" th:text="#{flows.clients.clientid}"></label>
+							<input id="clientId" name="clientId" type="text" autocomplete="off"
+							       th:attr="placeholder=#{flows.clients.clientid.placeholder}"/>
+							<p class="field-help" th:text="#{flows.clients.clientid.help}"></p>
+							<p class="field-error" data-error-for="clientId" hidden></p>
+						</div>
+						<div class="settings-field">
+							<label for="clientSecret" th:text="#{flows.clients.clientsecret}"></label>
+							<input id="clientSecret" name="clientSecret" type="password"
+							       autocomplete="new-password"/>
+							<p class="field-help" th:text="#{flows.clients.clientsecret.help}"></p>
+							<p class="field-error" data-error-for="clientSecret" hidden></p>
+						</div>
+					</div>
+				</section>
+
+				<div class="settings-actions">
+					<button type="submit" class="dh-btn primary" data-type="save"
+					        th:text="#{flows.clients.register}"></button>
+					<button type="button" class="dh-btn secondary" data-type="cancel" hidden
+					        th:text="#{flows.clients.cancel}"></button>
+				</div>
+			</form>
+		</div>
+	</div>
+
+	<th:block th:if="${!featureDisabled}">
+		<th:block th:replace="~{fragments/assets :: js('flows')}"></th:block>
+	</th:block>
+</main>
+</body>
+</html>

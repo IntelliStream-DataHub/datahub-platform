@@ -33,7 +33,7 @@
 	 * sessionStorage so the choice outlives the tab, and the server re-validates it anyway.
 	 */
 	const EFFORT_KEY = 'dh-chat-effort';
-	// Mirrors the ChatEffort enum. The server falls back on anything it doesn't recognise, so a
+	// Mirrors the LlmEffort enum. The server falls back on anything it doesn't recognise, so a
 	// stale cached panel after a rename degrades to the deployment default rather than erroring.
 	const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 	// Where each server-emitted view.page navigates to, and the button label for it. A page absent

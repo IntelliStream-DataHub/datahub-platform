@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.dhconsole.chat.policy;
 
-import ai.intellistream.dhconsole.chat.llm.LlmToolDef;
+import ai.intellistream.datahub.llm.LlmToolDef;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -15,9 +15,9 @@ import java.util.Set;
  * treated as mutating and is never offered to the model. That is the whole safety property, and it
  * is why this is an allowlist of read-only names rather than a blocklist of dangerous ones.
  *
- * <p>MCP itself gives us nothing to go on here: Spring AI's {@code ToolDefinition} carries only
- * name, description and input schema, with no read-only hint, so the classification has to live on
- * this side.
+ * <p>The platform's servers now say which tools read ({@code readOnlyHint} on {@code tools/list},
+ * carried on {@code LlmToolDef}), so this list could become a filter on that hint once every
+ * deployed api advertises it; until then a name the api did not classify would be unusable.
  *
  * <p>Widening this set is a deliberate, reviewable edit — {@code ToolPolicyTest} pins it.
  */

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.engine;
 
+import ai.intellistream.datahub.flow.api.EventMatch;
 import ai.intellistream.datahub.flow.api.Item;
 import ai.intellistream.datahub.flow.api.ProcessContext;
 import ai.intellistream.datahub.flow.api.ProcessException;
@@ -31,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.function.Function;
 
 /**
@@ -82,7 +84,8 @@ public final class RunExecutor {
             parameters = parameters(flow.definition(), request.parameters());
             Map<String, NodeContext> contexts = new LinkedHashMap<>();
             for (CompiledFlow.Node node : flow.nodes()) {
-                contexts.put(node.id(), context(node, request, parameters, secretsUsed, log));
+                contexts.put(node.id(), context(node, flow.definition(), request, parameters,
+                        secretsUsed, log));
             }
             for (CompiledFlow.Node node : flow.nodes()) {
                 if (node.source()) {
@@ -208,7 +211,7 @@ public final class RunExecutor {
     }
 
     /** A processor's context, with its properties' run-level references resolved once. */
-    private NodeContext context(CompiledFlow.Node node, RunRequest request,
+    private NodeContext context(CompiledFlow.Node node, FlowDefinition definition, RunRequest request,
                                 Map<String, Object> parameters, Set<String> secretsUsed,
                                 List<LogLine> log) {
         TimeWindow window = request.window();
@@ -236,8 +239,11 @@ public final class RunExecutor {
         node.properties().forEach((name, v) -> properties.put(name, v.resolve(runLevel, ITEM_LEVEL)));
         Map<String, PropertyValue> dynamic = new LinkedHashMap<>();
         node.dynamicProperties().forEach((name, v) -> dynamic.put(name, v.resolve(runLevel, ITEM_LEVEL)));
-        return new NodeContext(node.id(), properties, Collections.unmodifiableMap(dynamic), window,
-                parameters, request, secretsUsed, log, clock);
+        FlowDefinition.Trigger trigger = definition.trigger();
+        EventMatch triggerMatch = trigger == null || !"events".equals(trigger.type()) ? null
+                : trigger.match() != null ? trigger.match() : new EventMatch(null, null, null, null, null, null, null);
+        return new NodeContext(node.id(), definition.externalId(), properties, Collections.unmodifiableMap(dynamic),
+                window, parameters, request, triggerMatch, secretsUsed, log, clock);
     }
 
     /** What an item's references resolve to: its attributes, and a summary of its series. */
@@ -313,24 +319,28 @@ public final class RunExecutor {
 
     private static final class NodeContext implements ProcessContext {
         private final String processorId;
+        private final String flowExternalId;
         private final Map<String, ConfiguredValue> properties;
         private final Map<String, PropertyValue> dynamic;
         private final TimeWindow window;
         private final Map<String, Object> parameters;
         private final RunRequest request;
+        private final EventMatch triggerMatch;
         private final Set<String> secretsUsed;
         private final RunLog runLog;
 
-        NodeContext(String processorId, Map<String, ConfiguredValue> properties,
+        NodeContext(String processorId, String flowExternalId, Map<String, ConfiguredValue> properties,
                     Map<String, PropertyValue> dynamic, TimeWindow window,
-                    Map<String, Object> parameters, RunRequest request, Set<String> secretsUsed,
-                    List<LogLine> log, Clock clock) {
+                    Map<String, Object> parameters, RunRequest request, EventMatch triggerMatch,
+                    Set<String> secretsUsed, List<LogLine> log, Clock clock) {
             this.processorId = processorId;
+            this.flowExternalId = flowExternalId;
             this.properties = properties;
             this.dynamic = dynamic;
             this.window = window;
             this.parameters = parameters;
             this.request = request;
+            this.triggerMatch = triggerMatch;
             this.secretsUsed = secretsUsed;
             this.runLog = new RunLog() {
                 @Override
@@ -387,6 +397,11 @@ public final class RunExecutor {
         }
 
         @Override
+        public Optional<EventMatch> triggerMatch() {
+            return Optional.ofNullable(triggerMatch);
+        }
+
+        @Override
         public DatahubClient datahub() {
             if (request.datahub() == null) {
                 throw new ProcessException("This run has no DataHub client");
@@ -407,6 +422,29 @@ public final class RunExecutor {
         @Override
         public RunLog log() {
             return runLog;
+        }
+
+        @Override
+        public UUID runId() {
+            return request.runId();
+        }
+
+        @Override
+        public int attempt() {
+            return request.attempt();
+        }
+
+        @Override
+        public String flowExternalId() {
+            return flowExternalId;
+        }
+
+        @Override
+        public String accessToken() {
+            if (request.accessToken() == null) {
+                throw new ProcessException("This run has no access token");
+            }
+            return request.accessToken().get();
         }
     }
 }

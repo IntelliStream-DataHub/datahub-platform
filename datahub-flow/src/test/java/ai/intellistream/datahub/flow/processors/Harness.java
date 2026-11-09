@@ -29,6 +29,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -45,8 +47,8 @@ final class Harness implements AutoCloseable {
     static final long MINUTE = 60_000;
 
     static List<Processor> builtIns() {
-        return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new EventsSink(),
-                new Clamp(), new Threshold());
+        return List.of(new TimeseriesSource(), new TimeseriesSink(), new EventsSource(), new TriggerEventsSource(),
+                new EventsSink(), new Clamp(), new Threshold());
     }
 
     final RunExecutor executor = new RunExecutor(
@@ -54,6 +56,14 @@ final class Harness implements AutoCloseable {
     final Given given = new Given();
     final Collect collect = new Collect();
     final List<FlowRecord> records = new ArrayList<>();
+    /** Processors beyond the built-ins a test runs, such as an agent made with fakes. */
+    final List<Processor> extra = new ArrayList<>();
+    /** What a run's {@code accessToken()} answers; a test replaces it to play a lost lease. */
+    Supplier<String> accessToken = () -> "harness-token";
+    /** Whether the run is told to stop; a test replaces it to cancel mid-way. */
+    BooleanSupplier cancelled = () -> false;
+    /** Which attempt of the run the next flow is, for a processor that looks at the one before. */
+    int attempt = 1;
     private final List<RunResult> results = new ArrayList<>();
 
     /** A series {@code ts1} in {@link #WINDOW}, as the source would make it. */
@@ -89,20 +99,27 @@ final class Harness implements AutoCloseable {
     /** Runs exactly {@code processors} wired by {@code connections}, as the flow's whole definition. */
     RunResult flow(String processors, String connections, boolean preview, Long dataSetId,
                    DatahubClient datahub) {
+        return flow(processors, connections, null, preview, dataSetId, datahub);
+    }
+
+    /** As {@link #flow(String, String, boolean, Long, DatahubClient)}, with a trigger (JSON) when not null. */
+    RunResult flow(String processors, String connections, String trigger, boolean preview, Long dataSetId,
+                   DatahubClient datahub) {
         String json = """
                 {
                   "schemaVersion": 1, "externalId": "t", "dataSet": "ds", "name": "Test",
                   "processors": [ %s ],
-                  "connections": [ %s ]
+                  "connections": [ %s ]%s
                 }
-                """.formatted(processors, connections);
+                """.formatted(processors, connections, trigger == null ? "" : ", \"trigger\": " + trigger);
         List<Processor> catalog = new ArrayList<>(builtIns());
+        catalog.addAll(extra);
         catalog.add(given);
         catalog.add(collect);
         FlowValidator validator = new FlowValidator(catalog, FlowValidator.Limits.DEFAULTS);
         CompiledFlow flow = new FlowCompiler(validator).compile(FlowDefinitions.parse(json));
-        RunResult result = executor.execute(flow, new RunRequest(UUID.randomUUID(), 1, WINDOW, Map.of(),
-                preview, 64L * 1024 * 1024, null, null, dataSetId, datahub), records::add);
+        RunResult result = executor.execute(flow, new RunRequest(UUID.randomUUID(), attempt, WINDOW, Map.of(),
+                preview, 64L * 1024 * 1024, null, cancelled, dataSetId, datahub, accessToken), records::add);
         results.add(result);
         return result;
     }

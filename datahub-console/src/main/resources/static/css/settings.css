@@ -208,3 +208,38 @@
 	color: var(--text-muted);
 	font-size: 12px;
 }
+
+/* The registered flow clients: a name over its client id, with the actions to the right. */
+.settings-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.settings-list-item {
+	display: flex;
+	align-items: center;
+	gap: var(--space-lg);
+	padding: var(--space) 0;
+	border-bottom: 1px solid var(--border);
+}
+
+.settings-list-text {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	overflow-wrap: anywhere;
+}
+
+.settings-list-sub {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.settings-list-actions {
+	display: flex;
+	gap: var(--space-sm);
+	flex-shrink: 0;
+}

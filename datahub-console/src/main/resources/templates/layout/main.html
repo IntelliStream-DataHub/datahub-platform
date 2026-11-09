@@ -71,6 +71,13 @@
             <span th:text="#{flows}"></span>
             <span class="nav-count" data-type="flows-attention-count" hidden></span>
         </a>
+        <!-- Only for a tenant with flows and a usable model. The count is the open agent/attention
+             lifecycles, filled in by flows/attention-badge.js from datahub-api. -->
+        <a th:if="${@flowAccess.agentsAvailable()}" th:href="@{/agents}"
+           th:classappend="${pageSelected} == 'agents' ? 'selected' : ''">
+            <span th:text="#{agents}"></span>
+            <span class="nav-count" data-type="agents-attention-count" hidden></span>
+        </a>
     </nav>
 
     <!-- The right-hand header cluster. Ask AI is a sibling of the user menu, not part of it:

@@ -98,7 +98,8 @@ public class FlowService {
         StoredFlow flow;
         try {
             flow = transaction.execute(status -> repository.create(definition.externalId(),
-                    prepared.dataSetId(), definition.dataSet(), definition.name(), body, caller.subject()));
+                    prepared.dataSetId(), definition.dataSet(), definition.name(), kind(definition), body,
+                    caller.subject()));
         } catch (DuplicateKeyException e) {
             throw duplicate(definition.externalId());
         }
@@ -124,7 +125,7 @@ public class FlowService {
         List<String> created = createSeries(prepared, api);
         StoredFlow flow = transaction.execute(status -> repository.addVersion(existing.id(),
                 existing.currentVersion(), prepared.dataSetId(), definition.dataSet(),
-                definition.name(), body, caller.subject()).orElse(null));
+                definition.name(), kind(definition), body, caller.subject()).orElse(null));
         if (flow == null) {
             throw FlowProblems.conflict("Flow " + externalId + " was changed by someone else since "
                     + "version " + existing.currentVersion() + ". Reload it and save again.");
@@ -206,8 +207,12 @@ public class FlowService {
         return FlowView.of(flow, parseJson(current.definition()), null);
     }
 
-    public DataWrapper<FlowView> list(String cursor, Integer limit) {
+    /** The flows the caller may see: of one {@code kind} ({@code flow} or {@code agent}), or all with null. */
+    public DataWrapper<FlowView> list(String kind, String cursor, Integer limit) {
         Caller caller = requireRead();
+        if (kind != null && !FlowValidator.KIND_FLOW.equals(kind) && !FlowValidator.KIND_AGENT.equals(kind)) {
+            throw FlowProblems.badRequest("kind is flow or agent.");
+        }
         int pageSize = limit == null || limit <= 0 ? DEFAULT_LIMIT : limit;
         if (pageSize > MAX_LIMIT) {
             throw FlowProblems.badRequest("limit is at most " + MAX_LIMIT + ".");
@@ -217,7 +222,7 @@ public class FlowService {
             throw FlowProblems.badRequest("The cursor belongs to another listing.");
         }
         Caller.DataSets readable = caller.admin() ? Caller.DataSets.ALL : caller.read();
-        List<StoredFlow> page = repository.list(readable, caller.seesOrphans(),
+        List<StoredFlow> page = repository.list(readable, caller.seesOrphans(), kind,
                 after == null ? null : after.value(), pageSize);
         DataWrapper<FlowView> out = new DataWrapper<>();
         out.setItems(page.stream().map(flow -> FlowView.of(flow, null, null)).toList());
@@ -416,6 +421,11 @@ public class FlowService {
                 .filter(flow -> caller.canRead(flow.dataSetId())
                         || (flow.orphaned() && caller.seesOrphans()))
                 .orElseThrow(() -> FlowProblems.notFound("No flow " + externalId + "."));
+    }
+
+    /** The definition's kind as the flow row stores it: {@code flow} unless it says {@code agent}. */
+    private static String kind(FlowDefinition definition) {
+        return definition.kind() == null ? FlowValidator.KIND_FLOW : definition.kind();
     }
 
     private static FlowProblems.ProblemException duplicate(String externalId) {

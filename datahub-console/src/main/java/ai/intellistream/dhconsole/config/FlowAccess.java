@@ -6,6 +6,8 @@ import ai.intellistream.datahub.tenant.TenantConfigService;
 import ai.intellistream.dhconsole.security.UserSession;
 import org.springframework.stereotype.Component;
 
+import java.util.function.Predicate;
+
 /**
  * Whether the signed-in user's tenant has flows: its Vault {@code tenant-config.flow} flag.
  *
@@ -26,16 +28,30 @@ public class FlowAccess {
     }
 
     public boolean available() {
+        return check(tenant -> tenant.getFeatures().isFlowFeatureEnabled());
+    }
+
+    /**
+     * Flows, and a model to run an agent on: the tenant's own {@code llm.*} settings, usable. No
+     * role beyond flow access: an agent is a flow, and the only thing a role would gate is the
+     * tenant spending its own model budget, which it already controls through those settings.
+     */
+    public boolean agentsAvailable() {
+        return check(tenant -> tenant.getFeatures().isFlowFeatureEnabled()
+                && tenant.getLlm() != null && tenant.getLlm().isUsable());
+    }
+
+    private boolean check(Predicate<Tenant> test) {
         try {
             String orgId = userSession.getOrganizationId();
             if (orgId == null) {
                 return false;
             }
             Tenant tenant = tenantConfigService.getConfig(orgId);
-            return tenant != null && tenant.getFeatures().isFlowFeatureEnabled();
+            return tenant != null && test.test(tenant);
         } catch (RuntimeException e) {
-            // An error or unauthenticated dispatch has no session: show no Flows entry rather than
-            // fail the page.
+            // An error or unauthenticated dispatch has no session: show no entry rather than fail
+            // the page.
             return false;
         }
     }

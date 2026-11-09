@@ -652,7 +652,7 @@ class RunCoordinatorScaleIT {
                 """.formatted(externalId, externalId, processor);
         return in(tenant, () -> {
             long id = transaction.execute(s -> {
-                long created = flows.create(externalId, 7, "ds", externalId, definition, "user-1").id();
+                long created = flows.create(externalId, 7, "ds", externalId, "flow", definition, "user-1").id();
                 flows.deploy(created, 1, true, schedule.toJson(JSON), maxConcurrent, 2, Duration.ofMinutes(15),
                         FlowRepository.Identity.deployer("user-1"), "user-1", nextTick,
                         nextTick == null ? null : schedule.dueAt(nextTick));

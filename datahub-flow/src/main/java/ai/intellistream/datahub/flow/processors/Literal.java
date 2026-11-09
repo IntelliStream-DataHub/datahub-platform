@@ -5,6 +5,7 @@ import ai.intellistream.datahub.flow.api.ProcessException;
 import ai.intellistream.datahub.flow.api.PropertyValue;
 
 import java.time.Duration;
+import java.util.List;
 
 /**
  * A property's value as written, for {@code validate}: when a flow is saved a {@code ${…}} reference
@@ -19,6 +20,14 @@ final class Literal {
     static Double number(PropertyValue value) {
         try {
             return value.asDouble();
+        } catch (ProcessException reference) {
+            return null;
+        }
+    }
+
+    static List<String> list(PropertyValue value) {
+        try {
+            return value.asList();
         } catch (ProcessException reference) {
             return null;
         }

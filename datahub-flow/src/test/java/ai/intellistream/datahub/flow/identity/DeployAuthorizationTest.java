@@ -55,7 +55,7 @@ class DeployAuthorizationTest {
     private static final Instant NOW = Instant.parse("2026-10-12T12:00:00Z");
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final StoredFlow FLOW = new StoredFlow(FLOW_ID, "temp_hourly", DATASET, "ds_demo",
-            "Hourly", 3, null, false, "user-1", NOW, "user-1", NOW, null);
+            "Hourly", 3, null, false, "user-1", NOW, "user-1", NOW, null, "flow");
     private static final DeploymentPlan PLAN = new DeploymentPlan(FLOW_ID, "temp_hourly", 3,
             new Schedule(Schedule.MANUAL, null, null, null, null), 1, 2, Duration.ofMinutes(15));
 
@@ -146,6 +146,18 @@ class DeployAuthorizationTest {
 
         assertThatThrownBy(() -> authorization.authorize("temp_hourly", null, null))
                 .isInstanceOf(FlowProblems.ProblemException.class);
+    }
+
+    @Test
+    void anAgentsDeploymentLandsOnTheAgentsPageWhetherItWorkedOrNot() {
+        StoredFlow agent = new StoredFlow(FLOW_ID, "temp_hourly", DATASET, "ds_demo", "Pump watch", 3, null,
+                false, "user-1", NOW, "user-1", NOW, null, "agent");
+        when(flows.findById(FLOW_ID)).thenReturn(Optional.of(agent));
+
+        assertThat(location(callback(state("user-1", NOW.plusSeconds(60)))))
+                .isEqualTo("http://localhost:8080/agents/temp_hourly?deployed=1");
+        assertThat(location(callback(state("someone-else", NOW.plusSeconds(60)))))
+                .isEqualTo("http://localhost:8080/agents/temp_hourly?deployError=wrong-user");
     }
 
     @Test

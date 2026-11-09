@@ -55,6 +55,7 @@ class RunHistoryIT {
     private RunStore store;
     private RunHistory history;
     private RunArchiver archiver;
+    private AgentTranscripts transcripts;
 
     @BeforeAll
     static void start() throws Exception {
@@ -102,7 +103,8 @@ class RunHistoryIT {
         kvrocks = new TenantKvrocks(tenants);
         store = new RunStore(kvrocks, Duration.ofSeconds(1));
         history = new RunHistory(id -> client, id -> client);
-        archiver = new RunArchiver(tenants, store, history);
+        transcripts = new AgentTranscripts(kvrocks);
+        archiver = new RunArchiver(tenants, store, history, transcripts);
         TenantContext.setTenantId(TENANT);
         store.syncFlow(new FlowLimits(1, "temp_hourly", 7, true, true, 5));
     }
@@ -243,7 +245,7 @@ class RunHistoryIT {
         RunHistory broken = new RunHistory(id -> client, id -> {
             throw new IllegalStateException("ClickHouse is down");
         });
-        RunArchiver failing = new RunArchiver(mock(TenantConfigService.class), store, broken);
+        RunArchiver failing = new RunArchiver(mock(TenantConfigService.class), store, broken, transcripts);
 
         assertThat(failing.archive(TENANT)).isZero();
         assertThat(store.takeUnarchived(10, Duration.ofSeconds(30))).as("hidden for a while").isEmpty();

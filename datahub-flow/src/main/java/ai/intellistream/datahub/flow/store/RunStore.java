@@ -125,10 +125,16 @@ public class RunStore {
      * A flow's schedule as it is handed to the run store when the flow is deployed, switched or told
      * again: what the ticker needs to make its runs. {@code firstTick} is where the schedule starts if
      * the run store knows nothing of this deployment yet; if it does, it is further on, and stays.
+     *
+     * @param firstTick null for a schedule that waits for an event to set its tick
+     * @param lastTick  where a schedule the run store lost had got to, as Postgres last saw it; null if
+     *                  nowhere yet
+     * @param debounce  for a schedule whose ticks events set, how long after the first event its tick is;
+     *                  null for a cron schedule
      */
     public record ScheduleSpec(long flowId, String externalId, long dataSetId, int version, int maxAttempts,
                                Duration timeout, String runAs, String trigger, Duration delay, Instant deployedAt,
-                               Instant firstTick) {
+                               Instant firstTick, Instant lastTick, Duration debounce) {
     }
 
     /**
@@ -756,15 +762,22 @@ public class RunStore {
         for (String id : ids) {
             // One transaction per run, so a run is forgotten whole. A claim racing it watches the run
             // and looks again at a queue without it.
-            optimistic(c -> new Verdict<>(null, w -> {
-                w.del(runKey(id));
-                w.zrem(LEASES, id);
-                w.zrem(DEADLINES, id);
-                w.zrem(UNARCHIVED, id);
-                w.zrem(LIVE, id);
-                w.zrem(DELAYED, id);
-                w.srem(OWED, id);
-            }));
+            optimistic(c -> {
+                c.watch(runKey(id));
+                Map<String, String> h = c.hgetall(runKey(id));
+                return new Verdict<>(null, w -> {
+                    for (int attempt = 1; attempt <= attempts(h); attempt++) {
+                        w.del(AgentTranscripts.key(UUID.fromString(id), attempt));
+                    }
+                    w.del(runKey(id));
+                    w.zrem(LEASES, id);
+                    w.zrem(DEADLINES, id);
+                    w.zrem(UNARCHIVED, id);
+                    w.zrem(LIVE, id);
+                    w.zrem(DELAYED, id);
+                    w.srem(OWED, id);
+                });
+            });
         }
         sync.del(queueKey(flow), delayedKey(flow), runningKey(flow), retryingKey(flow), metaKey(flow),
                 lastKey(flow), failedWindowsKey(flow), scheduleKey(flow), scheduleLockKey(flowId));
@@ -788,7 +801,8 @@ public class RunStore {
             Map<String, String> h = c.hgetall(key);
             String deployed = String.valueOf(micros(spec.deployedAt()));
             boolean kept = deployed.equals(h.get("deployed_us")) && h.get("next_tick_ms") != null;
-            String next = kept ? h.get("next_tick_ms") : String.valueOf(spec.firstTick().toEpochMilli());
+            String next = kept ? h.get("next_tick_ms")
+                    : spec.firstTick() == null ? "" : String.valueOf(spec.firstTick().toEpochMilli());
             Map<String, String> fields = new LinkedHashMap<>();
             pair(fields, "external_id", spec.externalId());
             pair(fields, "data_set_id", spec.dataSetId());
@@ -800,10 +814,82 @@ public class RunStore {
             pair(fields, "delay_ms", spec.delay().toMillis());
             pair(fields, "deployed_us", deployed);
             pair(fields, "next_tick_ms", next);
+            pair(fields, "debounce_ms", spec.debounce() == null ? null : spec.debounce().toMillis());
+            if (!kept && spec.lastTick() != null) {
+                pair(fields, "last_tick_ms", spec.lastTick().toEpochMilli());
+            }
             double due = next.isEmpty() ? NEVER : Long.parseLong(next) + spec.delay().toMillis();
             return new Verdict<>(null, w -> {
+                if (!kept) {
+                    // A new deployment starts from nothing: no position, no event seen, of the one before.
+                    w.del(key);
+                }
                 w.hset(key, fields);
                 w.zadd(SCHEDULES, due, flow);
+            });
+        });
+    }
+
+    /**
+     * An event recorded at {@code recorded} matched the flow: unless a tick already waiting covers it, or
+     * a run of an earlier tick did, its schedule gets one, {@code debounce} from now, so the events after
+     * it until then are the same run. While a tick waits, a later event is noted, and the schedule moves
+     * on to a new tick when that one is made into a run ({@link #advanceEvents}). False when nothing
+     * changed, or the flow has no schedule events set.
+     */
+    public boolean wake(long flowId, Instant recorded) {
+        String flow = String.valueOf(flowId);
+        String key = scheduleKey(flow);
+        long at = recorded.toEpochMilli();
+        return optimistic(c -> {
+            c.watch(key);
+            Map<String, String> h = c.hgetall(key);
+            if (h.get("debounce_ms") == null) {
+                return Verdict.of(false);
+            }
+            Instant last = instant(h, "last_tick_ms");
+            long covered = last != null ? last.toEpochMilli() : Long.parseLong(h.get("deployed_us")) / 1000;
+            Instant next = instant(h, "next_tick_ms");
+            if (at < covered || next != null && at < next.toEpochMilli()) {
+                return Verdict.of(false);
+            }
+            Instant seen = instant(h, "seen_ms");
+            long tick = Math.max(now(c), at + 1) + Long.parseLong(h.get("debounce_ms"));
+            long delay = Long.parseLong(h.get("delay_ms"));
+            return new Verdict<>(true, w -> {
+                if (seen == null || seen.toEpochMilli() < at) {
+                    w.hset(key, "seen_ms", String.valueOf(at));
+                }
+                if (next == null) {
+                    w.hset(key, "next_tick_ms", String.valueOf(tick));
+                    w.zadd(SCHEDULES, tick + delay, flow);
+                }
+            });
+        });
+    }
+
+    /**
+     * Moves a schedule events set on from {@code expected}, which has been made into a run: to a new tick
+     * if an event at or after it was noted meanwhile ({@link #wake}), else to none until the next event.
+     * False when another instance moved it first.
+     */
+    public boolean advanceEvents(long flowId, Instant expected) {
+        String flow = String.valueOf(flowId);
+        String key = scheduleKey(flow);
+        return optimistic(c -> {
+            c.watch(key);
+            Map<String, String> h = c.hgetall(key);
+            if (!String.valueOf(expected.toEpochMilli()).equals(h.get("next_tick_ms"))) {
+                return Verdict.of(false);
+            }
+            Instant seen = instant(h, "seen_ms");
+            long next = seen == null || seen.isBefore(expected) ? -1
+                    : Math.max(now(c), seen.toEpochMilli() + 1) + Long.parseLong(h.get("debounce_ms"));
+            long delay = Long.parseLong(h.get("delay_ms"));
+            return new Verdict<>(true, w -> {
+                w.hset(key, Map.of("next_tick_ms", next < 0 ? "" : String.valueOf(next),
+                        "last_tick_ms", String.valueOf(expected.toEpochMilli())));
+                w.zadd(SCHEDULES, next < 0 ? NEVER : next + delay, flow);
             });
         });
     }
@@ -1019,7 +1105,7 @@ public class RunStore {
                 if (!h.isEmpty()) {
                     w.hset(rk, "failure_event_owed", "0");
                     if ("1".equals(h.get("archived"))) {
-                        w.expire(rk, finishedTtl.toSeconds());
+                        expireWithTranscripts(w, rk, uuid, h);
                     }
                 }
             });
@@ -1062,12 +1148,27 @@ public class RunStore {
                         w.hset(rk, "archived", "1");
                         // A run that still owes its lifecycle event is kept until that is written.
                         if (!"1".equals(h.get("failure_event_owed"))) {
-                            w.expire(rk, finishedTtl.toSeconds());
+                            expireWithTranscripts(w, rk, uuid, h);
                         }
                     }
                 });
             });
         }
+    }
+
+    /** The run's hash and the transcript list of each of its attempts go after the finished TTL. */
+    private void expireWithTranscripts(RedisAsyncCommands<String, String> w, String rk, UUID id,
+                                       Map<String, String> h) {
+        w.expire(rk, finishedTtl.toSeconds());
+        for (int attempt = 1; attempt <= attempts(h); attempt++) {
+            w.expire(AgentTranscripts.key(id, attempt), finishedTtl.toSeconds());
+        }
+    }
+
+    /** The attempts a run has had, from its hash; one when the hash does not say. */
+    private static int attempts(Map<String, String> h) {
+        Integer attempt = intOrNull(h, "attempt");
+        return attempt == null ? 1 : attempt;
     }
 
     // ---------------------------------------------------------------- the indexes

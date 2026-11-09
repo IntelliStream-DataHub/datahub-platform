@@ -34,7 +34,7 @@ public class FlowRepository {
 
     private static final String FLOW_COLUMNS = "id, external_id, data_set_id, data_set_external_id, "
             + "name, current_version, deployed_version, enabled, created_by, created_at, updated_by, "
-            + "updated_at, disabled_reason";
+            + "updated_at, disabled_reason, kind";
 
     private static final RowMapper<StoredFlow> FLOW = (rs, n) -> new StoredFlow(
             rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
@@ -42,7 +42,7 @@ public class FlowRepository {
             (Integer) rs.getObject("deployed_version"), rs.getBoolean("enabled"),
             rs.getString("created_by"), instant(rs.getTimestamp("created_at")),
             rs.getString("updated_by"), instant(rs.getTimestamp("updated_at")),
-            rs.getString("disabled_reason"));
+            rs.getString("disabled_reason"), rs.getString("kind"));
 
     private final JdbcTemplate jdbc;
 
@@ -54,11 +54,12 @@ public class FlowRepository {
      * A flow as stored, without its definition.
      *
      * @param disabledReason why the service switched it off, or null
+     * @param kind           {@code flow} or {@code agent}: a flow whose step is the agent processor
      */
     public record StoredFlow(long id, String externalId, long dataSetId, String dataSetExternalId,
                              String name, int currentVersion, Integer deployedVersion, boolean enabled,
                              String createdBy, Instant createdAt, String updatedBy, Instant updatedAt,
-                             String disabledReason) {
+                             String disabledReason, String kind) {
 
         /** Its dataset was deleted: see {@link #DATASET_DELETED}. */
         public boolean orphaned() {
@@ -76,13 +77,13 @@ public class FlowRepository {
      * @throws DuplicateKeyException when the tenant already has a flow with that external id
      */
     public StoredFlow create(String externalId, long dataSetId, String dataSetExternalId, String name,
-                             String definition, String by) {
+                             String kind, String definition, String by) {
         // The flow's current version is checked against flow_version by a deferred key, so the
         // flow goes first and its version second, in the caller's transaction.
         Long id = jdbc.queryForObject("INSERT INTO flow (external_id, data_set_id, "
-                        + "data_set_external_id, name, current_version, created_by, updated_by) "
-                        + "VALUES (?, ?, ?, ?, 1, ?, ?) RETURNING id",
-                Long.class, externalId, dataSetId, dataSetExternalId, name, by, by);
+                        + "data_set_external_id, name, kind, current_version, created_by, updated_by) "
+                        + "VALUES (?, ?, ?, ?, ?, 1, ?, ?) RETURNING id",
+                Long.class, externalId, dataSetId, dataSetExternalId, name, kind, by, by);
         insertVersion(id, 1, definition, by);
         return find(externalId).orElseThrow();
     }
@@ -93,15 +94,15 @@ public class FlowRepository {
      * another dataset is no longer orphaned; it stays switched off until someone deploys it.
      */
     public Optional<StoredFlow> addVersion(long flowId, int expectedVersion, long dataSetId,
-                                           String dataSetExternalId, String name, String definition,
-                                           String by) {
+                                           String dataSetExternalId, String name, String kind,
+                                           String definition, String by) {
         // Every expression in SET reads the row as it was, so data_set_id here is the old dataset.
         int updated = jdbc.update("UPDATE flow SET current_version = current_version + 1, "
                         + "disabled_reason = CASE WHEN disabled_reason = ? AND data_set_id <> ? "
                         + "THEN NULL ELSE disabled_reason END, "
-                        + "data_set_id = ?, data_set_external_id = ?, name = ?, updated_by = ?, "
+                        + "data_set_id = ?, data_set_external_id = ?, name = ?, kind = ?, updated_by = ?, "
                         + "updated_at = now() WHERE id = ? AND current_version = ?",
-                DATASET_DELETED, dataSetId, dataSetId, dataSetExternalId, name, by, flowId,
+                DATASET_DELETED, dataSetId, dataSetId, dataSetExternalId, name, kind, by, flowId,
                 expectedVersion);
         if (updated == 0) {
             return Optional.empty();
@@ -122,15 +123,20 @@ public class FlowRepository {
 
     /**
      * A page of the flows in {@code readable} datasets — and the orphaned ones too, when
-     * {@code orphans} — by external id, starting after {@code afterExternalId} (null for the first
-     * page).
+     * {@code orphans} — of one {@code kind} (null for every kind), by external id, starting after
+     * {@code afterExternalId} (null for the first page).
      */
-    public List<StoredFlow> list(DataSets readable, boolean orphans, String afterExternalId, int limit) {
+    public List<StoredFlow> list(DataSets readable, boolean orphans, String kind, String afterExternalId,
+                                 int limit) {
         if (!readable.all() && readable.ids().isEmpty() && !orphans) {
             return List.of();
         }
         StringBuilder sql = new StringBuilder("SELECT " + FLOW_COLUMNS + " FROM flow WHERE true");
         List<Object> args = new ArrayList<>();
+        if (kind != null) {
+            sql.append(" AND kind = ?");
+            args.add(kind);
+        }
         if (!readable.all()) {
             // The driver binds a Long[] as a bigint[].
             sql.append(orphans ? " AND (data_set_id = ANY (?) OR disabled_reason = ?)"
@@ -294,15 +300,16 @@ public class FlowRepository {
      *
      * @param trigger    the deployed trigger as JSON
      * @param nextTick   the schedule's next tick as last checkpointed here, null when it has none
+     * @param lastTick   the latest tick made into a run as last checkpointed here, null if none yet
      * @param deployedAt when it was deployed: a different one means the schedule starts over
      */
     public record DeployedFlow(long id, String externalId, long dataSetId, boolean enabled, int maxConcurrentRuns,
-                               int version, String trigger, Instant nextTick, Instant deployedAt, int maxAttempts,
-                               Duration timeout, String runAs, boolean identityOk) {
+                               int version, String trigger, Instant nextTick, Instant lastTick, Instant deployedAt,
+                               int maxAttempts, Duration timeout, String runAs, boolean identityOk) {
     }
 
     private static final String DEPLOYED = "SELECT id, external_id, data_set_id, enabled, max_concurrent_runs, "
-            + "deployed_version, trigger::text AS trigger, next_tick, deployed_at, max_attempts, "
+            + "deployed_version, trigger::text AS trigger, next_tick, last_tick, deployed_at, max_attempts, "
             + "extract(epoch FROM run_timeout)::bigint AS timeout_seconds, "
             + "coalesce(identity_subject, identity_client_name) AS run_as, identity_state FROM flow "
             + "WHERE deployed_version IS NOT NULL";
@@ -310,7 +317,7 @@ public class FlowRepository {
     private static DeployedFlow deployed(java.sql.ResultSet rs) throws java.sql.SQLException {
         return new DeployedFlow(rs.getLong("id"), rs.getString("external_id"), rs.getLong("data_set_id"),
                 rs.getBoolean("enabled"), rs.getInt("max_concurrent_runs"), rs.getInt("deployed_version"),
-                rs.getString("trigger"), instant(rs.getTimestamp("next_tick")),
+                rs.getString("trigger"), instant(rs.getTimestamp("next_tick")), instant(rs.getTimestamp("last_tick")),
                 instant(rs.getTimestamp("deployed_at")), rs.getInt("max_attempts"),
                 Duration.ofSeconds(rs.getLong("timeout_seconds")), rs.getString("run_as"),
                 "ok".equals(rs.getString("identity_state")));
@@ -376,7 +383,7 @@ public class FlowRepository {
     }
 
     /** The deployed flows in {@code readable} datasets, by external id after {@code afterExternalId}. */
-    public List<BoardFlow> deployedBoard(DataSets readable, String afterExternalId, int limit) {
+    public List<BoardFlow> deployedBoard(DataSets readable, String kind, String afterExternalId, int limit) {
         if (!readable.all() && readable.ids().isEmpty()) {
             return List.of();
         }
@@ -386,6 +393,10 @@ public class FlowRepository {
         if (!readable.all()) {
             sql.append(" AND data_set_id = ANY (?)");
             args.add(readable.ids().toArray(Long[]::new));
+        }
+        if (kind != null) {
+            sql.append(" AND kind = ?");
+            args.add(kind);
         }
         if (afterExternalId != null) {
             sql.append(" AND external_id > ?");

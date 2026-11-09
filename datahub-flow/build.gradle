@@ -25,6 +25,9 @@ dependencies {
 	implementation project(':datahub-infra')
 	// Runs call datahub-api as their identity, through the SDK.
 	implementation project(':datahub-java-sdk')
+	// Agents run the LLM layer in commons, where the Anthropic SDK is compileOnly: an app that wires
+	// LlmBackends declares it itself, and this one does.
+	implementation "com.anthropic:anthropic-java:${anthropicSdkVersion}"
 
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	// Prometheus scrape endpoint (/actuator/prometheus on the management port).
@@ -75,6 +78,8 @@ dependencies {
 	testImplementation 'org.testcontainers:clickhouse:1.21.4'
 	// SharedPostgres: one migrated Postgres container, a database per test class (FlowRepositoryIT).
 	testImplementation testFixtures(project(':datahub-infra'))
+	// StubLlmClient: a scripted model for the agent processor's tests.
+	testImplementation testFixtures(project(':datahub-commons'))
 }
 
 tasks.named('test') {

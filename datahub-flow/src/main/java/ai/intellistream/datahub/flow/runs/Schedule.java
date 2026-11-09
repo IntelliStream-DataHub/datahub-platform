@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.flow.runs;
 
+import ai.intellistream.datahub.flow.api.EventMatch;
 import ai.intellistream.datahub.flow.api.TimeWindow;
 import ai.intellistream.datahub.flow.definition.FlowDefinition;
 import org.springframework.scheduling.support.CronExpression;
@@ -32,13 +33,29 @@ import java.util.regex.Pattern;
  * six-field cron expression read in {@link #zone}, so a daylight-saving change moves them the way
  * a wall clock in that zone would.
  *
- * @param window null for a schedule that covers the time since its previous tick, and for a manual
- *               trigger without one
+ * <p>An {@code events} trigger has no cron expression: its tick is set by a matching event
+ * ({@code EventWakes}), {@link #debounce} after the first one, so a burst is one run; the run covers the
+ * time since the tick before it, and starts {@link #delay} after the tick, so the events the stateless
+ * consumer is still inserting have landed. {@link #match} is the trigger's own filter: the event is a
+ * signal, and whether the run reads it is up to the flow (a {@code trigger-events} step).
+ *
+ * @param window   null for a schedule that covers the time since its previous tick, and for a manual
+ *                 trigger without one; for an {@code events} trigger, the window of a manual run
+ * @param debounce for an {@code events} trigger, how long after the first matching event its tick is;
+ *                 null otherwise
+ * @param match    for an {@code events} trigger, the events that wake it; null otherwise
  */
-public record Schedule(String type, String cron, ZoneId zone, Duration window, Duration delay) {
+public record Schedule(String type, String cron, ZoneId zone, Duration window, Duration delay,
+                       Duration debounce, EventMatch match) {
 
     public static final String MANUAL = "manual";
     public static final String SCHEDULE = "schedule";
+    public static final String EVENTS = "events";
+    public static final Duration DEFAULT_DEBOUNCE = Duration.ofSeconds(10);
+    /** How long after its tick an {@code events} run starts by default: the stateless consumer's insert lag. */
+    public static final Duration DEFAULT_EVENTS_DELAY = Duration.ofSeconds(10);
+    /** An events trigger with no filter: every event wakes it. */
+    private static final EventMatch NO_FILTER = new EventMatch(null, null, null, null, null, null, null);
 
     private static final Pattern PARAMETER = Pattern.compile("^\\$\\{parameters\\.([A-Za-z0-9_]+)}$");
     /** How far back {@link #latestDueTick} looks for the last tick, in windows. */
@@ -52,8 +69,17 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
         zone = zone == null ? ZoneOffset.UTC : zone;
     }
 
+    public Schedule(String type, String cron, ZoneId zone, Duration window, Duration delay) {
+        this(type, cron, zone, window, delay, null, null);
+    }
+
     public boolean scheduled() {
         return SCHEDULE.equals(type);
+    }
+
+    /** Whether events set its ticks: an {@code events} trigger. */
+    public boolean evented() {
+        return EVENTS.equals(type);
     }
 
     /** The trigger of a validated definition; a definition without one is manual, without a window. */
@@ -61,6 +87,13 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
         FlowDefinition.Trigger trigger = definition.trigger();
         if (trigger == null) {
             return new Schedule(MANUAL, null, null, null, null);
+        }
+        if (EVENTS.equals(trigger.type())) {
+            return new Schedule(EVENTS, null, null,
+                    trigger.window() == null ? null : resolveWindow(trigger.window(), definition),
+                    trigger.delay() == null ? DEFAULT_EVENTS_DELAY : Duration.parse(trigger.delay()),
+                    trigger.debounce() == null ? DEFAULT_DEBOUNCE : Duration.parse(trigger.debounce()),
+                    trigger.match() == null ? NO_FILTER : trigger.match());
         }
         Schedule schedule = new Schedule(trigger.type(), trigger.cron(),
                 trigger.timezone() == null ? null : ZoneId.of(trigger.timezone()),
@@ -163,8 +196,8 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
 
     /**
      * The window a manual run takes when none is given: for a schedule, that of the latest tick that
-     * is already due; for a manual trigger with a window, the window ending now (to the second).
-     * Null when the trigger has no window.
+     * is already due; for a manual or events trigger with a window, the window ending now (to the
+     * second). Null when the trigger has no window.
      */
     public TimeWindow defaultWindow(Instant now) {
         if (scheduled()) {
@@ -211,6 +244,12 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
         if (!delay.isZero()) {
             out.put("delay", delay.toString());
         }
+        if (debounce != null) {
+            out.put("debounce", debounce.toString());
+        }
+        if (match != null) {
+            out.put("match", match);
+        }
         return json.writeValueAsString(out);
     }
 
@@ -220,6 +259,8 @@ public record Schedule(String type, String cron, ZoneId zone, Duration window, D
                 node.hasNonNull("cron") ? node.get("cron").asString() : null,
                 node.hasNonNull("timezone") ? ZoneId.of(node.get("timezone").asString()) : null,
                 node.hasNonNull("window") ? Duration.parse(node.get("window").asString()) : null,
-                node.hasNonNull("delay") ? Duration.parse(node.get("delay").asString()) : null);
+                node.hasNonNull("delay") ? Duration.parse(node.get("delay").asString()) : null,
+                node.hasNonNull("debounce") ? Duration.parse(node.get("debounce").asString()) : null,
+                node.hasNonNull("match") ? json.treeToValue(node.get("match"), EventMatch.class) : null);
     }
 }

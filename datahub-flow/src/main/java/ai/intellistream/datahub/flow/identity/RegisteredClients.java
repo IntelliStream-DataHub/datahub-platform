@@ -77,6 +77,21 @@ public class RegisteredClients {
     }
 
     /**
+     * The names of the tenant's registered clients, sorted: what a deployer picks from. Names only;
+     * which of them the caller may actually assign is decided by {@link #assign} when they do.
+     */
+    public List<String> names(String tenantId) {
+        try {
+            return List.copyOf(TenantFlowSection.clientIds(
+                    tenantConfig.current(tenant(tenantId).getOrganizationName())).keySet());
+        } catch (IllegalStateException e) {
+            log.warn("Could not read the tenant's flow clients from Vault: {}", e.getMessage());
+            throw FlowProblems.apiUnavailable("The registered clients could not be listed: the "
+                    + "configuration store did not answer. Retry shortly.");
+        }
+    }
+
+    /**
      * Checks that the current caller may have flow runs act as client {@code name} — the client is
      * registered, Keycloak accepts its credentials, it may write {@code dataSetId}, and the caller
      * holds every group it holds — and returns it as an identity.

@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+package ai.intellistream.datahub.llm;
+
+import java.util.List;
+
+/**
+ * The seam between a tool-use loop and whichever model is configured.
+ *
+ * <p>Deliberately one method and provider-neutral types, so a second backend is a sibling of the
+ * first with no change to the loop, the transcript format, or anything already stored in a user's
+ * session.
+ *
+ * <p>Implementations are responsible for translating {@link LlmMessage} into the provider's wire
+ * shape — in particular the batched tool-result message, which Anthropic wants as one user message
+ * with several {@code tool_result} blocks and OpenAI-compatible servers want as several
+ * {@code role:"tool"} messages.
+ */
+public interface LlmClient {
+
+    /**
+     * Run one turn. Implementations must not execute tools themselves — the loop owns that, so
+     * that policy and (later) user confirmation cannot be bypassed by a provider's convenience
+     * feature.
+     *
+     * <p>{@code settings} and {@code effort} are per-call because one client instance is shared by
+     * every tenant on the same credential, and they share neither a model nor a message.
+     */
+    LlmTurn send(LlmSettings settings, String systemPrompt, List<LlmToolDef> tools,
+                 List<LlmMessage> messages, LlmEffort effort);
+
+    /** For logging and for the {@code /api/chat} response, so the UI can say what answered. */
+    String providerId(LlmSettings settings);
+}
