@@ -73,7 +73,7 @@ class FlowValidatorTest {
             agent.putObject("properties").put("instructions", "Look at each event.")
                     .putArray("tools").add("event_*").add("bad name");
             agent.putObject("retry").put("maxAttempts", 2);
-            agent.putArray("terminate").add("attention");
+            agent.putArray("terminate").add("flagged");
         });
         assertThat(problems).extracting(ValidationProblem::pointer)
                 .containsExactlyInAnyOrder("#/processors/5/retry", "#/processors/5/properties");
@@ -84,14 +84,14 @@ class FlowValidatorTest {
             tree.put("kind", "agent");
             ObjectNode agent = ((ArrayNode) tree.get("processors")).addObject().put("id", "ai").put("type", "agent");
             agent.putObject("properties").put("instructions", "Look at each event.");
-            agent.putArray("terminate").add("attention");
+            agent.putArray("terminate").add("flagged");
             ((ArrayNode) tree.get("connections")).addObject().put("from", "src").put("relationship", "success").put("to", "ai");
         })).isEmpty();
         assertThat(problems(tree -> {
             tree.put("kind", "agent");
             ObjectNode agent = ((ArrayNode) tree.get("processors")).addObject().put("id", "ai").put("type", "agent");
             agent.putObject("properties").put("instructions", "Check the pumps.");
-            agent.putArray("terminate").add("attention");
+            agent.putArray("terminate").add("flagged");
         })).as("nothing connected: it runs on its instructions alone").isEmpty();
     }
 

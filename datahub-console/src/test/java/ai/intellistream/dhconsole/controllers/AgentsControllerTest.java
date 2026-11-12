@@ -26,7 +26,7 @@ class AgentsControllerTest {
         MockMvc mvc = mvc(true);
         mvc.perform(get("/agents")).andExpect(view().name("agents/index"))
                 .andExpect(model().attribute("featureDisabled", false));
-        mvc.perform(get("/agents").param("tab", "attention")).andExpect(view().name("agents/attention"));
+        mvc.perform(get("/agents").param("tab", "flagged")).andExpect(view().name("agents/flagged"));
         mvc.perform(get("/agents").param("tab", "runs")).andExpect(view().name("agents/runs"));
         mvc.perform(get("/agents").param("new", "")).andExpect(view().name("agents/agent"))
                 .andExpect(model().attribute("flowExternalId", ""));
@@ -38,9 +38,9 @@ class AgentsControllerTest {
     }
 
     @Test
-    void anAgentCalledAttentionIsAnAgent() throws Exception {
-        mvc(true).perform(get("/agents/attention")).andExpect(view().name("agents/agent"))
-                .andExpect(model().attribute("flowExternalId", "attention"));
+    void anAgentCalledFlaggedIsAnAgent() throws Exception {
+        mvc(true).perform(get("/agents/flagged")).andExpect(view().name("agents/agent"))
+                .andExpect(model().attribute("flowExternalId", "flagged"));
     }
 
     @Test

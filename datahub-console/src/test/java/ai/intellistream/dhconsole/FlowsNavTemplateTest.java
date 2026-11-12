@@ -88,7 +88,7 @@ class FlowsNavTemplateTest {
         String nav = renderNav(true, true);
         assertThat(nav).contains("href=\"/agents\"")
                 .contains(">Agents<")
-                .contains("data-type=\"agents-attention-count\"")
+                .contains("data-type=\"agents-flagged-count\"")
                 .doesNotContain("??");
     }
 }

@@ -9,7 +9,7 @@
  *   POST /flows/{id}/deployment/authorize, PUT /flows/{id}/deployment, DELETE /flows/{id}
  *
  * The form writes a fixed definition: agent (the instructions, tools and model overrides, done ends
- * there) → write-events (what the agent asks a person to look at, as an agent/attention lifecycle in
+ * there) → write-events (what the agent flags for a person, as an agent/flagged lifecycle in
  * the agent's dataset). How it runs is the definition's shape, not a field of its own:
  *
  *   manual     a manual trigger, the agent on its own
@@ -27,7 +27,7 @@
 
 	var ENDED = ["SUCCEEDED", "FAILED", "CANCELLED"];
 	var CRON_DEFAULT = "0 */15 * * * *";
-	var ATTENTION_TYPE = "agent", ATTENTION_SUBTYPE = "attention", SUMMARY = "${agent.summary}";
+	var FLAGGED_TYPE = "agent", FLAGGED_SUBTYPE = "flagged", SUMMARY = "${agent.summary}";
 
 	document.addEventListener("DOMContentLoaded", function(){
 		var page = document.querySelector('[data-type="agent-page"]');
@@ -109,11 +109,11 @@
 				processors: [
 					triggerEvents(),
 					{ id: "agent", type: "agent", properties: { instructions: "", tools: [] }, terminate: ["done"] },
-					{ id: "attention", type: "write-events", properties: { type: ATTENTION_TYPE, subType: ATTENTION_SUBTYPE, source: "agent:" + flowId, description: SUMMARY } }
+					{ id: "flagged", type: "write-events", properties: { type: FLAGGED_TYPE, subType: FLAGGED_SUBTYPE, source: "agent:" + flowId, description: SUMMARY } }
 				],
 				connections: [
 					{ from: "events", relationship: "success", to: "agent" },
-					{ from: "agent", relationship: "attention", to: "attention" }
+					{ from: "agent", relationship: "flagged", to: "flagged" }
 				],
 				trigger: { type: "events", window: "PT1H", match: { excludeSource: ["agent:*"] } },
 				execution: { maxAttempts: 2, timeout: "PT20M" } };
@@ -166,7 +166,7 @@
 			out.processors = out.processors || [];
 			out.connections = out.connections || [];
 			var find = function(type){ return out.processors.find(function(p){ return p.type === type; }); };
-			var agent = find("agent"), attention = find("write-events");
+			var agent = find("agent"), flagged = find("write-events");
 			// The events go to the agent through a trigger-events step: only an events agent has one, and
 			// the read-events step of an agent from before events triggers had their own filter goes.
 			var drop = out.processors.filter(function(p){ return p.type === "read-events" || mode !== "events" && p.type === "trigger-events"; })
@@ -197,10 +197,10 @@
 				});
 				if(val("turnTimeout")) ap.turnTimeout = isoDuration(val("turnTimeout")); else delete ap.turnTimeout;
 			}
-			if(attention && attention.properties){
-				attention.properties.source = "agent:" + flowId;
+			if(flagged && flagged.properties){
+				flagged.properties.source = "agent:" + flowId;
 				// The summary is the event's description: a metadata value holds only 1,024 characters.
-				if(!attention.properties.description) attention.properties.description = SUMMARY;
+				if(!flagged.properties.description) flagged.properties.description = SUMMARY;
 			}
 			if(mode === "manual"){
 				// A manual run is given a window, though an agent on its own reads nothing in it.

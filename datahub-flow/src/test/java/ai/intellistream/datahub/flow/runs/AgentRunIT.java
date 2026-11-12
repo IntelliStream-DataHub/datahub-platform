@@ -223,7 +223,7 @@ class AgentRunIT {
     // ---------------------------------------------------------------- the tests
 
     @Test
-    void anAgentReadsTheEventsCallsItsToolsAndRaisesAttentionWhichIsKeptWithTheRun() throws Exception {
+    void anAgentReadsTheEventsCallsItsToolsAndFlagsSomethingWhichIsKeptWithTheRun() throws Exception {
         // One event that happened before the window but was recorded in it, one in it, and one the
         // agent wrote itself last time, which must not wake it again.
         storeEvent("pump_21:error", "error", "2026-10-12T00:45:00Z", "2026-10-12T01:10:00Z", null);
@@ -233,7 +233,7 @@ class AgentRunIT {
         model.thenToolCalls(call("c1", "event_get", Map.of("externalIds", List.of("pump_21:error"))))
                 .thenToolCalls(call("c2", "resource_get", Map.of("externalId", "pump_21")))
                 .thenToolCalls(call("c3", "event_create", Map.of("externalId", "pump_21:note", "type", "note")))
-                .thenToolCalls(call("c4", "finish", Map.of("outcome", "attention",
+                .thenToolCalls(call("c4", "finish", Map.of("outcome", "flagged",
                         "summary", "Pump 21 has failed twice this hour; the vendor is on site.")));
         long flow = deployedAgent(2);
         UUID run = pending(flow, 2);
@@ -264,11 +264,11 @@ class AgentRunIT {
         assertThat(mcp.calls).extracting(FakeMcp.Call::name).containsExactly("event_get", "resource_get", "event_create");
         assertThat(mcp.calls).allSatisfy(c -> assertThat(c.bearer()).isEqualTo("Bearer token-of-" + flow));
         assertThat(mcp.calls.get(2).args()).containsEntry("source", "agent:" + FLOW).containsEntry("type", "note");
-        // The attention item became an event of the flow's dataset, written by the sink.
+        // The flagged item became an event of the flow's dataset, written by the sink.
         assertThat(createdEvents).singleElement().satisfies(event -> {
             assertThat(event.path("externalId").asString()).isEqualTo("agent:" + FLOW + ":" + run);
             assertThat(event.path("type").asString()).isEqualTo("agent");
-            assertThat(event.path("subType").asString()).isEqualTo("attention");
+            assertThat(event.path("subType").asString()).isEqualTo("flagged");
             assertThat(event.path("status").asString()).isEqualTo("open");
             assertThat(event.path("source").asString()).isEqualTo("agent:" + FLOW);
             assertThat(event.path("dataSetId").asString()).isEqualTo("7");
@@ -399,7 +399,7 @@ class AgentRunIT {
         storeEvent("pump_21:error", "error", "2026-10-12T01:30:00Z", "2026-10-12T01:31:00Z", null);
         model.thenToolCalls(call("c1", "event_get", Map.of("externalIds", List.of("pump_21:error"))))
                 .thenToolCalls(call("c2", "event_create", Map.of("externalId", "pump_21:note", "type", "note")))
-                .thenToolCalls(call("c3", "finish", Map.of("outcome", "attention", "summary", "Look at pump 21.")));
+                .thenToolCalls(call("c3", "finish", Map.of("outcome", "flagged", "summary", "Look at pump 21.")));
         long flow = deployedAgent(2);
         UUID run = UUID.randomUUID();
         runs.enqueuePreview(new NewPreview(run, flow, 1, FLOW, null, 7L, Duration.ofMinutes(15), WINDOW, null, "user-1"));
@@ -409,7 +409,7 @@ class AgentRunIT {
 
         assertThat(mcp.calls).extracting(FakeMcp.Call::name).containsExactly("event_get");
         assertThat(mcp.calls.getFirst().bearer()).isEqualTo("Bearer caller-token");
-        assertThat(createdEvents).as("the attention event is reported, not written").isEmpty();
+        assertThat(createdEvents).as("the flagged event is reported, not written").isEmpty();
         List<Row> rows = transcripts.read(run, 1, -1);
         assertThat(rows.stream().filter(r -> "tool_result".equals(r.kind())).map(r -> r.payload().path("text").asString()))
                 .anySatisfy(text -> assertThat(text).contains("preview: not executed"));
@@ -417,7 +417,7 @@ class AgentRunIT {
         assertThat(rows.stream().filter(r -> "tool_call".equals(r.kind())))
                 .extracting(r -> r.payload().path("name").asString() + ":" + r.payload().path("mutating").asBoolean())
                 .containsExactly("event_get:false", "event_create:false", "finish:false");
-        // The model was told the call did not happen and finished anyway: attention, with nothing written.
+        // The model was told the call did not happen and finished anyway: flagged, with nothing written.
         assertThat(model.requests).hasSize(3);
         assertThat(runs.find(run).orElseThrow().preview()).isTrue();
         assertThat(runs.find(run).orElseThrow().stats()).contains("Would create 1 events of type agent");
@@ -561,15 +561,15 @@ class AgentRunIT {
                     { "id": "events", "type": "read-events",
                       "properties": { "type": ["error"], "timeField": "createdTime", "excludeSource": ["agent:*"] } },
                     { "id": "agent", "type": "agent", "terminate": ["done"],
-                      "properties": { "instructions": "For each event, look up the related resource and raise attention with a summary.",
+                      "properties": { "instructions": "For each event, look up the related resource and flag it with a summary.",
                                       "tools": ["event_get", "resource_get", "event_create"] } },
-                    { "id": "attention", "type": "write-events",
-                      "properties": { "type": "agent", "subType": "attention", "source": "agent:%s",
+                    { "id": "flagged", "type": "write-events",
+                      "properties": { "type": "agent", "subType": "flagged", "source": "agent:%s",
                                       "description": "${agent.summary}" } }
                   ],
                   "connections": [
                     { "from": "events", "relationship": "success", "to": "agent" },
-                    { "from": "agent", "relationship": "attention", "to": "attention" }
+                    { "from": "agent", "relationship": "flagged", "to": "flagged" }
                   ] }
                 """.formatted(FLOW, FLOW);
         if (!readsEvents) {

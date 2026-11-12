@@ -1,9 +1,9 @@
 /*
- * Needs attention: what agents asked a person to look at, the agent/attention lifecycles whose
+ * Flagged: what agents flagged for a person to look at, the agent/flagged lifecycles whose
  * latest event is open. On the section's tab for every agent, and on an agent's page for that one
  * (data-flow narrows the query by the event's flow metadata).
  *
- *   POST {api}/events/latest    the open lifecycles (window.agentAttentionQuery, as the nav count)
+ *   POST {api}/events/latest    the open lifecycles (window.agentFlaggedQuery, as the nav count)
  *   POST {api}/events/create    dismiss: a dismissed event in the same lifecycle, built from the
  *                               row's own type, subtype and dataset, written as the person
  *                               dismissing, who needs write on the agent's dataset. "Dismiss all"
@@ -33,13 +33,13 @@
 	}
 
 	document.addEventListener("DOMContentLoaded", function(){
-		var page = document.querySelector('[data-type="agents-attention-page"]');
+		var page = document.querySelector('[data-type="agents-flagged-page"]');
 		if(!page) return;
 		var scope = page.getAttribute("data-flow") || null;
-		var tbody = page.querySelector('[data-type="attention-table"] tbody');
-		var empty = page.querySelector('[data-type="attention-empty"]');
-		var more = page.querySelector('[data-type="attention-more"]');
-		var dismissAllButton = page.querySelector('[data-type="attention-dismiss-all"]');
+		var tbody = page.querySelector('[data-type="flagged-table"] tbody');
+		var empty = page.querySelector('[data-type="flagged-empty"]');
+		var more = page.querySelector('[data-type="flagged-more"]');
+		var dismissAllButton = page.querySelector('[data-type="flagged-dismiss-all"]');
 		var cursor = null;
 		var listed = [];   // {event, row}
 
@@ -66,7 +66,7 @@
 				if(result.skipped.length) return Flash.error(L("flows.attention.dismiss.gone"));
 				tr.remove();
 				tidy();
-				Flash.info(L("agents.attention.dismissed"));
+				Flash.info(L("agents.flagged.dismissed"));
 			}).catch(function(err){ FlowApi.flashError(err, "flows.error.dismiss"); });
 		}
 
@@ -81,17 +81,17 @@
 			tr.appendChild(Object.assign(document.createElement("td"), { textContent: time(event.eventTime) }));
 			tr.appendChild(Object.assign(document.createElement("td"), { className: "agent-summary", textContent: m.summary || event.description || "" }));
 			var actions = document.createElement("td");
-			actions.className = "attention-actions";
+			actions.className = "flagged-actions";
 			if(m.runId && flow){
-				var view = button("agents.attention.view.run", "secondary");
+				var view = button("agents.flagged.view.run", "secondary");
 				view.addEventListener("click", function(){
 					window.location.href = "/agents/" + FlowApi.seg(flow) + "/runs/" + FlowApi.seg(m.runId);
 				});
 				actions.appendChild(view);
 			}
-			var dismissBtn = button("agents.attention.dismiss", "secondary");
+			var dismissBtn = button("agents.flagged.dismiss", "secondary");
 			dismissBtn.addEventListener("click", function(){
-				if(confirm(L("agents.attention.dismiss.confirm"))) dismiss(event, tr);
+				if(confirm(L("agents.flagged.dismiss.confirm"))) dismiss(event, tr);
 			});
 			actions.appendChild(dismissBtn);
 			tr.appendChild(actions);
@@ -100,7 +100,7 @@
 
 		function load(){
 			more.disabled = true;
-			return FlowApi.api("/events/latest", window.agentAttentionQuery(cursor, 100, scope))
+			return FlowApi.api("/events/latest", window.agentFlaggedQuery(cursor, 100, scope))
 				.then(function(result){
 					(result.items || []).forEach(row);
 					cursor = result.nextCursor || null;
@@ -120,7 +120,7 @@
 			dismissAllButton.disabled = true;
 			loadAll().then(function(ok){
 				var todo = listed.filter(function(l){ return l.row.isConnected; });
-				if(!ok || todo.length === 0 || !confirm(L("agents.attention.dismiss.all.confirm", [todo.length]))) return;
+				if(!ok || todo.length === 0 || !confirm(L("agents.flagged.dismiss.all.confirm", [todo.length]))) return;
 				return whoAmI().then(function(who){
 					var done = 0, failed = 0, gone = 0, reasons = [];
 					var chain = Promise.resolve();
@@ -143,8 +143,8 @@
 							failed += gone;
 							reasons.unshift(L("flows.attention.dismiss.gone.some", [gone]));
 						}
-						if(failed === 0) Flash.info(L("agents.attention.dismiss.all.done", [done]));
-						else Flash.error(L("agents.attention.dismiss.all.partial", [done, failed]), { details: reasons });
+						if(failed === 0) Flash.info(L("agents.flagged.dismiss.all.done", [done]));
+						else Flash.error(L("agents.flagged.dismiss.all.partial", [done, failed]), { details: reasons });
 					});
 				});
 			}).catch(function(err){ FlowApi.flashError(err, "flows.error.dismiss"); })

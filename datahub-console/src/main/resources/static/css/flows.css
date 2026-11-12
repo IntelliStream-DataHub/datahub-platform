@@ -281,7 +281,8 @@
 	justify-content: flex-end;
 }
 
-.attention-actions {
+.attention-actions,
+.flagged-actions {
 	display: flex;
 	gap: var(--space-xs);
 	justify-content: flex-end;
@@ -594,7 +595,7 @@ html[data-theme="light"] .datahub-form-fields .event-picker input.event-picker-i
 
 .agent-transcript { margin: var(--space-xl) 0; }
 .agent-outcome { padding: 2px 10px; border-radius: 12px; font-size: 12px; font-weight: 500; background: var(--border); }
-.agent-outcome.attention { background: var(--flash-warn-bg, #f6e5b6); color: var(--flash-warn-fg, #5a4300); }
+.agent-outcome.flagged { background: var(--flash-warn-bg, #f6e5b6); color: var(--flash-warn-fg, #5a4300); }
 .transcript { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 6px; }
 .transcript-row { padding: var(--space) var(--space-lg); border-bottom: 1px solid var(--border); font-size: 13px; }
 .transcript-row:last-child { border-bottom: 0; }
