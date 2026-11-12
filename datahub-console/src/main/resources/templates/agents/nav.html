@@ -8,4 +8,7 @@
 	<a th:href="@{/agents(tab='flagged')}" th:classappend="${pageSelected} == 'flagged' ? 'selected' : ''">
 		<span th:text="#{agents.nav.flagged}"></span>
 	</a>
+	<a th:href="@{/agents(tab='servers')}" th:classappend="${pageSelected} == 'servers' ? 'selected' : ''">
+		<span th:text="#{agents.nav.servers}"></span>
+	</a>
 </nav>

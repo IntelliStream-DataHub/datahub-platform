@@ -28,6 +28,7 @@ class AgentsControllerTest {
                 .andExpect(model().attribute("featureDisabled", false));
         mvc.perform(get("/agents").param("tab", "flagged")).andExpect(view().name("agents/flagged"));
         mvc.perform(get("/agents").param("tab", "runs")).andExpect(view().name("agents/runs"));
+        mvc.perform(get("/agents").param("tab", "servers")).andExpect(view().name("agents/servers"));
         mvc.perform(get("/agents").param("new", "")).andExpect(view().name("agents/agent"))
                 .andExpect(model().attribute("flowExternalId", ""));
         mvc.perform(get("/agents/pump_watch")).andExpect(view().name("agents/agent"))

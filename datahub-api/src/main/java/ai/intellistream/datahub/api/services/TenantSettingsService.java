@@ -3,7 +3,9 @@ package ai.intellistream.datahub.api.services;
 
 import ai.intellistream.datahub.api.controllers.errors.FieldErrors;
 import ai.intellistream.datahub.api.controllers.errors.BadRequestException;
+import ai.intellistream.datahub.helpers.utils.OutboundUrls;
 import ai.intellistream.datahub.models.tenant.TenantFlowClientForm;
+import ai.intellistream.datahub.models.tenant.TenantFlowMcpServerForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSecretForm;
 import ai.intellistream.datahub.models.tenant.TenantFlowSettings;
 import ai.intellistream.datahub.models.tenant.TenantLlmSettings;
@@ -16,6 +18,7 @@ import ai.intellistream.datahub.tenant.TenantFlowSection;
 import ai.intellistream.datahub.tenant.TenantLlm;
 import ai.intellistream.datahub.tenant.TenantConfigWriter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.convert.DurationStyle;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -29,8 +32,11 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.UnaryOperator;
+import java.util.regex.Pattern;
 
 /**
  * Reads and changes the calling tenant's own settings.
@@ -48,16 +54,25 @@ import java.util.function.UnaryOperator;
 @Service
 public class TenantSettingsService {
 
+    /** An RFC 9110 token: what a header name may consist of. */
+    private static final Pattern HEADER_NAME = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
+    /** Headers the MCP client sets itself, or the JDK refuses to let a caller set. */
+    private static final Set<String> CLIENTS_OWN_HEADERS = Set.of("host", "content-length", "transfer-encoding",
+            "connection", "content-type", "accept", "mcp-session-id", "mcp-protocol-version");
+
     private final TenantConfigService tenantConfigService;
     private final TenantConfigWriter configWriter;
     private final JsonMapper jsonMapper;
     private final HttpClient http;
+    private final boolean allowPrivateNetworks;
 
     public TenantSettingsService(TenantConfigService tenantConfigService,
-                                 TenantConfigWriter configWriter, JsonMapper jsonMapper) {
+                                 TenantConfigWriter configWriter, JsonMapper jsonMapper,
+                                 @Value("${datahub.outbound.allow-private-networks:false}") boolean allowPrivateNetworks) {
         this.tenantConfigService = tenantConfigService;
         this.configWriter = configWriter;
         this.jsonMapper = jsonMapper;
+        this.allowPrivateNetworks = allowPrivateNetworks;
         // The URL is the tenant's, so no redirects: one hop to where it says, never onwards.
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(2))
@@ -170,6 +185,178 @@ public class TenantSettingsService {
     }
 
     /**
+     * Registers or replaces the tool server {@code name}. Its URLs are checked for shape and for
+     * where they point, not for whether anything answers there: the Agents form lists what the
+     * server offers, or why it did not. A blank credential keeps the stored one, so a server can be
+     * re-pointed without retyping it, and is refused when nothing of that kind is stored, or when
+     * the client id it belonged to changed.
+     */
+    public void putFlowMcpServer(String name, TenantFlowMcpServerForm form) {
+        var errors = new FieldErrors();
+        if (name == null || !TenantFlowSection.MCP_NAME.matcher(name).matches()) {
+            errors.addFieldError("name", "Not a valid name: use lowercase letters, digits and dashes,"
+                    + " starting with a letter or digit, at most 24 characters.");
+        }
+        if (form == null) {
+            form = new TenantFlowMcpServerForm(null, null, null, null, null, null, null, null, null);
+        }
+        String url = trimmed(form.url());
+        if (url == null) {
+            errors.addFieldError("url", "A URL is required.");
+        } else {
+            String refusal = toolServerUrlRefusal(url);
+            if (refusal != null) {
+                errors.addFieldError("url", refusal);
+            }
+        }
+        String auth = trimmed(form.auth());
+        if (auth == null) {
+            auth = TenantFlowMcpServerForm.AUTH_HEADER;
+        }
+        TenantFlowSection.McpAuth credential = switch (auth) {
+            case TenantFlowMcpServerForm.AUTH_HEADER -> headerAuth(form, errors);
+            case TenantFlowMcpServerForm.AUTH_CLIENT_CREDENTIALS -> clientCredentialsAuth(form, errors);
+            default -> {
+                errors.addFieldError("auth", "Use " + TenantFlowMcpServerForm.AUTH_HEADER + " or "
+                        + TenantFlowMcpServerForm.AUTH_CLIENT_CREDENTIALS + ".");
+                yield null;
+            }
+        };
+        if (errors.isEmpty()) {
+            String missing = missingCredential(name, credential);
+            if (missing != null) {
+                errors.addFieldError(credential instanceof TenantFlowSection.McpHeader ? "headerValue" : "clientSecret",
+                        missing);
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new BadRequestException("The tool server is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.putMcpServer(name, url, credential));
+    }
+
+    /** One fixed header; a null value keeps the stored one. */
+    private static TenantFlowSection.McpHeader headerAuth(TenantFlowMcpServerForm form, FieldErrors errors) {
+        String headerName = trimmed(form.headerName());
+        if (headerName == null) {
+            headerName = "Authorization";
+        }
+        if (!HEADER_NAME.matcher(headerName).matches()) {
+            errors.addFieldError("headerName", "Not a header name: letters, digits and the punctuation a"
+                    + " header name allows, no spaces.");
+        } else if (CLIENTS_OWN_HEADERS.contains(headerName.toLowerCase(Locale.ROOT))) {
+            errors.addFieldError("headerName", "That header is set by the platform's client; the credential"
+                    + " needs another, such as Authorization or X-Api-Key.");
+        }
+        // Not trimmed: the credential is whatever the server issued, and only blank means absent.
+        String headerValue = form.headerValue() == null || form.headerValue().isBlank() ? null : form.headerValue();
+        checkSingleLine("headerValue", headerValue, errors);
+        return new TenantFlowSection.McpHeader(headerName, headerValue);
+    }
+
+    /** A client-credentials grant; a null secret keeps the stored one. */
+    private TenantFlowSection.McpClientCredentials clientCredentialsAuth(TenantFlowMcpServerForm form,
+                                                                        FieldErrors errors) {
+        String tokenUrl = trimmed(form.tokenUrl());
+        if (tokenUrl == null) {
+            errors.addFieldError("tokenUrl", "A token URL is required.");
+        } else {
+            String refusal = toolServerUrlRefusal(tokenUrl);
+            if (refusal != null) {
+                errors.addFieldError("tokenUrl", refusal);
+            }
+        }
+        String clientId = trimmed(form.clientId());
+        if (clientId == null) {
+            errors.addFieldError("clientId", "A client id is required.");
+        }
+        checkSingleLine("clientId", clientId, errors);
+        // Not trimmed, as a header value is not.
+        String clientSecret = form.clientSecret() == null || form.clientSecret().isBlank() ? null : form.clientSecret();
+        checkSingleLine("clientSecret", clientSecret, errors);
+        String scope = trimmed(form.scope());
+        checkSingleLine("scope", scope, errors);
+        String resource = trimmed(form.resource());
+        if (resource != null) {
+            try {
+                if (!URI.create(resource).isAbsolute()) {
+                    errors.addFieldError("resource", "The resource is an absolute URI, often the server's own URL.");
+                }
+            } catch (IllegalArgumentException e) {
+                errors.addFieldError("resource", "The resource is an absolute URI, often the server's own URL.");
+            }
+        }
+        return new TenantFlowSection.McpClientCredentials(tokenUrl, clientId, clientSecret, scope, resource);
+    }
+
+    /**
+     * Why a credential left blank cannot be kept, or null: there is none of that kind stored under
+     * {@code name}, or the stored client secret belongs to another client id.
+     */
+    private String missingCredential(String name, TenantFlowSection.McpAuth credential) {
+        boolean blank = switch (credential) {
+            case TenantFlowSection.McpHeader header -> header.value() == null;
+            case TenantFlowSection.McpClientCredentials grant -> grant.clientSecret() == null;
+        };
+        if (!blank) {
+            return null;
+        }
+        TenantFlowSection.McpServer stored = TenantFlowSection.mcpServers(
+                configWriter.current(currentTenant().getOrganizationName())).get(name);
+        return switch (credential) {
+            case TenantFlowSection.McpHeader ignored ->
+                    stored != null && stored.auth() instanceof TenantFlowSection.McpHeader ? null
+                            : "A value is required: leaving it empty keeps the stored one, and no header"
+                            + " credential is stored under this name.";
+            case TenantFlowSection.McpClientCredentials grant ->
+                    stored != null && stored.auth() instanceof TenantFlowSection.McpClientCredentials held
+                            && held.clientId().equals(grant.clientId()) ? null
+                            : "A client secret is required: leaving it empty keeps the stored one, and none"
+                            + " is stored for this client id under this name.";
+        };
+    }
+
+    private static void checkSingleLine(String field, String value, FieldErrors errors) {
+        if (value != null && (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0)) {
+            errors.addFieldError(field, "The value must be a single line.");
+        }
+    }
+
+    /** Removes the tool server {@code name}, credential included. Removing one that is not there is not an error. */
+    public void removeFlowMcpServer(String name) {
+        if (name == null || !TenantFlowSection.MCP_NAME.matcher(name).matches()) {
+            var errors = new FieldErrors();
+            errors.addFieldError("name", "Not a valid name: use lowercase letters, digits and dashes,"
+                    + " starting with a letter or digit, at most 24 characters.");
+            throw new BadRequestException("The tool server name is invalid.", errors);
+        }
+        updateFlow(TenantFlowSection.removeMcpServer(name));
+    }
+
+    /**
+     * Why a tool server's URL may not be stored, or null. The platform's services will call it, so
+     * it may not point into their own networks unless the deployment says so; and a credential
+     * travels with every call, so plain http is accepted only on such a deployment, where the
+     * server sits beside the platform.
+     */
+    private String toolServerUrlRefusal(String url) {
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            return "Not an http(s) URL.";
+        }
+        String refusal = OutboundUrls.refuse(uri, allowPrivateNetworks);
+        if (refusal != null) {
+            return refusal;
+        }
+        if ("http".equalsIgnoreCase(uri.getScheme()) && !allowPrivateNetworks) {
+            return "Use https: the credential travels with every call, and plain http sends it in the clear.";
+        }
+        return null;
+    }
+
+    /**
      * Writes one flow change. Answers nothing: write does not imply read, so a caller who may only
      * write learns no names from it. No cache refresh either: the tenant cache holds no flow keys,
      * and the flow service reads them from Vault when a run starts.
@@ -177,15 +364,23 @@ public class TenantSettingsService {
     private void updateFlow(UnaryOperator<Map<String, String>> change) {
         String orgName = currentTenant().getOrganizationName();
         TenantFlowSettings written = flowSettings(configWriter.update(orgName, change));
-        log.info("Flow settings updated for tenant {} ({} secrets, {} clients)", orgName,
-                written.secrets().size(), written.clients().size());
+        log.info("Flow settings updated for tenant {} ({} secrets, {} clients, {} tool servers)", orgName,
+                written.secrets().size(), written.clients().size(), written.mcpServers().size());
     }
 
     private static TenantFlowSettings flowSettings(Map<String, String> secret) {
         List<TenantFlowSettings.Client> clients = new ArrayList<>();
         TenantFlowSection.clientIds(secret).forEach((name, clientId) ->
                 clients.add(new TenantFlowSettings.Client(name, clientId)));
-        return new TenantFlowSettings(List.copyOf(TenantFlowSection.secretNames(secret)), clients);
+        List<TenantFlowSettings.McpServer> servers = new ArrayList<>();
+        TenantFlowSection.mcpServers(secret).values().forEach(server -> servers.add(switch (server.auth()) {
+            case TenantFlowSection.McpHeader header -> new TenantFlowSettings.McpServer(server.name(), server.url(),
+                    TenantFlowMcpServerForm.AUTH_HEADER, header.name(), null, null, null, null);
+            case TenantFlowSection.McpClientCredentials grant -> new TenantFlowSettings.McpServer(server.name(),
+                    server.url(), TenantFlowMcpServerForm.AUTH_CLIENT_CREDENTIALS, null, grant.tokenUrl(),
+                    grant.clientId(), grant.scope(), grant.resource());
+        }));
+        return new TenantFlowSettings(List.copyOf(TenantFlowSection.secretNames(secret)), clients, servers);
     }
 
     private static void checkFlowName(String name, FieldErrors errors) {

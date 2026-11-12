@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package ai.intellistream.datahub.tenant;
 
+import ai.intellistream.datahub.tenant.TenantFlowSection.McpClientCredentials;
+import ai.intellistream.datahub.tenant.TenantFlowSection.McpHeader;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -41,7 +43,10 @@ class TenantFlowSectionTest {
                 TenantFlowSection.putSecret("other", "v"),
                 TenantFlowSection.removeSecret("sftp-password"),
                 TenantFlowSection.putClient("reporting", "datahub-reporting", "s2"),
-                TenantFlowSection.removeClient("ingest"))) {
+                TenantFlowSection.removeClient("ingest"),
+                TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new TenantFlowSection.McpHeader("Authorization", "Bearer k")),
+                TenantFlowSection.removeMcpServer("crm"))) {
             assertThat(change.apply(existing())).containsAllEntriesOf(UNTOUCHABLE);
         }
     }
@@ -128,5 +133,97 @@ class TenantFlowSectionTest {
                 .isEqualTo(new TenantFlowSection.ClientCredentials("c", "s"));
         assertThat(TenantFlowSection.clientCredentials(stored, "half")).isNull();
         assertThat(TenantFlowSection.clientCredentials(stored, "absent")).isNull();
+    }
+
+    @Test
+    void aToolServerIsThreeKeysAndANullCredentialKeepsTheStoredOne() {
+        Map<String, String> registered = TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new TenantFlowSection.McpHeader("X-Api-Key", "k-1")).apply(existing());
+        assertThat(registered).containsEntry("flow.mcp.crm.url", "https://crm.example/mcp")
+                .containsEntry("flow.mcp.crm.header-name", "X-Api-Key")
+                .containsEntry("flow.mcp.crm.header-value", "k-1");
+
+        // Re-pointed without a credential: the stored one stays, as the write applies inside CAS.
+        Map<String, String> moved = TenantFlowSection.putMcpServer("crm", "https://crm2.example/mcp",
+                new TenantFlowSection.McpHeader("Authorization", null)).apply(registered);
+        assertThat(moved).containsEntry("flow.mcp.crm.url", "https://crm2.example/mcp")
+                .containsEntry("flow.mcp.crm.header-name", "Authorization")
+                .containsEntry("flow.mcp.crm.header-value", "k-1");
+
+        Map<String, String> removed = TenantFlowSection.removeMcpServer("crm").apply(moved);
+        assertThat(removed).doesNotContainKeys("flow.mcp.crm.url", "flow.mcp.crm.header-name",
+                "flow.mcp.crm.header-value");
+        assertThat(removed).isEqualTo(existing());
+    }
+
+    @Test
+    void toolServersAreListedByNameWithTheirCredentialAndAHalfEntryIsNotOne() {
+        Map<String, String> stored = new LinkedHashMap<>(existing());
+        stored.putAll(TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new McpHeader("X-Api-Key", "k-1")).apply(stored));
+        stored.putAll(TenantFlowSection.putMcpServer("erp", "https://erp.example/mcp",
+                new McpClientCredentials("https://idp.example/token", "erp-agent", "s-1", "tools", null)).apply(stored));
+        stored.put("flow.mcp.half.url", "https://half.example/mcp");
+        stored.put("flow.mcp.nosecret.url", "https://nosecret.example/mcp");
+        stored.put("flow.mcp.nosecret.token-url", "https://idp.example/token");
+        stored.put("flow.mcp.nosecret.client-id", "c");
+
+        assertThat(TenantFlowSection.mcpServers(stored).values()).containsExactly(
+                new TenantFlowSection.McpServer("crm", "https://crm.example/mcp", new McpHeader("X-Api-Key", "k-1")),
+                new TenantFlowSection.McpServer("erp", "https://erp.example/mcp",
+                        new McpClientCredentials("https://idp.example/token", "erp-agent", "s-1", "tools", null)));
+        assertThat(TenantFlowSection.secretNames(stored)).containsExactly("sftp-password");
+        // A server's client id is not a registered client's.
+        assertThat(TenantFlowSection.clientIds(stored)).doesNotContainKey("erp");
+    }
+
+    @Test
+    void aClientCredentialsServerKeepsItsSecretWhenNullAndDropsTheHeaderItHad() {
+        Map<String, String> header = TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new McpHeader("X-Api-Key", "k-1")).apply(existing());
+
+        Map<String, String> grant = TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new McpClientCredentials("https://idp.example/token", "c", "s-1", "tools", "https://crm.example/mcp"))
+                .apply(header);
+        assertThat(grant).containsEntry("flow.mcp.crm.token-url", "https://idp.example/token")
+                .containsEntry("flow.mcp.crm.client-id", "c")
+                .containsEntry("flow.mcp.crm.client-secret", "s-1")
+                .containsEntry("flow.mcp.crm.scope", "tools")
+                .containsEntry("flow.mcp.crm.resource", "https://crm.example/mcp")
+                .doesNotContainKeys("flow.mcp.crm.header-name", "flow.mcp.crm.header-value");
+
+        // Re-saved without the secret, scope or resource: the secret stays, the others go.
+        Map<String, String> kept = TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new McpClientCredentials("https://idp.example/token", "c", null, null, null)).apply(grant);
+        assertThat(kept).containsEntry("flow.mcp.crm.client-secret", "s-1")
+                .doesNotContainKeys("flow.mcp.crm.scope", "flow.mcp.crm.resource");
+
+        // And back to a header: the grant goes.
+        Map<String, String> back = TenantFlowSection.putMcpServer("crm", "https://crm.example/mcp",
+                new McpHeader("Authorization", "Bearer k")).apply(kept);
+        assertThat(back).doesNotContainKeys("flow.mcp.crm.token-url", "flow.mcp.crm.client-id",
+                "flow.mcp.crm.client-secret");
+        assertThat(TenantFlowSection.removeMcpServer("crm").apply(back)).isEqualTo(existing());
+    }
+
+    @Test
+    void aToolServersCredentialIsLeftOutOfItsString() {
+        assertThat(new McpHeader("Authorization", "Bearer k-1").toString()).doesNotContain("k-1");
+        assertThat(new McpClientCredentials("https://idp.example/token", "c", "s-1", null, null).toString())
+                .doesNotContain("s-1");
+    }
+
+    @Test
+    void aToolServersNameIsShorterSoItsToolsFitAModelsLimit() {
+        for (String name : new String[]{"", "Upper", "a.b", "a_b", "-leading", "a".repeat(25), null}) {
+            assertThatThrownBy(() -> TenantFlowSection.putMcpServer(name, "https://x/mcp",
+                new TenantFlowSection.McpHeader("Authorization", "v")))
+                    .isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> TenantFlowSection.removeMcpServer(name))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThat(TenantFlowSection.putMcpServer("a".repeat(24), "https://x/mcp",
+                new TenantFlowSection.McpHeader("Authorization", "v")).apply(Map.of()))
+                .containsKey("flow.mcp." + "a".repeat(24) + ".url");
     }
 }

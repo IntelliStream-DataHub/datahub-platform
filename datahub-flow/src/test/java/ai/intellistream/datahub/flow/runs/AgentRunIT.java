@@ -599,9 +599,10 @@ class AgentRunIT {
 
     private RunCoordinator coordinator() {
         AgentProperties properties = new AgentProperties();
+        // No run here names a registered tool server, so nothing reaches for the registry or opens one.
         Agent agent = new Agent(new LlmBackends(tenants, JSON),
                 List.of(new StatelessMcpClient(mcp.name, mcp.url(), HttpClient.newHttpClient(), JSON)),
-                transcripts, properties, tenants, Clock.systemUTC());
+                null, transcripts, properties, tenants, null, Clock.systemUTC());
         List<Processor> processors = List.of(new EventsSource(), new EventsSink(), agent);
         FlowCompiler compiler = new FlowCompiler(new FlowValidator(processors, FlowValidator.Limits.DEFAULTS));
         RunCredentials credentials = (tenant, flowId) -> () -> "token-of-" + flowId;

@@ -44,7 +44,8 @@
 		var savedJson = null;
 		var problems = [];         // {field, message} from the last save
 		var sent = null;           // the definition the problems are about
-		var tools = [];            // {server, name, description, readOnly, destructive}
+		var tools = [];            // {server, name, description, readOnly, destructive, external}
+		var unavailable = [];      // {server, error}: registered servers that did not answer
 		var toolsLoaded = false;
 		var confirmed = [];        // destructive tools the person has confirmed giving the agent
 
@@ -190,7 +191,7 @@
 			if(agent){
 				var ap = agent.properties = agent.properties || {};
 				ap.instructions = val("instructions");
-				ap.tools = checkedTools();
+				ap.tools = checkedTools().concat(keptPatterns());
 				["effort", "maxIterations", "maxOutputTokens"].forEach(function(k){
 					var v = val(k);
 					if(!v) delete ap[k]; else ap[k] = k === "effort" ? v : Number(v);
@@ -248,6 +249,15 @@
 			return Array.from(form.querySelectorAll('input[name="tools"]:checked')).map(function(c){ return c.value; });
 		}
 
+		/** The saved patterns of servers that did not answer, kept so an outage while editing does not strip them. */
+		function keptPatterns(){
+			var saved = ((step("agent") || {}).properties || {}).tools || [];
+			return saved.filter(function(p){
+				var split = String(p).indexOf("__");
+				return split > 0 && unavailable.some(function(u){ return u.server === String(p).slice(0, split); });
+			});
+		}
+
 		function drawTools(){
 			if(!toolsLoaded) return;
 			var patterns = ((step("agent") || {}).properties || {}).tools || [];
@@ -265,12 +275,15 @@
 
 		function accessOf(t){ return t.destructive === true ? "destructive" : t.readOnly === true ? "read" : "change"; }
 
-		/** What a tool affects, from its name: timeseries_get → timeseries. */
-		function areaOf(t){ return t.name.split("_")[0]; }
+		/** What a tool affects, from its name: timeseries_get → timeseries; a registered server's tools go under its name. */
+		function areaOf(t){ return t.external === true ? t.server : t.name.split("_")[0]; }
 
 		function groupLabel(by, key){
 			var msg = "agents.tools." + by + "." + key, text = $L(msg);
-			return text && text !== msg ? text : key.charAt(0).toUpperCase() + key.slice(1);
+			if(text && text !== msg) return text;
+			// A registered server's group carries its name as registered.
+			if(by === "area" && tools.some(function(t){ return t.external === true && t.server === key; })) return key;
+			return key.charAt(0).toUpperCase() + key.slice(1);
 		}
 
 		function groupBy(){
@@ -304,6 +317,7 @@
 			el("agent-tools-bar").hidden = !tools.length;
 			if(!tools.length){
 				box.appendChild(Object.assign(document.createElement("p"), { className: "flows-hint", textContent: L("agents.tools.none") }));
+				drawUnavailable(box);
 				return;
 			}
 			var by = groupBy(), folded = collapsedGroups();
@@ -340,6 +354,9 @@
 					} else if(t.readOnly !== true){
 						line.appendChild(Object.assign(document.createElement("em"), { className: "agent-tool-badge warn", textContent: L("agents.tools.mutating") }));
 					}
+					if(t.external === true){
+						line.appendChild(Object.assign(document.createElement("em"), { className: "agent-tool-badge", textContent: L("agents.tools.external") }));
+					}
 					row.append(input, line, Object.assign(document.createElement("span"), { className: "agent-tool-desc", textContent: firstSentence(t.description) }));
 					body.appendChild(row);
 					return input;
@@ -364,9 +381,17 @@
 				boxes.forEach(function(b){ b.addEventListener("change", toolsChanged); });
 				box.appendChild(group);
 			});
+			drawUnavailable(box);
 			box.appendChild(Object.assign(document.createElement("p"), { className: "flows-hint agent-tools-nomatch", textContent: L("agents.tools.nomatch"), hidden: true }));
 			filterTools();
 			toolsChanged();
+		}
+
+		/** A registered server that did not answer: named, with why, so its missing tools are no mystery. */
+		function drawUnavailable(box){
+			unavailable.forEach(function(u){
+				box.appendChild(Object.assign(document.createElement("p"), { className: "flows-hint", textContent: L("agents.tools.unavailable", [u.server, u.error]) }));
+			});
 		}
 
 		/** Hide what the search does not match; a search opens the folded groups it finds something in. */
@@ -428,11 +453,13 @@
 		function loadTools(){
 			return FlowApi.get("/agents/tools").then(function(answer){
 				tools = answer.tools || [];
+				unavailable = answer.unavailable || [];
 				toolsLoaded = true;
 				drawTools();
 			}).catch(function(err){
 				toolsLoaded = true;
 				tools = [];
+				unavailable = [];
 				drawTools();
 				FlowApi.flashError(err, "agents.error.tools");
 			});

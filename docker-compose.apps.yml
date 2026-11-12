@@ -120,6 +120,10 @@ services:
       # Resolve the issuer during bean creation, so gate startup on Keycloak's realm serving
       # its OIDC discovery doc (in-network service name; port opens before it's ready).
       WAIT_FOR_OIDC_WELLKNOWN: http://keycloak:8090/realms/datahub/.well-known/openid-configuration
+      # The stack runs on private addresses: let a tenant register tool servers for its agents
+      # there (the api checks what is registered, the flow service what is called). Off in
+      # production, where a tenant's URL must not reach the platform's own networks.
+      DATAHUB_OUTBOUND_ALLOW_PRIVATE_NETWORKS: "true"
     # Keycloak realm import can outlast the entrypoint's poll on a cold start; recover instead
     # of dying permanently on a transient dependency hiccup.
     restart: unless-stopped
