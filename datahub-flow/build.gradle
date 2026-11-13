@@ -56,10 +56,10 @@ dependencies {
 
 	// The run records go into each tenant's ClickHouse (flow_run_event) and are read back from it.
 	// infra pools the clients, but keeps the client library to itself.
-	implementation 'com.clickhouse:client-v2:0.10.0'
+	implementation 'com.clickhouse:client-v2:0.11.0'
 
 	// The run store: each tenant's KVRocks, spoken to over the Redis protocol with scripts.
-	implementation 'io.lettuce:lettuce-core:7.8.0.RELEASE'
+	implementation 'io.lettuce:lettuce-core:7.9.0.RELEASE'
 
 	// XXH3 for the content hash in a run's records, the platform's hash function (IdGenerator).
 	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
