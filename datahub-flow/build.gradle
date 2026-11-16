@@ -56,7 +56,7 @@ dependencies {
 
 	// The run records go into each tenant's ClickHouse (flow_run_event) and are read back from it.
 	// infra pools the clients, but keeps the client library to itself.
-	implementation 'com.clickhouse:client-v2:0.11.0'
+	implementation 'com.clickhouse:client-v2:0.11.1'
 
 	// The run store: each tenant's KVRocks, spoken to over the Redis protocol with scripts.
 	implementation 'io.lettuce:lettuce-core:7.9.0.RELEASE'
