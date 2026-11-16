@@ -45,7 +45,7 @@ dependencies {
 	implementation "tools.jackson.core:jackson-databind:${jacksonVersion}"
 
 	// Vault client
-	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+	implementation 'io.github.jopenlibs:vault-java-driver:7.0.0'
 
 	implementation "com.anthropic:anthropic-java:${anthropicSdkVersion}"
 	implementation 'org.springframework.boot:spring-boot-starter-thymeleaf'

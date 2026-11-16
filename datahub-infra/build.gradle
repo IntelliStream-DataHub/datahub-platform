@@ -41,7 +41,7 @@ dependencies {
     implementation 'org.neo4j:neo4j-cypher-dsl:2025.3.5'
 
     // Vault client
-    implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+    implementation 'io.github.jopenlibs:vault-java-driver:7.0.0'
 
     // Redis client
     //implementation group: 'redis.clients', name: 'jedis', version: '5.1.2'

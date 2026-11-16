@@ -65,7 +65,7 @@ dependencies {
 	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
 
 	// Fetches the JWT issuer-uri from Vault at startup, from the shared "datahub-platform" secret.
-	implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+	implementation 'io.github.jopenlibs:vault-java-driver:7.0.0'
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
