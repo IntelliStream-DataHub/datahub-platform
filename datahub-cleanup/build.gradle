@@ -55,7 +55,7 @@ dependencies {
 	}
 
 	// The flow records' retention sets the TTL of each tenant's flow_run_event table directly.
-	implementation 'com.clickhouse:client-v2:0.10.0'
+	implementation 'com.clickhouse:client-v2:0.11.0'
 
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
