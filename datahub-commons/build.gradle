@@ -27,7 +27,7 @@ dependencies {
     implementation "org.antlr:antlr4-runtime:${antlrVersion}"
 
     // Vault client
-    implementation 'io.github.jopenlibs:vault-java-driver:6.2.3'
+    implementation 'io.github.jopenlibs:vault-java-driver:7.0.0'
 
     // Open Feign
     implementation group: 'io.github.openfeign', name: 'feign-core', version: feignVersion
