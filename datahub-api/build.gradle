@@ -29,7 +29,7 @@ dependencies {
 	// The ingest benchmark (src/test/java/.../benchmark) drives a live platform through the SDK.
 	testImplementation project(':datahub-java-sdk')
 
-	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.1'
 	implementation "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
 	// Decompresses the binary datapoint frames to validate them (api-model's ZstdPayloadCodec is
 	// compile-only there; each consumer of it supplies the native library).
@@ -95,7 +95,7 @@ dependencies {
 
 dependencyManagement {
 	imports {
-		mavenBom "org.springframework.ai:spring-ai-bom:2.0.2"
+		mavenBom "org.springframework.ai:spring-ai-bom:2.1.0"
 	}
 }
 
