@@ -40,7 +40,7 @@ dependencies {
     api 'jakarta.validation:jakarta.validation-api'
 
     // OpenAPI @Schema annotations on the DTOs. Annotations-only, small.
-    api 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.55'
+    api 'io.swagger.core.v3:swagger-annotations-jakarta:2.2.56'
 
     // xxHash helper used by Resource / IdCollection / ResourceFilter / PolicyType.
     api "net.openhft:zero-allocation-hashing:${zeroAllocHashingVersion}"
